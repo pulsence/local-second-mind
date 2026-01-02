@@ -24,6 +24,10 @@ import os
 import subprocess
 import sys
 
+import re
+import math
+from collections import Counter
+
 import argparse
 import json
 from dataclasses import dataclass
@@ -64,21 +68,17 @@ class SessionState:
     ext_allow: Optional[List[str]] = None
     ext_deny: Optional[List[str]] = None
 
-    # Last-turn artifacts
+    # Model override (session)
+    model: str = "gpt-5.2"
+    available_models: Optional[List[str]] = None
+
+    # Last-turn artifacts...
     last_question: Optional[str] = None
     last_all_candidates: List[Candidate] = None
     last_filtered_candidates: List[Candidate] = None
     last_chosen: List[Candidate] = None
     last_label_to_candidate: Dict[str, Candidate] = None
     last_debug: Dict[str, Any] = None
-
-    def __post_init__(self):
-        self.last_all_candidates = self.last_all_candidates or []
-        self.last_filtered_candidates = self.last_filtered_candidates or []
-        self.last_chosen = self.last_chosen or []
-        self.last_label_to_candidate = self.last_label_to_candidate or {}
-        self.last_debug = self.last_debug or {}
-
 
 @dataclass
 class Runtime:
@@ -201,6 +201,110 @@ def best_relevance(cands: List[Candidate]) -> float:
     if rel < -1.0:
         rel = -1.0
     return rel
+
+_STOPWORDS = {
+    "a","an","the","and","or","but","if","then","else","when","while","to","of","in","on","for","with","as",
+    "at","by","from","into","about","over","under","after","before","between","through","during","without",
+    "is","are","was","were","be","been","being","do","does","did","done","doing","have","has","had",
+    "i","you","he","she","it","we","they","me","him","her","us","them","my","your","his","their","our",
+    "this","that","these","those","there","here","not","no","yes","so","than","too","very","can","could",
+    "should","would","may","might","must","will","just"
+}
+
+def _tokenize(text: str) -> List[str]:
+    # simple, fast tokenizer; keep words/numbers; lowercased
+    toks = re.findall(r"[a-zA-Z0-9']+", (text or "").lower())
+    return [t for t in toks if len(t) >= 2 and t not in _STOPWORDS]
+
+def lexical_score(question: str, passage: str) -> float:
+    """
+    Cheap lexical relevance score:
+    - token overlap (weighted toward question tokens)
+    - phrase bonus for contiguous query substrings appearing in passage
+    """
+    q_toks = _tokenize(question)
+    p_toks = _tokenize(passage)
+
+    if not q_toks or not p_toks:
+        return 0.0
+
+    q_set = set(q_toks)
+    p_set = set(p_toks)
+
+    overlap = len(q_set & p_set)
+    base = overlap / max(1, len(q_set))  # 0..1
+
+    # phrase bonus: reward if a meaningful phrase appears verbatim (lowercased)
+    q_norm = " ".join(q_toks)
+    p_norm = " ".join(p_toks)
+
+    # use a few phrase lengths to avoid expensive n-gram scans
+    bonus = 0.0
+    for n in (4, 3):
+        if len(q_toks) >= n:
+            # take sliding windows but cap count to avoid huge cost
+            max_windows = min(10, len(q_toks) - n + 1)
+            for i in range(max_windows):
+                phrase = " ".join(q_toks[i:i+n])
+                if phrase and phrase in p_norm:
+                    bonus += 0.10
+                    break
+
+    return base + bonus
+
+def lexical_rerank(question: str, cands: List[Candidate]) -> List[Candidate]:
+    scored = []
+    for c in cands:
+        s = lexical_score(question, c.text or "")
+        scored.append((s, c))
+    scored.sort(key=lambda x: x[0], reverse=True)
+    return [c for _, c in scored]
+
+def dedupe_candidates(cands: List[Candidate], max_chars: int = 2000) -> List[Candidate]:
+    """
+    Deduplicate by normalized text hash. Keeps first occurrence (which will be
+    higher-ranked if you call this after retrieval or lexical rerank).
+    """
+    seen = set()
+    out: List[Candidate] = []
+
+    for c in cands:
+        t = (c.text or "").strip()
+        if not t:
+            continue
+
+        # normalize whitespace and case; cap to keep hashing cheap
+        norm = re.sub(r"\s+", " ", t).strip().lower()
+        norm = norm[:max_chars]
+
+        h = hash(norm)
+        if h in seen:
+            continue
+        seen.add(h)
+        out.append(c)
+
+    return out
+
+def diversify_by_file(cands: List[Candidate], max_per_file: int = 2) -> List[Candidate]:
+    """
+    Enforce diversity by limiting number of chunks per source_path.
+    Keeps order and fills as many as possible.
+    """
+    if max_per_file <= 0:
+        return cands
+
+    counts: Dict[str, int] = {}
+    out: List[Candidate] = []
+
+    for c in cands:
+        sp = str((c.meta or {}).get("source_path", "unknown"))
+        n = counts.get(sp, 0)
+        if n >= max_per_file:
+            continue
+        counts[sp] = n + 1
+        out.append(c)
+
+    return out
 
 def retrieve(collection, query_embedding: List[float], k: int) -> List[Candidate]:
     res = collection.query(
@@ -509,7 +613,7 @@ def open_file(path: str) -> None:
 
 def print_banner() -> None:
     print("Interactive query mode. Type your question and press Enter.")
-    print("Commands: /exit, /help, /show S#, /expand S#, /open S#, /debug, /set, /clear\n")
+    print("Commands: /exit, /help, /show S#, /expand S#, /open S#, /debug, /model, /models, /set, /clear\n")
 
 def print_help() -> None:
     print("Enter a question to query your local knowledge base.")
@@ -519,6 +623,9 @@ def print_help() -> None:
     print("  /show S#        Show the cited chunk (e.g., /show S2)")
     print("  /expand S#      Show full chunk text (no truncation)")
     print("  /open S#        Open the source file in default app")
+    print("  /models         List models available to the API key")
+    print("  /model          Show current model")
+    print("  /model <name>   Set model for this session")
     print("  /debug          Print retrieval diagnostics for the last query")
     print("  /set …          Set session filters (path/ext)")
     print("  /clear …        Clear session filters\n")
@@ -541,6 +648,36 @@ def print_source_chunk(label: str, c: Candidate, expanded: bool = False) -> None
         print((c.text or "").strip())
         print("-" * 80 + "\n")
 
+def list_models(client: OpenAI) -> List[str]:
+    """
+    Returns model IDs available to the current API key/project.
+    Uses the Models API: /v1/models. :contentReference[oaicite:2]{index=2}
+    """
+    res = client.models.list()
+    # openai-python returns objects with `.id` commonly; be defensive
+    ids: List[str] = []
+    for m in getattr(res, "data", []) or []:
+        mid = getattr(m, "id", None)
+        if isinstance(mid, str):
+            ids.append(mid)
+    ids.sort()
+    return ids
+
+def print_models(state: SessionState, rt: Runtime) -> None:
+    try:
+        ids = list_models(rt.oa)
+        state.available_models = ids
+        if not ids:
+            print("No models returned by the API for this key/project.\n")
+
+        print("\nAvailable models (API key scope):")
+        # Print in columns-ish without extra deps
+        for mid in ids:
+            print(f"- {mid}")
+        print()
+    except Exception as e:
+        print(f"Failed to list models: {e}\n")
+
 def print_debug(state: SessionState) -> None:
     if not state.last_debug:
         print("No debug info yet. Ask a question first.\n")
@@ -559,7 +696,7 @@ def print_debug(state: SessionState) -> None:
         print(f"  {i:02d}. {name} (chunk_index={ci}, distance={c.distance})")
     print()
 
-def handle_command(line: str, state: SessionState) -> bool:
+def handle_command(line: str, state: SessionState, rt: Runtime) -> bool:
     """
     Returns True if the input was a command and has been handled.
     Returns False if the caller should treat it as a normal question.
@@ -579,6 +716,38 @@ def handle_command(line: str, state: SessionState) -> bool:
     # Debug
     if ql == "/debug":
         print_debug(state)
+        return True
+
+    # List available models
+    if ql.strip() == "/models":
+        print_models(state, rt)
+        return True
+
+    # Show/set current model
+    if ql.startswith("/model"):
+        parts = q.split()
+        if len(parts) == 1:
+            print(f"Current model: {state.model}\n")
+            return True
+
+        if len(parts) != 2:
+            print("Usage:")
+            print("  /model           (show current)")
+            print("  /model <name>    (set model for this session)")
+            print("  /models          (list available models)\n")
+            return True
+
+        new_model = parts[1].strip()
+
+        # Optional validation if we've fetched /models at least once
+        if state.available_models:
+            if new_model not in state.available_models:
+                print(f"Model not found in last /models list: {new_model}")
+                print("Run /models to refresh the list or set anyway by clearing cache.\n")
+                return True
+
+        state.model = new_model
+        print(f"Model set to: {state.model}\n")
         return True
 
     # Show / Expand
@@ -686,7 +855,7 @@ def run_query_turn(question: str, rt: Runtime, state: SessionState) -> None:
     k: int = cfg["k"]
     k_rerank: int = cfg["k_rerank"]
     no_rerank: bool = cfg["no_rerank"]
-    model: str = cfg["model"]
+    model: str =  state.model
 
     state.last_question = question
 
@@ -716,7 +885,34 @@ def run_query_turn(question: str, rt: Runtime, state: SessionState) -> None:
         print("No results matched the configured filters.\n")
         return
 
-    filtered = filtered[:k]
+    # -----------------------------
+    # Local quality passes:
+    # (5) dedupe, (4) lexical rerank, (6) per-file diversity
+    # -----------------------------
+    # Optional knobs (use sane defaults if absent)
+    max_per_file = int(cfg.get("max_per_file", 2))
+
+    # If you want, you can separately limit how many candidates survive local rerank,
+    # but defaulting to k*3 keeps recall decent.
+    local_pool = int(cfg.get("local_pool", max(k * 3, k_rerank * 4)))
+
+    # Start from filtered candidates (still in vector similarity order)
+    local = filtered
+
+    # (5) dedupe early to remove overlap noise
+    local = dedupe_candidates(local)
+
+    # (4) lexical rerank to surface proper-noun / keyword matches
+    local = lexical_rerank(question, local)
+
+    # keep a manageable pool before diversity
+    local = local[: min(local_pool, len(local))]
+
+    # (6) enforce per-file diversity
+    local = diversify_by_file(local, max_per_file=max_per_file)
+
+    # Final trim to k for downstream steps
+    filtered = local[: min(k, len(local))]
 
     # Relevance gating
     min_rel = float(cfg.get("min_relevance", 0.25))
@@ -735,6 +931,9 @@ def run_query_turn(question: str, rt: Runtime, state: SessionState) -> None:
         "min_relevance": min_rel,
         "no_rerank": no_rerank,
         "model": model,
+        "max_per_file": max_per_file,
+        "local_pool": local_pool,
+        "post_local_count": len(filtered),
     }
 
     if rel < min_rel:
@@ -823,7 +1022,11 @@ def normalize_config(cfg: Dict[str, Any], cfg_path: Path) -> Dict[str, Any]:
         k: int                         (default 12)
         k_rerank: int                  (default 6)
         no_rerank: bool                (default False)
+        max_per_file: int              (default 2)
+        local_pool: int                (default k*3 or k_rerank*4)
+
         model: str                     (default "gpt-5.2")
+
         min_relevance: float           (default 0.25)
         path_contains: str | list[str] (default None)
         ext_allow: list[str]           (default None)
@@ -854,6 +1057,9 @@ def normalize_config(cfg: Dict[str, Any], cfg_path: Path) -> Dict[str, Any]:
     out["k_rerank"] = int(qcfg.get("k_rerank", 6))
     # If true, skips the reranking step entirely and uses vector similarity order.
     out["no_rerank"] = bool(qcfg.get("no_rerank", False))
+    out["max_per_file"] = int(qcfg.get("max_per_file", 2))
+    out["local_pool"] = int(qcfg.get("local_pool", max(out["k"] * 3, out["k_rerank"] * 4)))
+
     out["model"] = str(qcfg.get("model", "gpt-5.2"))
 
     # Relevance gating:
@@ -911,6 +1117,7 @@ def main() -> None:
         path_contains=cfg.get("path_contains"),
         ext_allow=cfg.get("ext_allow"),
         ext_deny=cfg.get("ext_deny"),
+        model=cfg.get("model")
     )
 
     print_banner()
@@ -926,13 +1133,21 @@ def main() -> None:
             continue
 
         try:
-            if handle_command(line, state):
+            if handle_command(line, state, rt):
                 continue
         except SystemExit:
             print("Exiting.")
             return
 
         run_query_turn(line, rt, state)
+
+def __post_init__(self):
+    self.available_models = self.available_models or []
+    self.last_all_candidates = self.last_all_candidates or []
+    self.last_filtered_candidates = self.last_filtered_candidates or []
+    self.last_chosen = self.last_chosen or []
+    self.last_label_to_candidate = self.last_label_to_candidate or {}
+    self.last_debug = self.last_debug or {}
 
 if __name__ == "__main__":
     main()
