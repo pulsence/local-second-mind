@@ -19,5 +19,16 @@
   "exclude_dirs": [".cache"],
   "override_excludes": false,
 
-  "dry_run": false
+  "dry_run": false,
+
+  "openai": {
+    "api_key": "REPLACE_ME"
+  },
+
+  "query": {
+    "k": 12,
+    "k_rerank": 6,
+    "no_rerank": false,
+    "model": "gpt-5.2"
+  }
 }
