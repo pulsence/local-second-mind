@@ -1,0 +1,21 @@
+{
+  "roots": [
+    "C:\\Users\\User\\Documents",
+    "D:\\Writings"
+  ],
+  "persist_dir": ".chroma",
+  "collection": "local_kb",
+  "embed_model": "sentence-transformers/all-MiniLM-L6-v2",
+  "device": "cpu",
+  "batch_size": 32,
+  
+  "manifest": ".ingest/manifest.json",
+
+  "extensions": [".txt", ".md", ".pdf", ".docx", ".doc", ".html"],
+  "override_extensions": false,
+
+  "exclude_dirs": [".cache"],
+  "override_excludes": false,
+
+  "dry_run": false
+}
