@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "lsm"
 version = "0.1.0"
-description = "Local Second Mind CLI (starter refactor)"
+description = "Local Second Mind CLI"
 requires-python = ">=3.10"
 
 # Keep deps unpinned here; your existing environment already has these.

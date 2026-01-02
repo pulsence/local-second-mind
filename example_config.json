@@ -22,7 +22,7 @@
   "dry_run": false,
 
   "openai": {
-    "api_key": "REPLACE_ME"
+    "api_key": "INSERT_YOUR_KEY"
   },
 
   "query": {
@@ -36,9 +36,9 @@
 
     "min_relevance": 0.25,
 
-    "path_contains": ["\\Theology\\", "\\Homilies\\"],
+    "path_contains": ["\\Research\\"],
     "ext_allow": [".md", ".pdf"],
-    "ext_deny": [],
+    "ext_deny": [".docx"],
 
     "retrieve_k": 36
   }
