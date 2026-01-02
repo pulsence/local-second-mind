@@ -1,3 +1,48 @@
+# Python bytecode
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# Python build artifacts
+build/
+dist/
+*.egg-info/
+.eggs/
+
+# VS Code
+.vscode/
+*.code-workspace
+
+# Local configuration
 config.json
+config.yaml
+config.yml
+
+# Logs
+*.log
+logs/
+
+# Temp / runtime
+tmp/
+temp/
+.cache/
+
+# Chroma persistent storage
+chroma/
+chromadb/
 .chroma/
-.ingest/
+
+# Ingest manifests and checkpoints
+manifest.json
+manifest.yaml
+manifest.yml
+*.manifest
+
+# Incremental ingest state
+.ingest_state/
