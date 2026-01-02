@@ -39,7 +39,7 @@ def interactive_select_command() -> str:
     if choice == "2":
         return "query"
 
-    print("Invalid selection.")
+    print("Invalid selec1tion.")
     raise SystemExit(2)
 
 def dispatch(tool: str, config_path: str) -> int:
@@ -57,13 +57,6 @@ def dispatch(tool: str, config_path: str) -> int:
 
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
-
-    # If invoked as `python -m lsm` with no args, go interactive.
-    if argv is None and len(sys.argv) == 1:
-        tool = interactive_select_command()
-        config = input("Config file [config.json]: ").strip() or "config.json"
-        return dispatch(tool, config)
-
     args = parser.parse_args(argv)
 
     # If tool is missing (e.g., user provided only --config), prompt for it.

@@ -1,8 +1,22 @@
-"""Ingest subpackage.
+"""
+Ingest subsystem for Local Second Mind.
 
-`legacy_ingest` is your original ingest.py moved verbatim.
+Responsibilities:
+- File discovery
+- Parsing and chunking
+- Embedding
+- Persistence to Chroma
+- Manifest tracking
+
+Public API:
+- ingest(config): run the ingest pipeline
 """
 
-from . import legacy_ingest
+from __future__ import annotations
 
-__all__ = ["legacy_ingest"]
+# Public entrypoint (stable)
+from lsm.ingest.pipeline import ingest
+
+__all__ = [
+    "ingest",
+]
