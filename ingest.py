@@ -4,9 +4,6 @@ ingest.py — crawl + parse + chunk + embed + persist to Chroma (persistent)
 
 Minimal, working skeleton for a heterogeneous folder tree on Windows.
 
-Install (example):
-  pip install chromadb sentence-transformers pypdf python-docx beautifulsoup4 lxml
-
 Notes:
 - This uses *local* embeddings via sentence-transformers (no API keys).
 - Incremental ingest is supported via a simple manifest (hash-by-file + mtime).
@@ -33,7 +30,7 @@ from chromadb.config import Settings
 from sentence_transformers import SentenceTransformer
 
 # Parsers (optional by extension)
-from pypdf import PdfReader
+import fitz  # PyMuPDF
 from docx import Document
 from bs4 import BeautifulSoup
 
@@ -137,15 +134,17 @@ def parse_txt(path: Path) -> str:
         return path.read_text(encoding="latin-1", errors="ignore")
 
 def parse_pdf(path: Path) -> str:
-    reader = PdfReader(str(path), strict=False)
     parts: List[str] = []
-    for page in reader.pages:
-        try:
-            t = page.extract_text() or ""
-        except Exception:
-            t = ""
-        if t:
-            parts.append(t)
+    try:
+        with fitz.open(str(path)) as doc:
+            for page in doc:
+                blocks = page.get_text("blocks") or []
+                for b in blocks:
+                    txt = b[4]
+                    if isinstance(txt, str) and txt.strip():
+                        parts.append(txt)
+    except Exception:
+        return ""
     return "\n\n".join(parts)
 
 def parse_docx(path: Path) -> str:
@@ -290,6 +289,7 @@ def chroma_write(collection, ids, documents, metadatas, embeddings):
 def ingest(
     roots: List[Path],
     persist_dir: Path,
+    chroma_flush_interval: int,
     collection_name: str,
     embed_model_name: str,
     device: str,
@@ -336,20 +336,24 @@ def ingest(
         if fp_key in visited_files:
             continue
         visited_files.add(fp_key)
-
         scanned += 1
         processed += 1
+
         key = source_path
 
         try:
-            mtime_ns = fp.stat().st_mtime_ns
+            st = fp.stat()
+            mtime_ns = st.st_mtime_ns
+            size = st.st_size
         except Exception:
             skipped += 1
             continue
 
         prev = manifest.get(key)
         # Fast skip on mtime if unchanged
-        if prev and prev.get("mtime_ns") == mtime_ns and prev.get("file_hash"):
+        if prev and prev.get("mtime_ns") == mtime_ns \
+            and prev.get("size") == size \
+            and prev.get("file_hash"):
             skipped += 1
             continue
 
@@ -362,7 +366,7 @@ def ingest(
 
         if prev and prev.get("file_hash") == fhash:
             # mtime changed but content hash same
-            manifest[key] = {"mtime_ns": mtime_ns, "file_hash": fhash, "updated_at": now_iso()}
+            manifest[key] = {"mtime_ns": mtime_ns, "size": size, "file_hash": fhash, "updated_at": now_iso()}
             continue
 
         # Parse
@@ -385,10 +389,6 @@ def ingest(
 
         embedded_files += 1
 
-        # OPTIONAL: delete old chunks for prior versions of this file
-        # We cannot easily query by metadata in all Chroma configs; simplest is:
-        # - If you stored 'source_path' as metadata, you *can* try deleting by where filter.
-        # If your chroma version supports it, this is recommended to prevent duplicates.
         try:
             collection.delete(where={"source_path": source_path})
         except Exception:
@@ -402,11 +402,12 @@ def ingest(
                                   show_progress_bar=False, normalize_embeddings=True)
         embed_seconds += (time.time() - t0)
 
+        ingested_at = now_iso()
         for idx, (chunk, emb) in enumerate(zip(chunks, embeddings)):
-            cid = make_chunk_id(source_path, fhash, idx)
-            if cid in seen_ids:
+            chunk_id = make_chunk_id(source_path, fhash, idx)
+            if chunk_id in seen_ids:
                 continue
-            seen_ids.add(cid)
+            seen_ids.add(chunk_id)
 
             meta = {
                 "source_path": source_path,
@@ -415,19 +416,19 @@ def ingest(
                 "mtime_ns": mtime_ns,
                 "file_hash": fhash,
                 "chunk_index": idx,
-                "ingested_at": now_iso(),
+                "ingested_at": ingested_at,
             }
-            to_add_ids.append(cid)
+            to_add_ids.append(chunk_id)
             to_add_docs.append(chunk)
             to_add_metas.append(meta)
             to_add_embs.append(emb.tolist())
 
-        manifest[key] = {"mtime_ns": mtime_ns, "file_hash": fhash, "updated_at": now_iso()}
+        manifest[key] = {"mtime_ns": mtime_ns, "size": size, "file_hash": fhash, "updated_at": now_iso()}
 
         added_chunks += len(chunks)
 
         # Flush periodically to avoid huge RAM usage
-        if len(to_add_ids) >= 2000:
+        if len(to_add_ids) >= chroma_flush_interval:
             if not dry_run:
                 chroma_write(collection,
                              ids=to_add_ids,
@@ -441,8 +442,8 @@ def ingest(
         now = time.time()
         if (now - last_report) >= REPORT_EVERY_SECONDS:
             elapsed = now  - start_time
-            rate = scanned / elapsed if elapsed > 0 else 0.0
-            remaining = total_files - scanned
+            rate = processed / elapsed if elapsed > 0 else 0.0
+            remaining = total_files - processed
 
             chunk_rate = (added_chunks / embed_seconds) if embed_seconds > 0 else 0.0
             eta = (remaining / rate) if rate > 0 else float("inf")
@@ -510,6 +511,7 @@ def normalize_config(cfg: Dict, cfg_path: Path) -> Dict:
     Expected keys:
       roots: [str, ...]                (required)
       persist_dir: str                 (default ".chroma")
+      chroma_flush_interval: int       (default 2000)
       collection: str                  (default DEFAULT_COLLECTION)
       embed_model: str                 (default DEFAULT_EMBED_MODEL)
       device: str                      (default "cpu")
@@ -529,6 +531,8 @@ def normalize_config(cfg: Dict, cfg_path: Path) -> Dict:
 
     out["roots"] = [Path(r) for r in roots]
     out["collection"] = str(cfg.get("collection", DEFAULT_COLLECTION))
+    out["chroma_flush_interval"] = int(cfg.get("chroma_flush_interval", 2000))
+
     out["embed_model"] = str(cfg.get("embed_model", DEFAULT_EMBED_MODEL))
     out["dry_run"] = bool(cfg.get("dry_run", False))
     out["device"] = str(cfg.get("device", "cpu"))
@@ -603,13 +607,12 @@ def main(argv: Optional[List[str]] = None) -> int:
     cfg = load_config(cfg_path)
     cfg = normalize_config(cfg, cfg_path)
 
-    logging.getLogger("pypdf").setLevel(logging.ERROR)
-
     print(f"[INGEST] Starting ingest with config:\n{cfg}")
 
     ingest(
         roots=cfg["roots"],
         persist_dir=cfg["persist_dir"],
+        chroma_flush_interval=cfg["chroma_flush_interval"],
         collection_name=cfg["collection"],
         embed_model_name=cfg["embed_model"],
         device=cfg["device"],
