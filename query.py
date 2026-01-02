@@ -239,10 +239,56 @@ def llm_rerank(
     model: str,
     top_n: int,
 ) -> List[Candidate]:
+    """
+    LLM-based reranker using OpenAI Responses API.
+
+    Returns candidates reordered by usefulness for answering `question`.
+    If the API fails (quota, 429, etc.), falls back to original vector rank.
+    """
     if not candidates:
         return []
 
-    # ... build items/payload as you already do ...
+    top_n = max(1, min(top_n, len(candidates)))
+
+    def snippet(t: str, max_chars: int = 1200) -> str:
+        t = (t or "").strip()
+        return t if len(t) <= max_chars else (t[: max_chars - 50] + "\n...[truncated]...")
+
+    # Build rerank inputs (keep metadata aligned with ingest.py)
+    items: List[Dict[str, Any]] = []
+    for i, c in enumerate(candidates):
+        m = c.meta or {}
+        items.append(
+            {
+                "index": i,
+                "source_path": m.get("source_path", "unknown"),
+                "source_name": m.get("source_name"),
+                "chunk_index": m.get("chunk_index"),
+                "ext": m.get("ext"),
+                "distance": c.distance,
+                "text": snippet(c.text),
+            }
+        )
+
+    instructions = (
+        "You are a retrieval reranker.\n"
+        "Goal: rank the candidate passages by how useful they are for answering the user's question.\n"
+        "Guidance:\n"
+        "- Prefer passages that directly address the question.\n"
+        "- Prefer specificity, definitions, arguments, or evidence over vague mentions.\n"
+        "- If multiple passages are similar, rank the most comprehensive/precise first.\n"
+        "- Do NOT hallucinate facts; you are only ranking.\n\n"
+        "Output requirements:\n"
+        "- Return STRICT JSON only, no markdown, no extra text.\n"
+        "- Schema: {\"ranking\":[{\"index\":int,\"reason\":string}...]}\n"
+        "- Include at most top_n items.\n"
+    )
+
+    payload = {
+        "question": question,
+        "top_n": top_n,
+        "candidates": items,
+    }
 
     try:
         resp = client.responses.create(
@@ -258,28 +304,38 @@ def llm_rerank(
         return candidates[:top_n]
 
     raw = (resp.output_text or "").strip()
+
     try:
         data = json.loads(raw)
         ranking = data.get("ranking", [])
+        if not isinstance(ranking, list):
+            return candidates[:top_n]
+
         chosen: List[Candidate] = []
         seen = set()
+
         for r in ranking:
+            if not isinstance(r, dict) or "index" not in r:
+                continue
             idx = int(r["index"])
             if 0 <= idx < len(candidates) and idx not in seen:
                 chosen.append(candidates[idx])
                 seen.add(idx)
             if len(chosen) >= top_n:
                 break
-        if len(chosen) < min(top_n, len(candidates)):
+
+        # Fill any gaps deterministically from original order
+        if len(chosen) < top_n:
             for i, c in enumerate(candidates):
                 if i not in seen:
                     chosen.append(c)
                 if len(chosen) >= top_n:
                     break
+
         return chosen
+
     except Exception:
         return candidates[:top_n]
-
 
 # -----------------------------
 # Answer with citations
