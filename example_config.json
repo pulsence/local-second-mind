@@ -29,6 +29,14 @@
     "k": 12,
     "k_rerank": 6,
     "no_rerank": false,
-    "model": "gpt-5.2"
+    "model": "gpt-5.2",
+
+    "min_relevance": 0.25,
+
+    "path_contains": ["\\Theology\\", "\\Homilies\\"],
+    "ext_allow": [".md", ".pdf"],
+    "ext_deny": [],
+
+    "retrieve_k": 36
   }
 }

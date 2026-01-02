@@ -96,6 +96,79 @@ def is_insufficient_quota_error(e: Exception) -> bool:
         return True
     return isinstance(e, OpenAIError)
 
+def _normalize_ext(x: str) -> str:
+    x = (x or "").strip().lower()
+    if not x:
+        return ""
+    return x if x.startswith(".") else f".{x}"
+
+def apply_filters(
+    cands: List[Candidate],
+    path_contains: Optional[Any] = None,
+    ext_allow: Optional[List[str]] = None,
+    ext_deny: Optional[List[str]] = None,
+) -> List[Candidate]:
+    """
+    Post-retrieval filtering using Candidate.meta keys:
+      - source_path: str
+      - ext: str (e.g., ".md", ".pdf")
+    """
+    if not cands:
+        return []
+
+    # path_contains can be str or list[str]
+    pcs: List[str] = []
+    if isinstance(path_contains, str) and path_contains.strip():
+        pcs = [path_contains.strip().lower()]
+    elif isinstance(path_contains, list):
+        pcs = [str(p).strip().lower() for p in path_contains if str(p).strip()]
+
+    allow = {_normalize_ext(e) for e in (ext_allow or []) if _normalize_ext(e)}
+    deny = {_normalize_ext(e) for e in (ext_deny or []) if _normalize_ext(e)}
+
+    out: List[Candidate] = []
+    for c in cands:
+        m = c.meta or {}
+        sp = str(m.get("source_path", "") or "")
+        sp_l = sp.lower()
+
+        # Path filter
+        if pcs:
+            if not any(p in sp_l for p in pcs):
+                continue
+
+        # Ext filter
+        ext = _normalize_ext(str(m.get("ext", "") or ""))
+        if allow and ext and ext not in allow:
+            continue
+        if deny and ext and ext in deny:
+            continue
+
+        out.append(c)
+
+    return out
+
+def best_relevance(cands: List[Candidate]) -> float:
+    """
+    Convert Chroma 'distance' (lower is better) into a simple relevance proxy.
+    For cosine distance, relevance ~ 1 - distance. Clamped to [-1, 1].
+    """
+    if not cands:
+        return -1.0
+
+    dists = [c.distance for c in cands if c.distance is not None]
+    if not dists:
+        return -1.0
+
+    best_dist = min(dists)
+    rel = 1.0 - float(best_dist)
+    # clamp just to keep prints sane
+    if rel > 1.0:
+        rel = 1.0
+    if rel < -1.0:
+        rel = -1.0
+    return rel
+
 def retrieve(collection, query_embedding: List[float], k: int) -> List[Candidate]:
     res = collection.query(
         query_embeddings=[query_embedding],
@@ -363,6 +436,11 @@ def normalize_config(cfg: Dict[str, Any], cfg_path: Path) -> Dict[str, Any]:
         k_rerank: int                  (default 6)
         no_rerank: bool                (default False)
         model: str                     (default "gpt-5.2")
+        min_relevance: float           (default 0.25)
+        path_contains: str | list[str] (default None)
+        ext_allow: list[str]           (default None)
+        ext_deny: list[str]            (default None)
+        retrieve_k: int | None         (default None)
     """
     out: Dict[str, Any] = {}
 
@@ -389,6 +467,22 @@ def normalize_config(cfg: Dict[str, Any], cfg_path: Path) -> Dict[str, Any]:
     # If true, skips the reranking step entirely and uses vector similarity order.
     out["no_rerank"] = bool(qcfg.get("no_rerank", False))
     out["model"] = str(qcfg.get("model", "gpt-5.2"))
+
+    # Relevance gating:
+    # Treat distance as cosine distance (lower is better).
+    # Convert to a simple "relevance" proxy: relevance = 1 - best_distance.
+    # Gate OpenAI usage if relevance < min_relevance.
+    out["min_relevance"] = float(qcfg.get("min_relevance", 0.25))
+
+    # Filters (optional)
+    # If provided, applied after retrieval using metadata: source_path and ext.
+    out["path_contains"] = qcfg.get("path_contains", None)  # str or list[str]
+    out["ext_allow"] = qcfg.get("ext_allow", None)          # list[str] like [".md", ".pdf"]
+    out["ext_deny"] = qcfg.get("ext_deny", None)            # list[str]
+
+    # Optional: retrieve more than k so filters still leave enough candidates.
+    # If not set, we'll default to max(k, k*3) whenever any filter is active.
+    out["retrieve_k"] = qcfg.get("retrieve_k", None)
 
     return out
 
@@ -431,12 +525,20 @@ def main() -> None:
     embedder = build_embedder(embed_model_name, device=device)
     col = chroma_collection(persist_dir, collection_name)
 
+    # Session state for /show and /debug
+    last_question: Optional[str] = None
+    last_all_candidates: List[Candidate] = []
+    last_filtered_candidates: List[Candidate] = []
+    last_chosen: List[Candidate] = []
+    last_label_to_candidate: Dict[str, Candidate] = {}
+    last_debug: Dict[str, Any] = {}
+
     # Build OpenAI client once (used for rerank and answer if enabled)
     openai_api_key: Optional[str] = cfg.get("openai_api_key")
     oa = openai_client(openai_api_key)
 
     print("Interactive query mode. Type your question and press Enter.")
-    print("Commands: /exit (quit), /help (show this help)\n")
+    print("Commands: /exit, /help, /show S#, /debug\n")
 
     while True:
         try:
@@ -454,28 +556,132 @@ def main() -> None:
 
         if question.lower() in {"/help", "help", "?"}:
             print("Enter a question to query your local knowledge base.")
-            print("Commands: /exit (quit), /help (show this help)\n")
+            print("Commands:")
+            print("  /exit           Quit")
+            print("  /help           Show this help")
+            print("  /show S#        Print the full retrieved chunk for a cited source (e.g., /show S2)")
+            print("  /debug          Print retrieval diagnostics for the last query\n")
             continue
 
-        # Embed + retrieve
+        if question.lower().startswith("/show"):
+            parts = question.split()
+            if len(parts) != 2:
+                print("Usage: /show S#   (e.g., /show S2)\n")
+                continue
+            label = parts[1].strip().upper()
+            c = last_label_to_candidate.get(label)
+            if not c:
+                print(f"No such label in last results: {label}\n")
+                continue
+
+            m = c.meta or {}
+            sp = m.get("source_path", "unknown")
+            ci = m.get("chunk_index", "NA")
+            dist = c.distance
+
+            print(f"\n{label} — {sp} (chunk_index={ci}, distance={dist})")
+            print("-" * 80)
+            print((c.text or "").strip())
+            print("-" * 80 + "\n")
+            continue
+
+        if question.lower().strip() == "/debug":
+            if not last_debug:
+                print("No debug info yet. Ask a question first.\n")
+                continue
+
+            print("\nDebug (last query):")
+            for k_, v_ in last_debug.items():
+                print(f"- {k_}: {v_}")
+
+            # show top candidates (post-filter), include file + distance
+            print("\nTop candidates (post-filter):")
+            for i, c in enumerate(last_filtered_candidates[: min(10, len(last_filtered_candidates))], start=1):
+                m = c.meta or {}
+                sp = m.get("source_path", "unknown")
+                name = m.get("source_name") or Path(sp).name
+                ci = m.get("chunk_index", "NA")
+                print(f"  {i:02d}. {name} (chunk_index={ci}, distance={c.distance})")
+
+            print()
+            continue
+
+        last_question = question
+
+        # Embed + retrieve (retrieve more than k if filters are active)
         qvec = embed_query(embedder, question, batch_size=batch_size)
-        cands = retrieve(col, qvec, k)
+
+        path_contains = cfg.get("path_contains")
+        ext_allow = cfg.get("ext_allow")
+        ext_deny = cfg.get("ext_deny")
+
+        filters_active = bool(path_contains) or bool(ext_allow) or bool(ext_deny)
+        retrieve_k_cfg = cfg.get("retrieve_k")
+        retrieve_k = int(retrieve_k_cfg) if retrieve_k_cfg else (max(k, k * 3) if filters_active else k)
+
+        cands = retrieve(col, qvec, retrieve_k)
+        last_all_candidates = cands
 
         if not cands:
             print("No results found in Chroma for this query.\n")
             continue
 
+        # Apply path/ext filters after retrieval
+        filtered = apply_filters(cands, path_contains=path_contains, ext_allow=ext_allow, ext_deny=ext_deny)
+        last_filtered_candidates = filtered
+
+        if not filtered:
+            print("No results matched the configured filters.\n")
+            continue
+
+        # Trim to k for downstream steps
+        filtered = filtered[:k]
+
+        # Relevance gating: avoid OpenAI calls if retrieval signal is weak
+        min_rel = float(cfg.get("min_relevance", 0.25))
+        rel = best_relevance(filtered)
+
+        last_debug = {
+            "question": question,
+            "retrieve_k": retrieve_k,
+            "k": k,
+            "k_rerank": k_rerank,
+            "filters_active": filters_active,
+            "path_contains": path_contains,
+            "ext_allow": ext_allow,
+            "ext_deny": ext_deny,
+            "best_relevance": rel,
+            "min_relevance": min_rel,
+        }
+
+        if rel < min_rel:
+            # Skip rerank + skip OpenAI answer: return offline excerpts immediately
+            chosen = filtered[: min(k_rerank, len(filtered))]
+            last_chosen = chosen
+            last_label_to_candidate = {f"S{i}": c for i, c in enumerate(chosen, start=1)}
+
+            answer = local_fallback_answer(question, chosen)
+            _, sources = build_sources_block(chosen)  # reuse your existing sources list format
+
+            print("\n" + answer)
+            print(format_sources(sources))
+            print()
+            continue
+
         # Optional rerank
         if no_rerank:
-            chosen = cands[: min(k_rerank, len(cands))]
+            chosen = filtered[: min(k_rerank, len(filtered))]
         else:
             chosen = llm_rerank(
                 client=oa,
                 question=question,
-                candidates=cands,
+                candidates=filtered,
                 model=model,
-                top_n=min(k_rerank, len(cands)),
+                top_n=min(k_rerank, len(filtered)),
             )
+
+        last_chosen = chosen
+        last_label_to_candidate = {f"S{i}": c for i, c in enumerate(chosen, start=1)}
 
         # Answer with citations
         answer, sources = answer_with_citations(
