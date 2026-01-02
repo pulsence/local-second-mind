@@ -297,13 +297,29 @@ def answer_with_citations(
 
 def format_sources(sources: List[Dict[str, Any]]) -> str:
     lines = ["", "Sources:"]
+    grouped: Dict[str, Dict[str, Any]] = {}
+    order: List[str] = []
+
     for s in sources:
-        extras = []
-        for k in ("source_name", "chunk_index", "ext", "mtime_ns", "file_hash", "ingested_at"):
-            if s.get(k) is not None:
-                extras.append(f"{k}={s[k]}")
-        extra_str = (" " + " ".join(extras)) if extras else ""
-        lines.append(f"- [{s['label']}] {s['source_path']}{extra_str}")
+        path = (s.get("source_path") or "unknown").strip()
+        label = (s.get("label") or "").strip()
+        name = (s.get("source_name") or Path(path).name or "unknown").strip()
+
+        if path not in grouped:
+            grouped[path] = {
+                "name": name,
+                "labels": [],
+            }
+            order.append(path)
+
+        if label and label not in grouped[path]["labels"]:
+            grouped[path]["labels"].append(label)
+
+    for path in order:
+        entry = grouped[path]
+        labels = " ".join(f"[{lbl}]" for lbl in entry["labels"])
+        lines.append(f"- {labels} {entry['name']} — {path}")
+
     return "\n".join(lines)
 
 
