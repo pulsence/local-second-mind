@@ -323,7 +323,6 @@ def ingest(
 
     print(f"[INGEST] Discovered {total_files:,} files to consider")
 
-    scanned = 0
     skipped = 0
     added_chunks = 0
     processed = 0
@@ -336,7 +335,6 @@ def ingest(
         if fp_key in visited_files:
             continue
         visited_files.add(fp_key)
-        scanned += 1
         processed += 1
 
         key = source_path
@@ -389,11 +387,11 @@ def ingest(
 
         embedded_files += 1
 
-        try:
-            collection.delete(where={"source_path": source_path})
-        except Exception:
-            # If delete(where=...) isn't supported in your environment, ignore.
-            pass
+        if prev:
+            try:
+                collection.delete(where={"source_path": source_path})
+            except Exception:
+                pass
 
         # Embed + stage for add
         # Batch embedding for speed
