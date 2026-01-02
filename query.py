@@ -20,6 +20,10 @@ Usage:
 
 from __future__ import annotations
 
+import os
+import subprocess
+import sys
+
 import argparse
 import json
 from dataclasses import dataclass
@@ -53,6 +57,35 @@ class Candidate:
     meta: Dict[str, Any]
     distance: Optional[float] = None
 
+@dataclass
+class SessionState:
+    # Session-level overrides (start with config defaults)
+    path_contains: Optional[Any] = None
+    ext_allow: Optional[List[str]] = None
+    ext_deny: Optional[List[str]] = None
+
+    # Last-turn artifacts
+    last_question: Optional[str] = None
+    last_all_candidates: List[Candidate] = None
+    last_filtered_candidates: List[Candidate] = None
+    last_chosen: List[Candidate] = None
+    last_label_to_candidate: Dict[str, Candidate] = None
+    last_debug: Dict[str, Any] = None
+
+    def __post_init__(self):
+        self.last_all_candidates = self.last_all_candidates or []
+        self.last_filtered_candidates = self.last_filtered_candidates or []
+        self.last_chosen = self.last_chosen or []
+        self.last_label_to_candidate = self.last_label_to_candidate or {}
+        self.last_debug = self.last_debug or {}
+
+
+@dataclass
+class Runtime:
+    embedder: SentenceTransformer
+    col: Any  # chromadb Collection
+    oa: OpenAI
+    cfg: Dict[str, Any]
 
 # -----------------------------
 # Chroma
@@ -397,7 +430,306 @@ def format_sources(sources: List[Dict[str, Any]]) -> str:
 
 
 # -----------------------------
-# CLI
+# REPL Display + command handling
+# -----------------------------
+def open_file(path: str) -> None:
+    """
+    Open a file with the system default application.
+    Cross-platform: Windows, macOS, Linux.
+    """
+    if not path or not os.path.exists(path):
+        print(f"File does not exist: {path}\n")
+        return
+
+    try:
+        if sys.platform.startswith("win"):
+            os.startfile(path)  # type: ignore[attr-defined]
+        elif sys.platform == "darwin":
+            subprocess.run(["open", path], check=False)
+        else:
+            subprocess.run(["xdg-open", path], check=False)
+    except Exception as e:
+        print(f"Failed to open file: {e}\n")
+
+def print_banner() -> None:
+    print("Interactive query mode. Type your question and press Enter.")
+    print("Commands: /exit, /help, /show S#, /expand S#, /open S#, /debug, /set, /clear\n")
+
+def print_help() -> None:
+    print("Enter a question to query your local knowledge base.")
+    print("Commands:")
+    print("  /exit           Quit")
+    print("  /help           Show this help")
+    print("  /show S#        Show the cited chunk (e.g., /show S2)")
+    print("  /expand S#      Show full chunk text (no truncation)")
+    print("  /open S#        Open the source file in default app")
+    print("  /debug          Print retrieval diagnostics for the last query")
+    print("  /set …          Set session filters (path/ext)")
+    print("  /clear …        Clear session filters\n")
+
+def print_source_chunk(label: str, c: Candidate, expanded: bool = False) -> None:
+    m = c.meta or {}
+    sp = m.get("source_path", "unknown")
+    ci = m.get("chunk_index", "NA")
+    dist = c.distance
+
+    if expanded:
+        print(f"\n{label} — {sp}")
+        print(f"chunk_index={ci}, distance={dist}")
+        print("=" * 80)
+        print((c.text or "").strip())
+        print("=" * 80 + "\n")
+    else:
+        print(f"\n{label} — {sp} (chunk_index={ci}, distance={dist})")
+        print("-" * 80)
+        print((c.text or "").strip())
+        print("-" * 80 + "\n")
+
+def print_debug(state: SessionState) -> None:
+    if not state.last_debug:
+        print("No debug info yet. Ask a question first.\n")
+        return
+
+    print("\nDebug (last query):")
+    for k_, v_ in state.last_debug.items():
+        print(f"- {k_}: {v_}")
+
+    print("\nTop candidates (post-filter):")
+    for i, c in enumerate(state.last_filtered_candidates[: min(10, len(state.last_filtered_candidates))], start=1):
+        m = c.meta or {}
+        sp = m.get("source_path", "unknown")
+        name = m.get("source_name") or Path(sp).name
+        ci = m.get("chunk_index", "NA")
+        print(f"  {i:02d}. {name} (chunk_index={ci}, distance={c.distance})")
+    print()
+
+def handle_command(line: str, state: SessionState) -> bool:
+    """
+    Returns True if the input was a command and has been handled.
+    Returns False if the caller should treat it as a normal question.
+    """
+    q = line.strip()
+    ql = q.lower()
+
+    # Exit
+    if ql in {"/exit", "exit", "quit", "q"}:
+        raise SystemExit
+
+    # Help
+    if ql in {"/help", "help", "?"}:
+        print_help()
+        return True
+
+    # Debug
+    if ql == "/debug":
+        print_debug(state)
+        return True
+
+    # Show / Expand
+    if ql.startswith("/show") or ql.startswith("/expand"):
+        parts = q.split()
+        if len(parts) != 2:
+            usage = "/show S#   (e.g., /show S2)" if ql.startswith("/show") else "/expand S#   (e.g., /expand S2)"
+            print(f"Usage: {usage}\n")
+            return True
+
+        label = parts[1].strip().upper()
+        c = state.last_label_to_candidate.get(label)
+        if not c:
+            print(f"No such label in last results: {label}\n")
+            return True
+
+        print_source_chunk(label, c, expanded=ql.startswith("/expand"))
+        return True
+
+    # Open
+    if ql.startswith("/open"):
+        parts = q.split()
+        if len(parts) != 2:
+            print("Usage: /open S#   (e.g., /open S2)\n")
+            return True
+
+        label = parts[1].strip().upper()
+        c = state.last_label_to_candidate.get(label)
+        if not c:
+            print(f"No such label in last results: {label}\n")
+            return True
+
+        path = (c.meta or {}).get("source_path")
+        if not path:
+            print("No source_path available for this citation.\n")
+            return True
+
+        open_file(path)
+        return True
+
+    # Set filters
+    if ql.startswith("/set"):
+        parts = q.split()
+        if len(parts) < 3:
+            print("Usage:")
+            print("  /set path_contains <substring> [more...]")
+            print("  /set ext_allow .md .pdf")
+            print("  /set ext_deny .txt\n")
+            return True
+
+        key = parts[1]
+        values = parts[2:]
+
+        if key == "path_contains":
+            state.path_contains = values if len(values) > 1 else values[0]
+            print(f"path_contains set to: {state.path_contains}\n")
+            return True
+
+        if key == "ext_allow":
+            state.ext_allow = values
+            print(f"ext_allow set to: {state.ext_allow}\n")
+            return True
+
+        if key == "ext_deny":
+            state.ext_deny = values
+            print(f"ext_deny set to: {state.ext_deny}\n")
+            return True
+
+        print(f"Unknown filter key: {key}\n")
+        return True
+
+    # Clear filters
+    if ql.startswith("/clear"):
+        parts = q.split()
+        if len(parts) != 2:
+            print("Usage: /clear path_contains|ext_allow|ext_deny\n")
+            return True
+
+        key = parts[1]
+        if key == "path_contains":
+            state.path_contains = None
+            print("path_contains cleared.\n")
+            return True
+        if key == "ext_allow":
+            state.ext_allow = None
+            print("ext_allow cleared.\n")
+            return True
+        if key == "ext_deny":
+            state.ext_deny = None
+            print("ext_deny cleared.\n")
+            return True
+
+        print(f"Unknown filter key: {key}\n")
+        return True
+
+    return False
+
+def run_query_turn(question: str, rt: Runtime, state: SessionState) -> None:
+    """
+    Executes one query turn end-to-end, updating state and printing results.
+    """
+    cfg = rt.cfg
+
+    batch_size: int = cfg["batch_size"]
+    k: int = cfg["k"]
+    k_rerank: int = cfg["k_rerank"]
+    no_rerank: bool = cfg["no_rerank"]
+    model: str = cfg["model"]
+
+    state.last_question = question
+
+    # Embed + retrieve (retrieve more than k if filters are active)
+    qvec = embed_query(rt.embedder, question, batch_size=batch_size)
+
+    path_contains = state.path_contains
+    ext_allow = state.ext_allow
+    ext_deny = state.ext_deny
+
+    filters_active = bool(path_contains) or bool(ext_allow) or bool(ext_deny)
+    retrieve_k_cfg = cfg.get("retrieve_k")
+    retrieve_k = int(retrieve_k_cfg) if retrieve_k_cfg else (max(k, k * 3) if filters_active else k)
+
+    cands = retrieve(rt.col, qvec, retrieve_k)
+    state.last_all_candidates = cands
+
+    if not cands:
+        print("No results found in Chroma for this query.\n")
+        return
+
+    # Apply filters
+    filtered = apply_filters(cands, path_contains=path_contains, ext_allow=ext_allow, ext_deny=ext_deny)
+    state.last_filtered_candidates = filtered
+
+    if not filtered:
+        print("No results matched the configured filters.\n")
+        return
+
+    filtered = filtered[:k]
+
+    # Relevance gating
+    min_rel = float(cfg.get("min_relevance", 0.25))
+    rel = best_relevance(filtered)
+
+    state.last_debug = {
+        "question": question,
+        "retrieve_k": retrieve_k,
+        "k": k,
+        "k_rerank": k_rerank,
+        "filters_active": filters_active,
+        "path_contains": path_contains,
+        "ext_allow": ext_allow,
+        "ext_deny": ext_deny,
+        "best_relevance": rel,
+        "min_relevance": min_rel,
+        "no_rerank": no_rerank,
+        "model": model,
+    }
+
+    if rel < min_rel:
+        chosen = filtered[: min(k_rerank, len(filtered))]
+        state.last_chosen = chosen
+        state.last_label_to_candidate = {f"S{i}": c for i, c in enumerate(chosen, start=1)}
+
+        answer = local_fallback_answer(question, chosen)
+        _, sources = build_sources_block(chosen)
+
+        print("\n" + answer)
+        print(format_sources(sources))
+        print()
+        return
+
+    # Optional rerank
+    if no_rerank:
+        chosen = filtered[: min(k_rerank, len(filtered))]
+    else:
+        chosen = llm_rerank(
+            client=rt.oa,
+            question=question,
+            candidates=filtered,
+            model=model,
+            top_n=min(k_rerank, len(filtered)),
+        )
+
+    state.last_chosen = chosen
+    state.last_label_to_candidate = {f"S{i}": c for i, c in enumerate(chosen, start=1)}
+
+    # Answer with citations
+    answer, sources = answer_with_citations(
+        client=rt.oa,
+        question=question,
+        candidates=chosen,
+        model=model,
+    )
+
+    if "[S" not in answer:
+        answer += (
+            "\n\nNote: No inline citations were emitted. "
+            "If this persists, tighten query.k / query.k_rerank or reduce chunk size."
+        )
+
+    print("\n" + answer)
+    print(format_sources(sources))
+    print()
+
+
+# -----------------------------
+# CLI Helpers
 # -----------------------------
 def load_config(path: Path) -> Dict[str, Any]:
     """
@@ -499,208 +831,52 @@ def parse_args() -> argparse.Namespace:
     )
     return p.parse_args()
 
-
+# -----------------------------
+# CLI 
+# -----------------------------
 def main() -> None:
     args = parse_args()
 
-    # Load + normalize config
     cfg_path = Path(args.config).expanduser().resolve()
     cfg_raw = load_config(cfg_path)
     cfg = normalize_config(cfg_raw, cfg_path)
 
-    # Unpack config
-    persist_dir: Path = cfg["persist_dir"]
-    collection_name: str = cfg["collection"]
-    embed_model_name: str = cfg["embed_model"]
-    device: str = cfg["device"]
-    batch_size: int = cfg["batch_size"]
+    # Build embedder + Chroma once
+    embedder = build_embedder(cfg["embed_model"], device=cfg["device"])
+    col = chroma_collection(cfg["persist_dir"], cfg["collection"])
 
-    k: int = cfg["k"]
-    k_rerank: int = cfg["k_rerank"]
-    no_rerank: bool = cfg["no_rerank"]
-    model: str = cfg["model"]
+    # OpenAI client once
+    oa = openai_client(cfg.get("openai_api_key"))
 
+    rt = Runtime(embedder=embedder, col=col, oa=oa, cfg=cfg)
 
-    # Build embedder + Chroma collection
-    embedder = build_embedder(embed_model_name, device=device)
-    col = chroma_collection(persist_dir, collection_name)
+    # Session state (filters initialized from config)
+    state = SessionState(
+        path_contains=cfg.get("path_contains"),
+        ext_allow=cfg.get("ext_allow"),
+        ext_deny=cfg.get("ext_deny"),
+    )
 
-    # Session state for /show and /debug
-    last_question: Optional[str] = None
-    last_all_candidates: List[Candidate] = []
-    last_filtered_candidates: List[Candidate] = []
-    last_chosen: List[Candidate] = []
-    last_label_to_candidate: Dict[str, Candidate] = {}
-    last_debug: Dict[str, Any] = {}
-
-    # Build OpenAI client once (used for rerank and answer if enabled)
-    openai_api_key: Optional[str] = cfg.get("openai_api_key")
-    oa = openai_client(openai_api_key)
-
-    print("Interactive query mode. Type your question and press Enter.")
-    print("Commands: /exit, /help, /show S#, /debug\n")
+    print_banner()
 
     while True:
         try:
-            question = input("> ").strip()
+            line = input("> ").strip()
         except (EOFError, KeyboardInterrupt):
             print("\nExiting.")
             return
 
-        if not question:
+        if not line:
             continue
 
-        if question.lower() in {"/exit", "exit", "quit", "q"}:
+        try:
+            if handle_command(line, state):
+                continue
+        except SystemExit:
             print("Exiting.")
             return
 
-        if question.lower() in {"/help", "help", "?"}:
-            print("Enter a question to query your local knowledge base.")
-            print("Commands:")
-            print("  /exit           Quit")
-            print("  /help           Show this help")
-            print("  /show S#        Print the full retrieved chunk for a cited source (e.g., /show S2)")
-            print("  /debug          Print retrieval diagnostics for the last query\n")
-            continue
-
-        if question.lower().startswith("/show"):
-            parts = question.split()
-            if len(parts) != 2:
-                print("Usage: /show S#   (e.g., /show S2)\n")
-                continue
-            label = parts[1].strip().upper()
-            c = last_label_to_candidate.get(label)
-            if not c:
-                print(f"No such label in last results: {label}\n")
-                continue
-
-            m = c.meta or {}
-            sp = m.get("source_path", "unknown")
-            ci = m.get("chunk_index", "NA")
-            dist = c.distance
-
-            print(f"\n{label} — {sp} (chunk_index={ci}, distance={dist})")
-            print("-" * 80)
-            print((c.text or "").strip())
-            print("-" * 80 + "\n")
-            continue
-
-        if question.lower().strip() == "/debug":
-            if not last_debug:
-                print("No debug info yet. Ask a question first.\n")
-                continue
-
-            print("\nDebug (last query):")
-            for k_, v_ in last_debug.items():
-                print(f"- {k_}: {v_}")
-
-            # show top candidates (post-filter), include file + distance
-            print("\nTop candidates (post-filter):")
-            for i, c in enumerate(last_filtered_candidates[: min(10, len(last_filtered_candidates))], start=1):
-                m = c.meta or {}
-                sp = m.get("source_path", "unknown")
-                name = m.get("source_name") or Path(sp).name
-                ci = m.get("chunk_index", "NA")
-                print(f"  {i:02d}. {name} (chunk_index={ci}, distance={c.distance})")
-
-            print()
-            continue
-
-        last_question = question
-
-        # Embed + retrieve (retrieve more than k if filters are active)
-        qvec = embed_query(embedder, question, batch_size=batch_size)
-
-        path_contains = cfg.get("path_contains")
-        ext_allow = cfg.get("ext_allow")
-        ext_deny = cfg.get("ext_deny")
-
-        filters_active = bool(path_contains) or bool(ext_allow) or bool(ext_deny)
-        retrieve_k_cfg = cfg.get("retrieve_k")
-        retrieve_k = int(retrieve_k_cfg) if retrieve_k_cfg else (max(k, k * 3) if filters_active else k)
-
-        cands = retrieve(col, qvec, retrieve_k)
-        last_all_candidates = cands
-
-        if not cands:
-            print("No results found in Chroma for this query.\n")
-            continue
-
-        # Apply path/ext filters after retrieval
-        filtered = apply_filters(cands, path_contains=path_contains, ext_allow=ext_allow, ext_deny=ext_deny)
-        last_filtered_candidates = filtered
-
-        if not filtered:
-            print("No results matched the configured filters.\n")
-            continue
-
-        # Trim to k for downstream steps
-        filtered = filtered[:k]
-
-        # Relevance gating: avoid OpenAI calls if retrieval signal is weak
-        min_rel = float(cfg.get("min_relevance", 0.25))
-        rel = best_relevance(filtered)
-
-        last_debug = {
-            "question": question,
-            "retrieve_k": retrieve_k,
-            "k": k,
-            "k_rerank": k_rerank,
-            "filters_active": filters_active,
-            "path_contains": path_contains,
-            "ext_allow": ext_allow,
-            "ext_deny": ext_deny,
-            "best_relevance": rel,
-            "min_relevance": min_rel,
-        }
-
-        if rel < min_rel:
-            # Skip rerank + skip OpenAI answer: return offline excerpts immediately
-            chosen = filtered[: min(k_rerank, len(filtered))]
-            last_chosen = chosen
-            last_label_to_candidate = {f"S{i}": c for i, c in enumerate(chosen, start=1)}
-
-            answer = local_fallback_answer(question, chosen)
-            _, sources = build_sources_block(chosen)  # reuse your existing sources list format
-
-            print("\n" + answer)
-            print(format_sources(sources))
-            print()
-            continue
-
-        # Optional rerank
-        if no_rerank:
-            chosen = filtered[: min(k_rerank, len(filtered))]
-        else:
-            chosen = llm_rerank(
-                client=oa,
-                question=question,
-                candidates=filtered,
-                model=model,
-                top_n=min(k_rerank, len(filtered)),
-            )
-
-        last_chosen = chosen
-        last_label_to_candidate = {f"S{i}": c for i, c in enumerate(chosen, start=1)}
-
-        # Answer with citations
-        answer, sources = answer_with_citations(
-            client=oa,
-            question=question,
-            candidates=chosen,
-            model=model,
-        )
-
-        if "[S" not in answer:
-            answer += (
-                "\n\nNote: No inline citations were emitted. "
-                "If this persists, tighten query.k / query.k_rerank or reduce chunk size."
-            )
-
-        print("\n" + answer)
-        print(format_sources(sources))
-        print()  # blank line between turns
-
+        run_query_turn(line, rt, state)
 
 if __name__ == "__main__":
     main()
