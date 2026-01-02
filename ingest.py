@@ -18,7 +18,12 @@ import sys
 import yaml
 import logging
 import time
+
+import threading
+import queue
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
+
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, Iterable, List, Optional, Tuple
@@ -34,11 +39,38 @@ import fitz  # PyMuPDF
 from docx import Document
 from bs4 import BeautifulSoup
 
+# -----------------------------
+# Threading Classes
+# -----------------------------
+@dataclass
+class ParseResult:
+    source_path: str
+    fp: Path
+    mtime_ns: int
+    size: int
+    file_hash: str
+    chunks: List[str]
+    ext: str
+    had_prev: bool  # whether manifest had an entry (controls delete(where))
+    ok: bool
+    err: Optional[str] = None
+
+@dataclass
+class WriteJob:
+    # One job corresponds to one file (so writer can delete/manifest-update per file)
+    source_path: str
+    fp: Path
+    mtime_ns: int
+    size: int
+    file_hash: str
+    ext: str
+    chunks: List[str]
+    embeddings: List[List[float]]
+    had_prev: bool
 
 # -----------------------------
 # Config
 # -----------------------------
-
 DEFAULT_EXTS = {
     ".txt", ".md", ".rst",
     ".pdf",
@@ -177,7 +209,6 @@ def parse_file(path: Path) -> str:
     # Fallback best-effort
     return parse_txt(path)
 
-
 # -----------------------------
 # Chunk (simple, minimal)
 # -----------------------------
@@ -254,38 +285,90 @@ def make_chunk_id(source_path: str, file_hash: str, chunk_index: int) -> str:
 
 def chroma_write(collection, ids, documents, metadatas, embeddings):
     """
-    Idempotent write:
+    Idempotent write with automatic sub-batching to respect Chroma max batch size.
     - Prefer upsert (overwrite existing IDs)
-    - Fall back to add, and if add fails due to duplicates, delete IDs then add.
+    - Fall back to add (+ delete-then-add recovery)
     """
-    try:
-        # Newer Chroma clients
-        collection.upsert(
-            ids=ids, documents=documents, metadatas=metadatas, embeddings=embeddings
-        )
+    if not ids:
         return
-    except AttributeError:
-        # Older clients: no upsert
+
+    # Determine the maximum batch size allowed by Chroma.
+    # Newer chromadb exposes collection._client.get_max_batch_size()
+    # Some versions expose it on collection._client, others on collection._client._server.
+    max_bs = None
+    try:
+        max_bs = collection._client.get_max_batch_size()
+    except Exception:
         pass
 
-    try:
-        collection.add(
-            ids=ids, documents=documents, metadatas=metadatas, embeddings=embeddings
-        )
-    except Exception as e:
-        # Best-effort recovery for DuplicateIDError / conflicts:
-        try:
-            collection.delete(ids=ids)
-            collection.add(
-                ids=ids, documents=documents, metadatas=metadatas, embeddings=embeddings
-            )
-        except Exception:
-            raise e
+    # Fallback: probe via private attribute if present
+    if max_bs is None:
+        max_bs = getattr(collection, "max_batch_size", None)
 
+    # Conservative fallback if we cannot introspect
+    if not isinstance(max_bs, int) or max_bs <= 0:
+        max_bs = 4000
+
+    # Write in sub-batches
+    n = len(ids)
+    for i in range(0, n, max_bs):
+        j = min(i + max_bs, n)
+        sub_ids = ids[i:j]
+        sub_docs = documents[i:j]
+        sub_metas = metadatas[i:j]
+        sub_embs = embeddings[i:j]
+
+        # Prefer upsert if available
+        try:
+            collection.upsert(
+                ids=sub_ids,
+                documents=sub_docs,
+                metadatas=sub_metas,
+                embeddings=sub_embs,
+            )
+            continue
+        except AttributeError:
+            pass
+
+        try:
+            collection.add(
+                ids=sub_ids,
+                documents=sub_docs,
+                metadatas=sub_metas,
+                embeddings=sub_embs,
+            )
+        except Exception as e:
+            # Best-effort recovery for duplicates/conflicts
+            try:
+                collection.delete(ids=sub_ids)
+                collection.add(
+                    ids=sub_ids,
+                    documents=sub_docs,
+                    metadatas=sub_metas,
+                    embeddings=sub_embs,
+                )
+            except Exception:
+                raise e
 
 # -----------------------------
 # Main ingest pipeline
 # -----------------------------
+def parse_and_chunk_job(fp: Path, source_path: str, mtime_ns: int, size: int, fhash: str, had_prev: bool) -> ParseResult:
+    try:
+        raw_text = parse_file(fp)
+        raw_text = normalize_whitespace(raw_text)
+        if not raw_text:
+            return ParseResult(source_path, fp, mtime_ns, size, fhash, [], fp.suffix.lower(), had_prev, ok=False, err="empty_text")
+
+        chunks = chunk_text(raw_text)
+        if not chunks:
+            return ParseResult(source_path, fp, mtime_ns, size, fhash, [], fp.suffix.lower(), had_prev, ok=False, err="no_chunks")
+
+        return ParseResult(source_path, fp, mtime_ns, size, fhash, chunks, fp.suffix.lower(), had_prev, ok=True)
+
+    except Exception as e:
+        return ParseResult(source_path, fp, mtime_ns, size, fhash, [], fp.suffix.lower(), had_prev, ok=False, err=str(e))
+
 def ingest(
     roots: List[Path],
     persist_dir: Path,
@@ -306,175 +389,314 @@ def ingest(
 
     manifest = load_manifest(manifest_path)
 
-    to_add_ids: List[str] = []
-    to_add_docs: List[str] = []
-    to_add_metas: List[Dict] = []
-    to_add_embs: List[List[float]] = []
-    seen_ids: set[str] = set()
-    visited_files: set[str] = set()
-
-    start_time = time.time()
-    last_report = start_time
-    embed_seconds = 0.0
-    REPORT_EVERY_SECONDS = 1.0
-
     files = list(iter_files(roots, exts, exclude_dirs))
     total_files = len(files)
-
     print(f"[INGEST] Discovered {total_files:,} files to consider")
 
-    skipped = 0
-    added_chunks = 0
+    # ---- Queues (bounded for backpressure) ----
+    parse_out_q: "queue.Queue[Optional[ParseResult]]" = queue.Queue(maxsize=128)
+    write_q: "queue.Queue[Optional[WriteJob]]" = queue.Queue(maxsize=64)
+
+    # ---- Metrics (thread-safe) ----
+    lock = threading.Lock()
+    start_time = time.time()
+    last_report = start_time
+
+    scanned = 0
     processed = 0
-    embedded_files = 0 
+    skipped = 0
+    embedded_files = 0
+    added_chunks = 0
+    embed_seconds = 0.0
+    written_chunks = 0
 
-    for fp in files:
-        source_path = canonical_path(fp)
+    REPORT_EVERY_SECONDS = 1.0
 
-        fp_key = source_path
-        if fp_key in visited_files:
-            continue
-        visited_files.add(fp_key)
-        processed += 1
+    # ---- Writer thread (sole Chroma owner) ----
+    def writer_thread():
+        nonlocal written_chunks, added_chunks, embedded_files
 
-        key = source_path
+        to_add_ids: List[str] = []
+        to_add_docs: List[str] = []
+        to_add_metas: List[Dict] = []
+        to_add_embs: List[List[float]] = []
+        seen_ids: set[str] = set()
 
-        try:
-            st = fp.stat()
-            mtime_ns = st.st_mtime_ns
-            size = st.st_size
-        except Exception:
-            skipped += 1
-            continue
+        while True:
+            job = write_q.get()
+            if job is None:
+                break
 
-        prev = manifest.get(key)
-        # Fast skip on mtime if unchanged
-        if prev and prev.get("mtime_ns") == mtime_ns \
-            and prev.get("size") == size \
-            and prev.get("file_hash"):
-            skipped += 1
-            continue
+            # Delete prior chunks only if the file previously existed in the manifest
+            if job.had_prev:
+                try:
+                    collection.delete(where={"source_path": job.source_path})
+                except Exception:
+                    pass
 
-        # Hash file to detect change robustly
-        try:
-            fhash = file_sha256(fp)
-        except Exception:
-            skipped += 1
-            continue
+            ingested_at = now_iso()
 
-        if prev and prev.get("file_hash") == fhash:
-            # mtime changed but content hash same
-            manifest[key] = {"mtime_ns": mtime_ns, "size": size, "file_hash": fhash, "updated_at": now_iso()}
-            continue
+            # Stage chunks
+            for idx, (chunk, emb) in enumerate(zip(job.chunks, job.embeddings)):
+                chunk_id = make_chunk_id(job.source_path, job.file_hash, idx)
+                if chunk_id in seen_ids:
+                    continue
+                seen_ids.add(chunk_id)
 
-        # Parse
-        try:
-            raw_text = parse_file(fp)
-        except Exception as e:
-            print(f"[WARN] parse failed: {fp} ({e})", file=sys.stderr)
-            skipped += 1
-            continue
+                meta = {
+                    "source_path": job.source_path,
+                    "source_name": job.fp.name,
+                    "ext": job.ext,
+                    "mtime_ns": job.mtime_ns,
+                    "file_hash": job.file_hash,
+                    "chunk_index": idx,
+                    "ingested_at": ingested_at,
+                }
 
-        raw_text = normalize_whitespace(raw_text)
-        if not raw_text:
-            skipped += 1
-            continue
+                to_add_ids.append(chunk_id)
+                to_add_docs.append(chunk)
+                to_add_metas.append(meta)
+                to_add_embs.append(emb)
 
-        chunks = chunk_text(raw_text)
-        if not chunks:
-            skipped += 1
-            continue
-
-        embedded_files += 1
-
-        if prev:
-            try:
-                collection.delete(where={"source_path": source_path})
-            except Exception:
-                pass
-
-        # Embed + stage for add
-        # Batch embedding for speed
-        t0 = time.time()
-        embeddings = model.encode(chunks, batch_size=batch_size,
-                                  show_progress_bar=False, normalize_embeddings=True)
-        embed_seconds += (time.time() - t0)
-
-        ingested_at = now_iso()
-        for idx, (chunk, emb) in enumerate(zip(chunks, embeddings)):
-            chunk_id = make_chunk_id(source_path, fhash, idx)
-            if chunk_id in seen_ids:
-                continue
-            seen_ids.add(chunk_id)
-
-            meta = {
-                "source_path": source_path,
-                "source_name": fp.name,
-                "ext": fp.suffix.lower(),
-                "mtime_ns": mtime_ns,
-                "file_hash": fhash,
-                "chunk_index": idx,
-                "ingested_at": ingested_at,
+            # Update manifest only after staging (write will happen soon)
+            # We update again after the final successful flush below.
+            # (If you want strict "only after persisted", move this into flush-success branch.)
+            manifest[job.source_path] = {
+                "mtime_ns": job.mtime_ns,
+                "size": job.size,
+                "file_hash": job.file_hash,
+                "updated_at": now_iso(),
             }
-            to_add_ids.append(chunk_id)
-            to_add_docs.append(chunk)
-            to_add_metas.append(meta)
-            to_add_embs.append(emb.tolist())
 
-        manifest[key] = {"mtime_ns": mtime_ns, "size": size, "file_hash": fhash, "updated_at": now_iso()}
+            # Flush
+            if len(to_add_ids) >= chroma_flush_interval:
+                if not dry_run:
+                    chroma_write(collection, to_add_ids, to_add_docs, to_add_metas, to_add_embs)
 
-        added_chunks += len(chunks)
+                with lock:
+                    written_chunks += len(to_add_ids)
 
-        # Flush periodically to avoid huge RAM usage
-        if len(to_add_ids) >= chroma_flush_interval:
+                to_add_ids, to_add_docs, to_add_metas, to_add_embs = [], [], [], []
+                seen_ids.clear()
+
+        # Final flush
+        if to_add_ids:
             if not dry_run:
-                chroma_write(collection,
-                             ids=to_add_ids,
-                             documents=to_add_docs,
-                             metadatas=to_add_metas,
-                             embeddings=to_add_embs)
-            to_add_ids, to_add_docs, to_add_metas, to_add_embs = [], [], [], []
-            seen_ids.clear()
-        
-        # Periodic progress report
+                chroma_write(collection, to_add_ids, to_add_docs, to_add_metas, to_add_embs)
+            with lock:
+                written_chunks += len(to_add_ids)
+
+    wt = threading.Thread(target=writer_thread, daemon=True)
+    wt.start()
+
+    # ---- Embed worker (single GPU consumer; batches across files) ----
+    def embed_worker():
+        nonlocal embed_seconds, embedded_files, added_chunks
+
+        pending: List[ParseResult] = []
+        pending_chunk_count = 0
+        MAX_CHUNKS_PER_GPU_BATCH = max(batch_size * 16, 1024)  # tune: larger => better GPU utilization
+
+        def flush_pending():
+            nonlocal embed_seconds, embedded_files, added_chunks
+            if not pending:
+                return
+
+            # Flatten chunks
+            all_chunks: List[str] = []
+            offsets: List[Tuple[int, int]] = []  # (start, end) per file
+            cursor = 0
+            for pr in pending:
+                start = cursor
+                all_chunks.extend(pr.chunks)
+                cursor += len(pr.chunks)
+                offsets.append((start, cursor))
+
+            # GPU embed
+            t0 = time.time()
+            embs = model.encode(
+                all_chunks,
+                batch_size=batch_size,
+                show_progress_bar=False,
+                normalize_embeddings=True,
+            )
+            dt = time.time() - t0
+
+            # Convert to list-of-lists efficiently
+            # sentence-transformers returns numpy ndarray by default
+            embs_list: List[List[float]] = embs.tolist()
+
+            with lock:
+                embed_seconds += dt
+
+            # Emit per-file write jobs
+            for pr, (a, b) in zip(pending, offsets):
+                wj = WriteJob(
+                    source_path=pr.source_path,
+                    fp=pr.fp,
+                    mtime_ns=pr.mtime_ns,
+                    size=pr.size,
+                    file_hash=pr.file_hash,
+                    ext=pr.ext,
+                    chunks=pr.chunks,
+                    embeddings=embs_list[a:b],
+                    had_prev=pr.had_prev,
+                )
+                write_q.put(wj)
+
+                with lock:
+                    embedded_files += 1
+                    added_chunks += len(pr.chunks)
+
+            pending.clear()
+
+        while True:
+            pr = parse_out_q.get()
+            if pr is None:
+                break
+
+            if not pr.ok:
+                with lock:
+                    pass
+                continue
+
+            pending.append(pr)
+            pending_chunk_count += len(pr.chunks)
+
+            if pending_chunk_count >= MAX_CHUNKS_PER_GPU_BATCH:
+                flush_pending()
+                pending_chunk_count = 0
+
+        # Flush remaining
+        flush_pending()
+
+        # Signal writer shutdown
+        write_q.put(None)
+
+    et = threading.Thread(target=embed_worker, daemon=True)
+    et.start()
+
+    # ---- Parse thread pool ----
+    # Good starting point: 4–12 threads. PDFs are expensive; too many threads can thrash disk.
+    parse_workers = min(12, max(4, (os.cpu_count() or 8) // 2))
+
+    def maybe_report():
+        nonlocal last_report
         now = time.time()
-        if (now - last_report) >= REPORT_EVERY_SECONDS:
-            elapsed = now  - start_time
+        if (now - last_report) < REPORT_EVERY_SECONDS:
+            return
+        elapsed = now - start_time
+
+        with lock:
             rate = processed / elapsed if elapsed > 0 else 0.0
             remaining = total_files - processed
-
-            chunk_rate = (added_chunks / embed_seconds) if embed_seconds > 0 else 0.0
             eta = (remaining / rate) if rate > 0 else float("inf")
+            chunk_rate = (added_chunks / embed_seconds) if embed_seconds > 0 else 0.0
+            wc = written_chunks
 
-            print(
-                f"[INGEST] scanned={scanned:,}/{total_files:,} files  "
-                f"processed={processed:,}  embedded={embedded_files:,}  "
-                f"added chunks={added_chunks:,}  "
-                f"skipped={skipped:,}  "
-                f"rate={rate:0.2f} files/sec  "
-                f"embed={chunk_rate:0.1f} chunks/sec  "
-                f"elapsed={format_time(elapsed)}  ETA={format_time(eta)}"
-            )
-            last_report = now
+        print(
+            f"[INGEST] processed={processed:,}/{total_files:,}  "
+            f"skipped={skipped:,}  "
+            f"embedded files={embedded_files:,}  "
+            f"chunks added={added_chunks:,}  "
+            f"chunks written={wc:,}  "
+            f"file rate={rate:0.2f} files/sec  "
+            f"embed={chunk_rate:0.1f} chunks/sec  "
+            f"elapsed={format_time(elapsed)}  ETA={format_time(eta)}"
+        )
+        last_report = now
 
+    with ThreadPoolExecutor(max_workers=parse_workers) as pool:
+        futures = []
 
-    # Final flush
-    if to_add_ids:
-        if not dry_run:
-            chroma_write(collection,
-                         ids=to_add_ids,
-                         documents=to_add_docs,
-                         metadatas=to_add_metas,
-                         embeddings=to_add_embs)
+        for fp in files:
+            scanned += 1
+            source_path = canonical_path(fp)
+            key = source_path
+
+            # Stat
+            try:
+                st = fp.stat()
+                mtime_ns = st.st_mtime_ns
+                size = st.st_size
+            except Exception:
+                skipped += 1
+                processed += 1
+                continue
+
+            prev = manifest.get(key)
+
+            # Fast skip on (mtime,size) + hash present
+            if prev and prev.get("mtime_ns") == mtime_ns and prev.get("size") == size and prev.get("file_hash"):
+                skipped += 1
+                processed += 1
+                maybe_report()
+                continue
+
+            # Hash only when needed
+            try:
+                fhash = file_sha256(fp)
+            except Exception:
+                skipped += 1
+                processed += 1
+                maybe_report()
+                continue
+
+            if prev and prev.get("file_hash") == fhash:
+                # content unchanged, update manifest
+                manifest[key] = {"mtime_ns": mtime_ns, "size": size, "file_hash": fhash, "updated_at": now_iso()}
+                skipped += 1
+                processed += 1
+                maybe_report()
+                continue
+
+            had_prev = prev is not None
+
+            # Submit parse/chunk to pool
+            futures.append(pool.submit(parse_and_chunk_job, fp, source_path, mtime_ns, size, fhash, had_prev))
+            processed += 1
+
+            # Drain completed futures opportunistically to keep memory stable
+            if len(futures) >= parse_workers * 4:
+                done = [f for f in futures if f.done()]
+                for f in done:
+                    futures.remove(f)
+                    pr = f.result()
+                    if not pr.ok:
+                        skipped += 1
+                    else:
+                        parse_out_q.put(pr)
+                maybe_report()
+
+        # Drain remaining parse futures
+        for f in futures:
+            pr = f.result()
+            if not pr.ok:
+                skipped += 1
+            else:
+                parse_out_q.put(pr)
+            maybe_report()
+
+    # Signal embedder shutdown
+    parse_out_q.put(None)
+
+    # Wait for threads
+    et.join()
+    wt.join()
 
     if not dry_run:
         save_manifest(manifest_path, manifest)
 
+    elapsed = time.time() - start_time
     print(
         f"Done.\n"
-        f"  scanned files:   {scanned}\n"
+        f"  total files:     {total_files}\n"
+        f"  processed files: {processed}\n"
         f"  skipped files:   {skipped}\n"
-        f"  added chunks:    {added_chunks}\n"
+        f"  embedded files:  {embedded_files}\n"
+        f"  chunks added:    {added_chunks}\n"
+        f"  chunks written:  {written_chunks}\n"
+        f"  elapsed:         {format_time(elapsed)}\n"
         f"  chroma dir:      {persist_dir}\n"
         f"  collection:      {collection_name}\n"
         f"  manifest:        {manifest_path}\n"
