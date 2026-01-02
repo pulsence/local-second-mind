@@ -57,3 +57,4 @@
 
 # Todo Later:
 - Can ChatGPT Plus account be linked with API account, so I can pull the Plus context into my local context
+- Detect when OCR needs to be done on PDF and do so

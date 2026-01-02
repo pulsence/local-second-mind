@@ -414,13 +414,37 @@ def ingest(
 
     # ---- Writer thread (sole Chroma owner) ----
     def writer_thread():
-        nonlocal written_chunks, added_chunks, embedded_files
+        nonlocal written_chunks
 
         to_add_ids: List[str] = []
         to_add_docs: List[str] = []
         to_add_metas: List[Dict] = []
         to_add_embs: List[List[float]] = []
         seen_ids: set[str] = set()
+
+        # Manifest updates are committed only after a successful chroma_write flush.
+        pending_manifest_updates: Dict[str, Dict] = {}
+
+        def flush():
+            """Flush staged vectors to Chroma and, only on success, commit pending manifest updates."""
+            nonlocal to_add_ids, to_add_docs, to_add_metas, to_add_embs, seen_ids, pending_manifest_updates, written_chunks
+
+            if not to_add_ids:
+                return
+
+            if not dry_run:
+                # If this raises, we do NOT update the manifest.
+                chroma_write(collection, to_add_ids, to_add_docs, to_add_metas, to_add_embs)
+
+            # Commit manifest updates only after successful write (or dry_run)
+            manifest.update(pending_manifest_updates)
+            pending_manifest_updates.clear()
+
+            with lock:
+                written_chunks += len(to_add_ids)
+
+            to_add_ids, to_add_docs, to_add_metas, to_add_embs = [], [], [], []
+            seen_ids.clear()
 
         while True:
             job = write_q.get()
@@ -458,33 +482,20 @@ def ingest(
                 to_add_metas.append(meta)
                 to_add_embs.append(emb)
 
-            # Update manifest only after staging (write will happen soon)
-            # We update again after the final successful flush below.
-            # (If you want strict "only after persisted", move this into flush-success branch.)
-            manifest[job.source_path] = {
+            # Stage manifest update for this file, but do NOT commit yet
+            pending_manifest_updates[job.source_path] = {
                 "mtime_ns": job.mtime_ns,
                 "size": job.size,
                 "file_hash": job.file_hash,
                 "updated_at": now_iso(),
             }
 
-            # Flush
+            # Flush when we hit threshold
             if len(to_add_ids) >= chroma_flush_interval:
-                if not dry_run:
-                    chroma_write(collection, to_add_ids, to_add_docs, to_add_metas, to_add_embs)
-
-                with lock:
-                    written_chunks += len(to_add_ids)
-
-                to_add_ids, to_add_docs, to_add_metas, to_add_embs = [], [], [], []
-                seen_ids.clear()
+                flush()
 
         # Final flush
-        if to_add_ids:
-            if not dry_run:
-                chroma_write(collection, to_add_ids, to_add_docs, to_add_metas, to_add_embs)
-            with lock:
-                written_chunks += len(to_add_ids)
+        flush()
 
     wt = threading.Thread(target=writer_thread, daemon=True)
     wt.start()
@@ -498,7 +509,7 @@ def ingest(
         MAX_CHUNKS_PER_GPU_BATCH = max(batch_size * 16, 1024)  # tune: larger => better GPU utilization
 
         def flush_pending():
-            nonlocal embed_seconds, embedded_files, added_chunks
+            nonlocal embed_seconds, embedded_files, added_chunks, pending_chunk_count
             if not pending:
                 return
 
@@ -549,6 +560,7 @@ def ingest(
                     added_chunks += len(pr.chunks)
 
             pending.clear()
+            pending_chunk_count = 0 
 
         while True:
             pr = parse_out_q.get()
