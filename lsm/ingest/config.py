@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import json
+import os
 import yaml
 from typing import Dict
 from pathlib import Path
+from dotenv import load_dotenv
 
 # -----------------------------
 # Config
@@ -36,7 +38,12 @@ def load_config(path: Path) -> Dict:
     Load YAML or JSON config file.
     - .yaml / .yml => YAML
     - .json        => JSON
+
+    Also loads environment variables from .env file if present.
     """
+    # Load environment variables from .env file (if it exists)
+    load_dotenv()
+
     if not path.exists():
         raise FileNotFoundError(f"Config not found: {path}")
 

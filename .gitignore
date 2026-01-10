@@ -1,5 +1,6 @@
 design.md
 IMPROVEMENT_PLAN.md
+PHASE1_COMPLETE.md
 .claude_files/
 
 # Python bytecode
@@ -27,6 +28,10 @@ dist/
 config.json
 config.yaml
 config.yml
+
+# Environment variables
+.env
+.env.local
 
 # Logs
 *.log

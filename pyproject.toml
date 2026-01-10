@@ -18,6 +18,7 @@ dependencies = [
   "lxml",
   "pyyaml",
   "openai",
+  "python-dotenv",
 ]
 
 [project.scripts]

@@ -36,6 +36,8 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import yaml
 
+from dotenv import load_dotenv
+
 import chromadb
 from chromadb.config import Settings
 
@@ -79,6 +81,14 @@ class SessionState:
     last_chosen: List[Candidate] = None
     last_label_to_candidate: Dict[str, Candidate] = None
     last_debug: Dict[str, Any] = None
+
+    def __post_init__(self):
+        self.available_models = self.available_models or []
+        self.last_all_candidates = self.last_all_candidates or []
+        self.last_filtered_candidates = self.last_filtered_candidates or []
+        self.last_chosen = self.last_chosen or []
+        self.last_label_to_candidate = self.last_label_to_candidate or {}
+        self.last_debug = self.last_debug or {}
 
 @dataclass
 class Runtime:
@@ -989,7 +999,12 @@ def run_query_turn(question: str, rt: Runtime, state: SessionState) -> None:
 def load_config(path: Path) -> Dict[str, Any]:
     """
     Load YAML or JSON config file (same as ingest.py).
+
+    Also loads environment variables from .env file if present.
     """
+    # Load environment variables from .env file (if it exists)
+    load_dotenv()
+
     if not path.exists():
         raise FileNotFoundError(f"Config not found: {path}")
 
@@ -1045,8 +1060,9 @@ def normalize_config(cfg: Dict[str, Any], cfg_path: Path) -> Dict[str, Any]:
     out["persist_dir"] = (cfg_path.parent / persist_raw).resolve()
 
     # ---- OpenAI ----
+    # Try config first, then fall back to environment variable
     ocfg = cfg.get("openai", {})
-    out["openai_api_key"] = ocfg.get("api_key", None)
+    out["openai_api_key"] = ocfg.get("api_key") or os.getenv("OPENAI_API_KEY")
 
     # ---- query-specific ----
     qcfg = cfg.get("query", {})
@@ -1140,14 +1156,6 @@ def main() -> None:
             return
 
         run_query_turn(line, rt, state)
-
-def __post_init__(self):
-    self.available_models = self.available_models or []
-    self.last_all_candidates = self.last_all_candidates or []
-    self.last_filtered_candidates = self.last_filtered_candidates or []
-    self.last_chosen = self.last_chosen or []
-    self.last_label_to_candidate = self.last_label_to_candidate or {}
-    self.last_debug = self.last_debug or {}
 
 if __name__ == "__main__":
     main()

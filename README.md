@@ -80,20 +80,47 @@ Python **3.10+** is recommended.
 
 ### Dependencies
 
-Install dependencies via pip:
+Install dependencies using the package:
 
 ```bash
-pip install -r requirements.txt
+pip install -e .
+```
+
+Or install directly from pyproject.toml:
+
+```bash
+pip install chromadb sentence-transformers PyMuPDF python-docx beautifulsoup4 lxml pyyaml openai python-dotenv
 ```
 
 Key libraries include:
 
-* sentence-transformers
-* chromadb
-* PyMuPDF
-* python-docx
-* beautifulsoup4
-* openai
+* sentence-transformers (local embeddings)
+* chromadb (vector database)
+* PyMuPDF (PDF parsing)
+* python-docx (Word document parsing)
+* beautifulsoup4 (HTML parsing)
+* openai (LLM API)
+* python-dotenv (environment variable management)
+
+---
+
+### Environment Setup
+
+**IMPORTANT:** For security, API keys should be stored in environment variables, not in configuration files.
+
+1. Copy the example environment file:
+```bash
+cp .env.example .env
+```
+
+2. Edit `.env` and add your OpenAI API key:
+```bash
+OPENAI_API_KEY=your_actual_api_key_here
+```
+
+3. The `.env` file is automatically loaded when you run LSM commands. **Never commit `.env` to version control.**
+
+You can get your OpenAI API key from: https://platform.openai.com/api-keys
 
 ---
 
@@ -178,7 +205,7 @@ Supported formats:
   "dry_run": false,
 
   "openai": {
-    "api_key": "INSERT_YOUR_KEY"
+    "api_key": null
   },
 
   "query": {
@@ -201,6 +228,20 @@ Supported formats:
 }
 ```
 
+**Note on API Keys:**
+- The `openai.api_key` field should be set to `null` in your config file
+- Your actual API key should be stored in the `.env` file as `OPENAI_API_KEY`
+- The application will automatically load the key from the environment variable
+
+**Configuration Notes:**
+- `device`: Use `"cuda:0"` for GPU acceleration, `"cpu"` for CPU-only
+- `model`: Current recommended model: `"gpt-5.2"` (OpenAI's latest GPT-5 family model)
+- `k`: Number of chunks to retrieve from vector database
+- `k_rerank`: Number of chunks to keep after LLM reranking
+- `max_per_file`: Maximum chunks from any single file in final results
+
+---
+
 ## Metadata & Citations
 
 Each chunk stored in Chroma includes:
@@ -217,10 +258,20 @@ Citations in answers are derived from this metadata, allowing you to trace claim
 
 ## Typical Workflow
 
-1. Configure paths and models in config.json
-2. Run ingest to build or update the knowledge base
-3. Run query to explore your corpus interactively
-4. Re‑run ingest whenever files change
+1. **Setup:**
+   - Copy `.env.example` to `.env` and add your OpenAI API key
+   - Configure paths and models in `config.json`
+
+2. **Ingest:**
+   - Run `python -m lsm ingest --config config.json` to build or update the knowledge base
+   - The system automatically skips unchanged files
+
+3. **Query:**
+   - Run `python -m lsm query --config config.json` to explore your corpus interactively
+   - Ask questions and get answers with citations
+
+4. **Maintain:**
+   - Re-run ingest whenever files change to keep your knowledge base up to date
 
 ## Design Philosophy
 
@@ -237,4 +288,4 @@ TBD
 
 ## License
 
-Private / internal project. License to be defined.
+See LICENSE
