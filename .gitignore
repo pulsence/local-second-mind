@@ -1,3 +1,7 @@
+design.md
+IMPROVEMENT_PLAN.md
+.claude_files/
+
 # Python bytecode
 __pycache__/
 *.py[cod]

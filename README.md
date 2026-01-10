@@ -6,6 +6,14 @@ It is optimized for **heterogeneous, evolving document collections** (PDFs, Word
 
 ---
 
+## Caveat Emptor
+
+This project was primarily created for my personal use. I will not be responding to pull requests or issues unless they directly impact my use cases.
+
+I generated this tool primarily using an AI code assistant and so all the code branches are not explored or tested, but they should be fairly correct.
+
+---
+
 ## Core Goals
 
 * Maintain a **living knowledge base** from local files
