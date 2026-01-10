@@ -1,5 +1,17 @@
-"""CLI utilities for Local Second Mind."""
+"""
+CLI utilities for Local Second Mind.
 
-from .logging import setup_logging, get_logger
+Provides logging setup and other CLI-related functionality.
+"""
 
-__all__ = ["setup_logging", "get_logger"]
+from .logging import (
+    setup_logging,
+    get_logger,
+    configure_logging_from_args,
+)
+
+__all__ = [
+    "setup_logging",
+    "get_logger",
+    "configure_logging_from_args",
+]

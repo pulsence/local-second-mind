@@ -1,35 +1,70 @@
+"""
+CLI entry point for the ingest command.
+
+Loads configuration and orchestrates the ingest pipeline.
+"""
+
 from __future__ import annotations
 
 from pathlib import Path
 
-from lsm.ingest.config import load_config, normalize_config
+from lsm.config import load_config_from_file
+from lsm.cli.logging import get_logger
 from lsm.ingest.pipeline import ingest
 
-def main(config_path: str) -> int:
+logger = get_logger(__name__)
+
+
+def main(config_path: str | Path) -> int:
+    """
+    Run the ingest pipeline.
+
+    Args:
+        config_path: Path to configuration file
+
+    Returns:
+        Exit code (0 for success)
+
+    Raises:
+        FileNotFoundError: If config file doesn't exist
+        ValueError: If configuration is invalid
+    """
+    # Convert to Path and resolve
     cfg_path = Path(config_path).expanduser().resolve()
 
     if not cfg_path.exists():
+        logger.error(f"Config file not found: {cfg_path}")
         raise FileNotFoundError(
             f"Ingest config not found: {cfg_path}\n"
             f"Either create it or pass --config explicitly."
         )
 
-    cfg = load_config(cfg_path)
-    cfg = normalize_config(cfg, cfg_path)
+    # Load and validate configuration
+    logger.info(f"Loading configuration from: {cfg_path}")
+    config = load_config_from_file(cfg_path)
 
-    print(f"[INGEST] Starting ingest with config:\n{cfg}")
+    logger.info(f"Ingest configuration:")
+    logger.info(f"  Roots: {config.ingest.roots}")
+    logger.info(f"  Collection: {config.collection}")
+    logger.info(f"  Embed model: {config.embed_model}")
+    logger.info(f"  Device: {config.device}")
+    logger.info(f"  Extensions: {len(config.ingest.exts)} types")
+    logger.info(f"  Dry run: {config.ingest.dry_run}")
 
+    # Run ingest pipeline
     ingest(
-        roots=cfg["roots"],
-        persist_dir=cfg["persist_dir"],
-        chroma_flush_interval=cfg["chroma_flush_interval"],
-        collection_name=cfg["collection"],
-        embed_model_name=cfg["embed_model"],
-        device=cfg["device"],
-        batch_size=cfg["batch_size"],
-        manifest_path=cfg["manifest"],
-        exts=cfg["exts"],
-        exclude_dirs=cfg["exclude_dirs"],
-        dry_run=cfg["dry_run"],
+        roots=config.ingest.roots,
+        persist_dir=config.persist_dir,
+        chroma_flush_interval=config.ingest.chroma_flush_interval,
+        collection_name=config.collection,
+        embed_model_name=config.embed_model,
+        device=config.device,
+        batch_size=config.batch_size,
+        manifest_path=config.ingest.manifest,
+        exts=config.ingest.exts,
+        exclude_dirs=config.ingest.exclude_set,
+        dry_run=config.ingest.dry_run,
     )
+
+    logger.info("Ingest completed successfully")
     return 0
