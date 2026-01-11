@@ -66,6 +66,12 @@ def build_parser() -> argparse.ArgumentParser:
         description="Scan directories, parse documents, and build vector database.",
     )
     ingest_parser.add_argument(
+        "--interactive",
+        "-i",
+        action="store_true",
+        help="Start interactive ingest management REPL",
+    )
+    ingest_parser.add_argument(
         "--dry-run",
         action="store_true",
         help="Simulate ingest without writing to database",

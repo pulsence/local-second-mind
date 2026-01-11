@@ -2,11 +2,13 @@
 CLI entry point for the ingest command.
 
 Loads configuration and orchestrates the ingest pipeline.
+Supports both batch mode (run ingest once) and interactive mode (REPL).
 """
 
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Optional
 
 from lsm.config import load_config_from_file
 from lsm.cli.logging import get_logger
@@ -15,12 +17,13 @@ from lsm.ingest.pipeline import ingest
 logger = get_logger(__name__)
 
 
-def main(config_path: str | Path) -> int:
+def main(config_path: str | Path, interactive: bool = False) -> int:
     """
     Run the ingest pipeline.
 
     Args:
         config_path: Path to configuration file
+        interactive: If True, start interactive REPL mode
 
     Returns:
         Exit code (0 for success)
@@ -51,23 +54,29 @@ def main(config_path: str | Path) -> int:
     logger.info(f"  Extensions: {len(config.ingest.exts)} types")
     logger.info(f"  Dry run: {config.ingest.dry_run}")
 
-    # Run ingest pipeline
-    ingest(
-        roots=config.ingest.roots,
-        persist_dir=config.persist_dir,
-        chroma_flush_interval=config.ingest.chroma_flush_interval,
-        collection_name=config.collection,
-        embed_model_name=config.embed_model,
-        device=config.device,
-        batch_size=config.batch_size,
-        manifest_path=config.ingest.manifest,
-        exts=config.ingest.exts,
-        exclude_dirs=config.ingest.exclude_set,
-        dry_run=config.ingest.dry_run,
-        enable_ocr=config.ingest.enable_ocr,
-        chunk_size=config.ingest.chunk_size,
-        chunk_overlap=config.ingest.chunk_overlap,
-    )
+    # Run interactive REPL or batch ingest
+    if interactive:
+        logger.info("Starting interactive ingest REPL...")
+        from lsm.ingest.repl import run_ingest_repl
+        return run_ingest_repl(config)
+    else:
+        # Run ingest pipeline
+        ingest(
+            roots=config.ingest.roots,
+            persist_dir=config.persist_dir,
+            chroma_flush_interval=config.ingest.chroma_flush_interval,
+            collection_name=config.collection,
+            embed_model_name=config.embed_model,
+            device=config.device,
+            batch_size=config.batch_size,
+            manifest_path=config.ingest.manifest,
+            exts=config.ingest.exts,
+            exclude_dirs=config.ingest.exclude_set,
+            dry_run=config.ingest.dry_run,
+            enable_ocr=config.ingest.enable_ocr,
+            chunk_size=config.ingest.chunk_size,
+            chunk_overlap=config.ingest.chunk_overlap,
+        )
 
-    logger.info("Ingest completed successfully")
-    return 0
+        logger.info("Ingest completed successfully")
+        return 0

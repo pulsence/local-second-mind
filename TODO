@@ -1,4 +1,8 @@
 # Todo
+## General
+- Check for legacy files no longer used
+- Check for legacy/backwards capatability code and remove
+- Adjust test suite to comprehensively cover the code base
 ## Infrastructure
 - Add testing
 - Merge the different CLI tools into one tool and refactor out the current cli as api modules
