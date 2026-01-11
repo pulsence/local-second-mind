@@ -19,6 +19,8 @@ dependencies = [
   "pyyaml",
   "openai",
   "python-dotenv",
+  "pytesseract",  # For OCR support
+  "Pillow",       # For image handling
 ]
 
 [project.optional-dependencies]

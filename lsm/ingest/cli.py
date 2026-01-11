@@ -64,6 +64,9 @@ def main(config_path: str | Path) -> int:
         exts=config.ingest.exts,
         exclude_dirs=config.ingest.exclude_set,
         dry_run=config.ingest.dry_run,
+        enable_ocr=config.ingest.enable_ocr,
+        chunk_size=config.ingest.chunk_size,
+        chunk_overlap=config.ingest.chunk_overlap,
     )
 
     logger.info("Ingest completed successfully")

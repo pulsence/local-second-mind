@@ -21,21 +21,106 @@ from lsm.ingest.utils import canonical_path, file_sha256, now_iso, normalize_whi
 # -----------------------------
 # Main ingest pipeline
 # -----------------------------
-def parse_and_chunk_job(fp: Path, source_path: str, mtime_ns: int, size: int, fhash: str, had_prev: bool) -> ParseResult:
+def parse_and_chunk_job(
+    fp: Path,
+    source_path: str,
+    mtime_ns: int,
+    size: int,
+    fhash: str,
+    had_prev: bool,
+    enable_ocr: bool = False,
+    chunk_size: int = 1800,
+    chunk_overlap: int = 200,
+) -> ParseResult:
+    """
+    Parse a file, extract metadata, chunk the text, and track positions.
+
+    Args:
+        fp: Path to file
+        source_path: Canonical source path
+        mtime_ns: Modified time in nanoseconds
+        size: File size in bytes
+        fhash: SHA-256 hash of file
+        had_prev: Whether file was previously ingested
+        enable_ocr: Enable OCR for image-based PDFs
+        chunk_size: Chunk size in characters
+        chunk_overlap: Chunk overlap in characters
+
+    Returns:
+        ParseResult with text chunks, metadata, and positions
+    """
     try:
-        raw_text = parse_file(fp)
+        # Parse file and extract metadata
+        raw_text, doc_metadata = parse_file(fp, enable_ocr=enable_ocr)
+
+        # Normalize whitespace
         raw_text = normalize_whitespace(raw_text)
+
         if not raw_text:
-            return ParseResult(source_path, fp, mtime_ns, size, fhash, [], fp.suffix.lower(), had_prev, ok=False, err="empty_text")
+            return ParseResult(
+                source_path=source_path,
+                fp=fp,
+                mtime_ns=mtime_ns,
+                size=size,
+                file_hash=fhash,
+                chunks=[],
+                ext=fp.suffix.lower(),
+                had_prev=had_prev,
+                ok=False,
+                err="empty_text",
+                metadata=doc_metadata,
+            )
 
-        chunks = chunk_text(raw_text)
+        # Chunk text and track positions
+        chunks, positions = chunk_text(
+            raw_text,
+            chunk_size=chunk_size,
+            overlap=chunk_overlap,
+            track_positions=True
+        )
+
         if not chunks:
-            return ParseResult(source_path, fp, mtime_ns, size, fhash, [], fp.suffix.lower(), had_prev, ok=False, err="no_chunks")
+            return ParseResult(
+                source_path=source_path,
+                fp=fp,
+                mtime_ns=mtime_ns,
+                size=size,
+                file_hash=fhash,
+                chunks=[],
+                ext=fp.suffix.lower(),
+                had_prev=had_prev,
+                ok=False,
+                err="no_chunks",
+                metadata=doc_metadata,
+            )
 
-        return ParseResult(source_path, fp, mtime_ns, size, fhash, chunks, fp.suffix.lower(), had_prev, ok=True)
+        return ParseResult(
+            source_path=source_path,
+            fp=fp,
+            mtime_ns=mtime_ns,
+            size=size,
+            file_hash=fhash,
+            chunks=chunks,
+            ext=fp.suffix.lower(),
+            had_prev=had_prev,
+            ok=True,
+            metadata=doc_metadata,
+            chunk_positions=positions,
+        )
 
     except Exception as e:
-        return ParseResult(source_path, fp, mtime_ns, size, fhash, [], fp.suffix.lower(), had_prev, ok=False, err=str(e))
+        return ParseResult(
+            source_path=source_path,
+            fp=fp,
+            mtime_ns=mtime_ns,
+            size=size,
+            file_hash=fhash,
+            chunks=[],
+            ext=fp.suffix.lower(),
+            had_prev=had_prev,
+            ok=False,
+            err=str(e),
+        )
 
 def ingest(
     roots: List[Path],
@@ -49,6 +134,9 @@ def ingest(
     exts: set[str],
     exclude_dirs: set[str],
     dry_run: bool = False,
+    enable_ocr: bool = False,
+    chunk_size: int = 1800,
+    chunk_overlap: int = 200,
 ) -> None:
     collection = get_chroma_collection(persist_dir, collection_name)
 
@@ -135,6 +223,7 @@ def ingest(
                     continue
                 seen_ids.add(chunk_id)
 
+                # Base metadata
                 meta = {
                     "source_path": job.source_path,
                     "source_name": job.fp.name,
@@ -144,6 +233,20 @@ def ingest(
                     "chunk_index": idx,
                     "ingested_at": ingested_at,
                 }
+
+                # Merge document-level metadata
+                if job.metadata:
+                    for key, value in job.metadata.items():
+                        # Avoid overwriting base fields
+                        if key not in meta and value is not None:
+                            meta[key] = value
+
+                # Add position information
+                if job.chunk_positions and idx < len(job.chunk_positions):
+                    pos = job.chunk_positions[idx]
+                    meta["start_char"] = pos.get("start_char")
+                    meta["end_char"] = pos.get("end_char")
+                    meta["chunk_length"] = pos.get("length")
 
                 to_add_ids.append(chunk_id)
                 to_add_docs.append(chunk)
@@ -220,6 +323,8 @@ def ingest(
                     chunks=pr.chunks,
                     embeddings=embs_list[a:b],
                     had_prev=pr.had_prev,
+                    metadata=pr.metadata,
+                    chunk_positions=pr.chunk_positions,
                 )
                 write_q.put(wj)
 
@@ -333,7 +438,20 @@ def ingest(
             had_prev = prev is not None
 
             # Submit parse/chunk to pool
-            futures.append(pool.submit(parse_and_chunk_job, fp, source_path, mtime_ns, size, fhash, had_prev))
+            futures.append(
+                pool.submit(
+                    parse_and_chunk_job,
+                    fp,
+                    source_path,
+                    mtime_ns,
+                    size,
+                    fhash,
+                    had_prev,
+                    enable_ocr,
+                    chunk_size,
+                    chunk_overlap,
+                )
+            )
             processed += 1
 
             # Drain completed futures opportunistically to keep memory stable
