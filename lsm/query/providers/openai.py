@@ -7,6 +7,7 @@ Implements the BaseLLMProvider interface for OpenAI's API.
 from __future__ import annotations
 
 import json
+import os
 from typing import List, Dict, Any, Optional
 
 from openai import OpenAI, OpenAIError, RateLimitError
@@ -54,7 +55,9 @@ class OpenAIProvider(BaseLLMProvider):
 
     def is_available(self) -> bool:
         """Check if OpenAI is available."""
-        return self.config.api_key is not None
+        if self.config.api_key:
+            return True
+        return bool(os.getenv("OPENAI_API_KEY"))
 
     def _is_quota_error(self, error: Exception) -> bool:
         """Check if error is due to quota/rate limit."""
@@ -135,13 +138,14 @@ class OpenAIProvider(BaseLLMProvider):
         }
 
         try:
-            logger.debug(f"Requesting LLM rerank for {len(candidates)} candidates → top {k}")
+            logger.debug(f"Requesting LLM rerank for {len(candidates)} candidates -> top {k}")
 
             resp = self.client.responses.create(
                 model=self.config.model,
                 reasoning={"effort": "low"},
                 instructions=instructions,
                 input=[{"role": "user", "content": json.dumps(payload)}],
+                response_format={"type": "json_object"},
             )
 
             raw = (resp.output_text or "").strip()
