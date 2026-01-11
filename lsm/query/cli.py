@@ -1,0 +1,84 @@
+"""
+CLI entrypoint for query module.
+
+Provides clean initialization and entry to the query REPL.
+"""
+
+from __future__ import annotations
+
+from pathlib import Path
+
+from openai import OpenAI
+
+from lsm.config.models import LSMConfig
+from lsm.cli.logging import get_logger
+from .retrieval import init_collection, init_embedder
+from .repl import run_repl
+
+logger = get_logger(__name__)
+
+
+def run_query_cli(config: LSMConfig) -> int:
+    """
+    Run the query CLI with given configuration.
+
+    Args:
+        config: LSM configuration object
+
+    Returns:
+        Exit code (0 for success)
+
+    Example:
+        >>> from lsm.config import load_config_from_file
+        >>> config = load_config_from_file("config.json")
+        >>> run_query_cli(config)
+    """
+    logger.info("Starting query CLI")
+
+    # Validate configuration
+    persist_dir = Path(config.persist_dir)
+    if not persist_dir.exists():
+        logger.error(f"Persist directory does not exist: {persist_dir}")
+        print(f"Error: ChromaDB directory not found: {persist_dir}")
+        print("Run 'lsm ingest' first to create the database.")
+        return 1
+
+    # Initialize embedder
+    logger.info(f"Initializing embedder: {config.embed_model}")
+    embedder = init_embedder(config.embed_model, device=config.device)
+
+    # Initialize ChromaDB collection
+    logger.info(f"Initializing ChromaDB collection: {config.collection}")
+    collection = init_collection(persist_dir, config.collection)
+
+    # Check collection has data
+    count = collection.count()
+    if count == 0:
+        logger.warning("ChromaDB collection is empty")
+        print(f"Warning: Collection '{config.collection}' is empty.")
+        print("Run 'lsm ingest' to populate the database.")
+        return 1
+
+    logger.info(f"Collection ready with {count} chunks")
+
+    # Initialize OpenAI client
+    if config.llm.api_key:
+        client = OpenAI(api_key=config.llm.api_key)
+    else:
+        client = OpenAI()  # Uses OPENAI_API_KEY env var
+
+    logger.info("OpenAI client initialized")
+
+    # Start REPL
+    try:
+        run_repl(config, embedder, collection, client)
+    except KeyboardInterrupt:
+        print("\nInterrupted.")
+        return 0
+    except Exception as e:
+        logger.error(f"Query CLI failed: {e}", exc_info=True)
+        print(f"\nError: {e}")
+        return 1
+
+    logger.info("Query CLI exited successfully")
+    return 0
