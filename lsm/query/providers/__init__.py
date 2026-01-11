@@ -6,10 +6,12 @@ Provides a unified interface for different LLM providers (OpenAI, Anthropic, loc
 
 from .base import BaseLLMProvider
 from .openai import OpenAIProvider
-from .factory import create_provider
+from .factory import create_provider, list_available_providers, register_provider
 
 __all__ = [
     "BaseLLMProvider",
     "OpenAIProvider",
     "create_provider",
+    "list_available_providers",
+    "register_provider",
 ]
