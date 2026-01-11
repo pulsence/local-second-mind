@@ -255,8 +255,8 @@ class OpenAIProvider(BaseLLMProvider):
                 reasoning={"effort": "medium"},
                 instructions=instructions,
                 input=[{"role": "user", "content": user_content}],
-                # Note: temperature and max_tokens may not be supported by responses API
-                # Keeping them here for future compatibility
+                temperature=temperature,
+                max_output_tokens=max_tokens,
             )
 
             answer = (resp.output_text or "").strip()

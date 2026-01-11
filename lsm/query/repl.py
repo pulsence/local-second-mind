@@ -477,6 +477,8 @@ def run_query_turn(
         return
 
     # Create provider and rerank/synthesize
+    if state.model and state.model != config.llm.model:
+        config.llm.model = state.model
     provider = create_provider(config.llm)
 
     # Optional LLM rerank
