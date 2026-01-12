@@ -1,36 +1,37 @@
 # Todo
+
 ## General
-- Check for legacy files no longer used
-- Check for legacy/backwards capatability code and remove
-- Adjust test suite to comprehensively cover the code base
 - Do research on particular models for particular tasks, for example using transformers directly
 - Look into how to run models in app
+- Explore multimodal capabilities (images, audio via Whisper)
+
 ## Infrastructure
-- Add testing
-- Merge the different CLI tools into one tool and refactor out the current cli as api modules
-- Better organization to config file
-- Refactor our the config reading into DataClasses in a single module (lsm.commands)
-- Add some kind of GUI over tooling
-- Wrap OpenAI with generic wrapper to enable other service providers (Super long term)
+- Add some kind of GUI over tooling (TUI with Textual or Web UI)
+- Complete remaining documentation stubs (see docs/ folder)
+- Run full pytest suite and verify all tests pass
+
 ## Ingest
-- Detect when OCR needs to be done on PDF and do so
-- Detect authors and store that data
-- embed file position information for text
-- And post-processing step where the chunks are "pre-taged"
-- Change CLI to interactive and enable the following interactions:
-    - info on current vector db
-    - explorer for vector db
-    - wipe
-    - build (refresh or start clean)
-    - exit out to main terminal or exit program over all
-- Add embeddings model selection
-- Add remote sources
-- Add AI chuck tagging
-- Add language tagging
-- Add option to machine translate chucks
+- Add embeddings model selection (allow user to choose different embedding models)
+- Add language detection and tagging for multilingual corpora
+- Add option to machine translate chunks (for cross-language search)
+- Consider version control for chunks (track document evolution over time)
+
 ## Query
-- Refactor components out into files
-- Make clearer use of rerank modes
-- Make clearer Grounded Q&A and Corpus Insight Mode
-- Research mode that does deep research with local sources
-- Ability to load sources/chunks into a querry context
+- Complete remaining documentation for query modes, notes, remote sources
+- Add more remote source providers (Wikipedia, ArXiv, custom APIs)
+- Add cost tracking and budgeting for LLM API calls
+- Implement streaming responses for better UX on long synthesis
+- Add export citations to BibTeX/Zotero format
+- Integration with note-taking apps (Obsidian, Logseq)
+
+## Multi-Provider Support
+- Implement Anthropic Claude provider (template ready in docs/api-reference/ADDING_PROVIDERS.md)
+- Implement local model support (via Ollama or llama.cpp)
+- Implement Azure OpenAI provider
+- Add provider health checks and status monitoring
+
+## Advanced Features (Future)
+- Multi-hop reasoning for research mode
+- Performance benchmarks and optimization
+- Collaborative features (shared knowledge bases)
+- Support for larger collections (100K+ chunks with sharding strategies)
