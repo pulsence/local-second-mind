@@ -1,45 +1,124 @@
 {
+  "_comment": "Local Second Mind Configuration",
+  "_comment_roots": "Directory roots to scan for documents",
   "roots": [
     "C:\\Users\\User\\Documents",
     "D:\\Writings"
   ],
+
+  "_comment_storage": "ChromaDB storage configuration",
   "persist_dir": ".chroma",
+  "collection": "local_kb",
   "chroma_flush_interval": 2000,
 
-  "collection": "local_kb",
+  "_comment_embedding": "Embedding model configuration",
   "embed_model": "sentence-transformers/all-MiniLM-L6-v2",
   "device": "cpu",
   "batch_size": 32,
 
+  "_comment_ingest": "Ingest pipeline configuration",
   "manifest": ".ingest/manifest.json",
-
-  "extensions": [".txt", ".md", ".pdf", ".docx", ".html"],
-  "override_extensions": false,
-
-  "exclude_dirs": [".cache"],
-  "override_excludes": false,
-
+  "chunk_size": 1800,
+  "chunk_overlap": 200,
+  "enable_ocr": false,
+  "enable_ai_tagging": false,
+  "tagging_model": "gpt-5.2",
+  "tags_per_chunk": 3,
   "dry_run": false,
 
-  "openai": {
-    "api_key": "INSERT_YOUR_KEY"
+  "_comment_extensions": "File type filtering",
+  "extensions": [".txt", ".md", ".rst", ".pdf", ".docx", ".html", ".htm"],
+  "override_extensions": false,
+
+  "_comment_excludes": "Directory exclusions",
+  "exclude_dirs": [".cache", "node_modules", "__pycache__"],
+  "override_excludes": false,
+
+  "_comment_llm": "LLM provider configuration with per-feature overrides",
+  "llm": {
+    "provider": "openai",
+    "model": "gpt-5.2",
+    "api_key": "INSERT_YOUR_OPENAI_API_KEY",
+    "temperature": 0.7,
+    "max_tokens": 2000,
+
+    "_comment_query_override": "Optional: Override LLM settings for query/answer synthesis",
+    "query": {
+      "model": "gpt-5.2",
+      "temperature": 0.7,
+      "max_tokens": 2000
+    },
+
+    "_comment_tagging_override": "Optional: Override LLM settings for AI tagging (use cheaper/faster model)",
+    "tagging": {
+      "model": "gpt-4o-mini",
+      "temperature": 0.5,
+      "max_tokens": 200
+    },
+
+    "_comment_ranking_override": "Optional: Override LLM settings for AI-powered reranking",
+    "ranking": {
+      "model": "gpt-5.2",
+      "temperature": 0.3,
+      "max_tokens": 500
+    }
   },
 
+  "_comment_query": "Query pipeline configuration",
   "query": {
+    "mode": "grounded",
     "k": 12,
-    "k_rerank": 6,
-    "no_rerank": false,
-    "max_per_file": 2,
-    "local_pool": 36,
-
-    "model": "gpt-5.2",
-
+    "retrieve_k": null,
     "min_relevance": 0.25,
+    "k_rerank": 6,
+    "rerank_strategy": "hybrid",
+    "no_rerank": false,
+    "local_pool": null,
+    "max_per_file": 2,
 
-    "path_contains": ["\\Research\\"],
-    "ext_allow": [".md", ".pdf"],
-    "ext_deny": [".docx"],
+    "_comment_filters": "Optional query filters (can be overridden per-session in REPL)",
+    "path_contains": null,
+    "ext_allow": null,
+    "ext_deny": null
+  },
 
-    "retrieve_k": 36
+  "_comment_modes": "Query mode definitions (grounded/insight/hybrid built-in, add custom modes here)",
+  "modes": {
+    "research": {
+      "synthesis_style": "grounded",
+      "source_policy": {
+        "local": {
+          "min_relevance": 0.20,
+          "k": 15,
+          "k_rerank": 8
+        },
+        "remote": {
+          "enabled": true,
+          "rank_strategy": "weighted",
+          "max_results": 10
+        },
+        "model_knowledge": {
+          "enabled": true,
+          "require_label": true
+        }
+      },
+      "notes": {
+        "enabled": true,
+        "dir": "research_notes",
+        "template": "default",
+        "filename_format": "timestamp"
+      }
+    }
+  },
+
+  "_comment_remote_providers": "Remote source providers (web search, APIs, etc.)",
+  "remote_providers": {
+    "brave": {
+      "type": "web_search",
+      "enabled": true,
+      "weight": 1.0,
+      "api_key": "INSERT_YOUR_BRAVE_API_KEY",
+      "max_results": 5
+    }
   }
 }
