@@ -2,6 +2,7 @@
 CLI glue for `lsm query`.
 
 Routes to the new modular query implementation.
+Supports both interactive REPL and single-shot query modes.
 """
 
 from __future__ import annotations
@@ -10,6 +11,7 @@ from pathlib import Path
 from typing import Any
 
 from lsm.config import load_config_from_file
+from lsm.config.models import LSMConfig
 from lsm.cli.logging import get_logger
 
 logger = get_logger(__name__)
@@ -61,5 +63,80 @@ def run_query(args: Any) -> int:
     logger.debug(f"  Retrieval: k={config.query.k}")
     logger.debug(f"  Mode: {config.query.mode}")
 
-    # Run query CLI with new modular system
-    return run_query_cli(config)
+    # Check if single-shot mode (question provided and not interactive)
+    is_interactive = getattr(args, 'interactive', False)
+    question = getattr(args, 'question', None)
+
+    if not is_interactive and question:
+        # Single-shot query mode
+        logger.info(f"Running single-shot query: {question}")
+        return run_single_shot_query(config, question)
+    else:
+        # Interactive REPL mode
+        logger.info("Starting interactive query REPL")
+        return run_query_cli(config)
+
+
+def run_single_shot_query(config: LSMConfig, question: str) -> int:
+    """
+    Run a single query and exit.
+
+    Args:
+        config: LSM configuration
+        question: Question to ask
+
+    Returns:
+        Exit code (0 for success)
+    """
+    from lsm.query.retrieval import init_collection, init_embedder
+    from lsm.query.repl import run_query_turn
+    from lsm.query.session import SessionState
+    from openai import OpenAI
+
+    try:
+        # Initialize embedder
+        logger.info(f"Initializing embedder: {config.embed_model}")
+        embedder = init_embedder(config.embed_model, device=config.device)
+
+        # Initialize ChromaDB collection
+        persist_dir = Path(config.persist_dir)
+        if not persist_dir.exists():
+            print(f"Error: ChromaDB directory not found: {persist_dir}")
+            print("Run 'lsm ingest' first to create the database.")
+            return 1
+
+        logger.info(f"Initializing ChromaDB collection: {config.collection}")
+        collection = init_collection(persist_dir, config.collection)
+
+        # Check collection has data
+        count = collection.count()
+        if count == 0:
+            print(f"Warning: Collection '{config.collection}' is empty.")
+            print("Run 'lsm ingest' to populate the database.")
+            return 1
+
+        logger.info(f"Collection ready with {count} chunks")
+
+        # Initialize OpenAI client
+        if config.llm.api_key:
+            client = OpenAI(api_key=config.llm.api_key)
+        else:
+            client = OpenAI()  # Uses OPENAI_API_KEY env var
+
+        # Initialize session state
+        state = SessionState(
+            path_contains=config.query.path_contains,
+            ext_allow=config.query.ext_allow,
+            ext_deny=config.query.ext_deny,
+            model=config.llm.model,
+        )
+
+        # Run single query
+        run_query_turn(question, config, state, embedder, collection)
+
+        return 0
+
+    except Exception as e:
+        logger.error(f"Single-shot query failed: {e}", exc_info=True)
+        print(f"\nError: {e}")
+        return 1

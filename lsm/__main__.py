@@ -88,12 +88,23 @@ def build_parser() -> argparse.ArgumentParser:
     query_parser = subparsers.add_parser(
         "query",
         help="Query the knowledge base",
-        description="Interactively search and ask questions about your documents.",
+        description="Search and ask questions about your documents.",
+    )
+    query_parser.add_argument(
+        "question",
+        nargs="?",
+        help="Question to ask (if omitted, starts interactive mode)",
+    )
+    query_parser.add_argument(
+        "--interactive",
+        "-i",
+        action="store_true",
+        help="Start interactive query REPL (ignores question argument)",
     )
     query_parser.add_argument(
         "--mode",
-        choices=["grounded", "insight"],
-        help="Query mode: grounded (strict citations) or insight (thematic analysis)",
+        choices=["grounded", "insight", "hybrid"],
+        help="Query mode: grounded (strict citations), insight (thematic), or hybrid",
     )
     query_parser.add_argument(
         "--model",
@@ -113,36 +124,6 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def interactive_select_command() -> str:
-    """
-    Prompt user to select a command interactively.
-
-    Returns:
-        Command name ('ingest' or 'query')
-
-    Raises:
-        SystemExit: If user provides invalid choice
-    """
-    print("\n╔═══════════════════════════════════════╗")
-    print("║      Local Second Mind (LSM)          ║")
-    print("╚═══════════════════════════════════════╝\n")
-    print("Select a command:")
-    print("  1) ingest  – Ingest/update local documents")
-    print("  2) query   – Query the knowledge base")
-    print("  0) exit    – Exit\n")
-
-    while True:
-        choice = input("Enter choice [1/2/0]: ").strip()
-
-        if choice == "1":
-            return "ingest"
-        elif choice == "2":
-            return "query"
-        elif choice == "0":
-            print("Goodbye!")
-            raise SystemExit(0)
-        else:
-            print("Invalid choice. Please enter 1, 2, or 0.")
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -168,20 +149,41 @@ def main(argv: list[str] | None = None) -> int:
     logger = get_logger(__name__)
     logger.debug(f"Parsed arguments: {args}")
 
-    # Interactive mode if no command specified
-    if not args.command:
-        command = interactive_select_command()
-        # Create a new namespace with the selected command
-        args.command = command
+    # Load configuration
+    cfg_path = Path(args.config).expanduser().resolve()
+    if not cfg_path.exists():
+        logger.error(f"Config file not found: {cfg_path}")
+        print(f"Error: Configuration file not found: {cfg_path}")
+        print("Create a config.json file or use --config to specify a different path.")
+        return 1
 
-    # Dispatch to appropriate command
+    logger.info(f"Loading configuration from: {cfg_path}")
+    from lsm.config import load_config_from_file
+    config = load_config_from_file(cfg_path)
+
+    # Unified interactive shell if no command specified
+    if not args.command:
+        logger.info("Starting unified interactive shell")
+        from lsm.cli.shell import run_unified_shell
+        return run_unified_shell(config)
+
+    # Dispatch to appropriate command (single-shot mode)
     try:
         if args.command == "ingest":
             logger.info("Starting ingest command")
-            return run_ingest(args)
+            # Check if interactive flag is set
+            if hasattr(args, 'interactive') and args.interactive:
+                # Interactive ingest REPL only
+                from lsm.ingest.repl import run_ingest_repl
+                return run_ingest_repl(config)
+            else:
+                # Single-shot ingest
+                return run_ingest(args)
 
         elif args.command == "query":
             logger.info("Starting query command")
+            # Always run as single-shot for query command
+            # The run_query function will start the query REPL
             return run_query(args)
 
         else:
