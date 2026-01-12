@@ -14,7 +14,7 @@ from typing import List, Dict, Any
 
 from openai import OpenAI
 
-from lsm.config.models import LSMConfig
+from lsm.config.models import LSMConfig, LLMConfig
 from lsm.cli.logging import get_logger
 from .session import Candidate, SessionState
 from .retrieval import embed_text, retrieve_candidates, filter_candidates, compute_relevance
@@ -33,7 +33,7 @@ logger = get_logger(__name__)
 def print_banner() -> None:
     """Print REPL welcome banner."""
     print("Interactive query mode. Type your question and press Enter.")
-    print("Commands: /exit, /help, /show S#, /expand S#, /open S#, /debug, /model, /models, /mode, /note, /load, /set, /clear\n")
+    print("Commands: /exit, /help, /show S#, /expand S#, /open S#, /debug, /model, /models, /providers, /mode, /note, /load, /set, /clear\n")
 
 
 def print_help() -> None:
@@ -48,6 +48,7 @@ def print_help() -> None:
     print("  /models         List models available to the API key")
     print("  /model          Show current model")
     print("  /model <name>   Set model for this session")
+    print("  /providers      List available LLM providers")
     print("  /mode           Show current query mode")
     print("  /mode <name>    Switch to a different query mode")
     print("  /note           Save last query as an editable note")
@@ -171,6 +172,70 @@ def print_models(state: SessionState, client: OpenAI) -> None:
         print(f"Failed to list models: {e}\n")
 
 
+def print_providers(config: LSMConfig) -> None:
+    """
+    Print available LLM providers.
+
+    Args:
+        config: LSM configuration
+    """
+    from .providers import list_available_providers, create_provider
+
+    print()
+    print("=" * 60)
+    print("AVAILABLE LLM PROVIDERS")
+    print("=" * 60)
+    print()
+
+    providers = list_available_providers()
+
+    if not providers:
+        print("No providers registered.")
+        print()
+        return
+
+    # Show current provider
+    current_provider = config.llm.provider
+    print(f"Current Provider: {current_provider}")
+    print(f"Current Model:    {config.llm.model}")
+    print()
+
+    # List all available providers
+    print(f"Available Providers ({len(providers)}):")
+    print()
+
+    for provider_name in providers:
+        # Try to create provider to check availability
+        try:
+            # Create a test config for this provider
+            test_config = LLMConfig(
+                provider=provider_name,
+                model=config.llm.model,
+                api_key=config.llm.api_key,
+                temperature=config.llm.temperature,
+                max_tokens=config.llm.max_tokens
+            )
+            provider = create_provider(test_config)
+
+            # Check if available
+            is_current = "✓ ACTIVE" if provider_name == current_provider else ""
+            is_available = "✓" if provider.is_available() else "✗ (API key not configured)"
+
+            print(f"  {provider_name:20s} {is_available:30s} {is_current}")
+
+        except Exception as e:
+            logger.debug(f"Error checking provider {provider_name}: {e}")
+            is_current = "✓ ACTIVE" if provider_name == current_provider else ""
+            print(f"  {provider_name:20s} {'✗ (Error)':30s} {is_current}")
+
+    print()
+    print("To switch providers, update your config.json:")
+    print('  "llm": { "provider": "provider_name", ... }')
+    print()
+    print("See docs/ADDING_PROVIDERS.md for adding new providers.")
+    print()
+
+
 # -----------------------------
 # File Opening
 # -----------------------------
@@ -245,6 +310,11 @@ def handle_command(
     # List available models
     if ql.strip() == "/models":
         print_models(state, client)
+        return True
+
+    # List available providers
+    if ql.strip() == "/providers":
+        print_providers(config)
         return True
 
     # Show/set current model
