@@ -19,6 +19,13 @@ from .models import (
     QueryConfig,
     LLMConfig,
     FeatureLLMConfig,
+    ModeConfig,
+    SourcePolicyConfig,
+    LocalSourcePolicy,
+    RemoteSourcePolicy,
+    ModelKnowledgePolicy,
+    NotesConfig,
+    RemoteProviderConfig,
     DEFAULT_EXTENSIONS,
     DEFAULT_EXCLUDE_DIRS,
 )
@@ -194,6 +201,139 @@ def build_query_config(raw: Dict[str, Any]) -> QueryConfig:
     return config
 
 
+def build_notes_config(raw: Dict[str, Any]) -> NotesConfig:
+    """
+    Build NotesConfig from raw configuration.
+
+    Args:
+        raw: Raw notes config dictionary
+
+    Returns:
+        NotesConfig instance
+    """
+    return NotesConfig(
+        enabled=bool(raw.get("enabled", True)),
+        dir=raw.get("dir", "notes"),
+        template=raw.get("template", "default"),
+        filename_format=raw.get("filename_format", "timestamp"),
+    )
+
+
+def build_source_policy_config(raw: Dict[str, Any]) -> SourcePolicyConfig:
+    """
+    Build SourcePolicyConfig from raw configuration.
+
+    Args:
+        raw: Raw source_policy dictionary
+
+    Returns:
+        SourcePolicyConfig instance
+    """
+    local_raw = raw.get("local", {})
+    remote_raw = raw.get("remote", {})
+    model_raw = raw.get("model_knowledge", {})
+
+    return SourcePolicyConfig(
+        local=LocalSourcePolicy(
+            min_relevance=float(local_raw.get("min_relevance", 0.25)),
+            k=int(local_raw.get("k", 12)),
+            k_rerank=int(local_raw.get("k_rerank", 6)),
+        ),
+        remote=RemoteSourcePolicy(
+            enabled=bool(remote_raw.get("enabled", False)),
+            rank_strategy=remote_raw.get("rank_strategy", "weighted"),
+            max_results=int(remote_raw.get("max_results", 5)),
+        ),
+        model_knowledge=ModelKnowledgePolicy(
+            enabled=bool(model_raw.get("enabled", False)),
+            require_label=bool(model_raw.get("require_label", True)),
+        ),
+    )
+
+
+def build_mode_config(raw: Dict[str, Any]) -> ModeConfig:
+    """
+    Build ModeConfig from raw configuration.
+
+    Args:
+        raw: Raw mode config dictionary
+
+    Returns:
+        ModeConfig instance
+    """
+    source_policy = build_source_policy_config(raw.get("source_policy", {}))
+    notes = build_notes_config(raw.get("notes", {}))
+
+    return ModeConfig(
+        synthesis_style=raw.get("synthesis_style", "grounded"),
+        source_policy=source_policy,
+        notes=notes,
+    )
+
+
+def build_modes_registry(raw: Dict[str, Any]) -> Dict[str, ModeConfig]:
+    """
+    Build modes registry from raw configuration.
+
+    Args:
+        raw: Raw config dictionary with 'modes' section
+
+    Returns:
+        Dictionary mapping mode names to ModeConfig instances
+    """
+    modes_raw = raw.get("modes", {})
+
+    if not modes_raw:
+        # Return None to use built-in defaults
+        return None
+
+    return {
+        mode_name: build_mode_config(mode_raw)
+        for mode_name, mode_raw in modes_raw.items()
+    }
+
+
+def build_remote_provider_config(raw: Dict[str, Any]) -> RemoteProviderConfig:
+    """
+    Build RemoteProviderConfig from raw configuration.
+
+    Args:
+        raw: Raw provider config dictionary
+
+    Returns:
+        RemoteProviderConfig instance
+    """
+    return RemoteProviderConfig(
+        type=raw["type"],  # Required field
+        enabled=bool(raw.get("enabled", True)),
+        weight=float(raw.get("weight", 1.0)),
+        api_key=raw.get("api_key"),
+        endpoint=raw.get("endpoint"),
+        max_results=raw.get("max_results"),
+    )
+
+
+def build_remote_providers_registry(raw: Dict[str, Any]) -> Dict[str, RemoteProviderConfig]:
+    """
+    Build remote providers registry from raw configuration.
+
+    Args:
+        raw: Raw config dictionary with 'remote_providers' section
+
+    Returns:
+        Dictionary mapping provider names to RemoteProviderConfig instances
+    """
+    providers_raw = raw.get("remote_providers", {})
+
+    if not providers_raw:
+        return None
+
+    return {
+        provider_name: build_remote_provider_config(provider_raw)
+        for provider_name, provider_raw in providers_raw.items()
+    }
+
+
 def load_config_from_file(path: Path | str) -> LSMConfig:
     """
     Load and validate LSM configuration from file.
@@ -228,11 +368,17 @@ def load_config_from_file(path: Path | str) -> LSMConfig:
     ingest_config = build_ingest_config(raw, path)
     query_config = build_query_config(raw)
 
+    # Build mode system configs
+    modes = build_modes_registry(raw)
+    remote_providers = build_remote_providers_registry(raw)
+
     # Build top-level config
     config = LSMConfig(
         ingest=ingest_config,
         query=query_config,
         llm=llm_config,
+        modes=modes,
+        remote_providers=remote_providers,
         config_path=path,
     )
 

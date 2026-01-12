@@ -116,6 +116,18 @@ class SessionState:
     last_debug: Dict[str, Any] = None
     """Debug information from last query."""
 
+    last_answer: Optional[str] = None
+    """Last answer generated (for note saving)."""
+
+    last_remote_sources: Optional[List[Dict[str, Any]]] = None
+    """Last remote sources fetched (for note saving)."""
+
+    last_local_sources_for_notes: Optional[List[Dict[str, Any]]] = None
+    """Last local sources in dict format (for note saving)."""
+
+    pinned_chunks: List[str] = None
+    """Chunk IDs pinned for forced inclusion in context."""
+
     def __post_init__(self):
         """Initialize default values for mutable fields."""
         if self.available_models is None:
@@ -130,6 +142,8 @@ class SessionState:
             self.last_label_to_candidate = {}
         if self.last_debug is None:
             self.last_debug = {}
+        if self.pinned_chunks is None:
+            self.pinned_chunks = []
 
     def clear_artifacts(self) -> None:
         """Clear last query artifacts."""

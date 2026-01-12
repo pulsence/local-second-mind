@@ -326,6 +326,159 @@ class IngestConfig:
 
 
 # -----------------------------------------------------------------------------
+# Mode System Configuration
+# -----------------------------------------------------------------------------
+
+@dataclass
+class LocalSourcePolicy:
+    """
+    Configuration for local knowledge base retrieval.
+
+    Controls how chunks are retrieved from the local ChromaDB collection.
+    """
+
+    min_relevance: float = DEFAULT_MIN_RELEVANCE
+    """Minimum relevance score (1 - distance) to include chunks."""
+
+    k: int = DEFAULT_K
+    """Number of chunks to retrieve."""
+
+    k_rerank: int = DEFAULT_K_RERANK
+    """Number of chunks to keep after reranking."""
+
+
+@dataclass
+class RemoteSourcePolicy:
+    """
+    Configuration for remote source retrieval (web search, APIs, etc).
+
+    Controls whether and how remote sources are fetched and ranked.
+    """
+
+    enabled: bool = False
+    """Whether remote sources are enabled for this mode."""
+
+    rank_strategy: str = "weighted"
+    """How to rank remote sources: 'weighted', 'sequential', 'interleaved'."""
+
+    max_results: int = 5
+    """Maximum number of remote results to fetch."""
+
+
+@dataclass
+class ModelKnowledgePolicy:
+    """
+    Configuration for using LLM's built-in knowledge.
+
+    Controls whether the LLM can use its training knowledge in synthesis.
+    """
+
+    enabled: bool = False
+    """Whether model knowledge is allowed."""
+
+    require_label: bool = True
+    """If True, model knowledge must be explicitly labeled in the answer."""
+
+
+@dataclass
+class SourcePolicyConfig:
+    """
+    Complete source policy configuration for a query mode.
+
+    Defines what sources (local, remote, model) are available and how to use them.
+    """
+
+    local: LocalSourcePolicy = field(default_factory=LocalSourcePolicy)
+    """Local knowledge base retrieval policy."""
+
+    remote: RemoteSourcePolicy = field(default_factory=RemoteSourcePolicy)
+    """Remote source retrieval policy."""
+
+    model_knowledge: ModelKnowledgePolicy = field(default_factory=ModelKnowledgePolicy)
+    """Model knowledge usage policy."""
+
+
+@dataclass
+class NotesConfig:
+    """
+    Configuration for automatic notes writing.
+
+    Controls whether and how query sessions are saved as Markdown notes.
+    """
+
+    enabled: bool = True
+    """Whether to write notes for queries."""
+
+    dir: str = "notes"
+    """Directory for notes (relative to config file or absolute)."""
+
+    template: str = "default"
+    """Template to use for notes formatting."""
+
+    filename_format: str = "timestamp"
+    """Filename format: 'timestamp', 'query_slug', 'incremental'."""
+
+
+@dataclass
+class ModeConfig:
+    """
+    Complete configuration for a query mode.
+
+    Defines synthesis style, source policies, and notes behavior for a named mode.
+    """
+
+    synthesis_style: str = "grounded"
+    """Synthesis style: 'grounded' (strict citations) or 'insight' (thematic analysis)."""
+
+    source_policy: SourcePolicyConfig = field(default_factory=SourcePolicyConfig)
+    """Source policy configuration."""
+
+    notes: NotesConfig = field(default_factory=NotesConfig)
+    """Notes configuration."""
+
+    def validate(self) -> None:
+        """Validate mode configuration."""
+        valid_styles = {"grounded", "insight"}
+        if self.synthesis_style not in valid_styles:
+            raise ValueError(
+                f"synthesis_style must be one of {valid_styles}, got '{self.synthesis_style}'"
+            )
+
+
+@dataclass
+class RemoteProviderConfig:
+    """
+    Configuration for a remote source provider (e.g., web search, API).
+
+    Defines how to connect to and weight a remote source provider.
+    """
+
+    type: str
+    """Provider type: 'web_search', 'api', etc."""
+
+    enabled: bool = True
+    """Whether this provider is active."""
+
+    weight: float = 1.0
+    """Weight for ranking/ordering this provider's results."""
+
+    # Provider-specific settings (extensible)
+    api_key: Optional[str] = None
+    """API key if required by the provider."""
+
+    endpoint: Optional[str] = None
+    """Custom endpoint URL if applicable."""
+
+    max_results: Optional[int] = None
+    """Override max results for this provider."""
+
+    def validate(self) -> None:
+        """Validate provider configuration."""
+        if self.weight < 0.0:
+            raise ValueError(f"weight must be non-negative, got {self.weight}")
+
+
+# -----------------------------------------------------------------------------
 # Query Configuration
 # -----------------------------------------------------------------------------
 
@@ -408,9 +561,7 @@ class QueryConfig:
                 f"rerank_strategy must be one of {valid_strategies}, got '{self.rerank_strategy}'"
             )
 
-        valid_modes = {"grounded", "insight"}
-        if self.mode not in valid_modes:
-            raise ValueError(f"mode must be one of {valid_modes}, got '{self.mode}'")
+        # Note: Mode validation happens at LSMConfig level since modes are dynamic
 
 
 # -----------------------------------------------------------------------------
@@ -422,7 +573,7 @@ class LSMConfig:
     """
     Top-level configuration for Local Second Mind.
 
-    Combines ingest, query, and LLM configurations.
+    Combines ingest, query, LLM, and mode configurations.
     """
 
     ingest: IngestConfig
@@ -434,11 +585,17 @@ class LSMConfig:
     llm: LLMConfig
     """LLM provider configuration."""
 
+    modes: Optional[dict[str, ModeConfig]] = None
+    """Registry of available query modes. If None, uses built-in defaults."""
+
+    remote_providers: Optional[dict[str, RemoteProviderConfig]] = None
+    """Registry of remote source providers (web search, APIs, etc)."""
+
     config_path: Optional[Path] = None
     """Path to the config file (for resolving relative paths)."""
 
     def __post_init__(self):
-        """Resolve relative paths and validate."""
+        """Resolve relative paths and initialize defaults."""
         if self.config_path:
             # Resolve paths relative to config file location
             base_dir = self.config_path.parent
@@ -450,11 +607,143 @@ class LSMConfig:
             if not self.ingest.manifest.is_absolute():
                 self.ingest.manifest = (base_dir / self.ingest.manifest).resolve()
 
+        # Initialize built-in modes if not provided
+        if self.modes is None:
+            self.modes = self._get_builtin_modes()
+
     def validate(self) -> None:
         """Validate entire configuration."""
         self.ingest.validate()
         self.query.validate()
         self.llm.validate()
+
+        # Validate mode registry
+        if self.modes:
+            for mode_name, mode_config in self.modes.items():
+                mode_config.validate()
+
+        # Validate that query.mode references a valid mode
+        if self.query.mode not in self.modes:
+            raise ValueError(
+                f"query.mode '{self.query.mode}' not found in modes registry. "
+                f"Available modes: {list(self.modes.keys())}"
+            )
+
+        # Validate remote providers
+        if self.remote_providers:
+            for provider_name, provider_config in self.remote_providers.items():
+                provider_config.validate()
+
+    @staticmethod
+    def _get_builtin_modes() -> dict[str, ModeConfig]:
+        """
+        Get built-in default query modes.
+
+        Returns:
+            Dictionary of mode name to ModeConfig
+        """
+        return {
+            "grounded": ModeConfig(
+                synthesis_style="grounded",
+                source_policy=SourcePolicyConfig(
+                    local=LocalSourcePolicy(
+                        min_relevance=0.25,
+                        k=12,
+                        k_rerank=6,
+                    ),
+                    remote=RemoteSourcePolicy(enabled=False),
+                    model_knowledge=ModelKnowledgePolicy(enabled=False),
+                ),
+                notes=NotesConfig(
+                    enabled=True,
+                    dir="notes",
+                    template="default",
+                ),
+            ),
+            "insight": ModeConfig(
+                synthesis_style="insight",
+                source_policy=SourcePolicyConfig(
+                    local=LocalSourcePolicy(
+                        min_relevance=0.20,
+                        k=14,
+                        k_rerank=8,
+                    ),
+                    remote=RemoteSourcePolicy(enabled=False),
+                    model_knowledge=ModelKnowledgePolicy(
+                        enabled=True,
+                        require_label=True,
+                    ),
+                ),
+                notes=NotesConfig(
+                    enabled=True,
+                    dir="notes",
+                    template="default",
+                ),
+            ),
+            "hybrid": ModeConfig(
+                synthesis_style="grounded",
+                source_policy=SourcePolicyConfig(
+                    local=LocalSourcePolicy(
+                        min_relevance=0.25,
+                        k=12,
+                        k_rerank=6,
+                    ),
+                    remote=RemoteSourcePolicy(
+                        enabled=True,
+                        rank_strategy="weighted",
+                        max_results=5,
+                    ),
+                    model_knowledge=ModelKnowledgePolicy(
+                        enabled=True,
+                        require_label=True,
+                    ),
+                ),
+                notes=NotesConfig(
+                    enabled=True,
+                    dir="notes",
+                    template="default",
+                ),
+            ),
+        }
+
+    def get_mode_config(self, mode_name: Optional[str] = None) -> ModeConfig:
+        """
+        Get the effective mode configuration.
+
+        Args:
+            mode_name: Mode name to look up. If None, uses query.mode.
+
+        Returns:
+            ModeConfig for the specified mode
+
+        Raises:
+            ValueError: If mode_name is not found in modes registry
+        """
+        name = mode_name or self.query.mode
+
+        if name not in self.modes:
+            raise ValueError(
+                f"Mode '{name}' not found in modes registry. "
+                f"Available modes: {list(self.modes.keys())}"
+            )
+
+        return self.modes[name]
+
+    def get_active_remote_providers(self) -> dict[str, RemoteProviderConfig]:
+        """
+        Get all enabled remote providers.
+
+        Returns:
+            Dictionary of enabled remote providers
+        """
+        if not self.remote_providers:
+            return {}
+
+        return {
+            name: config
+            for name, config in self.remote_providers.items()
+            if config.enabled
+        }
 
     @property
     def persist_dir(self) -> Path:

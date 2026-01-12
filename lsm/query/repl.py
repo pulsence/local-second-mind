@@ -21,6 +21,8 @@ from .retrieval import embed_text, retrieve_candidates, filter_candidates, compu
 from .rerank import apply_local_reranking
 from .synthesis import build_context_block, fallback_answer, format_source_list
 from .providers import create_provider
+from .remote import create_remote_provider
+from .notes import write_note, generate_note_content, edit_note_in_editor
 
 logger = get_logger(__name__)
 
@@ -31,7 +33,7 @@ logger = get_logger(__name__)
 def print_banner() -> None:
     """Print REPL welcome banner."""
     print("Interactive query mode. Type your question and press Enter.")
-    print("Commands: /exit, /help, /show S#, /expand S#, /open S#, /debug, /model, /models, /set, /clear\n")
+    print("Commands: /exit, /help, /show S#, /expand S#, /open S#, /debug, /model, /models, /mode, /note, /load, /set, /clear\n")
 
 
 def print_help() -> None:
@@ -46,6 +48,10 @@ def print_help() -> None:
     print("  /models         List models available to the API key")
     print("  /model          Show current model")
     print("  /model <name>   Set model for this session")
+    print("  /mode           Show current query mode")
+    print("  /mode <name>    Switch to a different query mode")
+    print("  /note           Save last query as an editable note")
+    print("  /load <path>    Pin a document for forced context inclusion")
     print("  /debug          Print retrieval diagnostics for the last query")
     print("  /set …          Set session filters (path/ext)")
     print("  /clear …        Clear session filters\n")
@@ -200,6 +206,8 @@ def handle_command(
     line: str,
     state: SessionState,
     client: OpenAI,
+    config: LSMConfig,
+    collection,
 ) -> bool:
     """
     Handle REPL commands.
@@ -208,6 +216,8 @@ def handle_command(
         line: User input line
         state: Session state
         client: OpenAI client
+        config: Global configuration
+        collection: ChromaDB collection
 
     Returns:
         True if command was handled, False if input should be treated as question
@@ -262,6 +272,151 @@ def handle_command(
 
         state.model = new_model
         print(f"Model set to: {state.model}\n")
+        return True
+
+    # Show/set current mode
+    if ql.startswith("/mode"):
+        parts = q.split()
+        if len(parts) == 1:
+            # Show current mode
+            current_mode = config.query.mode
+            mode_config = config.get_mode_config(current_mode)
+            print(f"Current mode: {current_mode}")
+            print(f"  Synthesis style: {mode_config.synthesis_style}")
+            print(f"  Local sources: enabled (k={mode_config.source_policy.local.k})")
+            print(f"  Remote sources: {'enabled' if mode_config.source_policy.remote.enabled else 'disabled'}")
+            print(f"  Model knowledge: {'enabled' if mode_config.source_policy.model_knowledge.enabled else 'disabled'}")
+            print(f"  Notes: {'enabled' if mode_config.notes.enabled else 'disabled'}")
+            print(f"\nAvailable modes: {', '.join(config.modes.keys())}\n")
+            return True
+
+        if len(parts) != 2:
+            print("Usage:")
+            print("  /mode           (show current)")
+            print("  /mode <name>    (switch to a different mode)\n")
+            return True
+
+        new_mode = parts[1].strip()
+
+        # Validate mode exists
+        if new_mode not in config.modes:
+            print(f"Mode not found: {new_mode}")
+            print(f"Available modes: {', '.join(config.modes.keys())}\n")
+            return True
+
+        # Switch mode
+        config.query.mode = new_mode
+        mode_config = config.get_mode_config(new_mode)
+        print(f"Mode switched to: {new_mode}")
+        print(f"  Synthesis style: {mode_config.synthesis_style}")
+        print(f"  Remote sources: {'enabled' if mode_config.source_policy.remote.enabled else 'disabled'}")
+        print(f"  Model knowledge: {'enabled' if mode_config.source_policy.model_knowledge.enabled else 'disabled'}\n")
+        return True
+
+    # Save note from last query
+    if ql.startswith("/note"):
+        if not state.last_question:
+            print("No query to save. Run a query first.\n")
+            return True
+
+        try:
+            # Get mode config for notes directory
+            mode_config = config.get_mode_config()
+            notes_config = mode_config.notes
+
+            # Resolve notes directory
+            if config.config_path:
+                base_dir = config.config_path.parent
+                notes_dir = base_dir / notes_config.dir
+            else:
+                notes_dir = Path(notes_config.dir)
+
+            # Generate note content
+            content = generate_note_content(
+                query=state.last_question,
+                answer=state.last_answer or "No answer generated",
+                local_sources=state.last_local_sources_for_notes,
+                remote_sources=state.last_remote_sources,
+                mode=config.query.mode,
+            )
+
+            print("\nOpening note in editor...")
+            print("Edit the note and save/close the editor to continue.\n")
+
+            # Open in editor for user to edit
+            edited_content = edit_note_in_editor(content)
+
+            if not edited_content or edited_content.strip() == "":
+                print("Note was empty or cancelled. Not saving.\n")
+                return True
+
+            # Save the edited note
+            from .notes import get_note_filename
+            filename = get_note_filename(state.last_question, format=notes_config.filename_format)
+            notes_dir.mkdir(parents=True, exist_ok=True)
+            note_path = notes_dir / filename
+            note_path.write_text(edited_content, encoding="utf-8")
+
+            print(f"Note saved to: {note_path}\n")
+
+        except Exception as e:
+            print(f"Failed to save note: {e}\n")
+            logger.error(f"Note save error: {e}")
+
+        return True
+
+    # Load document for context pinning
+    if ql.startswith("/load"):
+        parts = q.split(maxsplit=1)
+        if len(parts) < 2:
+            print("Usage: /load <file_path>")
+            print("Example: /load /docs/important.md")
+            print("\nThis pins a document for forced inclusion in next query context.")
+            print("Use /load clear to clear pinned chunks.\n")
+            return True
+
+        arg = parts[1].strip()
+
+        # Handle /load clear
+        if arg.lower() == "clear":
+            state.pinned_chunks = []
+            print("Cleared all pinned chunks.\n")
+            return True
+
+        file_path = arg
+
+        print(f"Loading chunks from: {file_path}")
+        print("Searching collection...")
+
+        try:
+            # Search for chunks from this file
+            results = collection.get(
+                where={"source_path": {"$eq": file_path}},
+                include=["metadatas"],
+            )
+
+            if not results or not results.get("ids"):
+                print(f"\nNo chunks found for path: {file_path}")
+                print("Tip: Path must match exactly. Use /explore to find exact paths.\n")
+                return True
+
+            chunk_ids = results["ids"]
+            metadatas = results["metadatas"]
+
+            # Add to pinned chunks
+            for chunk_id in chunk_ids:
+                if chunk_id not in state.pinned_chunks:
+                    state.pinned_chunks.append(chunk_id)
+
+            print(f"\nPinned {len(chunk_ids)} chunks from {file_path}")
+            print(f"Total pinned chunks: {len(state.pinned_chunks)}")
+            print("\nThese chunks will be forcibly included in your next query.")
+            print("Use /load clear to unpin all chunks.\n")
+
+        except Exception as e:
+            print(f"Error loading chunks: {e}\n")
+            logger.error(f"Load command error: {e}")
+
         return True
 
     # Show / Expand
@@ -365,6 +520,77 @@ def handle_command(
 
 
 # -----------------------------
+# Remote Source Fetching
+# -----------------------------
+def fetch_remote_sources(
+    question: str,
+    config: LSMConfig,
+    mode_config: Any,
+) -> List[Dict[str, Any]]:
+    """
+    Fetch remote sources if enabled in mode configuration.
+
+    Args:
+        question: User's question
+        config: Global configuration
+        mode_config: Mode configuration with source policies
+
+    Returns:
+        List of remote source dicts
+    """
+    remote_policy = mode_config.source_policy.remote
+
+    if not remote_policy.enabled:
+        return []
+
+    # Get active remote providers
+    active_providers = config.get_active_remote_providers()
+
+    if not active_providers:
+        logger.warning("Remote sources enabled but no providers configured")
+        return []
+
+    all_remote_results = []
+
+    for provider_name, provider_config in active_providers.items():
+        try:
+            logger.info(f"Fetching from remote provider: {provider_name}")
+
+            # Create provider instance
+            provider = create_remote_provider(
+                provider_config.type,
+                {
+                    "api_key": provider_config.api_key,
+                    "endpoint": provider_config.endpoint,
+                }
+            )
+
+            # Determine max_results
+            max_results = provider_config.max_results or remote_policy.max_results
+
+            # Fetch results
+            results = provider.search(question, max_results=max_results)
+
+            # Convert to dict format
+            for result in results:
+                all_remote_results.append({
+                    "title": result.title,
+                    "url": result.url,
+                    "snippet": result.snippet,
+                    "score": result.score,
+                    "provider": provider_name,
+                    "metadata": result.metadata,
+                })
+
+        except Exception as e:
+            logger.error(f"Failed to fetch from {provider_name}: {e}")
+            # Continue with other providers
+
+    logger.info(f"Fetched {len(all_remote_results)} remote results")
+    return all_remote_results
+
+
+# -----------------------------
 # Query Execution
 # -----------------------------
 def run_query_turn(
@@ -386,12 +612,18 @@ def run_query_turn(
     """
     logger.info(f"Running query: {question[:50]}...")
 
-    # Get configuration values
+    # Get mode configuration
+    mode_config = config.get_mode_config()
+    local_policy = mode_config.source_policy.local
+    model_knowledge_policy = mode_config.source_policy.model_knowledge
+    notes_config = mode_config.notes
+
+    # Get configuration values (use mode-specific or fallback to query config)
     batch_size = config.batch_size
-    k = config.query.k
-    k_rerank = config.query.k_rerank
+    k = local_policy.k
+    k_rerank = local_policy.k_rerank
     no_rerank = config.query.no_rerank
-    min_relevance = config.query.min_relevance
+    min_relevance = local_policy.min_relevance
     max_per_file = config.query.max_per_file
     local_pool = config.query.local_pool or max(k * 3, k_rerank * 4)
 
@@ -425,20 +657,61 @@ def run_query_turn(
     )
     state.last_filtered_candidates = filtered
 
+    # Add pinned chunks if any
+    if state.pinned_chunks:
+        logger.info(f"Including {len(state.pinned_chunks)} pinned chunks")
+        print(f"Including {len(state.pinned_chunks)} pinned chunks in context...\n")
+
+        # Fetch pinned chunks from collection
+        try:
+            pinned_results = collection.get(
+                ids=state.pinned_chunks,
+                include=["documents", "metadatas", "distances"],
+            )
+
+            if pinned_results and pinned_results.get("ids"):
+                # Convert to Candidate objects
+                for i, chunk_id in enumerate(pinned_results["ids"]):
+                    pinned_candidate = Candidate(
+                        cid=chunk_id,
+                        text=pinned_results["documents"][i],
+                        meta=pinned_results["metadatas"][i],
+                        distance=0.0,  # Force high relevance
+                    )
+
+                    # Add to front of filtered list if not already present
+                    if not any(c.cid == chunk_id for c in filtered):
+                        filtered.insert(0, pinned_candidate)
+
+        except Exception as e:
+            logger.error(f"Failed to load pinned chunks: {e}")
+            print(f"Warning: Could not load pinned chunks: {e}\n")
+
     if not filtered:
         print("No results matched the configured filters.\n")
         return
 
-    # Local quality passes: dedupe, lexical rerank, diversity
-    local = apply_local_reranking(
-        question,
-        filtered,
-        max_per_file=max_per_file,
-        local_pool=local_pool,
-    )
+    # Determine reranking strategy
+    rerank_strategy = config.query.rerank_strategy.lower()
 
-    # Trim to k for downstream steps
-    filtered = local[: min(k, len(local))]
+    # Apply local reranking based on strategy
+    if rerank_strategy in ("lexical", "hybrid"):
+        # Local quality passes: dedupe, lexical rerank, diversity
+        local = apply_local_reranking(
+            question,
+            filtered,
+            max_per_file=max_per_file,
+            local_pool=local_pool,
+        )
+        # Trim to k for downstream steps
+        filtered = local[: min(k, len(local))]
+    elif rerank_strategy == "none":
+        # No local reranking, just use raw similarity order
+        # Apply basic diversity enforcement
+        from lsm.query.rerank import enforce_diversity
+        filtered = enforce_diversity(filtered, max_per_file=max_per_file)
+        filtered = filtered[: min(k, len(filtered))]
+    # else: "llm" strategy - skip local reranking, will do LLM only
 
     # Relevance gating
     relevance = compute_relevance(filtered)
@@ -455,6 +728,7 @@ def run_query_turn(
         "ext_deny": ext_deny,
         "best_relevance": relevance,
         "min_relevance": min_relevance,
+        "rerank_strategy": rerank_strategy,
         "no_rerank": no_rerank,
         "model": state.model,
         "max_per_file": max_per_file,
@@ -479,12 +753,15 @@ def run_query_turn(
     # Create provider and rerank/synthesize
     if state.model and state.model != config.llm.model:
         config.llm.model = state.model
-    provider = create_provider(config.llm)
 
-    # Optional LLM rerank
-    if no_rerank:
-        chosen = filtered[: min(k_rerank, len(filtered))]
-    else:
+    # Use ranking-specific LLM config if available
+    ranking_config = config.llm.get_ranking_config()
+    provider = create_provider(ranking_config)
+
+    # Apply LLM reranking based on strategy
+    should_llm_rerank = rerank_strategy in ("llm", "hybrid") and not no_rerank
+
+    if should_llm_rerank:
         # Convert candidates to provider format
         rerank_candidates = [
             {
@@ -512,17 +789,27 @@ def run_query_turn(
                     distance=item.get("distance"),
                 )
             )
+    else:
+        # No LLM reranking - use filtered results
+        chosen = filtered[: min(k_rerank, len(filtered))]
 
     state.last_chosen = chosen
     state.last_label_to_candidate = {f"S{i}": c for i, c in enumerate(chosen, start=1)}
 
+    # Fetch remote sources if enabled
+    remote_sources = fetch_remote_sources(question, config, mode_config)
+
     # Generate answer with citations
     context_block, sources = build_context_block(chosen)
 
-    answer = provider.synthesize(
+    # Use query-specific LLM config for synthesis
+    query_config = config.llm.get_query_config()
+    synthesis_provider = create_provider(query_config)
+
+    answer = synthesis_provider.synthesize(
         question,
         context_block,
-        mode=config.query.mode,
+        mode=mode_config.synthesis_style,
     )
 
     # Warn if no citations
@@ -532,9 +819,40 @@ def run_query_turn(
             "If this persists, tighten query.k / query.k_rerank or reduce chunk size."
         )
 
+    # Display answer and sources
     print("\n" + answer)
     print(format_source_list(sources))
+
+    # Display remote sources if any
+    if remote_sources:
+        print("\n" + "=" * 60)
+        print("REMOTE SOURCES")
+        print("=" * 60)
+        for i, remote in enumerate(remote_sources, 1):
+            print(f"\n{i}. {remote['title']}")
+            print(f"   {remote['url']}")
+            print(f"   {remote['snippet'][:150]}...")
+
+    # Display model knowledge note if enabled
+    if model_knowledge_policy.enabled:
+        print("\n" + "=" * 60)
+        print("Note: Model knowledge is enabled for this mode.")
+        print("The answer may include information from the LLM's training data.")
+        print("=" * 60)
+
     print()
+
+    # Store last query details for potential note saving
+    state.last_answer = answer
+    state.last_remote_sources = remote_sources
+    state.last_local_sources_for_notes = [
+        {
+            "text": c.text,
+            "meta": c.meta,
+            "distance": c.distance,
+        }
+        for c in chosen
+    ]
 
 
 # -----------------------------
@@ -578,7 +896,7 @@ def run_repl(
             continue
 
         try:
-            if handle_command(line, state, client):
+            if handle_command(line, state, client, config, collection):
                 continue
         except SystemExit:
             print("Exiting.")
