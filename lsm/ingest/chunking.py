@@ -69,23 +69,3 @@ def chunk_text(
         i = max(0, j - overlap)
 
     return chunks, positions
-
-
-def chunk_text_simple(
-    text: str,
-    chunk_size: int = CHUNK_SIZE_CHARS,
-    overlap: int = CHUNK_OVERLAP_CHARS,
-) -> List[str]:
-    """
-    Simple chunking without position tracking (backward compatibility).
-
-    Args:
-        text: Input text to chunk
-        chunk_size: Maximum chunk size in characters
-        overlap: Overlap between consecutive chunks in characters
-
-    Returns:
-        List of text chunks
-    """
-    chunks, _ = chunk_text(text, chunk_size, overlap, track_positions=False)
-    return chunks

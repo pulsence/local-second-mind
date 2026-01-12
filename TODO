@@ -3,7 +3,7 @@
 - Check for legacy files no longer used
 - Check for legacy/backwards capatability code and remove
 - Adjust test suite to comprehensively cover the code base
-- Do research on particular models for particular tasks
+- Do research on particular models for particular tasks, for example using transformers directly
 - Look into how to run models in app
 ## Infrastructure
 - Add testing
