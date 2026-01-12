@@ -18,6 +18,7 @@ from .models import (
     IngestConfig,
     QueryConfig,
     LLMConfig,
+    FeatureLLMConfig,
     DEFAULT_EXTENSIONS,
     DEFAULT_EXCLUDE_DIRS,
 )
@@ -63,6 +64,25 @@ def load_raw_config(path: Path) -> Dict[str, Any]:
     return config
 
 
+def build_feature_llm_config(raw: Dict[str, Any]) -> FeatureLLMConfig:
+    """
+    Build FeatureLLMConfig from raw configuration.
+
+    Args:
+        raw: Raw config dictionary for a feature override
+
+    Returns:
+        FeatureLLMConfig instance
+    """
+    return FeatureLLMConfig(
+        provider=raw.get("provider"),
+        model=raw.get("model"),
+        api_key=raw.get("api_key"),
+        temperature=raw.get("temperature"),
+        max_tokens=raw.get("max_tokens"),
+    )
+
+
 def build_llm_config(raw: Dict[str, Any]) -> LLMConfig:
     """
     Build LLMConfig from raw configuration.
@@ -85,6 +105,16 @@ def build_llm_config(raw: Dict[str, Any]) -> LLMConfig:
         "temperature": llm_config.get("temperature", 0.7),
         "max_tokens": llm_config.get("max_tokens", 2000),
     }
+
+    # Build per-feature overrides if present
+    if "query" in llm_config:
+        config["query"] = build_feature_llm_config(llm_config["query"])
+
+    if "tagging" in llm_config:
+        config["tagging"] = build_feature_llm_config(llm_config["tagging"])
+
+    if "ranking" in llm_config:
+        config["ranking"] = build_feature_llm_config(llm_config["ranking"])
 
     return LLMConfig(**config)
 

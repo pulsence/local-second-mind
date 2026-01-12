@@ -54,12 +54,56 @@ DEFAULT_MIN_RELEVANCE = 0.25
 # -----------------------------------------------------------------------------
 
 @dataclass
+class FeatureLLMConfig:
+    """
+    Optional LLM configuration override for a specific feature.
+
+    Allows per-feature provider/model selection while inheriting from main config.
+    """
+
+    provider: Optional[str] = None
+    """Override provider for this feature. If None, inherits from main LLM config."""
+
+    model: Optional[str] = None
+    """Override model for this feature. If None, inherits from main LLM config."""
+
+    api_key: Optional[str] = None
+    """Override API key for this feature. If None, inherits from main LLM config."""
+
+    temperature: Optional[float] = None
+    """Override temperature for this feature. If None, inherits from main LLM config."""
+
+    max_tokens: Optional[int] = None
+    """Override max_tokens for this feature. If None, inherits from main LLM config."""
+
+    def merge_with_base(self, base: "LLMConfig") -> "LLMConfig":
+        """
+        Create a merged LLM config using this override and base config.
+
+        Args:
+            base: Base LLM configuration to inherit from
+
+        Returns:
+            New LLMConfig with overrides applied
+        """
+        return LLMConfig(
+            provider=self.provider if self.provider is not None else base.provider,
+            model=self.model if self.model is not None else base.model,
+            api_key=self.api_key if self.api_key is not None else base.api_key,
+            temperature=self.temperature if self.temperature is not None else base.temperature,
+            max_tokens=self.max_tokens if self.max_tokens is not None else base.max_tokens,
+        )
+
+
+@dataclass
 class LLMConfig:
     """
     LLM provider configuration.
 
     Designed to support multiple providers in the future (OpenAI, Anthropic, local models).
     Currently focused on OpenAI.
+
+    Supports per-feature overrides for Query, AI Tagging, and AI Ranking.
     """
 
     provider: str = "openai"
@@ -79,6 +123,16 @@ class LLMConfig:
 
     max_tokens: int = 2000
     """Maximum tokens to generate in responses."""
+
+    # Per-feature overrides
+    query: Optional[FeatureLLMConfig] = None
+    """Optional LLM config override for query/answer synthesis."""
+
+    tagging: Optional[FeatureLLMConfig] = None
+    """Optional LLM config override for AI tagging."""
+
+    ranking: Optional[FeatureLLMConfig] = None
+    """Optional LLM config override for AI-powered reranking."""
 
     def __post_init__(self):
         """Load API key from environment if not provided."""
@@ -104,6 +158,24 @@ class LLMConfig:
 
         if self.max_tokens < 1:
             raise ValueError(f"max_tokens must be positive, got {self.max_tokens}")
+
+    def get_query_config(self) -> "LLMConfig":
+        """Get effective LLM config for query operations."""
+        if self.query:
+            return self.query.merge_with_base(self)
+        return self
+
+    def get_tagging_config(self) -> "LLMConfig":
+        """Get effective LLM config for AI tagging operations."""
+        if self.tagging:
+            return self.tagging.merge_with_base(self)
+        return self
+
+    def get_ranking_config(self) -> "LLMConfig":
+        """Get effective LLM config for AI ranking operations."""
+        if self.ranking:
+            return self.ranking.merge_with_base(self)
+        return self
 
 
 # -----------------------------------------------------------------------------

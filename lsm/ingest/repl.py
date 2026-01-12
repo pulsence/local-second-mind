@@ -22,6 +22,12 @@ from lsm.ingest.stats import (
 )
 from lsm.ingest.chroma_store import get_chroma_collection
 from lsm.ingest.pipeline import ingest
+from lsm.ingest.tagging import (
+    tag_chunks,
+    add_user_tags,
+    remove_user_tags,
+    get_all_tags,
+)
 
 
 def print_banner() -> None:
@@ -38,6 +44,8 @@ def print_banner() -> None:
     print("  /show <path>       - Show chunks for a file")
     print("  /search <query>    - Search metadata")
     print("  /build [--force]   - Run ingest pipeline")
+    print("  /tag [--max N]     - Run AI tagging on untagged chunks")
+    print("  /tags              - Show all tags in collection")
     print("  /wipe              - Clear collection (requires confirmation)")
     print("  /help              - Show this help")
     print("  /exit              - Exit")
@@ -86,6 +94,19 @@ INGEST REPL COMMANDS
         /build           - Incremental update
         /build --force   - Full rebuild
 
+/tag [--max N]
+    Run AI tagging on chunks that haven't been AI-tagged yet.
+    This is incremental - only untagged chunks are processed.
+    Tags are stored in the 'ai_tags' metadata field.
+
+    Examples:
+        /tag             - Tag all untagged chunks
+        /tag --max 100   - Tag at most 100 chunks
+
+/tags
+    Display all unique tags in the collection.
+    Shows both AI-generated tags and user-provided tags separately.
+
 /wipe
     Delete all chunks from the collection.
     WARNING: This is destructive and requires confirmation.
@@ -101,6 +122,7 @@ TIPS:
 - Use /stats for detailed analysis
 - Use /explore to browse your knowledge base
 - Run /build regularly to keep your collection up-to-date
+- Run /tag after ingesting to add AI-generated tags for better organization
 """
     print(help_text)
 
@@ -360,6 +382,117 @@ def handle_wipe_command(collection: Collection) -> None:
         print(f"Error during wipe: {e}")
 
 
+def handle_tag_command(collection: Collection, config: LSMConfig, args: str) -> None:
+    """Handle /tag command."""
+    # Parse --max flag
+    max_chunks = None
+    if "--max" in args.lower():
+        parts = args.split()
+        try:
+            max_idx = parts.index("--max")
+            if max_idx + 1 < len(parts):
+                max_chunks = int(parts[max_idx + 1])
+        except (ValueError, IndexError):
+            print("Invalid --max argument. Usage: /tag --max N")
+            return
+
+    print()
+    print("=" * 60)
+    print("AI CHUNK TAGGING")
+    print("=" * 60)
+    print()
+    print("This will tag chunks that haven't been AI-tagged yet.")
+    print("Tags are generated using the configured LLM model.")
+    print()
+
+    # Get tagging config
+    tagging_config = config.llm.get_tagging_config()
+    print(f"Using model: {tagging_config.model}")
+    print(f"Provider: {tagging_config.provider}")
+
+    if max_chunks:
+        print(f"Max chunks to tag: {max_chunks}")
+    else:
+        print("Max chunks: unlimited")
+
+    print()
+    confirm = input("Proceed with tagging? (yes/no): ").strip().lower()
+
+    if confirm != "yes":
+        print("Cancelled.")
+        return
+
+    print("\nStarting AI tagging...")
+    print("-" * 60)
+
+    try:
+        tagged, failed = tag_chunks(
+            collection=collection,
+            llm_config=tagging_config,
+            num_tags=3,
+            batch_size=100,
+            max_chunks=max_chunks,
+            dry_run=False,
+        )
+
+        print()
+        print("=" * 60)
+        print("TAGGING COMPLETE")
+        print("=" * 60)
+        print(f"Successfully tagged: {tagged} chunks")
+        print(f"Failed: {failed} chunks")
+        print()
+
+    except Exception as e:
+        print(f"\nError during tagging: {e}")
+
+
+def handle_tags_command(collection: Collection) -> None:
+    """Handle /tags command."""
+    print("\nFetching all tags...")
+
+    try:
+        all_tags = get_all_tags(collection)
+
+        ai_tags = all_tags.get("ai_tags", [])
+        user_tags = all_tags.get("user_tags", [])
+
+        print()
+        print("=" * 60)
+        print("COLLECTION TAGS")
+        print("=" * 60)
+        print()
+
+        if ai_tags:
+            print(f"AI-Generated Tags ({len(ai_tags)} unique):")
+            print("-" * 60)
+            # Display in columns for better readability
+            for i in range(0, len(ai_tags), 3):
+                row = ai_tags[i:i+3]
+                print("  " + " | ".join(f"{tag:20s}" for tag in row))
+            print()
+        else:
+            print("No AI-generated tags found.")
+            print("Run /tag to generate tags for your chunks.")
+            print()
+
+        if user_tags:
+            print(f"User Tags ({len(user_tags)} unique):")
+            print("-" * 60)
+            for i in range(0, len(user_tags), 3):
+                row = user_tags[i:i+3]
+                print("  " + " | ".join(f"{tag:20s}" for tag in row))
+            print()
+        else:
+            print("No user tags found.")
+            print()
+
+        print("=" * 60)
+
+    except Exception as e:
+        print(f"Error fetching tags: {e}")
+
+
 def handle_command(line: str, collection: Collection, config: LSMConfig) -> bool:
     """
     Handle a command from the REPL.
@@ -402,6 +535,12 @@ def handle_command(line: str, collection: Collection, config: LSMConfig) -> bool
     elif cmd == "/build":
         force = "--force" in args.lower()
         handle_build_command(config, force)
+
+    elif cmd == "/tag":
+        handle_tag_command(collection, config, args.strip())
+
+    elif cmd == "/tags":
+        handle_tags_command(collection)
 
     elif cmd == "/wipe":
         handle_wipe_command(collection)
