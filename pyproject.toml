@@ -18,6 +18,9 @@ dependencies = [
   "lxml",
   "pyyaml",
   "openai",
+  "anthropic",
+  "google-generativeai",
+  "requests",
   "python-dotenv",
   "pytesseract",  # For OCR support
   "Pillow",       # For image handling

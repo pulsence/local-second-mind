@@ -13,16 +13,49 @@ from lsm.cli.logging import get_logger
 from .base import BaseLLMProvider
 from .openai import OpenAIProvider
 
+AnthropicProvider = None
+LocalProvider = None
+GeminiProvider = None
+AzureOpenAIProvider = None
+
+try:
+    from .anthropic import AnthropicProvider
+except Exception as e:
+    logger.debug(f"Anthropic provider not available: {e}")
+
+try:
+    from .local import LocalProvider
+except Exception as e:
+    logger.debug(f"Local provider not available: {e}")
+
+try:
+    from .gemini import GeminiProvider
+except Exception as e:
+    logger.debug(f"Gemini provider not available: {e}")
+
+try:
+    from .azure_openai import AzureOpenAIProvider
+except Exception as e:
+    logger.debug(f"Azure OpenAI provider not available: {e}")
+
 logger = get_logger(__name__)
 
 # Registry of available providers
 PROVIDER_REGISTRY: Dict[str, Type[BaseLLMProvider]] = {
     "openai": OpenAIProvider,
-    # Future providers:
-    # "anthropic": AnthropicProvider,
-    # "local": LocalProvider,
-    # "cohere": CohereProvider,
 }
+
+if AnthropicProvider is not None:
+    PROVIDER_REGISTRY["anthropic"] = AnthropicProvider
+
+if LocalProvider is not None:
+    PROVIDER_REGISTRY["local"] = LocalProvider
+
+if GeminiProvider is not None:
+    PROVIDER_REGISTRY["gemini"] = GeminiProvider
+
+if AzureOpenAIProvider is not None:
+    PROVIDER_REGISTRY["azure_openai"] = AzureOpenAIProvider
 
 
 def create_provider(config: LLMConfig) -> BaseLLMProvider:

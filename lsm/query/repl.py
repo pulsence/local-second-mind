@@ -33,7 +33,7 @@ logger = get_logger(__name__)
 def print_banner() -> None:
     """Print REPL welcome banner."""
     print("Interactive query mode. Type your question and press Enter.")
-    print("Commands: /exit, /help, /show S#, /expand S#, /open S#, /debug, /model, /models, /providers, /mode, /note, /load, /set, /clear\n")
+    print("Commands: /exit, /help, /show S#, /expand S#, /open S#, /debug, /model, /models, /providers, /provider-status, /mode, /note, /load, /set, /clear\n")
 
 
 def print_help() -> None:
@@ -49,6 +49,7 @@ def print_help() -> None:
     print("  /model          Show current model")
     print("  /model <name>   Set model for this session")
     print("  /providers      List available LLM providers")
+    print("  /provider-status Show provider health and recent stats")
     print("  /mode           Show current query mode")
     print("  /mode <name>    Switch to a different query mode")
     print("  /note           Save last query as an editable note")
@@ -208,12 +209,17 @@ def print_providers(config: LSMConfig) -> None:
         # Try to create provider to check availability
         try:
             # Create a test config for this provider
+            use_current = provider_name == current_provider
             test_config = LLMConfig(
                 provider=provider_name,
                 model=config.llm.model,
-                api_key=config.llm.api_key,
+                api_key=config.llm.api_key if use_current else None,
                 temperature=config.llm.temperature,
-                max_tokens=config.llm.max_tokens
+                max_tokens=config.llm.max_tokens,
+                base_url=config.llm.base_url if use_current else None,
+                endpoint=config.llm.endpoint if use_current else None,
+                api_version=config.llm.api_version if use_current else None,
+                deployment_name=config.llm.deployment_name if use_current else None,
             )
             provider = create_provider(test_config)
 
@@ -232,9 +238,62 @@ def print_providers(config: LSMConfig) -> None:
     print("To switch providers, update your config.json:")
     print('  "llm": { "provider": "provider_name", ... }')
     print()
-    print("See docs/ADDING_PROVIDERS.md for adding new providers.")
+    print("See docs/api-reference/ADDING_PROVIDERS.md for adding new providers.")
     print()
 
+
+def print_provider_status(config: LSMConfig) -> None:
+    """
+    Print provider health status and call statistics.
+
+    Args:
+        config: LSM configuration
+    """
+    from lsm.providers import list_available_providers
+
+    print()
+    print("=" * 60)
+    print("PROVIDER HEALTH STATUS")
+    print("=" * 60)
+    print()
+
+    providers = list_available_providers()
+    if not providers:
+        print("No providers registered.")
+        print()
+        return
+
+    for provider_name in providers:
+        try:
+            use_current = provider_name == config.llm.provider
+            test_config = LLMConfig(
+                provider=provider_name,
+                model=config.llm.model,
+                api_key=config.llm.api_key if use_current else None,
+                temperature=config.llm.temperature,
+                max_tokens=config.llm.max_tokens,
+                base_url=config.llm.base_url if use_current else None,
+                endpoint=config.llm.endpoint if use_current else None,
+                api_version=config.llm.api_version if use_current else None,
+                deployment_name=config.llm.deployment_name if use_current else None,
+            )
+            provider = create_provider(test_config)
+            health = provider.health_check()
+
+            status = health.get("status", "unknown")
+            stats = health.get("stats", {})
+            success = stats.get("success_count", 0)
+            failure = stats.get("failure_count", 0)
+            last_error = stats.get("last_error")
+
+            print(f"{provider_name:20s} status={status:12s} success={success:4d} failure={failure:4d}")
+            if last_error:
+                print(f"{'':20s} last_error={last_error}")
+        except Exception as e:
+            logger.debug(f"Error checking provider status {provider_name}: {e}")
+            print(f"{provider_name:20s} status=error        error={e}")
+
+    print()
 
 # -----------------------------
 # File Opening
@@ -315,6 +374,11 @@ def handle_command(
     # List available providers
     if ql.strip() == "/providers":
         print_providers(config)
+        return True
+
+    # Provider health status
+    if ql.strip() == "/provider-status":
+        print_provider_status(config)
         return True
 
     # Show/set current model

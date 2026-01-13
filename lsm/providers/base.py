@@ -5,7 +5,35 @@ Defines the contract that all LLM providers must implement.
 """
 
 from abc import ABC, abstractmethod
-from typing import List, Dict, Any, Optional
+from dataclasses import dataclass
+from datetime import datetime
+import time
+from typing import List, Dict, Any, Optional, Callable
+
+from lsm.cli.logging import get_logger
+
+logger = get_logger(__name__)
+
+
+@dataclass
+class ProviderHealthStats:
+    """Track provider call outcomes for health monitoring."""
+    success_count: int = 0
+    failure_count: int = 0
+    consecutive_failures: int = 0
+    last_success: Optional[datetime] = None
+    last_failure: Optional[datetime] = None
+    last_error: Optional[str] = None
+
+    def as_dict(self) -> Dict[str, Any]:
+        return {
+            "success_count": self.success_count,
+            "failure_count": self.failure_count,
+            "consecutive_failures": self.consecutive_failures,
+            "last_success": self.last_success.isoformat() if self.last_success else None,
+            "last_failure": self.last_failure.isoformat() if self.last_failure else None,
+            "last_error": self.last_error,
+        }
 
 
 class BaseLLMProvider(ABC):
@@ -14,6 +42,14 @@ class BaseLLMProvider(ABC):
 
     All providers (OpenAI, Anthropic, local models) must implement this interface.
     """
+
+    _GLOBAL_HEALTH_STATS: Dict[str, ProviderHealthStats] = {}
+
+    def __init__(self) -> None:
+        key = f"{self.name}:{self.model}"
+        if key not in self._GLOBAL_HEALTH_STATS:
+            self._GLOBAL_HEALTH_STATS[key] = ProviderHealthStats()
+        self._health_stats = self._GLOBAL_HEALTH_STATS[key]
 
     @abstractmethod
     def rerank(
@@ -135,6 +171,21 @@ class BaseLLMProvider(ABC):
         """
         return None  # Default implementation
 
+    def health_check(self) -> Dict[str, Any]:
+        """
+        Return provider health and recent call stats.
+
+        Returns:
+            Dictionary with availability and recent success/failure stats
+        """
+        return {
+            "provider": self.name,
+            "model": self.model,
+            "available": self.is_available(),
+            "status": "available" if self.is_available() else "unavailable",
+            "stats": self._health_stats.as_dict(),
+        }
+
     def __str__(self) -> str:
         """String representation of the provider."""
         return f"{self.name}/{self.model}"
@@ -142,3 +193,62 @@ class BaseLLMProvider(ABC):
     def __repr__(self) -> str:
         """Developer representation of the provider."""
         return f"{self.__class__.__name__}(model='{self.model}')"
+
+    def _record_success(self, context: Optional[str] = None) -> None:
+        """Record a successful provider call."""
+        self._health_stats.success_count += 1
+        self._health_stats.consecutive_failures = 0
+        self._health_stats.last_success = datetime.utcnow()
+        if context:
+            logger.debug(f"{self.name}/{self.model} call succeeded: {context}")
+
+    def _record_failure(self, error: Exception, context: Optional[str] = None) -> None:
+        """Record a failed provider call and log centrally."""
+        self._health_stats.failure_count += 1
+        self._health_stats.consecutive_failures += 1
+        self._health_stats.last_failure = datetime.utcnow()
+        self._health_stats.last_error = str(error)
+        label = f"{self.name}/{self.model}"
+        if context:
+            label = f"{label} ({context})"
+        logger.error(f"Provider error in {label}: {error}")
+
+    def _with_retry(
+        self,
+        func: Callable[[], Any],
+        action: str,
+        max_attempts: int = 3,
+        base_delay: float = 0.5,
+        max_delay: float = 8.0,
+        retry_on: Optional[Callable[[Exception], bool]] = None,
+    ) -> Any:
+        """
+        Execute a provider call with exponential backoff retries.
+
+        Args:
+            func: Callable to execute
+            action: Short description for logging
+            max_attempts: Maximum attempts before raising
+            base_delay: Initial delay in seconds
+            max_delay: Maximum delay in seconds
+            retry_on: Optional predicate to decide if error is retryable
+        """
+        attempt = 0
+        while True:
+            try:
+                return func()
+            except Exception as e:
+                attempt += 1
+                should_retry = attempt < max_attempts
+                if retry_on is not None:
+                    should_retry = should_retry and retry_on(e)
+
+                if not should_retry:
+                    raise
+
+                delay = min(max_delay, base_delay * (2 ** (attempt - 1)))
+                logger.warning(
+                    f"{self.name}/{self.model} {action} failed (attempt {attempt}/{max_attempts}): {e}. "
+                    f"Retrying in {delay:.2f}s..."
+                )
+                time.sleep(delay)

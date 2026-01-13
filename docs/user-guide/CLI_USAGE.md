@@ -119,6 +119,8 @@ When in query context (`[query] >`):
 - `/models` - List available models
 - `/model` - Show current model
 - `/model <name>` - Set model for this session
+- `/providers` - List available LLM providers
+- `/provider-status` - Show provider health and recent stats
 - `/mode` - Show current query mode
 - `/mode <name>` - Switch query mode
 - `/note` - Save last query as note (opens editor)

@@ -96,7 +96,57 @@ Notes:
 
 - `api_key` can be omitted and loaded from environment variables.
 - Per-feature overrides inherit from the base `llm` config.
-- Supported provider today: `openai`.
+- Supported providers: `openai`, `anthropic`, `gemini`, `local`, `azure_openai`.
+
+Provider-specific fields:
+
+- `base_url` is used for local/hosted providers (e.g., Ollama).
+- `endpoint`, `api_version`, and `deployment_name` are used for Azure OpenAI.
+
+### Provider Examples
+
+Anthropic:
+
+```json
+"llm": {
+  "provider": "anthropic",
+  "model": "claude-3-5-sonnet-20241022",
+  "api_key": "${ANTHROPIC_API_KEY}"
+}
+```
+
+Local (Ollama):
+
+```json
+"llm": {
+  "provider": "local",
+  "model": "llama2",
+  "base_url": "http://localhost:11434"
+}
+```
+
+Gemini:
+
+```json
+"llm": {
+  "provider": "gemini",
+  "model": "gemini-1.5-pro",
+  "api_key": "${GOOGLE_API_KEY}"
+}
+```
+
+Azure OpenAI:
+
+```json
+"llm": {
+  "provider": "azure_openai",
+  "model": "gpt-35-turbo",
+  "api_key": "${AZURE_OPENAI_API_KEY}",
+  "endpoint": "https://your-resource.openai.azure.com/",
+  "api_version": "2023-05-15",
+  "deployment_name": "gpt-35-turbo"
+}
+```
 
 ### Legacy OpenAI Section
 
@@ -181,11 +231,18 @@ Provider `type` must be registered by the remote provider factory. Built-ins:
 Common environment variables:
 
 - `OPENAI_API_KEY` (OpenAI provider)
+- `ANTHROPIC_API_KEY` (Anthropic provider)
+- `GOOGLE_API_KEY` (Gemini provider)
+- `AZURE_OPENAI_API_KEY` (Azure OpenAI provider)
+- `AZURE_OPENAI_ENDPOINT` (Azure OpenAI endpoint)
+- `AZURE_OPENAI_API_VERSION` (Azure OpenAI API version)
+- `AZURE_OPENAI_DEPLOYMENT_NAME` (Azure OpenAI deployment name)
+- `OLLAMA_BASE_URL` (Local/Ollama base URL)
 - `BRAVE_API_KEY` (Brave Search provider)
 - `<PROVIDER>_API_KEY` (generic convention for future providers)
 
 If `llm.api_key` is omitted, LSM reads `OPENAI_API_KEY` or
-`{PROVIDER}_API_KEY` automatically.
+`{PROVIDER}_API_KEY` automatically. Local providers do not require an API key.
 
 ## Path Resolution Rules
 

@@ -14,7 +14,7 @@ This guide explains how to add support for new LLM providers to Local Second Min
 
 ## Overview
 
-LSM uses an abstract provider interface ([BaseLLMProvider](../lsm/query/providers/base.py)) that all LLM providers must implement. This abstraction allows LSM to support multiple LLM backends while keeping the core query logic provider-agnostic.
+LSM uses an abstract provider interface ([BaseLLMProvider](../lsm/providers/base.py)) that all LLM providers must implement. This abstraction allows LSM to support multiple LLM backends while keeping the core query logic provider-agnostic.
 
 ### Current Providers
 
@@ -123,10 +123,10 @@ class BaseLLMProvider(ABC):
 
 ### Step 1: Create Provider File
 
-Create a new file in `lsm/query/providers/` for your provider:
+Create a new file in `lsm/providers/` for your provider:
 
 ```bash
-lsm/query/providers/your_provider.py
+lsm/providers/your_provider.py
 ```
 
 ### Step 2: Implement the Interface
@@ -344,7 +344,7 @@ Clearly distinguish between source types in your answer."""
 
 ### Step 3: Register Your Provider
 
-Add your provider to the registry in `lsm/query/providers/factory.py`:
+Add your provider to the registry in `lsm/providers/factory.py`:
 
 ```python
 from .your_provider import YourProvider
@@ -547,7 +547,7 @@ Create tests in `tests/test_query/test_providers.py`:
 ```python
 import pytest
 from lsm.config.models import LLMConfig
-from lsm.query.providers import YourProvider
+from lsm.providers import YourProvider
 
 
 def test_your_provider_initialization():
@@ -632,7 +632,7 @@ PROVIDER_REGISTRY["your_provider"] = YourProvider
 For custom/plugin providers, users can register at runtime:
 
 ```python
-from lsm.query.providers import register_provider
+from lsm.providers import register_provider
 from my_custom_provider import MyCustomProvider
 
 register_provider("mycustom", MyCustomProvider)
@@ -784,9 +784,9 @@ To contribute a new provider to LSM:
 
 ## References
 
-- [BaseLLMProvider Source](../lsm/query/providers/base.py)
-- [OpenAI Provider Implementation](../lsm/query/providers/openai.py)
-- [Provider Factory](../lsm/query/providers/factory.py)
+- [BaseLLMProvider Source](../lsm/providers/base.py)
+- [OpenAI Provider Implementation](../lsm/providers/openai.py)
+- [Provider Factory](../lsm/providers/factory.py)
 - [Configuration Schema](../lsm/config/models.py)
 
 ## Support
@@ -795,3 +795,5 @@ For questions or issues:
 - Open an issue on GitHub
 - Check existing provider implementations for examples
 - Review the provider abstraction design in `base.py`
+
+

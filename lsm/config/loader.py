@@ -87,6 +87,10 @@ def build_feature_llm_config(raw: Dict[str, Any]) -> FeatureLLMConfig:
         api_key=raw.get("api_key"),
         temperature=raw.get("temperature"),
         max_tokens=raw.get("max_tokens"),
+        base_url=raw.get("base_url"),
+        endpoint=raw.get("endpoint"),
+        api_version=raw.get("api_version"),
+        deployment_name=raw.get("deployment_name"),
     )
 
 
@@ -111,6 +115,10 @@ def build_llm_config(raw: Dict[str, Any]) -> LLMConfig:
         "api_key": llm_config.get("api_key") or openai_config.get("api_key"),
         "temperature": llm_config.get("temperature", 0.7),
         "max_tokens": llm_config.get("max_tokens", 2000),
+        "base_url": llm_config.get("base_url"),
+        "endpoint": llm_config.get("endpoint"),
+        "api_version": llm_config.get("api_version"),
+        "deployment_name": llm_config.get("deployment_name"),
     }
 
     # Build per-feature overrides if present

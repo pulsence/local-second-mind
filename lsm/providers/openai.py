@@ -69,6 +69,7 @@ class OpenAIProvider(BaseLLMProvider):
         else:
             self.client = OpenAI()  # Uses OPENAI_API_KEY env var
 
+        super().__init__()
         logger.debug(f"Initialized OpenAI provider with model: {config.model}")
 
     @property
@@ -99,6 +100,23 @@ class OpenAIProvider(BaseLLMProvider):
                 pass
             return True
         return isinstance(error, OpenAIError)
+
+    def _is_retryable_error(self, error: Exception) -> bool:
+        name = error.__class__.__name__
+        return name in {
+            "RateLimitError",
+            "APIConnectionError",
+            "APITimeoutError",
+            "InternalServerError",
+            "ServiceUnavailableError",
+        }
+
+    def _call_responses(self, request_args: Dict[str, Any], action: str):
+        return self._with_retry(
+            lambda: self.client.responses.create(**request_args),
+            action,
+            retry_on=self._is_retryable_error,
+        )
 
     def rerank(
         self,
@@ -204,13 +222,13 @@ class OpenAIProvider(BaseLLMProvider):
                 }
 
             try:
-                resp = self.client.responses.create(**request_args)
+                resp = self._call_responses(request_args, "rerank")
             except Exception as e:
                 if _is_unsupported_param_error(e, "text"):
                     logger.warning("Model does not support text.format for structured output; retrying without it.")
                     _mark_param_unsupported(self.config.model, "text")
                     request_args.pop("text", None)
-                    resp = self.client.responses.create(**request_args)
+                    resp = self._call_responses(request_args, "rerank")
                 else:
                     raise
 
@@ -223,6 +241,7 @@ class OpenAIProvider(BaseLLMProvider):
 
             if not isinstance(ranking, list):
                 logger.warning("Invalid ranking format, falling back to vector order")
+                self._record_failure(ValueError("Invalid rerank response"), "rerank")
                 return candidates[:k]
 
             # Reconstruct candidates in ranked order
@@ -247,11 +266,13 @@ class OpenAIProvider(BaseLLMProvider):
                     if len(chosen) >= k:
                         break
 
+            self._record_success("rerank")
             logger.info(f"LLM reranked {len(candidates)} → {len(chosen)} candidates")
             return chosen
 
         except json.JSONDecodeError as e:
             logger.warning(f"Failed to parse LLM rerank response: {e}")
+            self._record_failure(e, "rerank")
             return candidates[:k]
 
         except Exception as e:
@@ -259,6 +280,7 @@ class OpenAIProvider(BaseLLMProvider):
                 logger.warning(f"LLM rerank quota/rate limit hit: {e}")
             else:
                 logger.warning(f"LLM rerank failed: {e}")
+            self._record_failure(e, "rerank")
             return candidates[:k]
 
     def synthesize(
@@ -332,26 +354,29 @@ class OpenAIProvider(BaseLLMProvider):
                 request_args["temperature"] = temperature
 
             try:
-                resp = self.client.responses.create(**request_args)
+                resp = self._call_responses(request_args, "synthesize")
             except Exception as e:
                 if _is_unsupported_param_error(e, "temperature"):
                     logger.warning("Model does not support temperature; retrying without it.")
                     _mark_param_unsupported(self.config.model, "temperature")
                     request_args.pop("temperature", None)
-                    resp = self.client.responses.create(**request_args)
+                    resp = self._call_responses(request_args, "synthesize")
                 else:
                     raise
 
             answer = (resp.output_text or "").strip()
+            self._record_success("synthesize")
             logger.info(f"Generated answer ({len(answer)} chars) in {mode} mode")
             return answer
 
         except Exception as e:
             if self._is_quota_error(e):
                 logger.error(f"Synthesis quota/rate limit hit: {e}")
+                self._record_failure(e, "synthesize")
                 return self._fallback_answer(question, context)
             else:
                 logger.error(f"Synthesis failed: {e}")
+                self._record_failure(e, "synthesize")
                 return self._fallback_answer(question, context)
 
     def generate_tags(
@@ -441,19 +466,19 @@ Output requirements:
                 }
 
             try:
-                resp = self.client.responses.create(**request_args)
+                resp = self._call_responses(request_args, "generate_tags")
             except Exception as e:
                 # Handle unsupported parameters
                 if _is_unsupported_param_error(e, "temperature"):
                     logger.warning("Model does not support temperature for tagging; retrying without it.")
                     _mark_param_unsupported(self.config.model, "temperature")
                     request_args.pop("temperature", None)
-                    resp = self.client.responses.create(**request_args)
+                    resp = self._call_responses(request_args, "generate_tags")
                 elif _is_unsupported_param_error(e, "text"):
                     logger.warning("Model does not support text.format for structured output; retrying without it.")
                     _mark_param_unsupported(self.config.model, "text")
                     request_args.pop("text", None)
-                    resp = self.client.responses.create(**request_args)
+                    resp = self._call_responses(request_args, "generate_tags")
                 else:
                     raise
 
@@ -463,6 +488,7 @@ Output requirements:
 
             if not content:
                 logger.warning("LLM response was empty")
+                self._record_failure(ValueError("Empty tag response"), "generate_tags")
                 return []
 
             # Try to parse as JSON
@@ -473,12 +499,14 @@ Output requirements:
                     if tags and all(isinstance(t, str) for t in tags):
                         tags = [t.lower().strip() for t in tags if t.strip()]
                         logger.info(f"Generated {len(tags)} tags for text")
+                        self._record_success("generate_tags")
                         return tags[:num_tags]
                 elif isinstance(data, list):
                     tags = data
                     if tags and all(isinstance(t, str) for t in tags):
                         tags = [t.lower().strip() for t in tags if t.strip()]
                         logger.info(f"Generated {len(tags)} tags for text")
+                        self._record_success("generate_tags")
                         return tags[:num_tags]
 
                 logger.warning(f"JSON parsed but unexpected structure: {data}")
@@ -499,6 +527,7 @@ Output requirements:
                             if tags and all(isinstance(t, str) for t in tags):
                                 tags = [t.lower().strip() for t in tags if t.strip()]
                                 logger.info(f"Generated {len(tags)} tags from object extraction")
+                                self._record_success("generate_tags")
                                 return tags[:num_tags]
                     except json.JSONDecodeError:
                         pass
@@ -513,6 +542,7 @@ Output requirements:
                         if isinstance(data, list) and all(isinstance(t, str) for t in data):
                             tags = [t.lower().strip() for t in data if t.strip()]
                             logger.info(f"Generated {len(tags)} tags from array extraction")
+                            self._record_success("generate_tags")
                             return tags[:num_tags]
                     except json.JSONDecodeError:
                         pass
@@ -523,16 +553,20 @@ Output requirements:
                     tags = [t for t in tags if t]
                     if tags:
                         logger.info(f"Generated {len(tags)} tags from comma-separated text")
+                        self._record_success("generate_tags")
                         return tags[:num_tags]
 
                 logger.warning(f"Could not parse tags from response: {content!r}")
+                self._record_failure(ValueError("Failed to parse tag response"), "generate_tags")
                 return []
 
             logger.error(f"Could not extract tags from LLM response: {content}")
+            self._record_failure(ValueError("Empty tag response"), "generate_tags")
             return []
 
         except Exception as e:
             logger.error(f"Failed to generate tags: {e}")
+            self._record_failure(e, "generate_tags")
             raise
 
     def _fallback_answer(self, question: str, context: str, max_chars: int = 1200) -> str:

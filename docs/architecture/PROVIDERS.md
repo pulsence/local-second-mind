@@ -16,6 +16,7 @@ All providers implement `BaseLLMProvider`:
 - `synthesize(question, context, mode, **kwargs)`
 - `generate_tags(text, num_tags, existing_tags, **kwargs)`
 - `is_available()`
+- `health_check()`
 - `name` and `model` properties
 
 Optional:

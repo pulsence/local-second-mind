@@ -67,7 +67,7 @@ class TestQueryIntegration:
 
     @patch("lsm.query.retrieval.init_collection")
     @patch("lsm.query.retrieval.init_embedder")
-    @patch("lsm.query.providers.openai.OpenAI")
+    @patch("lsm.providers.openai.OpenAI")
     def test_full_query_flow_no_rerank(
         self,
         mock_openai_class,
@@ -101,10 +101,10 @@ class TestQueryIntegration:
         # Should complete successfully
         assert result == 0
 
-    @patch("lsm.query.providers.openai.OpenAI")
+    @patch("lsm.providers.openai.OpenAI")
     def test_provider_rerank_integration(self, mock_openai_class):
         """Test provider rerank integration."""
-        from lsm.query.providers import create_provider
+        from lsm.providers import create_provider
 
         config = LLMConfig(provider="openai", model="gpt-5.2", api_key="test")
 
@@ -129,10 +129,10 @@ class TestQueryIntegration:
         assert result[0]["text"] == "Third"  # Reranked to first
         assert result[1]["text"] == "First"  # Reranked to second
 
-    @patch("lsm.query.providers.openai.OpenAI")
+    @patch("lsm.providers.openai.OpenAI")
     def test_provider_synthesize_integration(self, mock_openai_class):
         """Test provider synthesize integration."""
-        from lsm.query.providers import create_provider
+        from lsm.providers import create_provider
 
         config = LLMConfig(provider="openai", model="gpt-5.2", api_key="test")
 
@@ -297,16 +297,16 @@ class TestErrorHandling:
         mock_init_embedder.return_value = mock_embedder
         mock_init_collection.return_value = mock_collection
 
-        with patch("lsm.query.providers.openai.OpenAI"):
+        with patch("lsm.providers.openai.OpenAI"):
             result = run_query_cli(config)
 
         # Should exit with error code
         assert result == 1
 
-    @patch("lsm.query.providers.openai.OpenAI")
+    @patch("lsm.providers.openai.OpenAI")
     def test_provider_graceful_degradation(self, mock_openai_class):
         """Test provider gracefully degrades on API errors."""
-        from lsm.query.providers import create_provider
+        from lsm.providers import create_provider
 
         config = LLMConfig(provider="openai", model="gpt-5.2", api_key="test")
 
@@ -330,3 +330,4 @@ class TestErrorHandling:
         # Synthesize should return fallback answer
         answer = provider.synthesize("Question?", "Context", mode="grounded")
         assert "Offline mode" in answer
+

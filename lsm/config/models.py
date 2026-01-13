@@ -76,6 +76,18 @@ class FeatureLLMConfig:
     max_tokens: Optional[int] = None
     """Override max_tokens for this feature. If None, inherits from main LLM config."""
 
+    base_url: Optional[str] = None
+    """Override base URL (for local/hosted providers)."""
+
+    endpoint: Optional[str] = None
+    """Override endpoint URL (e.g., Azure OpenAI)."""
+
+    api_version: Optional[str] = None
+    """Override API version (e.g., Azure OpenAI)."""
+
+    deployment_name: Optional[str] = None
+    """Override deployment name (e.g., Azure OpenAI)."""
+
     def merge_with_base(self, base: "LLMConfig") -> "LLMConfig":
         """
         Create a merged LLM config using this override and base config.
@@ -92,6 +104,12 @@ class FeatureLLMConfig:
             api_key=self.api_key if self.api_key is not None else base.api_key,
             temperature=self.temperature if self.temperature is not None else base.temperature,
             max_tokens=self.max_tokens if self.max_tokens is not None else base.max_tokens,
+            base_url=self.base_url if self.base_url is not None else base.base_url,
+            endpoint=self.endpoint if self.endpoint is not None else base.endpoint,
+            api_version=self.api_version if self.api_version is not None else base.api_version,
+            deployment_name=(
+                self.deployment_name if self.deployment_name is not None else base.deployment_name
+            ),
         )
 
 
@@ -100,14 +118,13 @@ class LLMConfig:
     """
     LLM provider configuration.
 
-    Designed to support multiple providers in the future (OpenAI, Anthropic, local models).
-    Currently focused on OpenAI.
+    Supports multiple providers (OpenAI, Anthropic, Gemini, local models, Azure OpenAI).
 
     Supports per-feature overrides for Query, AI Tagging, and AI Ranking.
     """
 
     provider: str = "openai"
-    """LLM provider name. Currently only 'openai' is supported."""
+    """LLM provider name."""
 
     model: str = "gpt-5.2"
     """Model name to use. For OpenAI: gpt-5.2, gpt-4, etc."""
@@ -124,6 +141,18 @@ class LLMConfig:
     max_tokens: int = 2000
     """Maximum tokens to generate in responses."""
 
+    base_url: Optional[str] = None
+    """Base URL for local or hosted providers (e.g., Ollama)."""
+
+    endpoint: Optional[str] = None
+    """Provider endpoint URL (e.g., Azure OpenAI resource endpoint)."""
+
+    api_version: Optional[str] = None
+    """Provider API version (e.g., Azure OpenAI)."""
+
+    deployment_name: Optional[str] = None
+    """Provider deployment name (e.g., Azure OpenAI deployment)."""
+
     # Per-feature overrides
     query: Optional[FeatureLLMConfig] = None
     """Optional LLM config override for query/answer synthesis."""
@@ -138,20 +167,51 @@ class LLMConfig:
         """Load API key from environment if not provided."""
         if not self.api_key:
             # Try provider-specific environment variable
-            env_var = f"{self.provider.upper()}_API_KEY"
-            self.api_key = os.getenv(env_var)
+            if self.provider == "gemini":
+                self.api_key = os.getenv("GOOGLE_API_KEY")
+            else:
+                env_var = f"{self.provider.upper()}_API_KEY"
+                self.api_key = os.getenv(env_var)
 
             # Fallback to OPENAI_API_KEY for backward compatibility
             if not self.api_key and self.provider == "openai":
                 self.api_key = os.getenv("OPENAI_API_KEY")
 
+        if not self.base_url:
+            # Local provider defaults
+            if self.provider in {"local", "ollama"}:
+                self.base_url = os.getenv("OLLAMA_BASE_URL") or "http://localhost:11434"
+            else:
+                self.base_url = os.getenv("LLM_BASE_URL")
+
+        if not self.endpoint and self.provider == "azure_openai":
+            self.endpoint = os.getenv("AZURE_OPENAI_ENDPOINT")
+
+        if not self.api_version and self.provider == "azure_openai":
+            self.api_version = os.getenv("AZURE_OPENAI_API_VERSION")
+
+        if not self.deployment_name and self.provider == "azure_openai":
+            self.deployment_name = os.getenv("AZURE_OPENAI_DEPLOYMENT_NAME")
+
     def validate(self) -> None:
         """Validate LLM configuration."""
-        if not self.api_key:
+        if self.provider not in {"local", "ollama"} and not self.api_key:
             raise ValueError(
                 f"API key required for provider '{self.provider}'. "
                 f"Set {self.provider.upper()}_API_KEY environment variable or provide in config."
             )
+
+        if self.provider == "azure_openai":
+            if not self.endpoint:
+                raise ValueError(
+                    "Azure OpenAI requires 'endpoint'. "
+                    "Set llm.endpoint or AZURE_OPENAI_ENDPOINT."
+                )
+            if not self.api_version:
+                raise ValueError(
+                    "Azure OpenAI requires 'api_version'. "
+                    "Set llm.api_version or AZURE_OPENAI_API_VERSION."
+                )
 
         if self.temperature < 0.0 or self.temperature > 2.0:
             raise ValueError(f"Temperature must be between 0.0 and 2.0, got {self.temperature}")

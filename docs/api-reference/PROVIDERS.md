@@ -39,6 +39,10 @@ Returns: `list[str]` tags.
 
 Returns: `bool` (true if provider is configured).
 
+#### health_check()
+
+Returns: `dict` with availability, status, and recent success/failure stats.
+
 ### Properties
 
 - `name: str` (provider name)

@@ -88,6 +88,10 @@ Fields:
 - `api_key: str | None = None`
 - `temperature: float = 0.7`
 - `max_tokens: int = 2000`
+- `base_url: str | None = None` (local/hosted providers)
+- `endpoint: str | None = None` (Azure OpenAI)
+- `api_version: str | None = None` (Azure OpenAI)
+- `deployment_name: str | None = None` (Azure OpenAI)
 - `query: FeatureLLMConfig | None`
 - `tagging: FeatureLLMConfig | None`
 - `ranking: FeatureLLMConfig | None`
@@ -103,6 +107,7 @@ Environment resolution:
 
 - If `api_key` is not set, LSM reads `{PROVIDER}_API_KEY`.
 - For `openai`, `OPENAI_API_KEY` is also supported.
+- For `gemini`, `GOOGLE_API_KEY` is supported.
 
 ## FeatureLLMConfig
 
@@ -115,6 +120,10 @@ Fields:
 - `api_key: str | None`
 - `temperature: float | None`
 - `max_tokens: int | None`
+- `base_url: str | None`
+- `endpoint: str | None`
+- `api_version: str | None`
+- `deployment_name: str | None`
 
 Method:
 

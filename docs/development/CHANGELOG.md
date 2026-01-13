@@ -6,6 +6,8 @@ All notable changes to Local Second Mind are documented here.
 
 - Documentation expansion across user guide, architecture, API, and dev guides.
 - Refinements to configuration reference.
+- Added Anthropic, Gemini, Local (Ollama), and Azure OpenAI providers.
+- Added provider health tracking and `/provider-status` REPL command.
 
 ## 0.2.0
 

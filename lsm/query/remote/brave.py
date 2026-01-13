@@ -43,6 +43,16 @@ class BraveSearchProvider(BaseRemoteProvider):
         self.api_key = config.get("api_key") or os.getenv("BRAVE_API_KEY")
         self.endpoint = config.get("endpoint", self.SEARCH_ENDPOINT)
         self.timeout = config.get("timeout", 10)
+        self.enabled = config.get("enabled", True)
+        self.max_results = config.get("max_results", 5)
+        self.weight = config.get("weight", 1.0)
+
+    @property
+    def name(self) -> str:
+        return "brave_search"
+
+    def is_available(self) -> bool:
+        return bool(self.api_key)
 
     def validate_config(self) -> None:
         """Validate Brave Search configuration."""
@@ -135,11 +145,11 @@ class BraveSearchProvider(BaseRemoteProvider):
 
         except requests.exceptions.RequestException as e:
             logger.error(f"Brave Search API error: {e}")
-            raise Exception(f"Brave Search API request failed: {e}")
+            return []
 
         except Exception as e:
             logger.error(f"Brave Search parsing error: {e}")
-            raise Exception(f"Failed to parse Brave Search results: {e}")
+            return []
 
     def get_name(self) -> str:
         """Get provider name."""
