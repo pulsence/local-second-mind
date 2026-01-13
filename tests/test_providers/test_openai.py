@@ -1,25 +1,13 @@
 """
-Tests for query provider module.
+Tests for OpenAI provider implementation.
 """
 
 import json
 import pytest
-from unittest.mock import Mock, MagicMock, patch
+from unittest.mock import Mock, patch
 
 from lsm.config.models import LLMConfig
-from lsm.query.providers import create_provider, list_available_providers
-from lsm.query.providers.base import BaseLLMProvider
-from lsm.query.providers.openai import OpenAIProvider
-from lsm.query.providers.factory import register_provider
-
-
-class TestBaseLLMProvider:
-    """Tests for BaseLLMProvider abstract interface."""
-
-    def test_cannot_instantiate_abstract_class(self):
-        """BaseLLMProvider cannot be instantiated directly."""
-        with pytest.raises(TypeError):
-            BaseLLMProvider()  # type: ignore
+from lsm.providers.openai import OpenAIProvider
 
 
 class TestOpenAIProvider:
@@ -46,7 +34,7 @@ class TestOpenAIProvider:
 
     def test_provider_initialization(self, llm_config):
         """Test OpenAI provider initialization."""
-        with patch("lsm.query.providers.openai.OpenAI") as mock_openai:
+        with patch("lsm.providers.openai.OpenAI") as mock_openai:
             provider = OpenAIProvider(llm_config)
 
             assert provider.name == "openai"
@@ -57,7 +45,7 @@ class TestOpenAIProvider:
         """Test OpenAI provider uses env var when no API key in config."""
         config = LLMConfig(provider="openai", model="gpt-5.2")
 
-        with patch("lsm.query.providers.openai.OpenAI") as mock_openai:
+        with patch("lsm.providers.openai.OpenAI") as mock_openai:
             provider = OpenAIProvider(config)
 
             assert provider.name == "openai"
@@ -65,7 +53,7 @@ class TestOpenAIProvider:
 
     def test_is_available_with_api_key(self, llm_config):
         """Test is_available returns True when API key is set."""
-        with patch("lsm.query.providers.openai.OpenAI"):
+        with patch("lsm.providers.openai.OpenAI"):
             provider = OpenAIProvider(llm_config)
             assert provider.is_available() is True
 
@@ -73,7 +61,7 @@ class TestOpenAIProvider:
         """Test is_available returns False when no API key."""
         config = LLMConfig(provider="openai", model="gpt-5.2", api_key=None)
 
-        with patch("lsm.query.providers.openai.OpenAI"):
+        with patch("lsm.providers.openai.OpenAI"):
             provider = OpenAIProvider(config)
             assert provider.is_available() is False
 
@@ -105,7 +93,7 @@ class TestOpenAIProvider:
             ]
         })
 
-        with patch("lsm.query.providers.openai.OpenAI") as mock_openai:
+        with patch("lsm.providers.openai.OpenAI") as mock_openai:
             mock_client = Mock()
             mock_client.responses.create.return_value = mock_response
             mock_openai.return_value = mock_client
@@ -119,7 +107,7 @@ class TestOpenAIProvider:
 
     def test_rerank_with_empty_candidates(self, llm_config):
         """Test rerank with empty candidate list."""
-        with patch("lsm.query.providers.openai.OpenAI"):
+        with patch("lsm.providers.openai.OpenAI"):
             provider = OpenAIProvider(llm_config)
             result = provider.rerank("What is Python?", [], k=5)
 
@@ -133,7 +121,7 @@ class TestOpenAIProvider:
             {"text": "Third", "metadata": {}, "distance": 0.3},
         ]
 
-        with patch("lsm.query.providers.openai.OpenAI") as mock_openai:
+        with patch("lsm.providers.openai.OpenAI") as mock_openai:
             mock_client = Mock()
             mock_client.responses.create.side_effect = Exception("API Error")
             mock_openai.return_value = mock_client
@@ -156,7 +144,7 @@ class TestOpenAIProvider:
         mock_response = Mock()
         mock_response.output_text = "Not valid JSON"
 
-        with patch("lsm.query.providers.openai.OpenAI") as mock_openai:
+        with patch("lsm.providers.openai.OpenAI") as mock_openai:
             mock_client = Mock()
             mock_client.responses.create.return_value = mock_response
             mock_openai.return_value = mock_client
@@ -172,7 +160,7 @@ class TestOpenAIProvider:
         mock_response = Mock()
         mock_response.output_text = "Python is a programming language [S1]."
 
-        with patch("lsm.query.providers.openai.OpenAI") as mock_openai:
+        with patch("lsm.providers.openai.OpenAI") as mock_openai:
             mock_client = Mock()
             mock_client.responses.create.return_value = mock_response
             mock_openai.return_value = mock_client
@@ -192,7 +180,7 @@ class TestOpenAIProvider:
         mock_response = Mock()
         mock_response.output_text = "Analysis of Python ecosystem [S1] [S2]."
 
-        with patch("lsm.query.providers.openai.OpenAI") as mock_openai:
+        with patch("lsm.providers.openai.OpenAI") as mock_openai:
             mock_client = Mock()
             mock_client.responses.create.return_value = mock_response
             mock_openai.return_value = mock_client
@@ -209,7 +197,7 @@ class TestOpenAIProvider:
 
     def test_synthesize_fallback_on_error(self, llm_config):
         """Test synthesize returns fallback on API error."""
-        with patch("lsm.query.providers.openai.OpenAI") as mock_openai:
+        with patch("lsm.providers.openai.OpenAI") as mock_openai:
             mock_client = Mock()
             mock_client.responses.create.side_effect = Exception("API Error")
             mock_openai.return_value = mock_client
@@ -224,9 +212,101 @@ class TestOpenAIProvider:
             assert "Offline mode" in answer
             assert "What is Python?" in answer
 
+    def test_generate_tags_basic(self, llm_config):
+        """Test basic tag generation."""
+        mock_response = Mock()
+        mock_response.output_text = '{"tags": ["python", "programming", "tutorial"]}'
+
+        with patch("lsm.providers.openai.OpenAI") as mock_openai:
+            mock_client = Mock()
+            mock_client.responses.create.return_value = mock_response
+            mock_openai.return_value = mock_client
+
+            provider = OpenAIProvider(llm_config)
+            tags = provider.generate_tags("This is a Python programming tutorial", num_tags=3)
+
+            assert len(tags) == 3
+            assert "python" in tags
+            assert "programming" in tags
+            assert "tutorial" in tags
+
+    def test_generate_tags_with_existing_context(self, llm_config):
+        """Test tag generation with existing tags context."""
+        mock_response = Mock()
+        mock_response.output_text = '{"tags": ["machine-learning", "python"]}'
+
+        with patch("lsm.providers.openai.OpenAI") as mock_openai:
+            mock_client = Mock()
+            mock_client.responses.create.return_value = mock_response
+            mock_openai.return_value = mock_client
+
+            provider = OpenAIProvider(llm_config)
+            existing_tags = ["python", "data-science", "tutorial"]
+
+            tags = provider.generate_tags(
+                "Machine learning with Python",
+                num_tags=2,
+                existing_tags=existing_tags
+            )
+
+            assert len(tags) <= 2
+            assert all(isinstance(t, str) for t in tags)
+
+    def test_generate_tags_empty_response(self, llm_config):
+        """Test handling of empty LLM response."""
+        mock_response = Mock()
+        mock_response.output_text = ""
+
+        with patch("lsm.providers.openai.OpenAI") as mock_openai:
+            mock_client = Mock()
+            mock_client.responses.create.return_value = mock_response
+            mock_openai.return_value = mock_client
+
+            provider = OpenAIProvider(llm_config)
+            tags = provider.generate_tags("Test text")
+
+            assert tags == []
+
+    def test_generate_tags_json_extraction(self, llm_config):
+        """Test JSON extraction from markdown-wrapped response."""
+        mock_response = Mock()
+        # Response with markdown code block
+        mock_response.output_text = '```json\n{"tags": ["python", "code"]}\n```'
+
+        with patch("lsm.providers.openai.OpenAI") as mock_openai:
+            mock_client = Mock()
+            mock_client.responses.create.return_value = mock_response
+            mock_openai.return_value = mock_client
+
+            provider = OpenAIProvider(llm_config)
+            tags = provider.generate_tags("Python code")
+
+            assert len(tags) == 2
+            assert "python" in tags
+            assert "code" in tags
+
+    def test_generate_tags_comma_separated_fallback(self, llm_config):
+        """Test fallback to comma-separated parsing."""
+        mock_response = Mock()
+        # Response without JSON structure
+        mock_response.output_text = "python, programming, tutorial"
+
+        with patch("lsm.providers.openai.OpenAI") as mock_openai:
+            mock_client = Mock()
+            mock_client.responses.create.return_value = mock_response
+            mock_openai.return_value = mock_client
+
+            provider = OpenAIProvider(llm_config)
+            tags = provider.generate_tags("Python tutorial", num_tags=3)
+
+            assert len(tags) == 3
+            assert "python" in tags
+            assert "programming" in tags
+            assert "tutorial" in tags
+
     def test_estimate_cost_gpt5(self, llm_config):
         """Test cost estimation for GPT-5 model."""
-        with patch("lsm.query.providers.openai.OpenAI"):
+        with patch("lsm.providers.openai.OpenAI"):
             provider = OpenAIProvider(llm_config)
             cost = provider.estimate_cost(input_tokens=1000, output_tokens=500)
 
@@ -238,83 +318,9 @@ class TestOpenAIProvider:
         """Test cost estimation for GPT-4 model."""
         config = LLMConfig(provider="openai", model="gpt-4", api_key="test")
 
-        with patch("lsm.query.providers.openai.OpenAI"):
+        with patch("lsm.providers.openai.OpenAI"):
             provider = OpenAIProvider(config)
             cost = provider.estimate_cost(input_tokens=1000, output_tokens=500)
 
             assert cost is not None
             assert cost > 0
-
-
-class TestProviderFactory:
-    """Tests for provider factory."""
-
-    def test_create_openai_provider(self):
-        """Test creating OpenAI provider."""
-        config = LLMConfig(provider="openai", model="gpt-5.2", api_key="test")
-
-        with patch("lsm.query.providers.openai.OpenAI"):
-            provider = create_provider(config)
-
-            assert isinstance(provider, OpenAIProvider)
-            assert provider.name == "openai"
-
-    def test_create_provider_case_insensitive(self):
-        """Test provider name is case-insensitive."""
-        config = LLMConfig(provider="OpenAI", model="gpt-5.2", api_key="test")
-
-        with patch("lsm.query.providers.openai.OpenAI"):
-            provider = create_provider(config)
-
-            assert isinstance(provider, OpenAIProvider)
-
-    def test_create_unknown_provider_raises_error(self):
-        """Test creating unknown provider raises ValueError."""
-        config = LLMConfig(provider="unknown", model="test", api_key="test")
-
-        with pytest.raises(ValueError, match="Unsupported LLM provider"):
-            create_provider(config)
-
-    def test_list_available_providers(self):
-        """Test listing available providers."""
-        providers = list_available_providers()
-
-        assert isinstance(providers, list)
-        assert "openai" in providers
-
-    def test_register_custom_provider(self):
-        """Test registering a custom provider."""
-        class CustomProvider(BaseLLMProvider):
-            @property
-            def name(self) -> str:
-                return "custom"
-
-            @property
-            def model(self) -> str:
-                return "custom-model"
-
-            def is_available(self) -> bool:
-                return True
-
-            def rerank(self, question, candidates, k, **kwargs):
-                return candidates[:k]
-
-            def synthesize(self, question, context, mode="grounded", **kwargs):
-                return "Custom answer"
-
-        register_provider("custom", CustomProvider)
-
-        providers = list_available_providers()
-        assert "custom" in providers
-
-        config = LLMConfig(provider="custom", model="custom-model")
-        provider = create_provider(config)
-        assert isinstance(provider, CustomProvider)
-
-    def test_register_invalid_provider_raises_error(self):
-        """Test registering non-BaseLLMProvider raises TypeError."""
-        class NotAProvider:
-            pass
-
-        with pytest.raises(TypeError, match="must inherit from BaseLLMProvider"):
-            register_provider("invalid", NotAProvider)  # type: ignore

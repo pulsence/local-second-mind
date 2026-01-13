@@ -66,6 +66,31 @@ class BaseLLMProvider(ABC):
         pass
 
     @abstractmethod
+    def generate_tags(
+        self,
+        text: str,
+        num_tags: int = 3,
+        existing_tags: Optional[List[str]] = None,
+        **kwargs
+    ) -> List[str]:
+        """
+        Generate relevant tags for a text chunk using LLM.
+
+        Args:
+            text: Text content to tag
+            num_tags: Number of tags to generate (default: 3)
+            existing_tags: Optional list of existing tags to consider for consistency
+            **kwargs: Provider-specific options (temperature, max_tokens, etc.)
+
+        Returns:
+            List of generated tag strings
+
+        Raises:
+            Exception: If tag generation fails
+        """
+        pass
+
+    @abstractmethod
     def is_available(self) -> bool:
         """
         Check if the provider is configured and available.

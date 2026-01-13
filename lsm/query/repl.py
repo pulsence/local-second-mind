@@ -16,11 +16,11 @@ from openai import OpenAI
 
 from lsm.config.models import LSMConfig, LLMConfig
 from lsm.cli.logging import get_logger
+from lsm.providers import create_provider
 from .session import Candidate, SessionState
 from .retrieval import embed_text, retrieve_candidates, filter_candidates, compute_relevance
 from .rerank import apply_local_reranking
 from .synthesis import build_context_block, fallback_answer, format_source_list
-from .providers import create_provider
 from .remote import create_remote_provider
 from .notes import write_note, generate_note_content, edit_note_in_editor
 
@@ -179,7 +179,7 @@ def print_providers(config: LSMConfig) -> None:
     Args:
         config: LSM configuration
     """
-    from .providers import list_available_providers, create_provider
+    from lsm.providers import list_available_providers
 
     print()
     print("=" * 60)

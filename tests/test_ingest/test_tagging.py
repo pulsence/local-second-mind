@@ -1,12 +1,24 @@
 """
 Tests for AI tagging module.
+
+Tests cover:
+- JSON serialization/deserialization for ChromaDB storage
+- Tag generation with retry logic
+- Generic provider pattern usage
+- OpenAI Responses API integration
+- Untagged chunk retrieval with filtering
+- User tag management
+- Tag parsing fallback strategies
 """
 
 import pytest
-from unittest.mock import Mock, MagicMock, patch
+import json
+from unittest.mock import Mock, MagicMock, patch, call
 from datetime import datetime
 
 from lsm.ingest.tagging import (
+    _serialize_tags,
+    _deserialize_tags,
     generate_tags_for_chunk,
     get_untagged_chunks,
     tag_chunks,
@@ -17,26 +29,82 @@ from lsm.ingest.tagging import (
 from lsm.config.models import LLMConfig
 
 
+class TestTagSerialization:
+    """Test JSON serialization helpers for ChromaDB compatibility."""
+
+    def test_serialize_tags_basic(self):
+        """Test basic tag list serialization to JSON string."""
+        tags = ["python", "tutorial", "programming"]
+        result = _serialize_tags(tags)
+
+        assert isinstance(result, str)
+        assert result == '["python", "tutorial", "programming"]'
+
+    def test_serialize_empty_list(self):
+        """Test serializing empty tag list."""
+        result = _serialize_tags([])
+        assert result == "[]"
+
+    def test_deserialize_tags_json_string(self):
+        """Test deserializing valid JSON string."""
+        tags_json = '["python", "tutorial", "programming"]'
+        result = _deserialize_tags(tags_json)
+
+        assert isinstance(result, list)
+        assert len(result) == 3
+        assert "python" in result
+
+    def test_deserialize_tags_legacy_list(self):
+        """Test handling legacy list format (shouldn't happen but handle gracefully)."""
+        tags_list = ["python", "tutorial"]
+        result = _deserialize_tags(tags_list)
+
+        assert result == tags_list
+
+    def test_deserialize_tags_none(self):
+        """Test deserializing None value."""
+        result = _deserialize_tags(None)
+        assert result == []
+
+    def test_deserialize_tags_empty_string(self):
+        """Test deserializing empty string."""
+        result = _deserialize_tags("")
+        assert result == []
+
+    def test_deserialize_tags_invalid_json(self):
+        """Test handling invalid JSON gracefully."""
+        result = _deserialize_tags("{invalid json")
+        assert result == []
+
+    def test_deserialize_tags_non_list_json(self):
+        """Test handling JSON that's not a list."""
+        result = _deserialize_tags('{"tags": ["python"]}')
+        assert result == []
+
+    def test_round_trip_serialization(self):
+        """Test serialize -> deserialize preserves data."""
+        original = ["python", "machine-learning", "data-science"]
+        serialized = _serialize_tags(original)
+        deserialized = _deserialize_tags(serialized)
+
+        assert deserialized == original
+
+
 class TestTagGeneration:
-    """Test tag generation from LLM."""
+    """Test tag generation with retry logic and provider abstraction."""
 
-    @patch("lsm.ingest.tagging.OpenAI")
-    def test_generate_tags_basic(self, mock_openai_class):
-        """Test basic tag generation."""
-        # Mock OpenAI client
-        mock_client = Mock()
-        mock_openai_class.return_value = mock_client
-
-        # Mock LLM response
-        mock_response = Mock()
-        mock_response.choices = [Mock()]
-        mock_response.choices[0].message.content = '["python", "programming", "tutorial"]'
-        mock_client.chat.completions.create.return_value = mock_response
+    @patch("lsm.ingest.tagging.create_provider")
+    def test_generate_tags_basic(self, mock_create_provider):
+        """Test basic tag generation using generic provider."""
+        # Mock provider
+        mock_provider = Mock()
+        mock_provider.generate_tags.return_value = ["python", "programming", "tutorial"]
+        mock_create_provider.return_value = mock_provider
 
         # Create LLM config
         llm_config = LLMConfig(
             provider="openai",
-            model="gpt-5.2",
+            model="gpt-5-nano",
             api_key="test-key",
         )
 
@@ -52,20 +120,20 @@ class TestTagGeneration:
         assert "programming" in tags
         assert "tutorial" in tags
 
-    @patch("lsm.ingest.tagging.OpenAI")
-    def test_generate_tags_with_existing_context(self, mock_openai_class):
-        """Test tag generation with existing tags context."""
-        mock_client = Mock()
-        mock_openai_class.return_value = mock_client
+        # Verify provider was created and called
+        mock_create_provider.assert_called_once_with(llm_config)
+        mock_provider.generate_tags.assert_called_once()
 
-        mock_response = Mock()
-        mock_response.choices = [Mock()]
-        mock_response.choices[0].message.content = '["machine-learning", "python"]'
-        mock_client.chat.completions.create.return_value = mock_response
+    @patch("lsm.ingest.tagging.create_provider")
+    def test_generate_tags_with_existing_context(self, mock_create_provider):
+        """Test tag generation with existing tags context."""
+        mock_provider = Mock()
+        mock_provider.generate_tags.return_value = ["machine-learning", "python"]
+        mock_create_provider.return_value = mock_provider
 
         llm_config = LLMConfig(
             provider="openai",
-            model="gpt-5.2",
+            model="gpt-5-nano",
             api_key="test-key",
         )
 
@@ -79,23 +147,25 @@ class TestTagGeneration:
         )
 
         assert len(tags) <= 2
-        assert all(isinstance(t, str) for t in tags)
 
-    @patch("lsm.ingest.tagging.OpenAI")
-    def test_generate_tags_non_json_response(self, mock_openai_class):
-        """Test handling of non-JSON LLM response."""
-        mock_client = Mock()
-        mock_openai_class.return_value = mock_client
+        # Verify existing_tags were passed to provider
+        call_kwargs = mock_provider.generate_tags.call_args[1]
+        assert call_kwargs["existing_tags"] == existing_tags
 
-        # Comma-separated response
-        mock_response = Mock()
-        mock_response.choices = [Mock()]
-        mock_response.choices[0].message.content = "python, programming, tutorial"
-        mock_client.chat.completions.create.return_value = mock_response
+    @patch("lsm.ingest.tagging.create_provider")
+    def test_generate_tags_retry_on_empty(self, mock_create_provider):
+        """Test retry logic when LLM returns empty results."""
+        mock_provider = Mock()
+        # First call returns empty, second succeeds
+        mock_provider.generate_tags.side_effect = [
+            [],  # First attempt fails
+            ["python", "tutorial"]  # Second attempt succeeds
+        ]
+        mock_create_provider.return_value = mock_provider
 
         llm_config = LLMConfig(
             provider="openai",
-            model="gpt-5.2",
+            model="gpt-5-nano",
             api_key="test-key",
         )
 
@@ -103,50 +173,190 @@ class TestTagGeneration:
             text="Python tutorial",
             llm_config=llm_config,
             num_tags=3,
+            max_retries=1,
         )
 
-        assert len(tags) == 3
-        assert "python" in tags
-        assert "programming" in tags
+        # Should get tags from second attempt
+        assert len(tags) == 2
+        assert mock_provider.generate_tags.call_count == 2
+
+    @patch("lsm.ingest.tagging.create_provider")
+    def test_generate_tags_retry_on_exception(self, mock_create_provider):
+        """Test retry logic when LLM raises exception."""
+        mock_provider = Mock()
+        # First call raises, second succeeds
+        mock_provider.generate_tags.side_effect = [
+            Exception("API error"),
+            ["python"]
+        ]
+        mock_create_provider.return_value = mock_provider
+
+        llm_config = LLMConfig(
+            provider="openai",
+            model="gpt-5-nano",
+            api_key="test-key",
+        )
+
+        tags = generate_tags_for_chunk(
+            text="Python",
+            llm_config=llm_config,
+            max_retries=1,
+        )
+
+        assert len(tags) == 1
+        assert mock_provider.generate_tags.call_count == 2
+
+    @patch("lsm.ingest.tagging.create_provider")
+    def test_generate_tags_retry_exhausted(self, mock_create_provider):
+        """Test that exception is raised after retries exhausted."""
+        mock_provider = Mock()
+        mock_provider.generate_tags.side_effect = Exception("Persistent API error")
+        mock_create_provider.return_value = mock_provider
+
+        llm_config = LLMConfig(
+            provider="openai",
+            model="gpt-5-nano",
+            api_key="test-key",
+        )
+
+        with pytest.raises(Exception, match="Persistent API error"):
+            generate_tags_for_chunk(
+                text="Test",
+                llm_config=llm_config,
+                max_retries=1,
+            )
+
+        # Should try twice (initial + 1 retry)
+        assert mock_provider.generate_tags.call_count == 2
+
+    @patch("lsm.ingest.tagging.create_provider")
+    def test_generate_tags_empty_after_retries(self, mock_create_provider):
+        """Test that empty list returned when all retries return empty."""
+        mock_provider = Mock()
+        mock_provider.generate_tags.return_value = []
+        mock_create_provider.return_value = mock_provider
+
+        llm_config = LLMConfig(
+            provider="openai",
+            model="gpt-5-nano",
+            api_key="test-key",
+        )
+
+        tags = generate_tags_for_chunk(
+            text="Test",
+            llm_config=llm_config,
+            max_retries=1,
+        )
+
+        assert tags == []
+        assert mock_provider.generate_tags.call_count == 2
 
 
 class TestUntaggedChunks:
-    """Test finding untagged chunks."""
+    """Test finding untagged chunks with manual filtering."""
 
-    def test_get_untagged_chunks_basic(self):
-        """Test getting untagged chunks."""
+    def test_get_untagged_chunks_all_untagged(self):
+        """Test getting untagged chunks when none have ai_tags."""
+        mock_collection = Mock()
+        mock_collection.get.return_value = {
+            "ids": ["chunk1", "chunk2", "chunk3"],
+            "metadatas": [
+                {"source_path": "/docs/file1.md"},
+                {"source_path": "/docs/file2.md"},
+                {"source_path": "/docs/file3.md"},
+            ],
+            "documents": ["Text 1", "Text 2", "Text 3"],
+        }
+
+        untagged = get_untagged_chunks(mock_collection, batch_size=10)
+
+        assert len(untagged) == 3
+        assert untagged[0]["id"] == "chunk1"
+        assert untagged[0]["text"] == "Text 1"
+        assert untagged[1]["id"] == "chunk2"
+        assert untagged[2]["id"] == "chunk3"
+
+    def test_get_untagged_chunks_filters_tagged(self):
+        """Test that chunks with ai_tags are filtered out."""
+        mock_collection = Mock()
+        mock_collection.get.return_value = {
+            "ids": ["chunk1", "chunk2", "chunk3"],
+            "metadatas": [
+                {"source_path": "/docs/file1.md"},  # No ai_tags
+                {"source_path": "/docs/file2.md", "ai_tags": '["python"]'},  # Has ai_tags
+                {"source_path": "/docs/file3.md"},  # No ai_tags
+            ],
+            "documents": ["Text 1", "Text 2", "Text 3"],
+        }
+
+        untagged = get_untagged_chunks(mock_collection, batch_size=10)
+
+        # Should only get chunk1 and chunk3
+        assert len(untagged) == 2
+        assert untagged[0]["id"] == "chunk1"
+        assert untagged[1]["id"] == "chunk3"
+
+    def test_get_untagged_chunks_filters_empty_tags(self):
+        """Test that chunks with empty ai_tags are considered untagged."""
         mock_collection = Mock()
         mock_collection.get.return_value = {
             "ids": ["chunk1", "chunk2"],
             "metadatas": [
-                {"source_path": "/docs/file1.md"},
-                {"source_path": "/docs/file2.md"},
+                {"source_path": "/docs/file1.md", "ai_tags": ""},  # Empty string
+                {"source_path": "/docs/file2.md", "ai_tags": '["python"]'},  # Has tags
             ],
             "documents": ["Text 1", "Text 2"],
         }
 
         untagged = get_untagged_chunks(mock_collection, batch_size=10)
 
-        assert len(untagged) == 2
+        # chunk1 should be considered untagged
+        assert len(untagged) == 1
         assert untagged[0]["id"] == "chunk1"
-        assert untagged[0]["text"] == "Text 1"
-        assert untagged[1]["id"] == "chunk2"
 
-    def test_get_untagged_chunks_with_where_clause(self):
-        """Test that where clause is used correctly."""
+    def test_get_untagged_chunks_respects_batch_size(self):
+        """Test that batch_size limits results."""
         mock_collection = Mock()
         mock_collection.get.return_value = {
-            "ids": ["chunk1"],
-            "metadatas": [{"source_path": "/docs/file1.md"}],
-            "documents": ["Text 1"],
+            "ids": [f"chunk{i}" for i in range(100)],
+            "metadatas": [{"source_path": f"/docs/file{i}.md"} for i in range(100)],
+            "documents": [f"Text {i}" for i in range(100)],
         }
+
+        untagged = get_untagged_chunks(mock_collection, batch_size=10)
+
+        # Should stop at batch_size
+        assert len(untagged) == 10
+
+    def test_get_untagged_chunks_with_processed_ids(self):
+        """Test that processed_ids are skipped."""
+        mock_collection = Mock()
+        mock_collection.get.return_value = {
+            "ids": ["chunk1", "chunk2", "chunk3"],
+            "metadatas": [
+                {"source_path": "/docs/file1.md"},
+                {"source_path": "/docs/file2.md"},
+                {"source_path": "/docs/file3.md"},
+            ],
+            "documents": ["Text 1", "Text 2", "Text 3"],
+        }
+
+        processed = {"chunk1", "chunk3"}
+        untagged = get_untagged_chunks(mock_collection, batch_size=10, processed_ids=processed)
+
+        # Should only get chunk2
+        assert len(untagged) == 1
+        assert untagged[0]["id"] == "chunk2"
+
+    def test_get_untagged_chunks_fetches_more_than_batch(self):
+        """Test that fetch_limit is larger to find enough untagged chunks."""
+        mock_collection = Mock()
 
         untagged = get_untagged_chunks(mock_collection, batch_size=100)
 
-        # Verify where clause was passed
-        mock_collection.get.assert_called_once()
-        call_args = mock_collection.get.call_args
-        assert "where" in call_args[1]
+        # Should fetch batch_size * 10 or 1000, whichever is larger
+        call_kwargs = mock_collection.get.call_args[1]
+        assert call_kwargs["limit"] >= 1000
 
     def test_get_untagged_chunks_empty(self):
         """Test when no untagged chunks exist."""
@@ -161,6 +371,16 @@ class TestUntaggedChunks:
 
         assert untagged == []
 
+    def test_get_untagged_chunks_error_handling(self):
+        """Test graceful error handling."""
+        mock_collection = Mock()
+        mock_collection.get.side_effect = Exception("Database error")
+
+        untagged = get_untagged_chunks(mock_collection, batch_size=100)
+
+        # Should return empty list on error
+        assert untagged == []
+
 
 class TestTagChunks:
     """Test batch tagging of chunks."""
@@ -168,14 +388,14 @@ class TestTagChunks:
     @patch("lsm.ingest.tagging.generate_tags_for_chunk")
     @patch("lsm.ingest.tagging.get_untagged_chunks")
     def test_tag_chunks_basic(self, mock_get_untagged, mock_generate):
-        """Test basic chunk tagging."""
+        """Test basic chunk tagging with JSON serialization."""
         # Mock untagged chunks
         mock_get_untagged.side_effect = [
             [
                 {
                     "id": "chunk1",
                     "text": "Python tutorial",
-                    "metadata": {"source_path": "/docs/file1.md"},
+                    "metadata": {"source_path": "/docs/file1.md", "chunk_index": 0},
                 }
             ],
             [],  # Second call returns empty (done)
@@ -193,7 +413,7 @@ class TestTagChunks:
         # LLM config
         llm_config = LLMConfig(
             provider="openai",
-            model="gpt-5.2",
+            model="gpt-5-nano",
             api_key="test-key",
         )
 
@@ -210,8 +430,22 @@ class TestTagChunks:
         assert tagged == 1
         assert failed == 0
 
-        # Verify update was called
+        # Verify update was called with serialized tags
         mock_collection.update.assert_called_once()
+        call_kwargs = mock_collection.update.call_args[1]
+        updated_metadata = call_kwargs["metadatas"][0]
+
+        # Tags should be JSON string
+        assert "ai_tags" in updated_metadata
+        assert isinstance(updated_metadata["ai_tags"], str)
+
+        # Deserialize and check
+        tags = json.loads(updated_metadata["ai_tags"])
+        assert "python" in tags
+        assert "tutorial" in tags
+
+        # Should have timestamp
+        assert "ai_tagged_at" in updated_metadata
 
     @patch("lsm.ingest.tagging.generate_tags_for_chunk")
     @patch("lsm.ingest.tagging.get_untagged_chunks")
@@ -222,7 +456,7 @@ class TestTagChunks:
                 {
                     "id": "chunk1",
                     "text": "Test",
-                    "metadata": {},
+                    "metadata": {"chunk_index": 0},
                 }
             ],
             [],
@@ -235,7 +469,7 @@ class TestTagChunks:
 
         llm_config = LLMConfig(
             provider="openai",
-            model="gpt-5.2",
+            model="gpt-5-nano",
             api_key="test-key",
         )
 
@@ -256,7 +490,7 @@ class TestTagChunks:
         # Return more chunks than max
         mock_get_untagged.side_effect = [
             [
-                {"id": f"chunk{i}", "text": f"Text {i}", "metadata": {}}
+                {"id": f"chunk{i}", "text": f"Text {i}", "metadata": {"chunk_index": i}}
                 for i in range(5)
             ],
             [],
@@ -269,7 +503,7 @@ class TestTagChunks:
 
         llm_config = LLMConfig(
             provider="openai",
-            model="gpt-5.2",
+            model="gpt-5-nano",
             api_key="test-key",
         )
 
@@ -283,9 +517,84 @@ class TestTagChunks:
         # Should only tag 3
         assert tagged == 3
 
+    @patch("lsm.ingest.tagging.generate_tags_for_chunk")
+    @patch("lsm.ingest.tagging.get_untagged_chunks")
+    def test_tag_chunks_handles_failures(self, mock_get_untagged, mock_generate):
+        """Test that failures are counted correctly."""
+        mock_get_untagged.side_effect = [
+            [
+                {"id": "chunk1", "text": "Test 1", "metadata": {"chunk_index": 0}},
+                {"id": "chunk2", "text": "Test 2", "metadata": {"chunk_index": 1}},
+            ],
+            [],
+        ]
+
+        # First succeeds, second fails
+        mock_generate.side_effect = [
+            ["tag1"],
+            Exception("Generation failed")
+        ]
+
+        mock_collection = Mock()
+        mock_collection.get.return_value = {"metadatas": []}
+
+        llm_config = LLMConfig(
+            provider="openai",
+            model="gpt-5-nano",
+            api_key="test-key",
+        )
+
+        tagged, failed = tag_chunks(
+            collection=mock_collection,
+            llm_config=llm_config,
+            dry_run=False,
+        )
+
+        assert tagged == 1
+        assert failed == 1
+
+    @patch("lsm.ingest.tagging.generate_tags_for_chunk")
+    @patch("lsm.ingest.tagging.get_untagged_chunks")
+    def test_tag_chunks_uses_existing_tags(self, mock_get_untagged, mock_generate):
+        """Test that existing tags are provided as context."""
+        mock_get_untagged.side_effect = [
+            [
+                {"id": "chunk1", "text": "Test", "metadata": {"chunk_index": 0}},
+            ],
+            [],
+        ]
+
+        mock_generate.return_value = ["new-tag"]
+
+        mock_collection = Mock()
+        # Mock collection with existing tags
+        mock_collection.get.return_value = {
+            "metadatas": [
+                {"ai_tags": '["existing-tag", "python"]'}
+            ]
+        }
+
+        llm_config = LLMConfig(
+            provider="openai",
+            model="gpt-5-nano",
+            api_key="test-key",
+        )
+
+        tagged, failed = tag_chunks(
+            collection=mock_collection,
+            llm_config=llm_config,
+            dry_run=False,
+        )
+
+        # Verify generate_tags_for_chunk was called with existing_tags
+        call_kwargs = mock_generate.call_args[1]
+        assert "existing_tags" in call_kwargs
+        assert "existing-tag" in call_kwargs["existing_tags"]
+        assert "python" in call_kwargs["existing_tags"]
+
 
 class TestUserTagManagement:
-    """Test user tag add/remove operations."""
+    """Test user tag add/remove operations with JSON serialization."""
 
     def test_add_user_tags_new(self):
         """Test adding user tags to chunk without existing tags."""
@@ -301,16 +610,22 @@ class TestUserTagManagement:
         call_args = mock_collection.update.call_args
         metadata = call_args[1]["metadatas"][0]
 
+        # Tags should be JSON string
         assert "user_tags" in metadata
-        assert "important" in metadata["user_tags"]
-        assert "review" in metadata["user_tags"]
+        assert isinstance(metadata["user_tags"], str)
+
+        # Deserialize and verify
+        tags = json.loads(metadata["user_tags"])
+        assert "important" in tags
+        assert "review" in tags
+
         assert "user_tagged_at" in metadata
 
     def test_add_user_tags_existing(self):
         """Test adding tags to chunk with existing user tags."""
         mock_collection = Mock()
         mock_collection.get.return_value = {
-            "metadatas": [{"user_tags": ["existing"]}]
+            "metadatas": [{"user_tags": '["existing"]'}]
         }
 
         add_user_tags(mock_collection, "chunk1", ["new"])
@@ -318,15 +633,16 @@ class TestUserTagManagement:
         call_args = mock_collection.update.call_args
         metadata = call_args[1]["metadatas"][0]
 
-        # Should have both old and new
-        assert "existing" in metadata["user_tags"]
-        assert "new" in metadata["user_tags"]
+        # Deserialize and check both old and new
+        tags = json.loads(metadata["user_tags"])
+        assert "existing" in tags
+        assert "new" in tags
 
     def test_add_user_tags_duplicates(self):
         """Test that duplicate tags are avoided."""
         mock_collection = Mock()
         mock_collection.get.return_value = {
-            "metadatas": [{"user_tags": ["tag1"]}]
+            "metadatas": [{"user_tags": '["tag1"]'}]
         }
 
         add_user_tags(mock_collection, "chunk1", ["tag1", "tag2"])
@@ -334,15 +650,32 @@ class TestUserTagManagement:
         call_args = mock_collection.update.call_args
         metadata = call_args[1]["metadatas"][0]
 
-        # Should only have one instance of tag1
-        assert metadata["user_tags"].count("tag1") == 1
-        assert "tag2" in metadata["user_tags"]
+        # Deserialize and verify no duplicates
+        tags = json.loads(metadata["user_tags"])
+        assert tags.count("tag1") == 1
+        assert "tag2" in tags
+
+    def test_add_user_tags_normalizes_case(self):
+        """Test that tags are normalized to lowercase."""
+        mock_collection = Mock()
+        mock_collection.get.return_value = {
+            "metadatas": [{}]
+        }
+
+        add_user_tags(mock_collection, "chunk1", ["Python", "TUTORIAL"])
+
+        call_args = mock_collection.update.call_args
+        metadata = call_args[1]["metadatas"][0]
+
+        tags = json.loads(metadata["user_tags"])
+        assert "python" in tags
+        assert "tutorial" in tags
 
     def test_remove_user_tags(self):
         """Test removing user tags."""
         mock_collection = Mock()
         mock_collection.get.return_value = {
-            "metadatas": [{"user_tags": ["tag1", "tag2", "tag3"]}]
+            "metadatas": [{"user_tags": '["tag1", "tag2", "tag3"]'}]
         }
 
         remove_user_tags(mock_collection, "chunk1", ["tag2"])
@@ -350,9 +683,10 @@ class TestUserTagManagement:
         call_args = mock_collection.update.call_args
         metadata = call_args[1]["metadatas"][0]
 
-        assert "tag1" in metadata["user_tags"]
-        assert "tag2" not in metadata["user_tags"]
-        assert "tag3" in metadata["user_tags"]
+        tags = json.loads(metadata["user_tags"])
+        assert "tag1" in tags
+        assert "tag2" not in tags
+        assert "tag3" in tags
 
     def test_add_user_tags_chunk_not_found(self):
         """Test adding tags to non-existent chunk raises error."""
@@ -362,22 +696,30 @@ class TestUserTagManagement:
         with pytest.raises(ValueError, match="Chunk not found"):
             add_user_tags(mock_collection, "nonexistent", ["tag"])
 
+    def test_remove_user_tags_chunk_not_found(self):
+        """Test removing tags from non-existent chunk raises error."""
+        mock_collection = Mock()
+        mock_collection.get.return_value = {"metadatas": []}
+
+        with pytest.raises(ValueError, match="Chunk not found"):
+            remove_user_tags(mock_collection, "nonexistent", ["tag"])
+
 
 class TestGetAllTags:
     """Test retrieving all tags from collection."""
 
     def test_get_all_tags_both_types(self):
-        """Test getting both AI and user tags."""
+        """Test getting both AI and user tags with JSON deserialization."""
         mock_collection = Mock()
         mock_collection.get.return_value = {
             "metadatas": [
                 {
-                    "ai_tags": ["python", "tutorial"],
-                    "user_tags": ["important"],
+                    "ai_tags": '["python", "tutorial"]',
+                    "user_tags": '["important"]',
                 },
                 {
-                    "ai_tags": ["python", "advanced"],
-                    "user_tags": ["review"],
+                    "ai_tags": '["python", "advanced"]',
+                    "user_tags": '["review"]',
                 },
             ]
         }
@@ -414,9 +756,9 @@ class TestGetAllTags:
         mock_collection = Mock()
         mock_collection.get.return_value = {
             "metadatas": [
-                {"ai_tags": ["python", "tutorial"]},
-                {"ai_tags": ["python", "advanced"]},
-                {"ai_tags": ["python"]},
+                {"ai_tags": '["python", "tutorial"]'},
+                {"ai_tags": '["python", "advanced"]'},
+                {"ai_tags": '["python"]'},
             ]
         }
 
@@ -424,3 +766,51 @@ class TestGetAllTags:
 
         # python should only appear once
         assert all_tags["ai_tags"].count("python") == 1
+
+    def test_get_all_tags_sorted(self):
+        """Test that returned tags are sorted."""
+        mock_collection = Mock()
+        mock_collection.get.return_value = {
+            "metadatas": [
+                {"ai_tags": '["zebra", "apple", "monkey"]'},
+            ]
+        }
+
+        all_tags = get_all_tags(mock_collection)
+
+        # Should be alphabetically sorted
+        assert all_tags["ai_tags"] == ["apple", "monkey", "zebra"]
+
+    def test_get_all_tags_handles_invalid_json(self):
+        """Test that invalid JSON is handled gracefully."""
+        mock_collection = Mock()
+        mock_collection.get.return_value = {
+            "metadatas": [
+                {"ai_tags": "invalid json"},
+                {"ai_tags": '["valid"]'},
+            ]
+        }
+
+        all_tags = get_all_tags(mock_collection)
+
+        # Should only get valid tags
+        assert "valid" in all_tags["ai_tags"]
+        assert len(all_tags["ai_tags"]) == 1
+
+    def test_get_all_tags_handles_legacy_lists(self):
+        """Test backward compatibility with legacy list format."""
+        mock_collection = Mock()
+        mock_collection.get.return_value = {
+            "metadatas": [
+                {"ai_tags": ["legacy", "list"]},  # Old format
+                {"ai_tags": '["new", "json"]'},    # New format
+            ]
+        }
+
+        all_tags = get_all_tags(mock_collection)
+
+        # Should handle both formats
+        assert "legacy" in all_tags["ai_tags"]
+        assert "list" in all_tags["ai_tags"]
+        assert "new" in all_tags["ai_tags"]
+        assert "json" in all_tags["ai_tags"]

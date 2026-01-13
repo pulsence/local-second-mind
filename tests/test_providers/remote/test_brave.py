@@ -1,113 +1,12 @@
 """
-Tests for remote source providers (web search, APIs, etc.).
+Tests for Brave Search provider implementation.
 """
 
 import pytest
 from unittest.mock import Mock, patch
 import requests
 
-from lsm.query.remote.base import BaseRemoteProvider, RemoteResult
-from lsm.query.remote.factory import create_remote_provider, register_remote_provider, list_available_providers
 from lsm.query.remote.brave import BraveSearchProvider
-
-
-class MockRemoteProvider(BaseRemoteProvider):
-    """Mock provider for testing."""
-
-    def __init__(self, config):
-        super().__init__(config)
-        self.search_called = False
-
-    @property
-    def name(self) -> str:
-        return "mock"
-
-    def search(self, query: str, max_results: int = 5):
-        self.search_called = True
-        return [
-            RemoteResult(
-                title=f"Result {i}",
-                url=f"https://example.com/{i}",
-                snippet=f"Snippet for result {i}",
-                score=1.0 - (i * 0.1)
-            )
-            for i in range(max_results)
-        ]
-
-
-class TestRemoteProviderBase:
-    """Tests for BaseRemoteProvider interface."""
-
-    def test_base_provider_requires_implementation(self):
-        """Test that BaseRemoteProvider requires implementing search()."""
-        with pytest.raises(TypeError):
-            # Cannot instantiate abstract class
-            BaseRemoteProvider({})
-
-    def test_mock_provider_implements_interface(self):
-        """Test mock provider implements required interface."""
-        provider = MockRemoteProvider({"type": "mock", "enabled": True})
-
-        assert provider.name == "mock"
-        assert provider.enabled is True
-        assert provider.weight == 1.0  # Default
-        assert provider.max_results == 5  # Default
-
-    def test_provider_search_returns_results(self):
-        """Test provider search returns RemoteResult objects."""
-        provider = MockRemoteProvider({"type": "mock", "enabled": True})
-
-        results = provider.search("test query", max_results=3)
-
-        assert len(results) == 3
-        assert all(isinstance(r, RemoteResult) for r in results)
-        assert results[0].title == "Result 0"
-        assert results[0].url == "https://example.com/0"
-        assert results[0].score == 1.0
-
-
-class TestRemoteProviderFactory:
-    """Tests for remote provider factory."""
-
-    def test_list_available_providers(self):
-        """Test listing available providers."""
-        providers = list_available_providers()
-
-        # Should have at least Brave Search
-        assert "web_search" in providers
-        assert "brave_search" in providers
-
-    def test_register_custom_provider(self):
-        """Test registering a custom provider."""
-        register_remote_provider("mock", MockRemoteProvider)
-
-        providers = list_available_providers()
-        assert "mock" in providers
-
-    def test_create_provider_brave(self):
-        """Test creating Brave Search provider."""
-        config = {
-            "type": "web_search",
-            "enabled": True,
-            "api_key": "test_key",
-            "max_results": 10
-        }
-
-        provider = create_remote_provider(config)
-
-        assert isinstance(provider, BraveSearchProvider)
-        assert provider.enabled is True
-        assert provider.max_results == 10
-
-    def test_create_provider_invalid_type(self):
-        """Test creating provider with invalid type raises error."""
-        config = {
-            "type": "invalid_provider",
-            "enabled": True
-        }
-
-        with pytest.raises(ValueError, match="Unknown remote provider type"):
-            create_remote_provider(config)
 
 
 class TestBraveSearchProvider:
@@ -255,51 +154,34 @@ class TestBraveSearchProvider:
         # Should only return 3 results even though API returned 10
         assert len(results) == 3
 
+    @patch('requests.get')
+    def test_brave_search_malformed_response(self, mock_get):
+        """Test Brave Search handles malformed API responses."""
+        mock_response = Mock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {"unexpected": "format"}
+        mock_get.return_value = mock_response
 
-class TestRemoteResult:
-    """Tests for RemoteResult dataclass."""
+        config = {"type": "web_search", "api_key": "test_key"}
+        provider = BraveSearchProvider(config)
 
-    def test_remote_result_creation(self):
-        """Test creating RemoteResult."""
-        result = RemoteResult(
-            title="Test Title",
-            url="https://example.com",
-            snippet="Test snippet",
-            score=0.95
-        )
+        results = provider.search("test query")
 
-        assert result.title == "Test Title"
-        assert result.url == "https://example.com"
-        assert result.snippet == "Test snippet"
-        assert result.score == 0.95
+        # Should return empty list on malformed response
+        assert results == []
 
-    def test_remote_result_defaults(self):
-        """Test RemoteResult with default values."""
-        result = RemoteResult(
-            title="Test",
-            url="https://example.com"
-        )
+    @patch('requests.get')
+    def test_brave_search_http_error(self, mock_get):
+        """Test Brave Search handles HTTP errors."""
+        mock_response = Mock()
+        mock_response.status_code = 429  # Rate limit
+        mock_response.raise_for_status.side_effect = requests.HTTPError("Rate limited")
+        mock_get.return_value = mock_response
 
-        assert result.snippet == ""
-        assert result.score == 1.0
+        config = {"type": "web_search", "api_key": "test_key"}
+        provider = BraveSearchProvider(config)
 
-    def test_remote_result_to_dict(self):
-        """Test converting RemoteResult to dict."""
-        result = RemoteResult(
-            title="Test",
-            url="https://example.com",
-            snippet="Snippet",
-            score=0.9
-        )
+        results = provider.search("test query")
 
-        as_dict = {
-            "title": result.title,
-            "url": result.url,
-            "snippet": result.snippet,
-            "score": result.score
-        }
-
-        assert as_dict["title"] == "Test"
-        assert as_dict["url"] == "https://example.com"
-        assert as_dict["snippet"] == "Snippet"
-        assert as_dict["score"] == 0.9
+        # Should return empty list on HTTP error
+        assert results == []

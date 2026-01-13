@@ -9,12 +9,17 @@
 - Add some kind of GUI over tooling (TUI with Textual or Web UI)
 - Complete remaining documentation stubs (see docs/ folder)
 - Run full pytest suite and verify all tests pass
+- When reading config query.modes these modes should add to existing built-in modes,
+or be merged with built-in modes
+- test_providers/remote should be test_remote
 
 ## Ingest
 - Add embeddings model selection (allow user to choose different embedding models)
 - Add language detection and tagging for multilingual corpora
 - Add option to machine translate chunks (for cross-language search)
 - Consider version control for chunks (track document evolution over time)
+- Enable root folders in config to be tagged to aid in identifying the kind of content in folders
+- Enable tagging by folder of chucks
 
 ## Query
 - Complete remaining documentation for query modes, notes, remote sources
@@ -23,6 +28,9 @@
 - Implement streaming responses for better UX on long synthesis
 - Add export citations to BibTeX/Zotero format
 - Integration with note-taking apps (Obsidian, Logseq)
+- All inputs that start with / are to be treated as a command and never a query,
+if the command is missing say so and display help.
+- There should be a /status command to show the status of the different providers
 
 ## Multi-Provider Support
 - Implement Anthropic Claude provider (template ready in docs/api-reference/ADDING_PROVIDERS.md)

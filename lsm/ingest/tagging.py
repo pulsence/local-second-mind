@@ -10,15 +10,56 @@ from __future__ import annotations
 
 import json
 from datetime import datetime
+from pathlib import Path
 from typing import List, Dict, Any, Optional, Tuple
 
 from chromadb.api.models.Collection import Collection
-from openai import OpenAI
 
 from lsm.config.models import LLMConfig
+from lsm.providers import create_provider
 from lsm.cli.logging import get_logger
 
 logger = get_logger(__name__)
+
+
+# -----------------------------------------------------------------------------
+# Helper Functions for ChromaDB Tag Storage
+# -----------------------------------------------------------------------------
+
+def _serialize_tags(tags: List[str]) -> str:
+    """
+    Serialize tags list to JSON string for ChromaDB storage.
+
+    ChromaDB only supports str, int, float, bool, and None in metadata.
+    Lists must be stored as JSON strings.
+    """
+    return json.dumps(tags)
+
+
+def _deserialize_tags(tags_json: Any) -> List[str]:
+    """
+    Deserialize tags from ChromaDB metadata.
+
+    Handles both JSON strings (new format) and lists (if any legacy data exists).
+    Returns empty list if tags are None or invalid.
+    """
+    if not tags_json:
+        return []
+
+    # If already a list (shouldn't happen with new code, but handle legacy data)
+    if isinstance(tags_json, list):
+        return tags_json
+
+    # Parse JSON string
+    if isinstance(tags_json, str):
+        try:
+            tags = json.loads(tags_json)
+            return tags if isinstance(tags, list) else []
+        except json.JSONDecodeError:
+            logger.warning(f"Invalid tags JSON: {tags_json!r}")
+            return []
+
+    return []
 
 
 # -----------------------------------------------------------------------------
@@ -30,6 +71,7 @@ def generate_tags_for_chunk(
     llm_config: LLMConfig,
     num_tags: int = 3,
     existing_tags: Optional[List[str]] = None,
+    max_retries: int = 1,
 ) -> List[str]:
     """
     Generate relevant tags for a text chunk using LLM.
@@ -39,74 +81,52 @@ def generate_tags_for_chunk(
         llm_config: LLM configuration to use
         num_tags: Number of tags to generate (default: 3)
         existing_tags: Optional list of existing tags to consider
+        max_retries: Maximum number of retry attempts (default: 1)
 
     Returns:
         List of generated tag strings
 
     Raises:
-        Exception: If LLM call fails
+        Exception: If LLM call fails after all retries
     """
     # Validate LLM config
     llm_config.validate()
 
-    # Create OpenAI client
-    client = OpenAI(api_key=llm_config.api_key)
+    # Create provider from config
+    provider = create_provider(llm_config)
 
-    # Build prompt
-    existing_context = ""
-    if existing_tags:
-        existing_context = f"\n\nExisting tags in this knowledge base: {', '.join(existing_tags[:20])}"
-
-    prompt = f"""Analyze the following text and generate {num_tags} relevant tags.
-
-Guidelines:
-- Tags should be concise (1-3 words)
-- Tags should be specific to the content
-- Tags should help with organization and retrieval
-- Use lowercase
-- Separate multi-word tags with hyphens (e.g., "machine-learning")
-{existing_context}
-
-Text:
-{text[:2000]}
-
-Respond with ONLY a JSON array of tags, like: ["tag1", "tag2", "tag3"]
-"""
-
-    try:
-        response = client.chat.completions.create(
-            model=llm_config.model,
-            messages=[
-                {"role": "system", "content": "You are a helpful assistant that generates concise, relevant tags for text content."},
-                {"role": "user", "content": prompt}
-            ],
-            temperature=llm_config.temperature,
-            max_tokens=min(llm_config.max_tokens, 200),  # Tags don't need many tokens
-        )
-
-        # Extract tags from response
-        content = response.choices[0].message.content.strip()
-
-        # Try to parse as JSON
+    # Try to generate tags with retries
+    for attempt in range(max_retries + 1):
         try:
-            tags = json.loads(content)
-            if isinstance(tags, list) and all(isinstance(t, str) for t in tags):
-                # Normalize tags
-                tags = [t.lower().strip() for t in tags if t.strip()]
-                return tags[:num_tags]
-        except json.JSONDecodeError:
-            # If not JSON, try to extract tags from comma-separated list
-            logger.warning(f"LLM response not JSON, attempting to parse: {content}")
-            tags = [t.strip().lower() for t in content.split(",")]
-            tags = [t for t in tags if t and not t.startswith("[") and not t.startswith("]")]
-            return tags[:num_tags]
+            tags = provider.generate_tags(
+                text=text,
+                num_tags=num_tags,
+                existing_tags=existing_tags,
+            )
 
-        logger.error(f"Could not parse tags from LLM response: {content}")
-        return []
+            # Success if we got valid tags
+            if tags:
+                if attempt > 0:
+                    logger.info(f"Successfully generated tags on retry attempt {attempt}")
+                return tags
+            else:
+                # Empty result, try again
+                if attempt < max_retries:
+                    logger.warning(f"No tags generated on attempt {attempt + 1}, retrying...")
+                    continue
+                else:
+                    logger.warning(f"No tags generated after {max_retries + 1} attempts")
+                    return []
 
-    except Exception as e:
-        logger.error(f"Failed to generate tags: {e}")
-        raise
+        except Exception as e:
+            if attempt < max_retries:
+                logger.warning(f"Tag generation failed on attempt {attempt + 1}, retrying: {e}")
+                continue
+            else:
+                logger.error(f"Failed to generate tags after {max_retries + 1} attempts: {e}")
+                raise
+
+    return []
 
 
 # -----------------------------------------------------------------------------
@@ -116,52 +136,33 @@ Respond with ONLY a JSON array of tags, like: ["tag1", "tag2", "tag3"]
 def get_untagged_chunks(
     collection: Collection,
     batch_size: int = 100,
+    processed_ids: Optional[set] = None,
 ) -> List[Dict[str, Any]]:
     """
     Get chunks that haven't been AI-tagged yet.
 
     Args:
         collection: ChromaDB collection
-        batch_size: Number of chunks to retrieve per batch
+        batch_size: Number of untagged chunks to retrieve
+        processed_ids: Set of chunk IDs already processed (to skip)
 
     Returns:
         List of metadata dictionaries for untagged chunks
     """
-    # Query for chunks without ai_tags field or with null ai_tags
+    # ChromaDB doesn't support querying for None/null values directly,
+    # so we get all chunks and filter manually.
+    if processed_ids is None:
+        processed_ids = set()
+
     try:
-        results = collection.get(
-            where={
-                "$or": [
-                    {"ai_tags": {"$eq": None}},
-                    {"ai_tags": {"$size": 0}},
-                ]
-            },
-            limit=batch_size,
-            include=["metadatas", "documents"],
-        )
+        logger.debug("Fetching chunks and filtering for untagged ones")
 
-        if not results or not results.get("metadatas"):
-            return []
-
-        # Combine metadata with documents and IDs
-        untagged = []
-        for i, meta in enumerate(results["metadatas"]):
-            chunk_data = {
-                "id": results["ids"][i],
-                "metadata": meta,
-                "text": results["documents"][i] if results.get("documents") else "",
-            }
-            untagged.append(chunk_data)
-
-        return untagged
-
-    except Exception as e:
-        logger.error(f"Error querying untagged chunks: {e}")
-        # Fallback: get all chunks and filter manually
-        logger.info("Falling back to manual filtering of untagged chunks")
+        # Fetch a large batch and filter for untagged chunks
+        # We need to fetch more than batch_size since some will be tagged
+        fetch_limit = max(batch_size * 10, 1000)  # Fetch enough to find untagged ones
 
         results = collection.get(
-            limit=batch_size,
+            limit=fetch_limit,
             include=["metadatas", "documents"],
         )
 
@@ -170,16 +171,31 @@ def get_untagged_chunks(
 
         untagged = []
         for i, meta in enumerate(results["metadatas"]):
+            chunk_id = results["ids"][i]
+
+            # Skip if already processed
+            if chunk_id in processed_ids:
+                continue
+
             # Check if ai_tags is missing or empty
             if "ai_tags" not in meta or not meta.get("ai_tags"):
                 chunk_data = {
-                    "id": results["ids"][i],
+                    "id": chunk_id,
                     "metadata": meta,
                     "text": results["documents"][i] if results.get("documents") else "",
                 }
                 untagged.append(chunk_data)
 
+                # Stop if we have enough
+                if len(untagged) >= batch_size:
+                    break
+
+        logger.debug(f"Found {len(untagged)} untagged chunks out of {len(results['ids'])} fetched")
         return untagged
+
+    except Exception as e:
+        logger.error(f"Error fetching chunks: {e}")
+        return []
 
 
 def tag_chunks(
@@ -224,6 +240,7 @@ def tag_chunks(
     tagged_count = 0
     failed_count = 0
     total_processed = 0
+    processed_ids: set = set()  # Track processed chunk IDs
 
     # Get existing tags for context (sample from collection)
     existing_tags: List[str] = []
@@ -232,7 +249,9 @@ def tag_chunks(
         if sample_results and sample_results.get("metadatas"):
             for meta in sample_results["metadatas"]:
                 if "ai_tags" in meta and meta["ai_tags"]:
-                    existing_tags.extend(meta["ai_tags"])
+                    # Deserialize tags from JSON
+                    tags = _deserialize_tags(meta["ai_tags"])
+                    existing_tags.extend(tags)
         existing_tags = list(set(existing_tags))  # Deduplicate
         logger.info(f"Found {len(existing_tags)} existing unique tags for context")
     except Exception as e:
@@ -250,7 +269,7 @@ def tag_chunks(
         if max_chunks:
             remaining = min(batch_size, max_chunks - total_processed)
 
-        untagged = get_untagged_chunks(collection, batch_size=remaining)
+        untagged = get_untagged_chunks(collection, batch_size=remaining, processed_ids=processed_ids)
 
         if not untagged:
             logger.info("No more untagged chunks found")
@@ -269,6 +288,10 @@ def tag_chunks(
             text = chunk_data["text"]
             metadata = chunk_data["metadata"]
 
+            # Get source info for logging
+            source_path = metadata.get("source_path", "unknown")
+            chunk_index = metadata.get("chunk_index", 0)
+
             try:
                 # Generate tags
                 tags = generate_tags_for_chunk(
@@ -279,8 +302,13 @@ def tag_chunks(
                 )
 
                 if tags:
-                    # Update metadata
-                    metadata["ai_tags"] = tags
+                    # Log with source info and tags BEFORE serialization - show filename only for readability
+                    filename = Path(source_path).name if source_path != "unknown" else source_path
+                    tags_str = ", ".join(tags)
+                    logger.info(f"  ✓ Chunk #{chunk_index} from '{filename}': {tags_str}")
+
+                    # Update metadata - serialize tags as JSON string for ChromaDB
+                    metadata["ai_tags"] = _serialize_tags(tags)
                     metadata["ai_tagged_at"] = datetime.now().isoformat()
 
                     # Add to existing tags pool
@@ -295,15 +323,16 @@ def tag_chunks(
                         )
 
                     tagged_count += 1
-                    logger.debug(f"Tagged chunk {chunk_id}: {tags}")
                 else:
-                    logger.warning(f"No tags generated for chunk {chunk_id}")
+                    logger.warning(f"No tags generated for chunk #{chunk_index} from {source_path}")
                     failed_count += 1
 
             except Exception as e:
-                logger.error(f"Failed to tag chunk {chunk_id}: {e}")
+                logger.error(f"Failed to tag chunk #{chunk_index} from {source_path}: {e}")
                 failed_count += 1
 
+            # Mark as processed
+            processed_ids.add(chunk_id)
             total_processed += 1
 
             # Progress update
@@ -348,16 +377,14 @@ def add_user_tags(
 
     metadata = results["metadatas"][0]
 
-    # Get existing user tags
-    existing_tags = metadata.get("user_tags", [])
-    if not isinstance(existing_tags, list):
-        existing_tags = []
+    # Get existing user tags - deserialize from JSON
+    existing_tags = _deserialize_tags(metadata.get("user_tags"))
 
     # Add new tags (avoid duplicates)
     updated_tags = list(set(existing_tags + [t.lower().strip() for t in tags]))
 
-    # Update metadata
-    metadata["user_tags"] = updated_tags
+    # Update metadata - serialize as JSON string for ChromaDB
+    metadata["user_tags"] = _serialize_tags(updated_tags)
     metadata["user_tagged_at"] = datetime.now().isoformat()
 
     # Save
@@ -390,17 +417,15 @@ def remove_user_tags(
 
     metadata = results["metadatas"][0]
 
-    # Get existing user tags
-    existing_tags = metadata.get("user_tags", [])
-    if not isinstance(existing_tags, list):
-        existing_tags = []
+    # Get existing user tags - deserialize from JSON
+    existing_tags = _deserialize_tags(metadata.get("user_tags"))
 
     # Remove specified tags
     tags_to_remove = {t.lower().strip() for t in tags}
     updated_tags = [t for t in existing_tags if t not in tags_to_remove]
 
-    # Update metadata
-    metadata["user_tags"] = updated_tags
+    # Update metadata - serialize as JSON string for ChromaDB
+    metadata["user_tags"] = _serialize_tags(updated_tags)
     metadata["user_tagged_at"] = datetime.now().isoformat()
 
     # Save
@@ -424,13 +449,15 @@ def get_all_tags(collection: Collection) -> Dict[str, List[str]]:
 
     if results and results.get("metadatas"):
         for meta in results["metadatas"]:
-            # Collect AI tags
+            # Collect AI tags - deserialize from JSON
             if "ai_tags" in meta and meta["ai_tags"]:
-                ai_tags.update(meta["ai_tags"])
+                tags = _deserialize_tags(meta["ai_tags"])
+                ai_tags.update(tags)
 
-            # Collect user tags
+            # Collect user tags - deserialize from JSON
             if "user_tags" in meta and meta["user_tags"]:
-                user_tags.update(meta["user_tags"])
+                tags = _deserialize_tags(meta["user_tags"])
+                user_tags.update(tags)
 
     return {
         "ai_tags": sorted(list(ai_tags)),
