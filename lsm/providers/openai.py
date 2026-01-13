@@ -43,6 +43,10 @@ def _is_unsupported_param_error(error: Exception, param: str) -> bool:
     )
 
 
+def _model_supports_temperature(model: str) -> bool:
+    return not model.startswith("gpt-5")
+
+
 class OpenAIProvider(BaseLLMProvider):
     """
     OpenAI provider implementation.
@@ -171,16 +175,41 @@ class OpenAIProvider(BaseLLMProvider):
                 "input": [{"role": "user", "content": json.dumps(payload)}],
             }
 
-            if _should_send_param(self.config.model, "response_format"):
-                request_args["response_format"] = {"type": "json_object"}
+            if _should_send_param(self.config.model, "text"):
+                request_args["text"] = {
+                    "format": {
+                        "type": "json_schema",
+                        "name": "rerank_response",
+                        "strict": True,
+                        "schema": {
+                            "type": "object",
+                            "properties": {
+                                "ranking": {
+                                    "type": "array",
+                                    "items": {
+                                        "type": "object",
+                                        "properties": {
+                                            "index": {"type": "integer"},
+                                            "reason": {"type": "string"}
+                                        },
+                                        "required": ["index", "reason"],
+                                        "additionalProperties": False
+                                    }
+                                }
+                            },
+                            "required": ["ranking"],
+                            "additionalProperties": False
+                        }
+                    }
+                }
 
             try:
                 resp = self.client.responses.create(**request_args)
             except Exception as e:
-                if _is_unsupported_param_error(e, "response_format"):
-                    logger.warning("Model does not support response_format; retrying without it.")
-                    _mark_param_unsupported(self.config.model, "response_format")
-                    request_args.pop("response_format", None)
+                if _is_unsupported_param_error(e, "text"):
+                    logger.warning("Model does not support text.format for structured output; retrying without it.")
+                    _mark_param_unsupported(self.config.model, "text")
+                    request_args.pop("text", None)
                     resp = self.client.responses.create(**request_args)
                 else:
                     raise
@@ -295,7 +324,11 @@ class OpenAIProvider(BaseLLMProvider):
                 "max_output_tokens": max_tokens,
             }
 
-            if temperature is not None and _should_send_param(self.config.model, "temperature"):
+            if (
+                temperature is not None
+                and _model_supports_temperature(self.config.model)
+                and _should_send_param(self.config.model, "temperature")
+            ):
                 request_args["temperature"] = temperature
 
             try:
