@@ -211,7 +211,25 @@ def parse_md(path: Path) -> Tuple[str, Dict[str, Any]]:
     return text, metadata
 
 
-def parse_pdf(path: Path, enable_ocr: bool = False) -> Tuple[str, Dict[str, Any]]:
+def _open_pdf_with_repair(path: Path) -> fitz.Document:
+    """
+    Open a PDF document with a simple repair retry for common corruption issues.
+    """
+    try:
+        return fitz.open(str(path))
+    except Exception as e:
+        msg = str(e).lower()
+        if "syntax error" not in msg and "zlib error" not in msg and "xref" not in msg:
+            raise
+
+        logger.warning(f"PDF open failed, attempting repair retry for {path}: {e}")
+
+        # Retry with in-memory stream, which can bypass some file-level errors
+        data = path.read_bytes()
+        return fitz.open(stream=data, filetype="pdf")
+
+
+def parse_pdf(path: Path, enable_ocr: bool = False, skip_errors: bool = True) -> Tuple[str, Dict[str, Any]]:
     """
     Parse PDF file with optional OCR for image-based PDFs.
 
@@ -225,27 +243,85 @@ def parse_pdf(path: Path, enable_ocr: bool = False) -> Tuple[str, Dict[str, Any]
     parts: List[str] = []
     metadata = {}
 
+    parse_errors: List[Dict[str, Any]] = []
+
     try:
-        with fitz.open(str(path)) as doc:
+        with _open_pdf_with_repair(path) as doc:
             # Extract metadata
             metadata = extract_pdf_metadata(doc)
 
             # Extract text from each page
-            for page_num, page in enumerate(doc):
-                # Try regular text extraction first
-                text = page.get_text()
+            for page_num in range(doc.page_count):
+                try:
+                    page = doc.load_page(page_num)
+                except Exception as e:
+                    parse_errors.append({
+                        "page": page_num + 1,
+                        "stage": "load_page",
+                        "error": str(e),
+                    })
+                    logger.warning(f"Failed to load PDF page {page_num + 1} from {path}: {e}")
+                    if not skip_errors:
+                        raise
+                    continue
 
-                # If page appears image-based and OCR is enabled, use OCR
-                if enable_ocr and is_page_image_based(page):
-                    logger.debug(f"Page {page_num + 1} appears image-based, using OCR")
-                    text = ocr_page(page)
+                text = ""
+                try:
+                    text = page.get_text()
+                except Exception as e:
+                    parse_errors.append({
+                        "page": page_num + 1,
+                        "stage": "extract_text",
+                        "error": str(e),
+                    })
+                    logger.warning(f"Failed to extract text from PDF page {page_num + 1} in {path}: {e}")
+                    if not skip_errors:
+                        raise
+
+                needs_ocr = False
+                if not text:
+                    needs_ocr = True
+                else:
+                    try:
+                        needs_ocr = is_page_image_based(page)
+                    except Exception as e:
+                        parse_errors.append({
+                            "page": page_num + 1,
+                            "stage": "ocr_detection",
+                            "error": str(e),
+                        })
+                        logger.warning(f"Failed OCR detection on PDF page {page_num + 1} in {path}: {e}")
+                        if not skip_errors:
+                            raise
+                        needs_ocr = True
+
+                if enable_ocr and needs_ocr:
+                    logger.debug(f"Page {page_num + 1} appears image-based or failed text, using OCR")
+                    ocr_text = ocr_page(page)
+                    if ocr_text:
+                        text = ocr_text
+                    else:
+                        parse_errors.append({
+                            "page": page_num + 1,
+                            "stage": "ocr",
+                            "error": "OCR returned empty text",
+                        })
 
                 if text and text.strip():
                     parts.append(text)
 
     except Exception as e:
         logger.error(f"Failed to parse PDF {path}: {e}")
+        if not skip_errors:
+            raise
+        if "error" not in metadata:
+            metadata["error"] = str(e)
+        if parse_errors:
+            metadata["_parse_errors"] = parse_errors
         return "", metadata
+
+    if parse_errors:
+        metadata["_parse_errors"] = parse_errors
 
     return "\n\n".join(parts), metadata
 
@@ -315,7 +391,7 @@ def parse_html(path: Path) -> Tuple[str, Dict[str, Any]]:
     return text, metadata
 
 
-def parse_file(path: Path, enable_ocr: bool = False) -> Tuple[str, Dict[str, Any]]:
+def parse_file(path: Path, enable_ocr: bool = False, skip_errors: bool = True) -> Tuple[str, Dict[str, Any]]:
     """
     Parse a file based on its extension.
 
@@ -333,7 +409,7 @@ def parse_file(path: Path, enable_ocr: bool = False) -> Tuple[str, Dict[str, Any
     if ext == ".md":
         return parse_md(path)
     if ext == ".pdf":
-        return parse_pdf(path, enable_ocr=enable_ocr)
+        return parse_pdf(path, enable_ocr=enable_ocr, skip_errors=skip_errors)
     if ext == ".docx":
         return parse_docx(path)
     if ext in {".html", ".htm"}:

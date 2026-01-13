@@ -4,6 +4,7 @@ import os
 import time
 import threading
 import queue
+import json
 from concurrent.futures import ThreadPoolExecutor
 from typing import Dict, List, Optional, Tuple
 from pathlib import Path
@@ -29,6 +30,8 @@ def parse_and_chunk_job(
     fhash: str,
     had_prev: bool,
     enable_ocr: bool = False,
+    skip_errors: bool = True,
+    stop_event: Optional[threading.Event] = None,
     chunk_size: int = 1800,
     chunk_overlap: int = 200,
 ) -> ParseResult:
@@ -50,8 +53,25 @@ def parse_and_chunk_job(
         ParseResult with text chunks, metadata, and positions
     """
     try:
+        if stop_event and stop_event.is_set():
+            return ParseResult(
+                source_path=source_path,
+                fp=fp,
+                mtime_ns=mtime_ns,
+                size=size,
+                file_hash=fhash,
+                chunks=[],
+                ext=fp.suffix.lower(),
+                had_prev=had_prev,
+                ok=False,
+                err="stopped",
+            )
         # Parse file and extract metadata
-        raw_text, doc_metadata = parse_file(fp, enable_ocr=enable_ocr)
+        raw_text, doc_metadata = parse_file(fp, enable_ocr=enable_ocr, skip_errors=skip_errors)
+
+        parse_errors = []
+        if doc_metadata and "_parse_errors" in doc_metadata:
+            parse_errors = doc_metadata.pop("_parse_errors") or []
 
         # Normalize whitespace
         raw_text = normalize_whitespace(raw_text)
@@ -69,6 +89,7 @@ def parse_and_chunk_job(
                 ok=False,
                 err="empty_text",
                 metadata=doc_metadata,
+                parse_errors=parse_errors,
             )
 
         # Chunk text and track positions
@@ -92,6 +113,7 @@ def parse_and_chunk_job(
                 ok=False,
                 err="no_chunks",
                 metadata=doc_metadata,
+                parse_errors=parse_errors,
             )
 
         return ParseResult(
@@ -106,9 +128,12 @@ def parse_and_chunk_job(
             ok=True,
             metadata=doc_metadata,
             chunk_positions=positions,
+            parse_errors=parse_errors,
         )
 
     except Exception as e:
+        if not skip_errors:
+            raise
         return ParseResult(
             source_path=source_path,
             fp=fp,
@@ -135,9 +160,12 @@ def ingest(
     exclude_dirs: set[str],
     dry_run: bool = False,
     enable_ocr: bool = False,
+    skip_errors: bool = True,
+    stop_event: Optional[threading.Event] = None,
     chunk_size: int = 1800,
     chunk_overlap: int = 200,
 ) -> None:
+    stop_signal = stop_event or threading.Event()
     collection = get_chroma_collection(persist_dir, collection_name)
 
     print(f"[INGEST] model device = {device}")
@@ -160,11 +188,17 @@ def ingest(
 
     scanned = 0
     processed = 0
+    completed = 0
     skipped = 0
     embedded_files = 0
     added_chunks = 0
     embed_seconds = 0.0
     written_chunks = 0
+    error_report_path = manifest_path.parent / "ingest_error_report.json"
+    error_records = {
+        "failed_documents": [],
+        "page_errors": [],
+    }
 
     REPORT_EVERY_SECONDS = 1.0
 
@@ -203,7 +237,12 @@ def ingest(
             seen_ids.clear()
 
         while True:
-            job = write_q.get()
+            if stop_signal.is_set() and write_q.empty():
+                break
+            try:
+                job = write_q.get(timeout=0.2)
+            except queue.Empty:
+                continue
             if job is None:
                 break
 
@@ -336,7 +375,12 @@ def ingest(
             pending_chunk_count = 0 
 
         while True:
-            pr = parse_out_q.get()
+            if stop_signal.is_set():
+                break
+            try:
+                pr = parse_out_q.get(timeout=0.2)
+            except queue.Empty:
+                continue
             if pr is None:
                 break
 
@@ -353,7 +397,8 @@ def ingest(
                 pending_chunk_count = 0
 
         # Flush remaining
-        flush_pending()
+        if not stop_signal.is_set():
+            flush_pending()
 
         # Signal writer shutdown
         write_q.put(None)
@@ -373,14 +418,15 @@ def ingest(
         elapsed = now - start_time
 
         with lock:
-            rate = processed / elapsed if elapsed > 0 else 0.0
-            remaining = total_files - processed
+            rate = completed / elapsed if elapsed > 0 else 0.0
+            remaining = total_files - completed
             eta = (remaining / rate) if rate > 0 else float("inf")
             chunk_rate = (added_chunks / embed_seconds) if embed_seconds > 0 else 0.0
             wc = written_chunks
 
         print(
-            f"[INGEST] processed={processed:,}/{total_files:,}  "
+            f"[INGEST] completed={completed:,}/{total_files:,}  "
+            f"queued={processed:,}  "
             f"skipped={skipped:,}  "
             f"embedded files={embedded_files:,}  "
             f"chunks added={added_chunks:,}  "
@@ -391,89 +437,145 @@ def ingest(
         )
         last_report = now
 
-    with ThreadPoolExecutor(max_workers=parse_workers) as pool:
-        futures = []
+    try:
+        with ThreadPoolExecutor(max_workers=parse_workers) as pool:
+            futures = []
 
-        for fp in files:
-            scanned += 1
-            source_path = canonical_path(fp)
-            key = source_path
+            for fp in files:
+                if stop_signal.is_set():
+                    break
+                scanned += 1
+                source_path = canonical_path(fp)
+                key = source_path
 
-            # Stat
-            try:
-                st = fp.stat()
-                mtime_ns = st.st_mtime_ns
-                size = st.st_size
-            except Exception:
-                skipped += 1
-                processed += 1
-                continue
+                # Stat
+                try:
+                    st = fp.stat()
+                    mtime_ns = st.st_mtime_ns
+                    size = st.st_size
+                except Exception:
+                    skipped += 1
+                    processed += 1
+                    completed += 1
+                    continue
 
-            prev = manifest.get(key)
+                prev = manifest.get(key)
 
-            # Fast skip on (mtime,size) + hash present
-            if prev and prev.get("mtime_ns") == mtime_ns and prev.get("size") == size and prev.get("file_hash"):
-                skipped += 1
-                processed += 1
-                maybe_report()
-                continue
+                # Fast skip on (mtime,size) + hash present
+                if prev and prev.get("mtime_ns") == mtime_ns and prev.get("size") == size and prev.get("file_hash"):
+                    skipped += 1
+                    processed += 1
+                    completed += 1
+                    maybe_report()
+                    continue
 
-            # Hash only when needed
-            try:
-                fhash = file_sha256(fp)
-            except Exception:
-                skipped += 1
-                processed += 1
-                maybe_report()
-                continue
+                # Hash only when needed
+                try:
+                    fhash = file_sha256(fp)
+                except Exception:
+                    skipped += 1
+                    processed += 1
+                    completed += 1
+                    maybe_report()
+                    continue
 
-            if prev and prev.get("file_hash") == fhash:
-                # content unchanged, update manifest
-                manifest[key] = {"mtime_ns": mtime_ns, "size": size, "file_hash": fhash, "updated_at": now_iso()}
-                skipped += 1
-                processed += 1
-                maybe_report()
-                continue
+                if prev and prev.get("file_hash") == fhash:
+                    # content unchanged, update manifest
+                    manifest[key] = {"mtime_ns": mtime_ns, "size": size, "file_hash": fhash, "updated_at": now_iso()}
+                    skipped += 1
+                    processed += 1
+                    completed += 1
+                    maybe_report()
+                    continue
 
-            had_prev = prev is not None
+                had_prev = prev is not None
 
-            # Submit parse/chunk to pool
-            futures.append(
-                pool.submit(
-                    parse_and_chunk_job,
-                    fp,
-                    source_path,
-                    mtime_ns,
-                    size,
-                    fhash,
-                    had_prev,
-                    enable_ocr,
-                    chunk_size,
-                    chunk_overlap,
+                # Submit parse/chunk to pool
+                futures.append(
+                    pool.submit(
+                        parse_and_chunk_job,
+                        fp,
+                        source_path,
+                        mtime_ns,
+                        size,
+                        fhash,
+                        had_prev,
+                        enable_ocr,
+                        skip_errors,
+                        stop_signal,
+                        chunk_size,
+                        chunk_overlap,
+                    )
                 )
-            )
-            processed += 1
+                processed += 1
 
-            # Drain completed futures opportunistically to keep memory stable
-            if len(futures) >= parse_workers * 4:
-                done = [f for f in futures if f.done()]
-                for f in done:
-                    futures.remove(f)
-                    pr = f.result()
-                    if not pr.ok:
-                        skipped += 1
-                    else:
-                        parse_out_q.put(pr)
+                # Drain completed futures opportunistically to keep memory stable
+                if len(futures) >= parse_workers * 4:
+                    done = [f for f in futures if f.done()]
+                    for f in done:
+                        futures.remove(f)
+                        pr = f.result()
+                        if pr.parse_errors:
+                            error_records["page_errors"].extend(
+                                {
+                                    "source_path": pr.source_path,
+                                    "page": err.get("page"),
+                                    "stage": err.get("stage"),
+                                    "error": err.get("error"),
+                                }
+                                for err in pr.parse_errors
+                            )
+                        if not pr.ok:
+                            error_records["failed_documents"].append(
+                                {
+                                    "source_path": pr.source_path,
+                                    "ext": pr.ext,
+                                    "error": pr.err,
+                                }
+                            )
+                            if not skip_errors:
+                                raise RuntimeError(f"Parse failed for {pr.source_path}: {pr.err}")
+                            skipped += 1
+                        else:
+                            parse_out_q.put(pr)
+                        completed += 1
+                    maybe_report()
+
+            # Drain remaining parse futures
+            for f in futures:
+                if stop_signal.is_set():
+                    break
+                pr = f.result()
+                if pr.parse_errors:
+                    error_records["page_errors"].extend(
+                        {
+                            "source_path": pr.source_path,
+                            "page": err.get("page"),
+                            "stage": err.get("stage"),
+                            "error": err.get("error"),
+                        }
+                        for err in pr.parse_errors
+                    )
+                if not pr.ok:
+                    error_records["failed_documents"].append(
+                        {
+                            "source_path": pr.source_path,
+                            "ext": pr.ext,
+                            "error": pr.err,
+                        }
+                    )
+                    if not skip_errors:
+                        raise RuntimeError(f"Parse failed for {pr.source_path}: {pr.err}")
+                    skipped += 1
+                else:
+                    parse_out_q.put(pr)
+                completed += 1
                 maybe_report()
-
-        # Drain remaining parse futures
-        for f in futures:
-            pr = f.result()
-            if not pr.ok:
-                skipped += 1
-            else:
-                parse_out_q.put(pr)
-            maybe_report()
+    except KeyboardInterrupt:
+        stop_signal.set()
+        interrupted = True
+    else:
+        interrupted = False
 
     # Signal embedder shutdown
     parse_out_q.put(None)
@@ -482,14 +584,26 @@ def ingest(
     et.join()
     wt.join()
 
+    if interrupted:
+        print("\nStopping ingest (received interrupt)...")
+
     if not dry_run:
         save_manifest(manifest_path, manifest)
+        error_report_path.parent.mkdir(parents=True, exist_ok=True)
+        report = {
+            "generated_at": now_iso(),
+            "total_failed_documents": len(error_records["failed_documents"]),
+            "total_page_errors": len(error_records["page_errors"]),
+            "failed_documents": error_records["failed_documents"],
+            "page_errors": error_records["page_errors"],
+        }
+        error_report_path.write_text(json.dumps(report, indent=2), encoding="utf-8")
 
     elapsed = time.time() - start_time
     print(
         f"Done.\n"
         f"  total files:     {total_files}\n"
-        f"  processed files: {processed}\n"
+        f"  completed files: {completed}\n"
         f"  skipped files:   {skipped}\n"
         f"  embedded files:  {embedded_files}\n"
         f"  chunks added:    {added_chunks}\n"

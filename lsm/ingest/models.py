@@ -48,6 +48,9 @@ class ParseResult:
     chunk_positions: Optional[List[Dict[str, Any]]] = None
     """Position information for each chunk (offsets, page numbers, etc.)."""
 
+    parse_errors: Optional[List[Dict[str, Any]]] = None
+    """Per-page parse errors captured during extraction."""
+
 
 @dataclass
 class WriteJob:

@@ -4,6 +4,7 @@
 - Do research on particular models for particular tasks, for example using transformers directly
 - Look into how to run models in app
 - Explore multimodal capabilities (images, audio via Whisper)
+- Create CLAUDE.md to enforce code/plan conventions
 
 ## Infrastructure
 - Add some kind of GUI over tooling (TUI with Textual or Web UI)
@@ -12,6 +13,7 @@
 - When reading config query.modes these modes should add to existing built-in modes,
 or be merged with built-in modes
 - test_providers/remote should be test_remote
+- Create installers
 
 ## Ingest
 - Add embeddings model selection (allow user to choose different embedding models)

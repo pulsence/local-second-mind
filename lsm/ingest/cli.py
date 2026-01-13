@@ -17,7 +17,7 @@ from lsm.ingest.pipeline import ingest
 logger = get_logger(__name__)
 
 
-def main(config_path: str | Path, interactive: bool = False) -> int:
+def main(config_path: str | Path, interactive: bool = False, skip_errors: bool | None = None) -> int:
     """
     Run the ingest pipeline.
 
@@ -61,6 +61,9 @@ def main(config_path: str | Path, interactive: bool = False) -> int:
         return run_ingest_repl(config)
     else:
         # Run ingest pipeline
+        if skip_errors is not None:
+            config.ingest.skip_errors = skip_errors
+
         ingest(
             roots=config.ingest.roots,
             persist_dir=config.persist_dir,
@@ -74,6 +77,7 @@ def main(config_path: str | Path, interactive: bool = False) -> int:
             exclude_dirs=config.ingest.exclude_set,
             dry_run=config.ingest.dry_run,
             enable_ocr=config.ingest.enable_ocr,
+            skip_errors=config.ingest.skip_errors,
             chunk_size=config.ingest.chunk_size,
             chunk_overlap=config.ingest.chunk_overlap,
         )

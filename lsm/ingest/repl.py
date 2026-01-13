@@ -7,8 +7,11 @@ Provides commands for exploring, managing, and introspecting the knowledge base.
 from __future__ import annotations
 
 import sys
+import fnmatch
+import os
+import time
 from pathlib import Path
-from typing import Optional, Any
+from typing import Optional, Any, Dict, Tuple
 
 from chromadb.api.models.Collection import Collection
 
@@ -19,6 +22,7 @@ from lsm.ingest.stats import (
     format_stats_report,
     search_metadata,
     get_file_chunks,
+    iter_collection_metadatas,
 )
 from lsm.ingest.chroma_store import get_chroma_collection
 from lsm.ingest.pipeline import ingest
@@ -50,6 +54,8 @@ def print_banner() -> None:
     print("  /help              - Show this help")
     print("  /exit              - Exit")
     print()
+    print("Tip: Type /query to switch to query mode (in the unified shell).")
+    print()
 
 
 def print_help() -> None:
@@ -73,7 +79,10 @@ INGEST REPL COMMANDS
     Examples:
         /explore              - Show all files
         /explore python       - Show files with "python" in path
+        /explore papers/ai    - Explore a specific folder
         /explore .pdf         - Show all PDF files
+        /explore "*.pdf"      - Wildcard file match
+        /explore --full-path  - Show full folder prefixes
 
 /show <path>
     Display all chunks for a specific file path.
@@ -123,6 +132,7 @@ TIPS:
 - Use /explore to browse your knowledge base
 - Run /build regularly to keep your collection up-to-date
 - Run /tag after ingesting to add AI-generated tags for better organization
+- Type /query to switch to query mode (unified shell)
 """
     print(help_text)
 
@@ -148,10 +158,24 @@ def handle_info_command(collection: Collection) -> None:
     print()
 
 
-def handle_stats_command(collection: Collection) -> None:
+def handle_stats_command(collection: Collection, config: LSMConfig) -> None:
     """Handle /stats command."""
     print("\nAnalyzing collection... (this may take a moment)")
-    stats = get_collection_stats(collection, limit=10000)
+    last_report = time.time()
+
+    def report_progress(analyzed: int) -> None:
+        nonlocal last_report
+        if time.time() - last_report >= 2.0:
+            print(f"  analyzed chunks: {analyzed:,}")
+            last_report = time.time()
+
+    error_report_path = config.ingest.manifest.parent / "ingest_error_report.json"
+    stats = get_collection_stats(
+        collection,
+        limit=None,
+        error_report_path=error_report_path,
+        progress_callback=report_progress,
+    )
 
     if "error" in stats:
         print(f"Error: {stats['error']}")
@@ -165,59 +189,216 @@ def handle_stats_command(collection: Collection) -> None:
     print(report)
 
 
+def _normalize_query_path(value: str) -> str:
+    normalized = value.strip().lower()
+    normalized = normalized.replace("/", os.sep).replace("\\", os.sep)
+    return normalized.strip(os.sep)
+
+
+def _parse_explore_query(query: Optional[str]) -> Tuple[Optional[str], Optional[str], Optional[str], str, bool]:
+    if not query:
+        return None, None, None, "All files", False
+
+    tokens = query.strip().split()
+    full_path = False
+    if "--full-path" in tokens:
+        full_path = True
+        tokens.remove("--full-path")
+    if "full_path" in tokens:
+        full_path = True
+        tokens.remove("full_path")
+    raw = " ".join(tokens).strip()
+    if not raw:
+        return None, None, None, "All files", full_path
+    raw_lower = raw.lower()
+    pattern = None
+    ext_filter = None
+    path_filter = None
+    display_root = raw
+
+    if raw_lower.startswith("ext:") or raw_lower.startswith("type:"):
+        ext_filter = raw.split(":", 1)[1].strip()
+    elif any(ch in raw for ch in ("*", "?", "[")):
+        pattern = raw
+    elif raw.startswith(".") and "/" not in raw and "\\" not in raw:
+        ext_filter = raw
+    elif "/" in raw or "\\" in raw:
+        path_filter = raw
+    else:
+        path_filter = raw
+
+    if ext_filter and not ext_filter.startswith("."):
+        ext_filter = f".{ext_filter}"
+
+    if path_filter:
+        display_root = path_filter
+
+    return (
+        _normalize_query_path(path_filter) if path_filter else None,
+        ext_filter.lower() if ext_filter else None,
+        pattern.lower() if pattern else None,
+        display_root,
+        full_path,
+    )
+
+
+def _source_matches_pattern(source_path: str, pattern: str) -> bool:
+    name = Path(source_path).name
+    return (
+        fnmatch.fnmatch(source_path.lower(), pattern.lower())
+        or fnmatch.fnmatch(name.lower(), pattern.lower())
+    )
+
+
+def _new_tree_node(name: str) -> Dict[str, Any]:
+    return {"name": name, "children": {}, "files": {}, "file_count": 0, "chunk_count": 0}
+
+
+def _build_tree(
+    file_stats: Dict[str, Dict[str, Any]],
+    base_filter: Optional[str],
+    common_parts: Tuple[str, ...],
+) -> Dict[str, Any]:
+    root = _new_tree_node("root")
+
+    for source_path, info in file_stats.items():
+        chunk_count = info["chunk_count"]
+        source_norm = source_path.lower()
+
+        if base_filter:
+            idx = source_norm.find(base_filter)
+            if idx == -1:
+                continue
+            rel = source_norm[idx + len(base_filter):].lstrip("\\/")
+            rel_parts = Path(rel).parts if rel else (Path(source_path).name,)
+        elif common_parts:
+            rel_parts = Path(source_path).parts[len(common_parts):] or (Path(source_path).name,)
+        else:
+            rel_parts = Path(source_path).parts
+
+        if not rel_parts:
+            continue
+
+        node = root
+        node["file_count"] += 1
+        node["chunk_count"] += chunk_count
+
+        for part in rel_parts[:-1]:
+            node = node["children"].setdefault(part, _new_tree_node(part))
+            node["file_count"] += 1
+            node["chunk_count"] += chunk_count
+
+        node["files"][rel_parts[-1]] = chunk_count
+
+    return root
+
+
+def _print_tree(root: Dict[str, Any], label: str, max_entries: int = 200) -> None:
+    printed = 0
+    truncated = False
+
+    def add_line(line: str) -> bool:
+        nonlocal printed, truncated
+        if printed >= max_entries:
+            truncated = True
+            return False
+        print(line)
+        printed += 1
+        return True
+
+    add_line(f"{label}/ ({root['file_count']:,} files, {root['chunk_count']:,} chunks)")
+
+    def walk(node: Dict[str, Any], prefix: str) -> None:
+        nonlocal printed, truncated
+        children = sorted(node["children"].values(), key=lambda n: n["name"].lower())
+        files = sorted(node["files"].items(), key=lambda item: item[0].lower())
+
+        entries = [(child["name"] + "/", child, True) for child in children] + [
+            (name, count, False) for name, count in files
+        ]
+
+        for idx, (name, payload, is_dir) in enumerate(entries):
+            is_last = idx == len(entries) - 1
+            connector = "`-- " if is_last else "|-- "
+            line_prefix = prefix + connector
+
+            if is_dir:
+                line = (
+                    f"{line_prefix}{name} "
+                    f"({payload['file_count']:,} files, {payload['chunk_count']:,} chunks)"
+                )
+                if not add_line(line):
+                    return
+                extension = "    " if is_last else "|   "
+                walk(payload, prefix + extension)
+            else:
+                line = f"{line_prefix}{name} ({payload:,} chunks)"
+                if not add_line(line):
+                    return
+
+    walk(root, "")
+
+    if truncated:
+        print("\nOutput truncated. Use /explore <path> or /explore <pattern> to narrow results.")
+
+
+def _compute_common_parts(paths: Dict[str, Dict[str, Any]]) -> Tuple[str, ...]:
+    if not paths:
+        return ()
+    raw_paths = list(paths.keys())
+    try:
+        common = os.path.commonpath(raw_paths)
+    except ValueError:
+        return ()
+    if not common:
+        return ()
+    return Path(common).parts
+
+
 def handle_explore_command(collection: Collection, query: Optional[str] = None) -> None:
     """Handle /explore command."""
     print("\nExploring collection...")
+    print("Scanning metadata... (this may take a moment)")
 
-    # Get unique files by searching metadata
-    results = search_metadata(collection, query=query, limit=1000)
+    path_filter, ext_filter, pattern, display_root, full_path = _parse_explore_query(query)
+    where = {"ext": {"$eq": ext_filter}} if ext_filter else None
 
-    if not results:
+    file_stats: Dict[str, Dict[str, Any]] = {}
+    scanned = 0
+    last_report = time.time()
+    report_every = 2.0
+
+    for meta in iter_collection_metadatas(collection, where=where, batch_size=5000):
+        scanned += 1
+        if time.time() - last_report >= report_every:
+            print(f"  scanned chunks: {scanned:,}")
+            last_report = time.time()
+        source_path = meta.get("source_path", "")
+        if not source_path:
+            continue
+
+        source_norm = source_path.lower()
+        if path_filter and path_filter not in source_norm:
+            continue
+        if pattern and not _source_matches_pattern(source_path, pattern):
+            continue
+
+        entry = file_stats.setdefault(
+            source_path,
+            {"ext": meta.get("ext", ""), "chunk_count": 0},
+        )
+        entry["chunk_count"] += 1
+
+    if not file_stats:
         print("No files found.")
         return
 
-    # Group by source_path
-    files_seen = set()
-    files_info = []
+    common_parts = ()
+    if not path_filter and not full_path:
+        common_parts = _compute_common_parts(file_stats)
 
-    for meta in results:
-        source_path = meta.get("source_path", "unknown")
-        if source_path not in files_seen:
-            files_seen.add(source_path)
-            files_info.append({
-                "path": source_path,
-                "ext": meta.get("ext", ""),
-                "author": meta.get("author", ""),
-                "title": meta.get("title", ""),
-            })
-
-    # Display results
-    print(f"\nFound {len(files_info)} files")
-    print("-" * 60)
-
-    for i, file_info in enumerate(files_info[:50], 1):  # Limit to 50
-        path = file_info["path"]
-        ext = file_info["ext"]
-        author = file_info.get("author", "")
-        title = file_info.get("title", "")
-
-        # Shorten path for display
-        display_path = Path(path).name
-        if len(path) > 50:
-            display_path = "..." + path[-47:]
-
-        line = f"{i:3}. [{ext:5s}] {display_path}"
-
-        if title:
-            line += f" | {title}"
-        elif author:
-            line += f" | by {author}"
-
-        print(line)
-
-    if len(files_info) > 50:
-        print(f"\n... and {len(files_info) - 50} more files")
-
+    tree = _build_tree(file_stats, path_filter, common_parts)
+    _print_tree(tree, display_root)
     print()
 
 
@@ -308,6 +489,7 @@ def handle_build_command(config: LSMConfig, force: bool = False) -> None:
 
     print("\nStarting ingest pipeline...")
     print("-" * 60)
+    print("Press Ctrl+C to stop ingest.")
 
     try:
         # If force, we could clear manifest here
@@ -326,6 +508,7 @@ def handle_build_command(config: LSMConfig, force: bool = False) -> None:
             exclude_dirs=config.ingest.exclude_set,
             dry_run=False,
             enable_ocr=config.ingest.enable_ocr,
+            skip_errors=config.ingest.skip_errors,
             chunk_size=config.ingest.chunk_size,
             chunk_overlap=config.ingest.chunk_overlap,
         )
@@ -520,7 +703,7 @@ def handle_command(line: str, collection: Collection, config: LSMConfig) -> bool
         handle_info_command(collection)
 
     elif cmd == "/stats":
-        handle_stats_command(collection)
+        handle_stats_command(collection, config)
 
     elif cmd == "/explore":
         query = args.strip() if args else None

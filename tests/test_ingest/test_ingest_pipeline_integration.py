@@ -1,23 +1,20 @@
 """
-Integration tests for Phase 5 ingest improvements.
+Integration tests for ingest parsing and pipeline behavior.
 
-Tests OCR, metadata extraction, and position tracking through the full pipeline.
+Covers metadata extraction, chunking positions, OCR detection, and pipeline controls.
 """
 
 import pytest
+import threading
 from pathlib import Path
-from unittest.mock import Mock, patch, MagicMock
+from unittest.mock import Mock, patch
 
 from lsm.ingest.parsers import (
-    parse_pdf,
     parse_docx,
-    parse_md,
     parse_html,
-    extract_pdf_metadata,
-    extract_docx_metadata,
     extract_markdown_frontmatter,
 )
-from lsm.ingest.chunking import chunk_text, chunk_text_simple
+from lsm.ingest.chunking import chunk_text
 from lsm.ingest.pipeline import parse_and_chunk_job
 from lsm.ingest.models import ParseResult
 
@@ -134,16 +131,16 @@ class TestChunkPositionTracking:
             # Should match the chunk (after stripping, which chunker does)
             assert extracted.strip() == chunk.strip()
 
-    def test_backward_compatible_chunking(self):
-        """Test backward-compatible chunk_text_simple."""
+    def test_chunking_without_positions(self):
+        """Test chunk_text with position tracking disabled."""
         text = "Simple text for chunking."
 
-        # Old interface (just returns chunks)
-        chunks = chunk_text_simple(text)
+        chunks, positions = chunk_text(text, track_positions=False)
 
         assert isinstance(chunks, list)
         assert len(chunks) > 0
         assert all(isinstance(c, str) for c in chunks)
+        assert positions == []
 
 
 class TestParseAndChunkJob:
@@ -220,6 +217,27 @@ This is test content that should be chunked.
         assert result.ok is False
         assert result.err is not None
 
+    def test_parse_and_chunk_respects_stop_event(self, tmp_path):
+        """Test that stop_event short-circuits parsing."""
+        stop_event = threading.Event()
+        stop_event.set()
+
+        fake_path = tmp_path / "file.txt"
+        fake_path.write_text("Test content", encoding="utf-8")
+
+        result = parse_and_chunk_job(
+            fp=fake_path,
+            source_path=str(fake_path),
+            mtime_ns=fake_path.stat().st_mtime_ns,
+            size=fake_path.stat().st_size,
+            fhash="fake",
+            had_prev=False,
+            stop_event=stop_event,
+        )
+
+        assert result.ok is False
+        assert result.err == "stopped"
+
 
 class TestOCRSupport:
     """Test OCR functionality (if pytesseract is available)."""
@@ -249,6 +267,20 @@ class TestOCRSupport:
         """Test that OCR is available when pytesseract is installed."""
         from lsm.ingest.parsers import OCR_AVAILABLE
         assert OCR_AVAILABLE is True
+
+
+class TestDocxParsing:
+    """Test DOCX parsing failure handling."""
+
+    def test_parse_docx_invalid_file(self, tmp_path):
+        """Invalid DOCX should not raise and should return empty content."""
+        invalid_docx = tmp_path / "invalid.docx"
+        invalid_docx.write_text("not a docx file", encoding="utf-8")
+
+        text, metadata = parse_docx(invalid_docx)
+
+        assert text == ""
+        assert metadata == {}
 
 
 class TestEndToEndPipeline:

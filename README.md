@@ -104,6 +104,21 @@ Key libraries include:
 
 ---
 
+### OCR Support (Optional)
+
+If you enable OCR for image-based PDFs, you must install the **Tesseract OCR executable** and ensure it is on your PATH. The `pip install tesseract` package is only a Python wrapper and does not include the OCR engine.
+
+Windows install:
+
+1. Download and install Tesseract OCR from: https://github.com/UB-Mannheim/tesseract/wiki
+2. Add the install directory to your PATH (for example: `C:\Program Files\Tesseract-OCR`)
+3. Restart your terminal and verify with:
+```bash
+tesseract --version
+```
+
+---
+
 ### Environment Setup
 
 **IMPORTANT:** For security, API keys should be stored in environment variables, not in configuration files.

@@ -8,8 +8,9 @@ and generate reports about the ingested knowledge base.
 from __future__ import annotations
 
 import os
+import json
 from pathlib import Path
-from typing import Dict, List, Any, Optional, Set
+from typing import Dict, List, Any, Optional, Set, Iterator, Callable
 from collections import Counter, defaultdict
 from datetime import datetime
 
@@ -46,7 +47,117 @@ def get_collection_info(collection: Collection) -> Dict[str, Any]:
     return info
 
 
-def get_collection_stats(collection: Collection, limit: int = 10000) -> Dict[str, Any]:
+def iter_collection_metadatas(
+    collection: Collection,
+    where: Optional[Dict[str, Any]] = None,
+    batch_size: int = 5000,
+) -> Iterator[Dict[str, Any]]:
+    """
+    Iterate over collection metadata in batches.
+
+    Args:
+        collection: ChromaDB collection
+        where: Optional filter clause
+        batch_size: Number of records per batch
+
+    Yields:
+        Metadata dictionaries
+    """
+    offset = 0
+    while True:
+        try:
+            results = collection.get(
+                where=where if where else None,
+                limit=batch_size,
+                offset=offset,
+                include=["metadatas"],
+            )
+        except TypeError:
+            if offset != 0:
+                break
+            results = collection.get(
+                where=where if where else None,
+                limit=batch_size,
+                include=["metadatas"],
+            )
+        metadatas = results.get("metadatas", [])
+        if not metadatas:
+            break
+        for meta in metadatas:
+            yield meta
+        if len(metadatas) < batch_size:
+            break
+        offset += len(metadatas)
+
+
+def _update_metadata_counters(
+    meta: Dict[str, Any],
+    ext_counter: Counter,
+    file_counter: Counter,
+    unique_files: Set[str],
+    authors: Set[str],
+    titles: Set[str],
+    ingestion_dates: List[str],
+    chunks_per_file: Dict[str, int],
+) -> None:
+    ext = meta.get("ext", "unknown")
+    ext_counter[ext] += 1
+
+    source_path = meta.get("source_path", "unknown")
+    file_counter[source_path] += 1
+    unique_files.add(source_path)
+    chunks_per_file[source_path] += 1
+
+    if "author" in meta and meta["author"]:
+        authors.add(meta["author"])
+
+    if "title" in meta and meta["title"]:
+        titles.add(meta["title"])
+
+    if "ingested_at" in meta:
+        ingestion_dates.append(meta["ingested_at"])
+
+
+def _finalize_metadata_stats(
+    ext_counter: Counter,
+    file_counter: Counter,
+    unique_files: Set[str],
+    authors: Set[str],
+    titles: Set[str],
+    ingestion_dates: List[str],
+    chunks_per_file: Dict[str, int],
+) -> Dict[str, Any]:
+    stats = {
+        "unique_files": len(unique_files),
+        "file_types": dict(ext_counter.most_common()),
+        "top_files": dict(file_counter.most_common(10)),
+        "avg_chunks_per_file": sum(chunks_per_file.values()) / len(chunks_per_file) if chunks_per_file else 0,
+        "max_chunks_per_file": max(chunks_per_file.values()) if chunks_per_file else 0,
+        "min_chunks_per_file": min(chunks_per_file.values()) if chunks_per_file else 0,
+    }
+
+    if authors:
+        stats["unique_authors"] = len(authors)
+        stats["authors"] = sorted(list(authors))[:20]
+
+    if titles:
+        stats["unique_titles"] = len(titles)
+
+    if ingestion_dates:
+        sorted_dates = sorted(ingestion_dates)
+        stats["first_ingested"] = sorted_dates[0]
+        stats["last_ingested"] = sorted_dates[-1]
+
+    return stats
+
+
+def get_collection_stats(
+    collection: Collection,
+    limit: Optional[int] = None,
+    batch_size: int = 5000,
+    error_report_path: Optional[Path] = None,
+    progress_callback: Optional[Callable[[int], None]] = None,
+) -> Dict[str, Any]:
     """
     Get detailed statistics about a collection.
 
@@ -65,28 +176,74 @@ def get_collection_stats(collection: Collection, limit: int = 10000) -> Dict[str
             "message": "Collection is empty",
         }
 
-    # Get a sample of chunks for analysis
-    sample_size = min(count, limit)
-
     try:
-        # Query for a sample (use get with limit)
-        results = collection.get(
-            limit=sample_size,
-            include=["metadatas"]
-        )
+        if limit is None or limit <= 0 or limit >= count:
+            ext_counter = Counter()
+            file_counter = Counter()
+            unique_files: Set[str] = set()
+            authors: Set[str] = set()
+            titles: Set[str] = set()
+            ingestion_dates: List[str] = []
+            chunks_per_file: Dict[str, int] = defaultdict(int)
+            analyzed = 0
 
-        metadatas = results.get("metadatas", [])
+            for meta in iter_collection_metadatas(collection, batch_size=batch_size):
+                _update_metadata_counters(
+                    meta,
+                    ext_counter,
+                    file_counter,
+                    unique_files,
+                    authors,
+                    titles,
+                    ingestion_dates,
+                    chunks_per_file,
+                )
+                analyzed += 1
+                if progress_callback and analyzed % batch_size == 0:
+                    progress_callback(analyzed)
 
-        if not metadatas:
-            return {
-                "total_chunks": count,
-                "message": "No metadata available",
-            }
+            if analyzed == 0:
+                return {
+                    "total_chunks": count,
+                    "message": "No metadata available",
+                }
 
-        # Analyze metadata
-        stats = analyze_metadata(metadatas, count)
-        stats["total_chunks"] = count
-        stats["analyzed_chunks"] = len(metadatas)
+            stats = _finalize_metadata_stats(
+                ext_counter,
+                file_counter,
+                unique_files,
+                authors,
+                titles,
+                ingestion_dates,
+                chunks_per_file,
+            )
+            stats["total_chunks"] = count
+            stats["analyzed_chunks"] = analyzed
+            stats["analysis_mode"] = "full"
+        else:
+            sample_size = min(count, limit)
+            results = collection.get(
+                limit=sample_size,
+                include=["metadatas"]
+            )
+
+            metadatas = results.get("metadatas", [])
+
+            if not metadatas:
+                return {
+                    "total_chunks": count,
+                    "message": "No metadata available",
+                }
+
+            stats = analyze_metadata(metadatas, count)
+            stats["total_chunks"] = count
+            stats["analyzed_chunks"] = len(metadatas)
+            stats["analysis_mode"] = "sample"
+
+        if error_report_path:
+            report = load_error_report(error_report_path)
+            if report:
+                stats["parse_errors"] = summarize_error_report(report, error_report_path)
 
         return stats
 
@@ -130,53 +287,53 @@ def analyze_metadata(metadatas: List[Dict[str, Any]], total_count: int) -> Dict[
     chunks_per_file: Dict[str, int] = defaultdict(int)
 
     for meta in metadatas:
-        # Extension
-        ext = meta.get("ext", "unknown")
-        ext_counter[ext] += 1
+        _update_metadata_counters(
+            meta,
+            ext_counter,
+            file_counter,
+            unique_files,
+            authors,
+            titles,
+            ingestion_dates,
+            chunks_per_file,
+        )
 
-        # Source file
-        source_path = meta.get("source_path", "unknown")
-        file_counter[source_path] += 1
-        unique_files.add(source_path)
-        chunks_per_file[source_path] += 1
+    return _finalize_metadata_stats(
+        ext_counter,
+        file_counter,
+        unique_files,
+        authors,
+        titles,
+        ingestion_dates,
+        chunks_per_file,
+    )
 
-        # Author (if present)
-        if "author" in meta and meta["author"]:
-            authors.add(meta["author"])
 
-        # Title (if present)
-        if "title" in meta and meta["title"]:
-            titles.add(meta["title"])
+def load_error_report(path: Path) -> Optional[Dict[str, Any]]:
+    """Load ingest error report if present."""
+    try:
+        if not path.exists():
+            return None
+        return json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return None
 
-        # Ingestion date
-        if "ingested_at" in meta:
-            ingestion_dates.append(meta["ingested_at"])
 
-    # Compute statistics
-    stats = {
-        "unique_files": len(unique_files),
-        "file_types": dict(ext_counter.most_common()),
-        "top_files": dict(file_counter.most_common(10)),
-        "avg_chunks_per_file": sum(chunks_per_file.values()) / len(chunks_per_file) if chunks_per_file else 0,
-        "max_chunks_per_file": max(chunks_per_file.values()) if chunks_per_file else 0,
-        "min_chunks_per_file": min(chunks_per_file.values()) if chunks_per_file else 0,
+def summarize_error_report(report: Dict[str, Any], path: Path) -> Dict[str, Any]:
+    """Summarize error report for stats output."""
+    failed = report.get("failed_documents", []) or []
+    page_errors = report.get("page_errors", []) or []
+    summary = {
+        "failed_documents": len(failed),
+        "page_errors": len(page_errors),
+        "generated_at": report.get("generated_at"),
+        "path": str(path),
     }
-
-    # Add author/title stats if available
-    if authors:
-        stats["unique_authors"] = len(authors)
-        stats["authors"] = sorted(list(authors))[:20]  # Top 20
-
-    if titles:
-        stats["unique_titles"] = len(titles)
-
-    # Add ingestion time range if available
-    if ingestion_dates:
-        sorted_dates = sorted(ingestion_dates)
-        stats["first_ingested"] = sorted_dates[0]
-        stats["last_ingested"] = sorted_dates[-1]
-
-    return stats
+    if failed:
+        summary["sample_failed_documents"] = [
+            item.get("source_path", "unknown") for item in failed[:5]
+        ]
+    return summary
 
 
 def format_stats_report(stats: Dict[str, Any]) -> str:
@@ -203,6 +360,8 @@ def format_stats_report(stats: Dict[str, Any]) -> str:
         analyzed = stats["analyzed_chunks"]
         pct = (analyzed / total * 100) if total > 0 else 0
         lines.append(f"Analyzed chunks:     {analyzed:,} ({pct:.1f}%)")
+        if stats.get("analysis_mode") == "sample":
+            lines.append("Analysis mode:       sample")
 
     # File statistics
     if "unique_files" in stats:
@@ -251,6 +410,27 @@ def format_stats_report(stats: Dict[str, Any]) -> str:
         lines.append("-" * 60)
         lines.append(f"First ingested: {stats['first_ingested']}")
         lines.append(f"Last ingested:  {stats['last_ingested']}")
+
+    # Parse errors (from last ingest run)
+    if "parse_errors" in stats:
+        parse_errors = stats["parse_errors"]
+        lines.append("\n" + "-" * 60)
+        lines.append("PARSE ERRORS")
+        lines.append("-" * 60)
+        lines.append(f"Failed documents: {parse_errors.get('failed_documents', 0):,}")
+        lines.append(f"Page errors:      {parse_errors.get('page_errors', 0):,}")
+        if parse_errors.get("generated_at"):
+            lines.append(f"Last report:      {parse_errors['generated_at']}")
+        if parse_errors.get("path"):
+            lines.append(f"Report path:      {parse_errors['path']}")
+        sample = parse_errors.get("sample_failed_documents")
+        if sample:
+            lines.append("Sample failures:")
+            for entry in sample:
+                display_path = Path(entry).name
+                if len(entry) > 50:
+                    display_path = "..." + entry[-47:]
+                lines.append(f"  - {display_path}")
 
     lines.append("\n" + "=" * 60)
 

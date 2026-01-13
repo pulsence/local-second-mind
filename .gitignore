@@ -51,10 +51,7 @@ chromadb/
 .chroma/
 
 # Ingest manifests and checkpoints
-manifest.json
-manifest.yaml
-manifest.yml
-*.manifest
+.ingest/
 
 # Incremental ingest state
 .ingest_state/

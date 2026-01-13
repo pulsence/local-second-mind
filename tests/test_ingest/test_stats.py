@@ -235,3 +235,33 @@ class TestGetCollectionStats:
         assert stats["analyzed_chunks"] == 2
         assert "unique_files" in stats
         assert stats["unique_files"] == 2
+
+    def test_get_collection_stats_progress_callback(self):
+        """Test progress callback is invoked during full scans."""
+        mock_collection = Mock()
+        mock_collection.count.return_value = 5
+        mock_collection.get.side_effect = [
+            {
+                "metadatas": [
+                    {"source_path": "/docs/file1.md", "ext": ".md", "chunk_index": 0},
+                    {"source_path": "/docs/file2.md", "ext": ".md", "chunk_index": 0},
+                    {"source_path": "/docs/file3.md", "ext": ".md", "chunk_index": 0},
+                ]
+            },
+            {
+                "metadatas": [
+                    {"source_path": "/docs/file4.md", "ext": ".md", "chunk_index": 0},
+                    {"source_path": "/docs/file5.md", "ext": ".md", "chunk_index": 0},
+                ]
+            },
+        ]
+
+        calls = []
+
+        def progress(analyzed: int) -> None:
+            calls.append(analyzed)
+
+        stats = get_collection_stats(mock_collection, limit=None, batch_size=3, progress_callback=progress)
+
+        assert stats["total_chunks"] == 5
+        assert calls == [3]

@@ -12,6 +12,7 @@ from lsm.cli.logging import configure_logging_from_args, get_logger
 from lsm.commands.ingest_cmd import run_ingest
 from lsm.commands.query_cmd import run_query
 
+DEFAULT_CONFIG_PATH = (Path(__file__).resolve().parent.parent / "config.json")
 
 def build_parser() -> argparse.ArgumentParser:
     """
@@ -30,8 +31,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--config",
         type=Path,
-        default="config.json",
-        help="Path to configuration file (default: config.json)",
+        default=DEFAULT_CONFIG_PATH,
+        help=f"Path to configuration file (default: {DEFAULT_CONFIG_PATH})",
     )
     parser.add_argument(
         "-v", "--verbose",
@@ -80,6 +81,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--force",
         action="store_true",
         help="Force re-ingest all files (ignore manifest)",
+    )
+    ingest_parser.add_argument(
+        "--skip-errors",
+        action="store_true",
+        help="Continue ingest when parsing errors occur",
     )
 
     # -------------------------------------------------------------------------

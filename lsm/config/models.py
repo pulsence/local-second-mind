@@ -253,6 +253,9 @@ class IngestConfig:
     dry_run: bool = False
     """If True, simulate ingest without writing to database."""
 
+    skip_errors: bool = True
+    """If True, continue ingest when individual files/pages fail to parse."""
+
     def __post_init__(self):
         """Convert string paths to Path objects and validate."""
         # Convert roots to Path objects

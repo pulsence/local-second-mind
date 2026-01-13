@@ -166,6 +166,7 @@ def build_ingest_config(raw: Dict[str, Any], config_path: Path) -> IngestConfig:
         tagging_model=raw.get("tagging_model", "gpt-5.2"),
         tags_per_chunk=int(raw.get("tags_per_chunk", 3)),
         dry_run=bool(raw.get("dry_run", False)),
+        skip_errors=bool(raw.get("skip_errors", True)),
     )
 
     return config
