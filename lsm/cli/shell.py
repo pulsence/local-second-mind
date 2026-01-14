@@ -37,9 +37,9 @@ class UnifiedShell:
         self.current_context: Optional[ContextType] = None
 
         # Lazy-loaded context objects
-        self._ingest_collection = None
+        self._ingest_provider = None
         self._query_embedder = None
-        self._query_collection = None
+        self._query_provider = None
         self._query_client = None
         self._query_state = None
 
@@ -63,17 +63,14 @@ class UnifiedShell:
 
     def _init_ingest_context(self) -> None:
         """Initialize ingest context (lazy)."""
-        if self._ingest_collection is not None:
+        if self._ingest_provider is not None:
             return
 
         logger.info("Initializing ingest context")
-        from lsm.ingest.chroma_store import get_chroma_collection
+        from lsm.vectordb import create_vectordb_provider
 
         try:
-            self._ingest_collection = get_chroma_collection(
-                self.config.persist_dir,
-                self.config.collection
-            )
+            self._ingest_provider = create_vectordb_provider(self.config.vectordb)
             logger.info("Ingest context initialized")
         except Exception as e:
             logger.error(f"Failed to initialize ingest context: {e}")
@@ -81,33 +78,34 @@ class UnifiedShell:
 
     def _init_query_context(self) -> None:
         """Initialize query context (lazy)."""
-        if self._query_collection is not None:
+        if self._query_provider is not None:
             return
 
         logger.info("Initializing query context")
-        from lsm.query.retrieval import init_collection, init_embedder
+        from lsm.query.retrieval import init_embedder
         from lsm.query.session import SessionState
         from openai import OpenAI
+        from lsm.vectordb import create_vectordb_provider
 
         try:
-            # Check persist directory exists
-            persist_dir = Path(self.config.persist_dir)
-            if not persist_dir.exists():
-                print(f"Error: ChromaDB directory not found: {persist_dir}")
-                print("Run /ingest first to create the database.")
-                raise FileNotFoundError(f"Persist directory not found: {persist_dir}")
-
             # Initialize embedder
             self._query_embedder = init_embedder(
                 self.config.embed_model,
                 device=self.config.device
             )
 
-            # Initialize collection
-            self._query_collection = init_collection(persist_dir, self.config.collection)
+            # Initialize vector DB provider
+            if self.config.vectordb.provider == "chromadb":
+                persist_dir = Path(self.config.persist_dir)
+                if not persist_dir.exists():
+                    print(f"Error: ChromaDB directory not found: {persist_dir}")
+                    print("Run /ingest first to create the database.")
+                    raise FileNotFoundError(f"Persist directory not found: {persist_dir}")
+
+            self._query_provider = create_vectordb_provider(self.config.vectordb)
 
             # Check collection has data
-            count = self._query_collection.count()
+            count = self._query_provider.count()
             if count == 0:
                 print(f"Warning: Collection '{self.config.collection}' is empty.")
                 print("Run /ingest to populate the database.")
@@ -135,14 +133,18 @@ class UnifiedShell:
 
             # Show info
             from lsm.ingest.stats import get_collection_info
-            info = get_collection_info(self._ingest_collection)
-
             print()
             print("=" * 70)
             print("Switched to INGEST context")
             print("=" * 70)
-            print(f"Collection: {info['name']}")
-            print(f"Chunks:     {info['count']:,}")
+            if getattr(self._ingest_provider, "name", "") == "chromadb":
+                info = get_collection_info(self._ingest_provider)
+                print(f"Collection: {info['name']}")
+                print(f"Chunks:     {info['count']:,}")
+            else:
+                stats = self._ingest_provider.get_stats()
+                print(f"Vector DB:  {stats.get('provider', 'unknown')}")
+                print(f"Chunks:     {self._ingest_provider.count():,}")
             print()
             print("Type /help for ingest commands, or /query to switch to query mode.")
             print()
@@ -157,7 +159,7 @@ class UnifiedShell:
             self._init_query_context()
             self.current_context = "query"
 
-            count = self._query_collection.count()
+            count = self._query_provider.count()
 
             print()
             print("=" * 70)
@@ -192,7 +194,7 @@ class UnifiedShell:
             return True
 
         # Delegate to ingest command handler
-        return handle_command(line, self._ingest_collection, self.config)
+        return handle_command(line, self._ingest_provider, self.config)
 
     def handle_query_command(self, line: str) -> bool:
         """
@@ -220,7 +222,7 @@ class UnifiedShell:
                 self._query_state,
                 self._query_client,
                 self.config,
-                self._query_collection,
+            self._query_provider,
             )
 
             # If not a command, treat as question
@@ -230,7 +232,7 @@ class UnifiedShell:
                     self.config,
                     self._query_state,
                     self._query_embedder,
-                    self._query_collection,
+                    self._query_provider,
                 )
 
             return True

@@ -18,6 +18,7 @@ from chromadb.api.models.Collection import Collection
 from lsm.config.models import LLMConfig
 from lsm.providers import create_provider
 from lsm.cli.logging import get_logger
+from lsm.vectordb.utils import require_chroma_collection
 
 logger = get_logger(__name__)
 
@@ -154,6 +155,7 @@ def get_untagged_chunks(
     if processed_ids is None:
         processed_ids = set()
 
+    collection = require_chroma_collection(collection, "get_untagged_chunks")
     try:
         logger.debug("Fetching chunks and filtering for untagged ones")
 
@@ -225,11 +227,12 @@ def tag_chunks(
 
     Example:
         >>> config = LSMConfig.load("config.json")
-        >>> collection = get_chroma_collection(config.persist_dir, config.collection)
+        >>> collection = create_vectordb_provider(config.vectordb).get_collection()
         >>> tagging_config = config.llm.get_tagging_config()
         >>> tagged, failed = tag_chunks(collection, tagging_config, num_tags=3)
         >>> print(f"Tagged {tagged} chunks, {failed} failed")
     """
+    collection = require_chroma_collection(collection, "tag_chunks")
     logger.info("Starting AI chunk tagging...")
     logger.info(f"  Model: {llm_config.model}")
     logger.info(f"  Tags per chunk: {num_tags}")
@@ -369,6 +372,7 @@ def add_user_tags(
     Raises:
         ValueError: If chunk doesn't exist
     """
+    collection = require_chroma_collection(collection, "add_user_tags")
     # Get current metadata
     results = collection.get(ids=[chunk_id], include=["metadatas"])
 
@@ -409,6 +413,7 @@ def remove_user_tags(
     Raises:
         ValueError: If chunk doesn't exist
     """
+    collection = require_chroma_collection(collection, "remove_user_tags")
     # Get current metadata
     results = collection.get(ids=[chunk_id], include=["metadatas"])
 
@@ -441,6 +446,7 @@ def get_all_tags(collection: Collection) -> Dict[str, List[str]]:
     Returns:
         Dictionary with 'ai_tags' and 'user_tags' lists
     """
+    collection = require_chroma_collection(collection, "get_all_tags")
     ai_tags: set[str] = set()
     user_tags: set[str] = set()
 

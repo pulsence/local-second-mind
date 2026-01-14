@@ -24,7 +24,8 @@ from lsm.ingest.stats import (
     get_file_chunks,
     iter_collection_metadatas,
 )
-from lsm.ingest.chroma_store import get_chroma_collection
+from lsm.vectordb import create_vectordb_provider, list_available_providers
+from lsm.vectordb.utils import require_chroma_collection
 from lsm.ingest.pipeline import ingest
 from lsm.ingest.tagging import (
     tag_chunks,
@@ -50,6 +51,8 @@ def print_banner() -> None:
     print("  /build [--force]   - Run ingest pipeline")
     print("  /tag [--max N]     - Run AI tagging on untagged chunks")
     print("  /tags              - Show all tags in collection")
+    print("  /vectordb-providers - List available vector DB providers")
+    print("  /vectordb-status   - Show vector DB provider status")
     print("  /wipe              - Clear collection (requires confirmation)")
     print("  /help              - Show this help")
     print("  /exit              - Exit")
@@ -116,6 +119,12 @@ INGEST REPL COMMANDS
     Display all unique tags in the collection.
     Shows both AI-generated tags and user-provided tags separately.
 
+/vectordb-providers
+    List available vector DB providers.
+
+/vectordb-status
+    Show current vector DB provider status and stats.
+
 /wipe
     Delete all chunks from the collection.
     WARNING: This is destructive and requires confirmation.
@@ -139,6 +148,19 @@ TIPS:
 
 def handle_info_command(collection: Collection) -> None:
     """Handle /info command."""
+    if getattr(collection, "name", "") != "chromadb":
+        stats = collection.get_stats()
+        print()
+        print("=" * 60)
+        print("VECTOR DB INFO")
+        print("=" * 60)
+        print(f"Provider: {stats.get('provider', 'unknown')}")
+        print(f"Status:   {stats.get('status', 'unknown')}")
+        print(f"Count:    {collection.count():,}")
+        print("=" * 60)
+        print()
+        return
+
     info = get_collection_info(collection)
 
     print()
@@ -170,12 +192,16 @@ def handle_stats_command(collection: Collection, config: LSMConfig) -> None:
             last_report = time.time()
 
     error_report_path = config.ingest.manifest.parent / "ingest_error_report.json"
-    stats = get_collection_stats(
-        collection,
-        limit=None,
-        error_report_path=error_report_path,
-        progress_callback=report_progress,
-    )
+    try:
+        stats = get_collection_stats(
+            collection,
+            limit=None,
+            error_report_path=error_report_path,
+            progress_callback=report_progress,
+        )
+    except Exception as e:
+        print(f"Error: {e}")
+        return
 
     if "error" in stats:
         print(f"Error: {stats['error']}")
@@ -497,15 +523,14 @@ def handle_build_command(config: LSMConfig, force: bool = False) -> None:
 
         ingest(
             roots=config.ingest.roots,
-            persist_dir=config.persist_dir,
             chroma_flush_interval=config.ingest.chroma_flush_interval,
-            collection_name=config.collection,
             embed_model_name=config.embed_model,
             device=config.device,
             batch_size=config.batch_size,
             manifest_path=config.ingest.manifest,
             exts=config.ingest.exts,
             exclude_dirs=config.ingest.exclude_set,
+            vectordb_config=config.vectordb,
             dry_run=False,
             enable_ocr=config.ingest.enable_ocr,
             skip_errors=config.ingest.skip_errors,
@@ -530,7 +555,13 @@ def handle_wipe_command(collection: Collection) -> None:
     print("This action CANNOT be undone.")
     print()
 
-    count = collection.count()
+    try:
+        chroma = require_chroma_collection(collection, "/wipe")
+    except Exception as e:
+        print(f"Error: {e}")
+        return
+
+    count = chroma.count()
     print(f"Current collection has {count:,} chunks")
     print()
 
@@ -550,11 +581,11 @@ def handle_wipe_command(collection: Collection) -> None:
 
     try:
         # Get all IDs and delete
-        results = collection.get(include=[])
+        results = chroma.get(include=[])
         ids = results.get("ids", [])
 
         if ids:
-            collection.delete(ids=ids)
+            chroma.delete(ids=ids)
             print(f"Deleted {len(ids):,} chunks")
         else:
             print("Collection was already empty")
@@ -676,6 +707,64 @@ def handle_tags_command(collection: Collection) -> None:
         print(f"Error fetching tags: {e}")
 
 
+def handle_vectordb_providers_command(config: LSMConfig) -> None:
+    print()
+    print("=" * 60)
+    print("AVAILABLE VECTOR DB PROVIDERS")
+    print("=" * 60)
+    print()
+
+    providers = list_available_providers()
+    if not providers:
+        print("No vector DB providers registered.")
+        print()
+        return
+
+    current_provider = config.vectordb.provider
+    print(f"Current Provider: {current_provider}")
+    print(f"Collection:       {config.vectordb.collection}")
+    print()
+
+    print(f"Available Providers ({len(providers)}):")
+    print()
+
+    for provider_name in providers:
+        is_current = "ACTIVE" if provider_name == current_provider else ""
+        status = ""
+        if provider_name == current_provider:
+            try:
+                provider = create_vectordb_provider(config.vectordb)
+                status = "ok" if provider.is_available() else "unavailable"
+            except Exception as e:
+                status = f"error ({e})"
+        print(f"  {provider_name:20s} {status:20s} {is_current}")
+
+    print()
+
+
+def handle_vectordb_status_command(config: LSMConfig) -> None:
+    print()
+    print("=" * 60)
+    print("VECTOR DB STATUS")
+    print("=" * 60)
+    print()
+
+    try:
+        provider = create_vectordb_provider(config.vectordb)
+        health = provider.health_check()
+        stats = provider.get_stats()
+
+        print(f"Provider: {health.get('provider', 'unknown')}")
+        print(f"Status:   {health.get('status', 'unknown')}")
+        if health.get("error"):
+            print(f"Error:    {health.get('error')}")
+        print(f"Count:    {stats.get('count', 'n/a')}")
+    except Exception as e:
+        print(f"Error: {e}")
+
+    print()
+
+
 def handle_command(line: str, collection: Collection, config: LSMConfig) -> bool:
     """
     Handle a command from the REPL.
@@ -725,6 +814,12 @@ def handle_command(line: str, collection: Collection, config: LSMConfig) -> bool
     elif cmd == "/tags":
         handle_tags_command(collection)
 
+    elif cmd == "/vectordb-providers":
+        handle_vectordb_providers_command(config)
+
+    elif cmd == "/vectordb-status":
+        handle_vectordb_status_command(config)
+
     elif cmd == "/wipe":
         handle_wipe_command(collection)
 
@@ -745,20 +840,25 @@ def run_ingest_repl(config: LSMConfig) -> int:
     Returns:
         Exit code (0 for success)
     """
-    # Get collection
+    # Get provider
     try:
-        collection = get_chroma_collection(config.persist_dir, config.collection)
+        collection = create_vectordb_provider(config.vectordb)
     except Exception as e:
-        print(f"Error: Could not connect to collection: {e}")
+        print(f"Error: Could not connect to vector DB: {e}")
         return 1
 
     # Print banner
     print_banner()
 
     # Show initial info
-    info = get_collection_info(collection)
-    print(f"Connected to collection: {info['name']}")
-    print(f"Current chunks: {info['count']:,}")
+    if getattr(collection, "name", "") == "chromadb":
+        info = get_collection_info(collection)
+        print(f"Connected to collection: {info['name']}")
+        print(f"Current chunks: {info['count']:,}")
+    else:
+        stats = collection.get_stats()
+        print(f"Connected to vector DB: {stats.get('provider', 'unknown')}")
+        print(f"Current chunks: {collection.count():,}")
     print()
     print("Type /help for available commands.")
     print()

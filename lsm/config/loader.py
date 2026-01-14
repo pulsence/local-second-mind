@@ -26,6 +26,7 @@ from .models import (
     ModelKnowledgePolicy,
     NotesConfig,
     RemoteProviderConfig,
+    VectorDBConfig,
     DEFAULT_EXTENSIONS,
     DEFAULT_EXCLUDE_DIRS,
 )
@@ -153,14 +154,18 @@ def build_ingest_config(raw: Dict[str, Any], config_path: Path) -> IngestConfig:
     if not roots or not isinstance(roots, list):
         raise ValueError("Config must include 'roots' as a non-empty list of directory paths")
 
+    vectordb_raw = raw.get("vectordb", {})
+    persist_dir = vectordb_raw.get("persist_dir", raw.get("persist_dir", ".chroma"))
+    collection = vectordb_raw.get("collection", raw.get("collection", IngestConfig.collection))
+
     # Build config
     config = IngestConfig(
         roots=[Path(r) for r in roots],
         embed_model=raw.get("embed_model", IngestConfig.embed_model),
         device=raw.get("device", IngestConfig.device),
         batch_size=int(raw.get("batch_size", IngestConfig.batch_size)),
-        persist_dir=Path(raw.get("persist_dir", ".chroma")),
-        collection=raw.get("collection", IngestConfig.collection),
+        persist_dir=Path(persist_dir),
+        collection=collection,
         chroma_flush_interval=int(raw.get("chroma_flush_interval", IngestConfig.chroma_flush_interval)),
         manifest=Path(raw.get("manifest", ".ingest/manifest.json")),
         extensions=raw.get("extensions"),
@@ -178,6 +183,28 @@ def build_ingest_config(raw: Dict[str, Any], config_path: Path) -> IngestConfig:
     )
 
     return config
+
+
+def build_vectordb_config(raw: Dict[str, Any]) -> VectorDBConfig:
+    """
+    Build VectorDBConfig from raw configuration.
+    """
+    vectordb_raw = raw.get("vectordb", {})
+
+    return VectorDBConfig(
+        provider=vectordb_raw.get("provider", VectorDBConfig.provider),
+        collection=vectordb_raw.get("collection", raw.get("collection", VectorDBConfig.collection)),
+        persist_dir=vectordb_raw.get("persist_dir", raw.get("persist_dir", VectorDBConfig.persist_dir)),
+        chroma_hnsw_space=vectordb_raw.get("chroma_hnsw_space", VectorDBConfig.chroma_hnsw_space),
+        connection_string=vectordb_raw.get("connection_string"),
+        host=vectordb_raw.get("host"),
+        port=vectordb_raw.get("port"),
+        database=vectordb_raw.get("database"),
+        user=vectordb_raw.get("user"),
+        password=vectordb_raw.get("password"),
+        index_type=vectordb_raw.get("index_type", "hnsw"),
+        pool_size=int(vectordb_raw.get("pool_size", 5)),
+    )
 
 
 def build_query_config(raw: Dict[str, Any]) -> QueryConfig:
@@ -376,6 +403,7 @@ def load_config_from_file(path: Path | str) -> LSMConfig:
     llm_config = build_llm_config(raw)
     ingest_config = build_ingest_config(raw, path)
     query_config = build_query_config(raw)
+    vectordb_config = build_vectordb_config(raw)
 
     # Build mode system configs
     modes = build_modes_registry(raw)
@@ -386,6 +414,7 @@ def load_config_from_file(path: Path | str) -> LSMConfig:
         ingest=ingest_config,
         query=query_config,
         llm=llm_config,
+        vectordb=vectordb_config,
         modes=modes,
         remote_providers=remote_providers,
         config_path=path,

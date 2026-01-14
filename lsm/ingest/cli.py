@@ -48,6 +48,7 @@ def main(config_path: str | Path, interactive: bool = False, skip_errors: bool |
 
     logger.info(f"Ingest configuration:")
     logger.info(f"  Roots: {config.ingest.roots}")
+    logger.info(f"  Vector DB: {config.vectordb.provider}")
     logger.info(f"  Collection: {config.collection}")
     logger.info(f"  Embed model: {config.embed_model}")
     logger.info(f"  Device: {config.device}")
@@ -66,15 +67,14 @@ def main(config_path: str | Path, interactive: bool = False, skip_errors: bool |
 
         ingest(
             roots=config.ingest.roots,
-            persist_dir=config.persist_dir,
             chroma_flush_interval=config.ingest.chroma_flush_interval,
-            collection_name=config.collection,
             embed_model_name=config.embed_model,
             device=config.device,
             batch_size=config.batch_size,
             manifest_path=config.ingest.manifest,
             exts=config.ingest.exts,
             exclude_dirs=config.ingest.exclude_set,
+            vectordb_config=config.vectordb,
             dry_run=config.ingest.dry_run,
             enable_ocr=config.ingest.enable_ocr,
             skip_errors=config.ingest.skip_errors,

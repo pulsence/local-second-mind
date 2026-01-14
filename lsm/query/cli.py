@@ -12,8 +12,9 @@ from openai import OpenAI
 
 from lsm.config.models import LSMConfig
 from lsm.cli.logging import get_logger
-from .retrieval import init_collection, init_embedder
+from .retrieval import init_embedder
 from .repl import run_repl
+from lsm.vectordb import create_vectordb_provider
 
 logger = get_logger(__name__)
 
@@ -35,26 +36,26 @@ def run_query_cli(config: LSMConfig) -> int:
     """
     logger.info("Starting query CLI")
 
-    # Validate configuration
-    persist_dir = Path(config.persist_dir)
-    if not persist_dir.exists():
-        logger.error(f"Persist directory does not exist: {persist_dir}")
-        print(f"Error: ChromaDB directory not found: {persist_dir}")
-        print("Run 'lsm ingest' first to create the database.")
-        return 1
-
     # Initialize embedder
     logger.info(f"Initializing embedder: {config.embed_model}")
     embedder = init_embedder(config.embed_model, device=config.device)
 
-    # Initialize ChromaDB collection
-    logger.info(f"Initializing ChromaDB collection: {config.collection}")
-    collection = init_collection(persist_dir, config.collection)
+    # Initialize vector DB provider
+    logger.info(f"Initializing vector DB provider: {config.vectordb.provider}")
+    if config.vectordb.provider == "chromadb":
+        persist_dir = Path(config.persist_dir)
+        if not persist_dir.exists():
+            logger.error(f"Persist directory does not exist: {persist_dir}")
+            print(f"Error: ChromaDB directory not found: {persist_dir}")
+            print("Run 'lsm ingest' first to create the database.")
+            return 1
+
+    provider = create_vectordb_provider(config.vectordb)
 
     # Check collection has data
-    count = collection.count()
+    count = provider.count()
     if count == 0:
-        logger.warning("ChromaDB collection is empty")
+        logger.warning("Vector DB collection is empty")
         print(f"Warning: Collection '{config.collection}' is empty.")
         print("Run 'lsm ingest' to populate the database.")
         return 1
@@ -71,7 +72,7 @@ def run_query_cli(config: LSMConfig) -> int:
 
     # Start REPL
     try:
-        run_repl(config, embedder, collection, client)
+        run_repl(config, embedder, provider, client)
     except KeyboardInterrupt:
         print("\nInterrupted.")
         return 0

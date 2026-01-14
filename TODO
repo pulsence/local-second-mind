@@ -14,6 +14,10 @@
 or be merged with built-in modes
 - test_providers/remote should be test_remote
 - Create installers
+- Provider modules should have submodules for:
+    - db (with providers for chroma and psql)
+    - ai (with providers for the different ai providers)
+    - remote (with providers for the different remote apis like brave, wikimedia, etc.)
 
 ## Ingest
 - Add embeddings model selection (allow user to choose different embedding models)
@@ -22,6 +26,7 @@ or be merged with built-in modes
 - Consider version control for chunks (track document evolution over time)
 - Enable root folders in config to be tagged to aid in identifying the kind of content in folders
 - Enable tagging by folder of chucks
+- Still getting MuPDF error: library error: zlib error: incorrect header check
 
 ## Query
 - Complete remaining documentation for query modes, notes, remote sources

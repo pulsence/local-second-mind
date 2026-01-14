@@ -88,28 +88,30 @@ def run_single_shot_query(config: LSMConfig, question: str) -> int:
     Returns:
         Exit code (0 for success)
     """
-    from lsm.query.retrieval import init_collection, init_embedder
+    from lsm.query.retrieval import init_embedder
     from lsm.query.repl import run_query_turn
     from lsm.query.session import SessionState
     from openai import OpenAI
+    from lsm.vectordb import create_vectordb_provider
 
     try:
         # Initialize embedder
         logger.info(f"Initializing embedder: {config.embed_model}")
         embedder = init_embedder(config.embed_model, device=config.device)
 
-        # Initialize ChromaDB collection
-        persist_dir = Path(config.persist_dir)
-        if not persist_dir.exists():
-            print(f"Error: ChromaDB directory not found: {persist_dir}")
-            print("Run 'lsm ingest' first to create the database.")
-            return 1
+        # Initialize vector DB provider
+        if config.vectordb.provider == "chromadb":
+            persist_dir = Path(config.persist_dir)
+            if not persist_dir.exists():
+                print(f"Error: ChromaDB directory not found: {persist_dir}")
+                print("Run 'lsm ingest' first to create the database.")
+                return 1
 
-        logger.info(f"Initializing ChromaDB collection: {config.collection}")
-        collection = init_collection(persist_dir, config.collection)
+        logger.info(f"Initializing vector DB provider: {config.vectordb.provider}")
+        provider = create_vectordb_provider(config.vectordb)
 
         # Check collection has data
-        count = collection.count()
+        count = provider.count()
         if count == 0:
             print(f"Warning: Collection '{config.collection}' is empty.")
             print("Run 'lsm ingest' to populate the database.")
@@ -132,7 +134,7 @@ def run_single_shot_query(config: LSMConfig, question: str) -> int:
         )
 
         # Run single query
-        run_query_turn(question, config, state, embedder, collection)
+        run_query_turn(question, config, state, embedder, provider)
 
         return 0
 

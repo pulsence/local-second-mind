@@ -37,6 +37,8 @@ DEFAULT_EMBED_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
 DEFAULT_DEVICE = "cpu"
 DEFAULT_BATCH_SIZE = 32
 DEFAULT_CHROMA_FLUSH_INTERVAL = 2000
+DEFAULT_VDB_PROVIDER = "chromadb"
+DEFAULT_CHROMA_HNSW_SPACE = "cosine"
 
 # Chunking defaults
 DEFAULT_CHUNK_SIZE = 1800
@@ -389,6 +391,65 @@ class IngestConfig:
 
 
 # -----------------------------------------------------------------------------
+# Vector DB Configuration
+# -----------------------------------------------------------------------------
+
+@dataclass
+class VectorDBConfig:
+    """
+    Configuration for vector database providers.
+    """
+
+    provider: str = DEFAULT_VDB_PROVIDER
+    """Vector DB provider name (e.g., 'chromadb', 'postgresql')."""
+
+    collection: str = DEFAULT_COLLECTION
+    """Collection or namespace name."""
+
+    persist_dir: Path = Path(".chroma")
+    """ChromaDB persistence directory (Chroma-only)."""
+
+    chroma_hnsw_space: str = DEFAULT_CHROMA_HNSW_SPACE
+    """ChromaDB HNSW space (e.g., 'cosine')."""
+
+    # PostgreSQL/pgvector configuration
+    connection_string: Optional[str] = None
+    """PostgreSQL connection string."""
+
+    host: Optional[str] = None
+    port: Optional[int] = None
+    database: Optional[str] = None
+    user: Optional[str] = None
+    password: Optional[str] = None
+
+    index_type: str = "hnsw"
+    """Index type for pgvector (e.g., 'hnsw', 'ivfflat')."""
+
+    pool_size: int = 5
+    """Connection pool size for providers that support pooling."""
+
+    def __post_init__(self):
+        if isinstance(self.persist_dir, str):
+            self.persist_dir = Path(self.persist_dir)
+
+    def validate(self) -> None:
+        if not self.provider:
+            raise ValueError("vectordb.provider must be set")
+
+        if self.provider == "chromadb":
+            if not self.persist_dir:
+                raise ValueError("vectordb.persist_dir is required for ChromaDB")
+            if not self.collection:
+                raise ValueError("vectordb.collection is required for ChromaDB")
+
+        if self.provider == "postgresql":
+            if not (self.connection_string or (self.host and self.database and self.user)):
+                raise ValueError(
+                    "PostgreSQL vectordb requires connection_string or host/database/user"
+                )
+
+
+# -----------------------------------------------------------------------------
 # Mode System Configuration
 # -----------------------------------------------------------------------------
 
@@ -648,6 +709,9 @@ class LSMConfig:
     llm: LLMConfig
     """LLM provider configuration."""
 
+    vectordb: VectorDBConfig
+    """Vector DB provider configuration."""
+
     modes: Optional[dict[str, ModeConfig]] = None
     """Registry of available query modes. If None, uses built-in defaults."""
 
@@ -670,6 +734,9 @@ class LSMConfig:
             if not self.ingest.manifest.is_absolute():
                 self.ingest.manifest = (base_dir / self.ingest.manifest).resolve()
 
+            if self.vectordb and not self.vectordb.persist_dir.is_absolute():
+                self.vectordb.persist_dir = (base_dir / self.vectordb.persist_dir).resolve()
+
         # Initialize built-in modes if not provided
         if self.modes is None:
             self.modes = self._get_builtin_modes()
@@ -679,6 +746,7 @@ class LSMConfig:
         self.ingest.validate()
         self.query.validate()
         self.llm.validate()
+        self.vectordb.validate()
 
         # Validate mode registry
         if self.modes:
@@ -810,13 +878,13 @@ class LSMConfig:
 
     @property
     def persist_dir(self) -> Path:
-        """Shortcut to ingest persist_dir."""
-        return self.ingest.persist_dir
+        """Shortcut to vectordb persist_dir."""
+        return self.vectordb.persist_dir
 
     @property
     def collection(self) -> str:
-        """Shortcut to ingest collection name."""
-        return self.ingest.collection
+        """Shortcut to vectordb collection name."""
+        return self.vectordb.collection
 
     @property
     def embed_model(self) -> str:

@@ -1,6 +1,6 @@
 ﻿# Provider System Architecture
 
-This document describes the provider abstraction used by LSM for LLM calls.
+This document describes the provider abstractions used by LSM for LLM calls and vector DBs.
 
 ## Goals
 
@@ -8,7 +8,7 @@ This document describes the provider abstraction used by LSM for LLM calls.
 - Support multiple LLM backends (OpenAI today; others in the future).
 - Allow per-feature overrides (query, ranking, tagging).
 
-## Provider Interface
+## LLM Provider Interface
 
 All providers implement `BaseLLMProvider`:
 
@@ -25,7 +25,7 @@ Optional:
 
 See `docs/api-reference/PROVIDERS.md` for method signatures.
 
-## Factory Pattern
+## LLM Factory Pattern
 
 Providers are created through a registry in `lsm/providers/factory.py`:
 
@@ -80,3 +80,45 @@ To add a provider:
 3. Provide configuration under `llm.provider`.
 
 See `docs/api-reference/ADDING_PROVIDERS.md` for a worked example.
+
+## Vector DB Provider Interface
+
+Vector DB providers implement `BaseVectorDBProvider`:
+
+- `add_chunks(ids, documents, metadatas, embeddings)`
+- `query(embedding, top_k, filters)`
+- `delete_by_id(ids)`
+- `delete_by_filter(filters)`
+- `count()`
+- `get_stats()`
+- `optimize()`
+- `health_check()`
+- `name` property
+
+See `lsm/vectordb/base.py` for method signatures.
+
+## Vector DB Factory Pattern
+
+Providers are created through a registry in `lsm/vectordb/factory.py`:
+
+- `PROVIDER_REGISTRY` maps provider names to classes.
+- `create_vectordb_provider(config)` instantiates and validates availability.
+- `register_provider(name, provider_class)` allows custom providers.
+
+## ChromaDB Provider
+
+The ChromaDB provider:
+
+- Uses persistent storage from `vectordb.persist_dir`.
+- Supports `chroma_hnsw_space` configuration.
+- Exposes `get_collection()` for legacy Chroma-only operations.
+
+## PostgreSQL + pgvector Provider
+
+The PostgreSQL provider:
+
+- Uses `psycopg2` pooling and `pgvector` bindings.
+- Creates schema/indexes on first use.
+- Supports `hnsw` or `ivfflat` indexing.
+
+See `docs/user-guide/VECTOR_DATABASES.md` for configuration examples.

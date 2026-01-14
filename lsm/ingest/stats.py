@@ -16,6 +16,7 @@ from datetime import datetime
 
 import chromadb
 from chromadb.api.models.Collection import Collection
+from lsm.vectordb.utils import require_chroma_collection
 
 
 def get_collection_info(collection: Collection) -> Dict[str, Any]:
@@ -28,6 +29,7 @@ def get_collection_info(collection: Collection) -> Dict[str, Any]:
     Returns:
         Dictionary with collection information
     """
+    collection = require_chroma_collection(collection, "get_collection_info")
     count = collection.count()
 
     info = {
@@ -63,6 +65,7 @@ def iter_collection_metadatas(
     Yields:
         Metadata dictionaries
     """
+    collection = require_chroma_collection(collection, "iter_collection_metadatas")
     offset = 0
     while True:
         try:
@@ -168,6 +171,7 @@ def get_collection_stats(
     Returns:
         Dictionary with detailed statistics
     """
+    collection = require_chroma_collection(collection, "get_collection_stats")
     count = collection.count()
 
     if count == 0:
@@ -457,6 +461,7 @@ def search_metadata(
     Returns:
         List of matching metadata dictionaries
     """
+    collection = require_chroma_collection(collection, "search_metadata")
     # Build where clause
     where = {}
 
@@ -503,6 +508,7 @@ def get_file_chunks(collection: Collection, file_path: str) -> List[Dict[str, An
     Returns:
         List of chunk metadata for the file
     """
+    collection = require_chroma_collection(collection, "get_file_chunks")
     try:
         results = collection.get(
             where={"source_path": {"$eq": file_path}},

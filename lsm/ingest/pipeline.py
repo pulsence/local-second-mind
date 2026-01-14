@@ -12,12 +12,20 @@ from pathlib import Path
 from sentence_transformers import SentenceTransformer
 
 from lsm.ingest.chunking import chunk_text
-from lsm.ingest.chroma_store import chroma_write, get_chroma_collection, make_chunk_id
 from lsm.ingest.fs import iter_files
 from lsm.ingest.manifest import load_manifest, save_manifest
 from lsm.ingest.models import ParseResult, WriteJob
 from lsm.ingest.parsers import parse_file
-from lsm.ingest.utils import canonical_path, file_sha256, now_iso, normalize_whitespace, format_time
+from lsm.ingest.utils import (
+    canonical_path,
+    file_sha256,
+    now_iso,
+    normalize_whitespace,
+    format_time,
+    make_chunk_id,
+)
+from lsm.vectordb import create_vectordb_provider
+from lsm.config.models import VectorDBConfig
 
 # -----------------------------
 # Main ingest pipeline
@@ -149,15 +157,14 @@ def parse_and_chunk_job(
 
 def ingest(
     roots: List[Path],
-    persist_dir: Path,
     chroma_flush_interval: int,
-    collection_name: str,
     embed_model_name: str,
     device: str,
     batch_size: int,
     manifest_path: Path,
     exts: set[str],
     exclude_dirs: set[str],
+    vectordb_config: VectorDBConfig,
     dry_run: bool = False,
     enable_ocr: bool = False,
     skip_errors: bool = True,
@@ -166,7 +173,7 @@ def ingest(
     chunk_overlap: int = 200,
 ) -> None:
     stop_signal = stop_event or threading.Event()
-    collection = get_chroma_collection(persist_dir, collection_name)
+    provider = create_vectordb_provider(vectordb_config)
 
     print(f"[INGEST] model device = {device}")
     model = SentenceTransformer(embed_model_name, device=device)
@@ -212,11 +219,11 @@ def ingest(
         to_add_embs: List[List[float]] = []
         seen_ids: set[str] = set()
 
-        # Manifest updates are committed only after a successful chroma_write flush.
+            # Manifest updates are committed only after a successful vector DB flush.
         pending_manifest_updates: Dict[str, Dict] = {}
 
         def flush():
-            """Flush staged vectors to Chroma and, only on success, commit pending manifest updates."""
+            """Flush staged vectors and, only on success, commit pending manifest updates."""
             nonlocal to_add_ids, to_add_docs, to_add_metas, to_add_embs, seen_ids, pending_manifest_updates, written_chunks
 
             if not to_add_ids:
@@ -224,7 +231,7 @@ def ingest(
 
             if not dry_run:
                 # If this raises, we do NOT update the manifest.
-                chroma_write(collection, to_add_ids, to_add_docs, to_add_metas, to_add_embs)
+                provider.add_chunks(to_add_ids, to_add_docs, to_add_metas, to_add_embs)
 
             # Commit manifest updates only after successful write (or dry_run)
             manifest.update(pending_manifest_updates)
@@ -249,7 +256,7 @@ def ingest(
             # Delete prior chunks only if the file previously existed in the manifest
             if job.had_prev:
                 try:
-                    collection.delete(where={"source_path": job.source_path})
+                    provider.delete_by_filter({"source_path": job.source_path})
                 except Exception:
                     pass
 
@@ -609,8 +616,9 @@ def ingest(
         f"  chunks added:    {added_chunks}\n"
         f"  chunks written:  {written_chunks}\n"
         f"  elapsed:         {format_time(elapsed)}\n"
-        f"  chroma dir:      {persist_dir}\n"
-        f"  collection:      {collection_name}\n"
+        f"  vectordb:        {vectordb_config.provider}\n"
+        f"  collection:      {vectordb_config.collection}\n"
+        f"  persist dir:     {vectordb_config.persist_dir}\n"
         f"  manifest:        {manifest_path}\n"
         f"  dry_run:         {dry_run}"
     )

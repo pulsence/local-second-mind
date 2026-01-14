@@ -17,6 +17,8 @@ from openai import OpenAI
 from lsm.config.models import LSMConfig, LLMConfig
 from lsm.cli.logging import get_logger
 from lsm.providers import create_provider
+from lsm.vectordb.utils import require_chroma_collection
+from lsm.vectordb import create_vectordb_provider, list_available_providers
 from .session import Candidate, SessionState
 from .retrieval import embed_text, retrieve_candidates, filter_candidates, compute_relevance
 from .rerank import apply_local_reranking
@@ -33,7 +35,7 @@ logger = get_logger(__name__)
 def print_banner() -> None:
     """Print REPL welcome banner."""
     print("Interactive query mode. Type your question and press Enter.")
-    print("Commands: /exit, /help, /show S#, /expand S#, /open S#, /debug, /model, /models, /providers, /provider-status, /mode, /note, /load, /set, /clear\n")
+    print("Commands: /exit, /help, /show S#, /expand S#, /open S#, /debug, /model, /models, /providers, /provider-status, /vectordb-providers, /vectordb-status, /mode, /note, /load, /set, /clear\n")
 
 
 def print_help() -> None:
@@ -50,6 +52,8 @@ def print_help() -> None:
     print("  /model <name>   Set model for this session")
     print("  /providers      List available LLM providers")
     print("  /provider-status Show provider health and recent stats")
+    print("  /vectordb-providers List available vector DB providers")
+    print("  /vectordb-status Show vector DB provider status")
     print("  /mode           Show current query mode")
     print("  /mode <name>    Switch to a different query mode")
     print("  /note           Save last query as an editable note")
@@ -252,6 +256,70 @@ def print_provider_status(config: LSMConfig) -> None:
     from lsm.providers import list_available_providers
 
     print()
+
+
+def print_vectordb_providers(config: LSMConfig) -> None:
+    """Print available vector DB providers."""
+    providers = list_available_providers()
+
+    print()
+    print("=" * 60)
+    print("AVAILABLE VECTOR DB PROVIDERS")
+    print("=" * 60)
+    print()
+
+    if not providers:
+        print("No vector DB providers registered.")
+        print()
+        return
+
+    current_provider = config.vectordb.provider
+    print(f"Current Provider: {current_provider}")
+    print(f"Collection:       {config.vectordb.collection}")
+    print()
+
+    print(f"Available Providers ({len(providers)}):")
+    print()
+
+    for provider_name in providers:
+        is_current = "ACTIVE" if provider_name == current_provider else ""
+        status = ""
+        if provider_name == current_provider:
+            try:
+                provider = create_vectordb_provider(config.vectordb)
+                status = "ok" if provider.is_available() else "unavailable"
+            except Exception as e:
+                status = f"error ({e})"
+        print(f"  {provider_name:20s} {status:20s} {is_current}")
+
+    print()
+    print("To switch providers, update your config.json:")
+    print('  "vectordb": { "provider": "provider_name", ... }')
+    print()
+
+
+def print_vectordb_status(config: LSMConfig) -> None:
+    """Print vector DB provider health and stats."""
+    print()
+    print("=" * 60)
+    print("VECTOR DB STATUS")
+    print("=" * 60)
+    print()
+
+    try:
+        provider = create_vectordb_provider(config.vectordb)
+        health = provider.health_check()
+        stats = provider.get_stats()
+
+        print(f"Provider: {health.get('provider', 'unknown')}")
+        print(f"Status:   {health.get('status', 'unknown')}")
+        if health.get("error"):
+            print(f"Error:    {health.get('error')}")
+        print(f"Count:    {stats.get('count', 'n/a')}")
+    except Exception as e:
+        print(f"Error: {e}")
+
+    print()
     print("=" * 60)
     print("PROVIDER HEALTH STATUS")
     print("=" * 60)
@@ -379,6 +447,14 @@ def handle_command(
     # Provider health status
     if ql.strip() == "/provider-status":
         print_provider_status(config)
+        return True
+
+    if ql.strip() == "/vectordb-providers":
+        print_vectordb_providers(config)
+        return True
+
+    if ql.strip() == "/vectordb-status":
+        print_vectordb_status(config)
         return True
 
     # Show/set current model
@@ -523,8 +599,9 @@ def handle_command(
         print("Searching collection...")
 
         try:
+            chroma = require_chroma_collection(collection, "/load")
             # Search for chunks from this file
-            results = collection.get(
+            results = chroma.get(
                 where={"source_path": {"$eq": file_path}},
                 include=["metadatas"],
             )
@@ -798,7 +875,8 @@ def run_query_turn(
 
         # Fetch pinned chunks from collection
         try:
-            pinned_results = collection.get(
+            chroma = require_chroma_collection(collection, "pinned chunk retrieval")
+            pinned_results = chroma.get(
                 ids=state.pinned_chunks,
                 include=["documents", "metadatas", "distances"],
             )
@@ -1030,8 +1108,8 @@ def run_repl(
             continue
 
         try:
-            if handle_command(line, state, client, config, collection):
-                continue
+        if handle_command(line, state, client, config, collection):
+            continue
         except SystemExit:
             print("Exiting.")
             return

@@ -14,6 +14,7 @@ from chromadb.config import Settings
 from sentence_transformers import SentenceTransformer
 
 from lsm.cli.logging import get_logger
+from lsm.vectordb.base import BaseVectorDBProvider
 from .session import Candidate
 
 logger = get_logger(__name__)
@@ -126,10 +127,10 @@ def retrieve_candidates(
     k: int,
 ) -> List[Candidate]:
     """
-    Retrieve candidates from ChromaDB using vector similarity.
+    Retrieve candidates from a vector DB using similarity search.
 
     Args:
-        collection: ChromaDB collection
+        collection: ChromaDB collection or vector DB provider
         query_embedding: Query vector
         k: Number of candidates to retrieve
 
@@ -142,18 +143,24 @@ def retrieve_candidates(
         >>> vector = embed_text(embedder, "What is Python?")
         >>> candidates = retrieve_candidates(collection, vector, k=12)
     """
-    logger.debug(f"Retrieving {k} candidates from ChromaDB")
+    logger.debug(f"Retrieving {k} candidates from vector DB")
 
-    res = collection.query(
-        query_embeddings=[query_embedding],
-        n_results=k,
-        include=["documents", "metadatas", "distances"],
-    )
-
-    ids = (res.get("ids") or [[]])[0]
-    docs = (res.get("documents") or [[]])[0]
-    metas = (res.get("metadatas") or [[]])[0]
-    dists = (res.get("distances") or [[]])[0]
+    if isinstance(collection, BaseVectorDBProvider):
+        res = collection.query(query_embedding, top_k=k)
+        ids = res.ids
+        docs = res.documents
+        metas = res.metadatas
+        dists = res.distances
+    else:
+        res = collection.query(
+            query_embeddings=[query_embedding],
+            n_results=k,
+            include=["documents", "metadatas", "distances"],
+        )
+        ids = (res.get("ids") or [[]])[0]
+        docs = (res.get("documents") or [[]])[0]
+        metas = (res.get("metadatas") or [[]])[0]
+        dists = (res.get("distances") or [[]])[0]
 
     candidates: List[Candidate] = []
     for idx, cid in enumerate(ids):

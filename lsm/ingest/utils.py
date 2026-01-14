@@ -35,6 +35,17 @@ def canonical_path(p: Path) -> str:
     # Normalize for Windows stability: absolute + resolved + lowercase
     return str(p.expanduser().resolve()).lower()
 
+def make_chunk_id(source_path: str, file_hash: str, chunk_index: int) -> str:
+    """
+    Generate a unique chunk id per (source file path, file version, chunk index).
+
+    This prevents collisions when two different files have identical content
+    (same file_hash).
+    """
+    sp_norm = source_path.lower()
+    sp_hash = hashlib.sha256(sp_norm.encode("utf-8")).hexdigest()
+    return f"{sp_hash}:{file_hash}:{chunk_index}"
+
 def format_time(seconds: float) -> str:
     if seconds < 0 or seconds == float("inf"):
         return "Lost in space and time"
