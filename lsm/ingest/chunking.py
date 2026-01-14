@@ -66,6 +66,10 @@ def chunk_text(
         if j == n:
             break
 
-        i = max(0, j - overlap)
+        step = chunk_size - overlap
+        if step <= 0:
+            # Avoid infinite loop when overlap >= chunk_size
+            step = max(1, chunk_size)
+        i += step
 
     return chunks, positions

@@ -16,17 +16,18 @@ class TestChunkText:
         """Test basic chunking of text."""
         text = "A" * 3000  # Text longer than default chunk size
 
-        chunks = chunk_text(text)
+        chunks, positions = chunk_text(text)
 
         assert isinstance(chunks, list)
         assert len(chunks) > 0
         assert all(isinstance(chunk, str) for chunk in chunks)
+        assert isinstance(positions, list)
 
     def test_chunk_text_respects_size_limit(self):
         """Test that chunks don't exceed size limit."""
         text = "A" * 5000
 
-        chunks = chunk_text(text, chunk_size=1000)
+        chunks, _ = chunk_text(text, chunk_size=1000)
 
         for chunk in chunks:
             # Chunks should be at most chunk_size
@@ -36,7 +37,7 @@ class TestChunkText:
         """Test that chunks have proper overlap."""
         text = "ABCDEFGHIJKLMNOPQRSTUVWXYZ" * 200  # ~5200 chars
 
-        chunks = chunk_text(text, chunk_size=1000, overlap=100)
+        chunks, _ = chunk_text(text, chunk_size=1000, overlap=100)
 
         # Should have multiple chunks
         assert len(chunks) > 1
@@ -50,17 +51,18 @@ class TestChunkText:
 
     def test_chunk_text_empty_string(self):
         """Test chunking an empty string."""
-        chunks = chunk_text("")
+        chunks, positions = chunk_text("")
 
         assert isinstance(chunks, list)
         # Empty string might return empty list or list with empty string
         assert len(chunks) == 0 or (len(chunks) == 1 and chunks[0] == "")
+        assert positions == []
 
     def test_chunk_text_shorter_than_chunk_size(self):
         """Test text shorter than chunk size."""
         text = "Short text"
 
-        chunks = chunk_text(text, chunk_size=1000)
+        chunks, _ = chunk_text(text, chunk_size=1000)
 
         # Should return single chunk
         assert len(chunks) == 1
@@ -70,7 +72,7 @@ class TestChunkText:
         """Test text exactly equal to chunk size."""
         text = "A" * 1000
 
-        chunks = chunk_text(text, chunk_size=1000)
+        chunks, _ = chunk_text(text, chunk_size=1000)
 
         # Should return single chunk
         assert len(chunks) == 1
@@ -80,7 +82,7 @@ class TestChunkText:
         """Test chunking text with newlines."""
         text = "Line 1\n\nLine 2\n\nLine 3\n\n" * 100
 
-        chunks = chunk_text(text, chunk_size=500)
+        chunks, _ = chunk_text(text, chunk_size=500)
 
         assert len(chunks) > 0
         assert all(isinstance(chunk, str) for chunk in chunks)
@@ -91,7 +93,7 @@ class TestChunkText:
         """Test chunking with default parameters."""
         text = "A" * 4000
 
-        chunks = chunk_text(text)
+        chunks, _ = chunk_text(text)
 
         # Should use default CHUNK_SIZE_CHARS and CHUNK_OVERLAP_CHARS
         assert len(chunks) > 0
@@ -104,7 +106,7 @@ class TestChunkText:
         """Test chunking with zero overlap."""
         text = "ABCDEFGH" * 500  # 4000 chars
 
-        chunks = chunk_text(text, chunk_size=1000, overlap=0)
+        chunks, _ = chunk_text(text, chunk_size=1000, overlap=0)
 
         # With zero overlap, chunks should be sequential with no shared content
         assert len(chunks) > 0
@@ -123,7 +125,7 @@ class TestChunkingEdgeCases:
         """Test chunking with very small chunk size."""
         text = "Hello World"
 
-        chunks = chunk_text(text, chunk_size=5, overlap=0)
+        chunks, _ = chunk_text(text, chunk_size=5, overlap=0)
 
         # Should create multiple small chunks
         assert len(chunks) >= 2
@@ -134,7 +136,7 @@ class TestChunkingEdgeCases:
         text = "A" * 1000
 
         # This is an invalid configuration, but should handle gracefully
-        chunks = chunk_text(text, chunk_size=100, overlap=150)
+        chunks, _ = chunk_text(text, chunk_size=100, overlap=150)
 
         # Should still produce chunks (implementation dependent)
         assert isinstance(chunks, list)
@@ -143,7 +145,7 @@ class TestChunkingEdgeCases:
         """Test chunking text with Unicode characters."""
         text = "Hello 世界 🌍 " * 500
 
-        chunks = chunk_text(text, chunk_size=1000)
+        chunks, _ = chunk_text(text, chunk_size=1000)
 
         assert len(chunks) > 0
         # Unicode should be preserved
@@ -154,7 +156,7 @@ class TestChunkingEdgeCases:
         """Test chunking whitespace-only text."""
         text = "   \n\n\t\t   " * 100
 
-        chunks = chunk_text(text)
+        chunks, _ = chunk_text(text)
 
         assert isinstance(chunks, list)
         # Whitespace should be preserved
@@ -165,7 +167,7 @@ class TestChunkingEdgeCases:
         """Test chunking a single character."""
         text = "A"
 
-        chunks = chunk_text(text, chunk_size=1000)
+        chunks, _ = chunk_text(text, chunk_size=1000)
 
         assert len(chunks) == 1
         assert chunks[0] == "A"
@@ -174,7 +176,7 @@ class TestChunkingEdgeCases:
         """Test that all original content appears in chunks."""
         text = "The quick brown fox jumps over the lazy dog. " * 100
 
-        chunks = chunk_text(text, chunk_size=500, overlap=50)
+        chunks, _ = chunk_text(text, chunk_size=500, overlap=50)
 
         # Combine all chunks and check for original content
         combined = "".join(chunks)
@@ -188,8 +190,8 @@ class TestChunkingEdgeCases:
         """Test that chunking is deterministic."""
         text = "Consistent chunking test. " * 200
 
-        chunks1 = chunk_text(text, chunk_size=1000, overlap=100)
-        chunks2 = chunk_text(text, chunk_size=1000, overlap=100)
+        chunks1, _ = chunk_text(text, chunk_size=1000, overlap=100)
+        chunks2, _ = chunk_text(text, chunk_size=1000, overlap=100)
 
         # Same input should produce same chunks
         assert chunks1 == chunks2
@@ -211,7 +213,7 @@ class TestChunkingWithRealContent:
         how text chunking should work in practice.
         """ * 20  # Repeat to make it longer
 
-        chunks = chunk_text(text, chunk_size=800, overlap=100)
+        chunks, _ = chunk_text(text, chunk_size=800, overlap=100)
 
         assert len(chunks) > 1
         # Paragraphs should be preserved in chunks
@@ -238,7 +240,7 @@ More detailed content here with **bold** and *italic* formatting.
 Additional content with [links](https://example.com) and `code`.
 """ * 10
 
-        chunks = chunk_text(text, chunk_size=600)
+        chunks, _ = chunk_text(text, chunk_size=600)
 
         assert len(chunks) > 0
         # Markdown formatting should be preserved

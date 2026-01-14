@@ -15,8 +15,26 @@ from lsm.config.models import (
     NotesConfig,
     LLMConfig,
     IngestConfig,
-    QueryConfig
+    QueryConfig,
+    VectorDBConfig
 )
+
+
+def _make_config(mode: str, modes: dict | None = None) -> LSMConfig:
+    return LSMConfig(
+        ingest=IngestConfig(
+            roots=[Path("/test")],
+            manifest=Path("/tmp/manifest.json"),
+        ),
+        query=QueryConfig(mode=mode),
+        llm=LLMConfig(provider="openai", model="gpt-5.2", api_key="test"),
+        vectordb=VectorDBConfig(
+            persist_dir=Path("/tmp/.chroma"),
+            collection="test",
+        ),
+        modes=modes,
+        config_path=Path("/tmp/config.json"),
+    )
 
 
 class TestModeConfig:
@@ -98,10 +116,14 @@ class TestNotesConfig:
         """Test NotesConfig defaults."""
         notes = NotesConfig()
 
-        assert notes.enabled is False
+        assert notes.enabled is True
         assert notes.dir == "notes"
         assert notes.template == "default"
         assert notes.filename_format == "timestamp"
+        assert notes.integration == "none"
+        assert notes.wikilinks is False
+        assert notes.backlinks is False
+        assert notes.include_tags is False
 
     def test_notes_config_custom_values(self):
         """Test NotesConfig with custom values."""
@@ -109,13 +131,21 @@ class TestNotesConfig:
             enabled=True,
             dir="research_notes",
             template="research",
-            filename_format="query_slug"
+            filename_format="query_slug",
+            integration="obsidian",
+            wikilinks=True,
+            backlinks=True,
+            include_tags=True,
         )
 
         assert notes.enabled is True
         assert notes.dir == "research_notes"
         assert notes.template == "research"
         assert notes.filename_format == "query_slug"
+        assert notes.integration == "obsidian"
+        assert notes.wikilinks is True
+        assert notes.backlinks is True
+        assert notes.include_tags is True
 
 
 class TestBuiltInModes:
@@ -123,16 +153,7 @@ class TestBuiltInModes:
 
     def test_grounded_mode_config(self):
         """Test built-in grounded mode configuration."""
-        config = LSMConfig(
-            ingest=IngestConfig(roots=[Path("/test")], manifest=Path("/tmp/manifest.json")),
-            query=QueryConfig(mode="grounded"),
-            llm=LLMConfig(provider="openai", model="gpt-5.2", api_key="test"),
-            persist_dir=Path("/tmp/.chroma"),
-            collection="test",
-            embed_model="test-model",
-            device="cpu",
-            batch_size=32
-        )
+        config = _make_config("grounded")
 
         mode = config.get_mode_config()
 
@@ -143,16 +164,7 @@ class TestBuiltInModes:
 
     def test_insight_mode_config(self):
         """Test built-in insight mode configuration."""
-        config = LSMConfig(
-            ingest=IngestConfig(roots=[Path("/test")], manifest=Path("/tmp/manifest.json")),
-            query=QueryConfig(mode="insight"),
-            llm=LLMConfig(provider="openai", model="gpt-5.2", api_key="test"),
-            persist_dir=Path("/tmp/.chroma"),
-            collection="test",
-            embed_model="test-model",
-            device="cpu",
-            batch_size=32
-        )
+        config = _make_config("insight")
 
         mode = config.get_mode_config()
 
@@ -163,16 +175,7 @@ class TestBuiltInModes:
 
     def test_hybrid_mode_config(self):
         """Test built-in hybrid mode configuration."""
-        config = LSMConfig(
-            ingest=IngestConfig(roots=[Path("/test")], manifest=Path("/tmp/manifest.json")),
-            query=QueryConfig(mode="hybrid"),
-            llm=LLMConfig(provider="openai", model="gpt-5.2", api_key="test"),
-            persist_dir=Path("/tmp/.chroma"),
-            collection="test",
-            embed_model="test-model",
-            device="cpu",
-            batch_size=32
-        )
+        config = _make_config("hybrid")
 
         mode = config.get_mode_config()
 
@@ -197,17 +200,7 @@ class TestCustomModes:
             notes=NotesConfig(enabled=True, dir="custom_notes")
         )
 
-        config = LSMConfig(
-            ingest=IngestConfig(roots=[Path("/test")], manifest=Path("/tmp/manifest.json")),
-            query=QueryConfig(mode="my_custom_mode"),
-            llm=LLMConfig(provider="openai", model="gpt-5.2", api_key="test"),
-            persist_dir=Path("/tmp/.chroma"),
-            collection="test",
-            embed_model="test-model",
-            device="cpu",
-            batch_size=32,
-            modes={"my_custom_mode": custom_mode}
-        )
+        config = _make_config("my_custom_mode", modes={"my_custom_mode": custom_mode})
 
         mode = config.get_mode_config()
 
@@ -218,16 +211,7 @@ class TestCustomModes:
 
     def test_mode_fallback_to_default(self):
         """Test mode falls back to default when not found."""
-        config = LSMConfig(
-            ingest=IngestConfig(roots=[Path("/test")], manifest=Path("/tmp/manifest.json")),
-            query=QueryConfig(mode="nonexistent_mode"),
-            llm=LLMConfig(provider="openai", model="gpt-5.2", api_key="test"),
-            persist_dir=Path("/tmp/.chroma"),
-            collection="test",
-            embed_model="test-model",
-            device="cpu",
-            batch_size=32
-        )
+        config = _make_config("nonexistent_mode")
 
         # Should fall back to grounded mode
         mode = config.get_mode_config()
@@ -240,16 +224,7 @@ class TestModeSourceBlending:
 
     def test_grounded_mode_uses_only_local(self):
         """Test grounded mode uses only local sources."""
-        config = LSMConfig(
-            ingest=IngestConfig(roots=[Path("/test")], manifest=Path("/tmp/manifest.json")),
-            query=QueryConfig(mode="grounded"),
-            llm=LLMConfig(provider="openai", model="gpt-5.2", api_key="test"),
-            persist_dir=Path("/tmp/.chroma"),
-            collection="test",
-            embed_model="test-model",
-            device="cpu",
-            batch_size=32
-        )
+        config = _make_config("grounded")
 
         mode = config.get_mode_config()
         policy = mode.source_policy
@@ -260,16 +235,7 @@ class TestModeSourceBlending:
 
     def test_hybrid_mode_blends_all_sources(self):
         """Test hybrid mode enables all source types."""
-        config = LSMConfig(
-            ingest=IngestConfig(roots=[Path("/test")], manifest=Path("/tmp/manifest.json")),
-            query=QueryConfig(mode="hybrid"),
-            llm=LLMConfig(provider="openai", model="gpt-5.2", api_key="test"),
-            persist_dir=Path("/tmp/.chroma"),
-            collection="test",
-            embed_model="test-model",
-            device="cpu",
-            batch_size=32
-        )
+        config = _make_config("hybrid")
 
         mode = config.get_mode_config()
         policy = mode.source_policy
@@ -289,17 +255,7 @@ class TestModeSourceBlending:
             )
         )
 
-        config = LSMConfig(
-            ingest=IngestConfig(roots=[Path("/test")], manifest=Path("/tmp/manifest.json")),
-            query=QueryConfig(mode="custom"),
-            llm=LLMConfig(provider="openai", model="gpt-5.2", api_key="test"),
-            persist_dir=Path("/tmp/.chroma"),
-            collection="test",
-            embed_model="test-model",
-            device="cpu",
-            batch_size=32,
-            modes={"custom": custom_mode}
-        )
+        config = _make_config("custom", modes={"custom": custom_mode})
 
         mode = config.get_mode_config()
         policy = mode.source_policy
@@ -325,17 +281,7 @@ class TestModeWithNotes:
             )
         )
 
-        config = LSMConfig(
-            ingest=IngestConfig(roots=[Path("/test")], manifest=Path("/tmp/manifest.json")),
-            query=QueryConfig(mode="research"),
-            llm=LLMConfig(provider="openai", model="gpt-5.2", api_key="test"),
-            persist_dir=Path("/tmp/.chroma"),
-            collection="test",
-            embed_model="test-model",
-            device="cpu",
-            batch_size=32,
-            modes={"research": mode_with_notes}
-        )
+        config = _make_config("research", modes={"research": mode_with_notes})
 
         mode = config.get_mode_config()
 
@@ -343,19 +289,10 @@ class TestModeWithNotes:
         assert mode.notes.dir == "research_notes"
         assert mode.notes.filename_format == "query_slug"
 
-    def test_mode_notes_disabled_by_default(self):
-        """Test notes are disabled by default."""
-        config = LSMConfig(
-            ingest=IngestConfig(roots=[Path("/test")], manifest=Path("/tmp/manifest.json")),
-            query=QueryConfig(mode="grounded"),
-            llm=LLMConfig(provider="openai", model="gpt-5.2", api_key="test"),
-            persist_dir=Path("/tmp/.chroma"),
-            collection="test",
-            embed_model="test-model",
-            device="cpu",
-            batch_size=32
-        )
+    def test_mode_notes_enabled_by_default(self):
+        """Test notes are enabled by default."""
+        config = _make_config("grounded")
 
         mode = config.get_mode_config()
 
-        assert mode.notes.enabled is False
+        assert mode.notes.enabled is True

@@ -85,6 +85,44 @@ class LocalProvider(BaseLLMProvider):
         message = resp.get("message", {}) if isinstance(resp, dict) else {}
         return (message.get("content") or "").strip()
 
+    def _chat_stream(
+        self,
+        system: str,
+        user: str,
+        temperature: float,
+        max_tokens: int,
+    ):
+        payload = {
+            "model": self.model,
+            "messages": [
+                {"role": "system", "content": system},
+                {"role": "user", "content": user},
+            ],
+            "stream": True,
+            "options": {
+                "temperature": temperature,
+                "num_predict": max_tokens,
+            },
+        }
+
+        url = f"{self.base_url}/api/chat"
+        response = requests.post(url, json=payload, stream=True, timeout=60)
+        response.raise_for_status()
+
+        for line in response.iter_lines(decode_unicode=True):
+            if not line:
+                continue
+            try:
+                data = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            message = data.get("message", {}) if isinstance(data, dict) else {}
+            content = message.get("content")
+            if content:
+                yield content
+            if data.get("done"):
+                break
+
     def rerank(
         self,
         question: str,
@@ -264,6 +302,59 @@ Output requirements:
         except Exception as e:
             logger.error(f"Local tag generation failed: {e}")
             self._record_failure(e, "generate_tags")
+            raise
+
+    def stream_synthesize(
+        self,
+        question: str,
+        context: str,
+        mode: str = "grounded",
+        **kwargs
+    ):
+        if mode == "insight":
+            instructions = (
+                "You are a research analyst. Analyze the provided sources to identify:\n"
+                "- Recurring themes and patterns\n"
+                "- Contradictions or tensions\n"
+                "- Gaps or open questions\n"
+                "- Evolution of ideas across documents\n\n"
+                "Cite sources [S#] when referencing specific passages, but focus on\n"
+                "synthesis across the corpus rather than answering narrow questions.\n"
+                "Style: analytical, thematic, insightful."
+            )
+        else:
+            instructions = (
+                "Answer the user's question using ONLY the provided sources.\n"
+                "Citation rules:\n"
+                "- Whenever you make a claim supported by a source, cite inline like [S1] or [S2].\n"
+                "- If multiple sources support a sentence, include multiple citations.\n"
+                "- Do not fabricate citations.\n"
+                "- If the sources are insufficient, say so and specify what is missing.\n"
+                "Style: concise, structured, directly responsive."
+            )
+
+        user_content = (
+            f"Question:\n{question}\n\n"
+            f"Sources:\n{context}\n\n"
+            "Write the answer with inline citations."
+        )
+
+        temperature = kwargs.get("temperature", self.config.temperature)
+        max_tokens = kwargs.get("max_tokens", self.config.max_tokens)
+
+        try:
+            for chunk in self._chat_stream(
+                instructions,
+                user_content,
+                temperature=temperature,
+                max_tokens=max_tokens,
+            ):
+                if chunk:
+                    yield chunk
+            self._record_success("stream_synthesize")
+        except Exception as e:
+            logger.error(f"Local streaming synthesis failed: {e}")
+            self._record_failure(e, "stream_synthesize")
             raise
 
     def _fallback_answer(self, question: str, context: str, max_chars: int = 1200) -> str:

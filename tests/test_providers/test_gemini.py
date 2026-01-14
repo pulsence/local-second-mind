@@ -28,12 +28,13 @@ def llm_config():
     )
 
 
-def _setup_genai_mock(mock_genai: Mock, payload: str) -> None:
+def _setup_genai_mock(mock_genai: Mock, payload: str) -> Mock:
     mock_response = Mock()
     mock_response.text = payload
-    mock_model = Mock()
-    mock_model.generate_content.return_value = mock_response
-    mock_genai.GenerativeModel.return_value = mock_model
+    mock_client = Mock()
+    mock_client.models.generate_content.return_value = mock_response
+    mock_genai.Client.return_value = mock_client
+    return mock_client
 
 
 def test_rerank_success(llm_config):
@@ -63,7 +64,7 @@ def test_rerank_success(llm_config):
 
 def test_synthesize_fallback_on_error(llm_config):
     with patch("lsm.providers.gemini.genai") as mock_genai:
-        mock_genai.GenerativeModel.side_effect = Exception("API error")
+        mock_genai.Client.side_effect = Exception("API error")
 
         provider = GeminiProvider(llm_config)
         answer = provider.synthesize("Question?", "[S1] Context", mode="grounded")

@@ -41,7 +41,7 @@ class BraveSearchProvider(BaseRemoteProvider):
 
         # Get API key from config or environment
         self.api_key = config.get("api_key") or os.getenv("BRAVE_API_KEY")
-        self.endpoint = config.get("endpoint", self.SEARCH_ENDPOINT)
+        self.endpoint = config.get("endpoint") or self.SEARCH_ENDPOINT
         self.timeout = config.get("timeout", 10)
         self.enabled = config.get("enabled", True)
         self.max_results = config.get("max_results", 5)

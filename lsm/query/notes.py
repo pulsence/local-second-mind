@@ -8,6 +8,7 @@ saving the query, sources, and answer for future reference.
 from __future__ import annotations
 
 import re
+import json
 from datetime import datetime
 from pathlib import Path
 from typing import List, Optional, Dict, Any
@@ -87,7 +88,26 @@ def get_note_filename(
         return f"{generate_timestamp()}.md"
 
 
-def format_local_sources(sources: List[Dict[str, Any]]) -> str:
+def _deserialize_tags(tags_value: Any) -> List[str]:
+    if not tags_value:
+        return []
+    if isinstance(tags_value, list):
+        return [t for t in tags_value if isinstance(t, str)]
+    if isinstance(tags_value, str):
+        try:
+            data = json.loads(tags_value)
+            if isinstance(data, list):
+                return [t for t in data if isinstance(t, str)]
+        except json.JSONDecodeError:
+            pass
+    return []
+
+
+def format_local_sources(
+    sources: List[Dict[str, Any]],
+    use_wikilinks: bool = False,
+    include_tags: bool = False,
+) -> str:
     """
     Format local knowledge base sources as Markdown.
 
@@ -115,7 +135,9 @@ def format_local_sources(sources: List[Dict[str, Any]]) -> str:
         author = meta.get("author", "")
 
         # Format source header
-        lines.append(f"### Source {i}: {Path(source_path).name}")
+        display_name = Path(source_path).stem or Path(source_path).name
+        header_name = f"[[{display_name}]]" if use_wikilinks else Path(source_path).name
+        lines.append(f"### Source {i}: {header_name}")
         lines.append(f"**Relevance:** {relevance:.2f} | **Chunk:** {chunk_idx}")
 
         if title:
@@ -125,6 +147,14 @@ def format_local_sources(sources: List[Dict[str, Any]]) -> str:
 
         lines.append(f"**Path:** `{source_path}`")
         lines.append("")  # Blank line
+
+        if include_tags:
+            ai_tags = _deserialize_tags(meta.get("ai_tags"))
+            user_tags = _deserialize_tags(meta.get("user_tags"))
+            tags = sorted(set(ai_tags + user_tags))
+            if tags:
+                lines.append(f"**Tags:** {' '.join('#' + t for t in tags)}")
+                lines.append("")
 
         # Add text snippet
         lines.append("**Content:**")
@@ -178,6 +208,9 @@ def generate_note_content(
     local_sources: Optional[List[Dict[str, Any]]] = None,
     remote_sources: Optional[List[Dict[str, Any]]] = None,
     mode: str = "grounded",
+    use_wikilinks: bool = False,
+    include_backlinks: bool = False,
+    include_tags: bool = False,
 ) -> str:
     """
     Generate note content as Markdown string.
@@ -201,6 +234,17 @@ def generate_note_content(
     lines.append(f"**Mode:** {mode}")
     lines.append("")
 
+    if include_tags and local_sources:
+        all_tags: List[str] = []
+        for source in local_sources:
+            meta = source.get("meta", {})
+            all_tags.extend(_deserialize_tags(meta.get("ai_tags")))
+            all_tags.extend(_deserialize_tags(meta.get("user_tags")))
+        all_tags = sorted(set(t for t in all_tags if t))
+        if all_tags:
+            lines.append(f"**Tags:** {' '.join('#' + t for t in all_tags)}")
+            lines.append("")
+
     # Query
     lines.append("## Query")
     lines.append("")
@@ -211,7 +255,13 @@ def generate_note_content(
     lines.append("## Local Sources")
     lines.append("")
     if local_sources:
-        lines.append(format_local_sources(local_sources))
+        lines.append(
+            format_local_sources(
+                local_sources,
+                use_wikilinks=use_wikilinks,
+                include_tags=include_tags,
+            )
+        )
     else:
         lines.append("No local sources used.\n")
     lines.append("")
@@ -228,6 +278,25 @@ def generate_note_content(
     lines.append("")
     lines.append(answer)
     lines.append("")
+
+    if include_backlinks and local_sources:
+        backlinks = []
+        for source in local_sources:
+            meta = source.get("meta", {})
+            path = meta.get("source_path", "")
+            name = Path(path).stem or Path(path).name
+            if name:
+                backlinks.append(name)
+        backlinks = sorted(set(backlinks))
+        if backlinks:
+            lines.append("## Backlinks")
+            lines.append("")
+            for name in backlinks:
+                if use_wikilinks:
+                    lines.append(f"- [[{name}]]")
+                else:
+                    lines.append(f"- {name}")
+            lines.append("")
 
     return "\n".join(lines)
 

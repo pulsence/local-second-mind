@@ -60,6 +60,8 @@ def build_context_block(candidates: List[Candidate]) -> Tuple[str, List[Dict[str
         mtime_ns = meta.get("mtime_ns")
         file_hash = meta.get("file_hash")
         ingested_at = meta.get("ingested_at")
+        title = meta.get("title")
+        author = meta.get("author")
 
         # Build locator string with available metadata
         locator_bits = []
@@ -95,6 +97,8 @@ def build_context_block(candidates: List[Candidate]) -> Tuple[str, List[Dict[str
                 "mtime_ns": mtime_ns,
                 "file_hash": file_hash,
                 "ingested_at": ingested_at,
+                "title": title,
+                "author": author,
             }
         )
 

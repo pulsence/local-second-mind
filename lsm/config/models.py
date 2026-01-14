@@ -542,6 +542,18 @@ class NotesConfig:
     filename_format: str = "timestamp"
     """Filename format: 'timestamp', 'query_slug', 'incremental'."""
 
+    integration: str = "none"
+    """Note integration target: 'none', 'obsidian', or 'logseq'."""
+
+    wikilinks: bool = False
+    """Use [[wikilink]] formatting for source references."""
+
+    backlinks: bool = False
+    """Include a backlinks section with source wikilinks."""
+
+    include_tags: bool = False
+    """Include tags derived from source metadata in the note header."""
+
 
 @dataclass
 class ModeConfig:

@@ -8,7 +8,7 @@ import pytest
 from unittest.mock import Mock, patch, MagicMock
 from pathlib import Path
 
-from lsm.config.models import LSMConfig, LLMConfig, QueryConfig
+from lsm.config.models import LSMConfig, LLMConfig, QueryConfig, IngestConfig, VectorDBConfig
 from lsm.query.session import Candidate
 
 
@@ -19,11 +19,13 @@ class TestQueryIntegration:
     def mock_config(self):
         """Create mock configuration."""
         return LSMConfig(
-            persist_dir=Path("/test/.chroma"),
-            collection="test_kb",
-            embed_model="test-model",
-            device="cpu",
-            batch_size=32,
+            ingest=IngestConfig(
+                roots=[Path("/test/root")],
+                manifest=Path("/test/manifest.json"),
+                embed_model="test-model",
+                device="cpu",
+                batch_size=32,
+            ),
             llm=LLMConfig(
                 provider="openai",
                 model="gpt-5.2",
@@ -35,6 +37,11 @@ class TestQueryIntegration:
                 no_rerank=False,
                 mode="grounded",
             ),
+            vectordb=VectorDBConfig(
+                persist_dir=Path("/test/.chroma"),
+                collection="test_kb",
+            ),
+            config_path=Path("/test/config.json"),
         )
 
     @pytest.fixture
@@ -65,14 +72,14 @@ class TestQueryIntegration:
         }
         return collection
 
-    @patch("lsm.query.retrieval.init_collection")
     @patch("lsm.query.retrieval.init_embedder")
+    @patch("lsm.query.cli.create_vectordb_provider")
     @patch("lsm.providers.openai.OpenAI")
     def test_full_query_flow_no_rerank(
         self,
         mock_openai_class,
+        mock_create_provider,
         mock_init_embedder,
-        mock_init_collection,
         mock_config,
         mock_embedder,
         mock_collection,
@@ -82,7 +89,7 @@ class TestQueryIntegration:
 
         # Setup mocks
         mock_init_embedder.return_value = mock_embedder
-        mock_init_collection.return_value = mock_collection
+        mock_create_provider.return_value = mock_collection
 
         mock_openai_client = Mock()
         mock_response = Mock()
@@ -271,22 +278,29 @@ class TestQueryIntegration:
 class TestErrorHandling:
     """Integration tests for error handling."""
 
-    @patch("lsm.query.retrieval.init_collection")
     @patch("lsm.query.retrieval.init_embedder")
+    @patch("lsm.query.cli.create_vectordb_provider")
     def test_query_with_empty_collection(
         self,
         mock_init_embedder,
-        mock_init_collection,
+        mock_create_provider,
     ):
         """Test query flow with empty collection."""
         from lsm.query.cli import run_query_cli
         from lsm.config.models import LSMConfig, LLMConfig, QueryConfig
 
         config = LSMConfig(
-            persist_dir=Path("/test/.chroma"),
-            collection="empty_kb",
+            ingest=IngestConfig(
+                roots=[Path("/test/root")],
+                manifest=Path("/test/manifest.json"),
+            ),
             llm=LLMConfig(provider="openai", model="gpt-5.2", api_key="test"),
             query=QueryConfig(),
+            vectordb=VectorDBConfig(
+                persist_dir=Path("/test/.chroma"),
+                collection="empty_kb",
+            ),
+            config_path=Path("/test/config.json"),
         )
 
         # Mock empty collection
@@ -295,7 +309,7 @@ class TestErrorHandling:
         mock_collection.count.return_value = 0
 
         mock_init_embedder.return_value = mock_embedder
-        mock_init_collection.return_value = mock_collection
+        mock_create_provider.return_value = mock_collection
 
         with patch("lsm.providers.openai.OpenAI"):
             result = run_query_cli(config)

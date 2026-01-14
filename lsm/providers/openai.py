@@ -377,7 +377,7 @@ class OpenAIProvider(BaseLLMProvider):
             else:
                 logger.error(f"Synthesis failed: {e}")
                 self._record_failure(e, "synthesize")
-                return self._fallback_answer(question, context)
+            return self._fallback_answer(question, context)
 
     def generate_tags(
         self,
@@ -567,6 +567,98 @@ Output requirements:
         except Exception as e:
             logger.error(f"Failed to generate tags: {e}")
             self._record_failure(e, "generate_tags")
+            raise
+
+    def stream_synthesize(
+        self,
+        question: str,
+        context: str,
+        mode: str = "grounded",
+        **kwargs
+    ):
+        if mode == "insight":
+            instructions = (
+                "You are a research analyst. Analyze the provided sources to identify:\n"
+                "- Recurring themes and patterns\n"
+                "- Contradictions or tensions\n"
+                "- Gaps or open questions\n"
+                "- Evolution of ideas across documents\n\n"
+                "Cite sources [S#] when referencing specific passages, but focus on\n"
+                "synthesis across the corpus rather than answering narrow questions.\n"
+                "Style: analytical, thematic, insightful."
+            )
+        else:
+            instructions = (
+                "Answer the user's question using ONLY the provided sources.\n"
+                "Citation rules:\n"
+                "- Whenever you make a claim supported by a source, cite inline like [S1] or [S2].\n"
+                "- If multiple sources support a sentence, include multiple citations.\n"
+                "- Do not fabricate citations.\n"
+                "- If the sources are insufficient, say so and specify what is missing.\n"
+                "Style: concise, structured, directly responsive."
+            )
+
+        user_content = (
+            f"Question:\n{question}\n\n"
+            f"Sources:\n{context}\n\n"
+            "Write the answer with inline citations."
+        )
+
+        temperature = kwargs.get("temperature", self.config.temperature)
+        max_tokens = kwargs.get("max_tokens", self.config.max_tokens)
+
+        request_args = {
+            "model": self.config.model,
+            "reasoning": {"effort": "medium"},
+            "instructions": instructions,
+            "input": [{"role": "user", "content": user_content}],
+            "max_output_tokens": max_tokens,
+        }
+
+        if (
+            temperature is not None
+            and _model_supports_temperature(self.config.model)
+            and _should_send_param(self.config.model, "temperature")
+        ):
+            request_args["temperature"] = temperature
+
+        try:
+            try:
+                stream = self.client.responses.create(**request_args, stream=True)
+            except Exception as e:
+                if _is_unsupported_param_error(e, "temperature"):
+                    logger.warning("Model does not support temperature; retrying without it.")
+                    _mark_param_unsupported(self.config.model, "temperature")
+                    request_args.pop("temperature", None)
+                    stream = self.client.responses.create(**request_args, stream=True)
+                else:
+                    raise
+
+            emitted = False
+            for event in stream:
+                event_type = getattr(event, "type", None)
+                if event_type is None and isinstance(event, dict):
+                    event_type = event.get("type")
+                if event_type in {"response.output_text.delta", "response.output_text"}:
+                    delta = getattr(event, "delta", None)
+                    if delta is None and isinstance(event, dict):
+                        delta = event.get("delta")
+                    if delta:
+                        emitted = True
+                        yield delta
+                elif event_type == "response.completed":
+                    break
+
+            self._record_success("stream_synthesize")
+            if not emitted:
+                logger.warning("OpenAI stream completed without text output")
+
+        except Exception as e:
+            if self._is_quota_error(e):
+                logger.error(f"Streaming quota/rate limit hit: {e}")
+            else:
+                logger.error(f"Streaming synthesis failed: {e}")
+            self._record_failure(e, "stream_synthesize")
             raise
 
     def _fallback_answer(self, question: str, context: str, max_chars: int = 1200) -> str:

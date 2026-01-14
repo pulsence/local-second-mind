@@ -8,7 +8,7 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from datetime import datetime
 import time
-from typing import List, Dict, Any, Optional, Callable
+from typing import List, Dict, Any, Optional, Callable, Iterable
 
 from lsm.cli.logging import get_logger
 
@@ -98,6 +98,31 @@ class BaseLLMProvider(ABC):
 
         Raises:
             Exception: If synthesis fails
+        """
+        pass
+
+    @abstractmethod
+    def stream_synthesize(
+        self,
+        question: str,
+        context: str,
+        mode: str = "grounded",
+        **kwargs
+    ) -> Iterable[str]:
+        """
+        Stream an answer with citations in chunks.
+
+        Args:
+            question: User's question
+            context: Context block with source citations
+            mode: Query mode ('grounded' or 'insight')
+            **kwargs: Provider-specific options (temperature, max_tokens, etc.)
+
+        Yields:
+            Text chunks as they are generated
+
+        Raises:
+            Exception: If streaming fails
         """
         pass
 

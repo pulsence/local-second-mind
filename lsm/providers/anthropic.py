@@ -312,6 +312,87 @@ Output requirements:
             self._record_failure(e, "generate_tags")
             raise
 
+    def stream_synthesize(
+        self,
+        question: str,
+        context: str,
+        mode: str = "grounded",
+        **kwargs
+    ):
+        if mode == "insight":
+            instructions = (
+                "You are a research analyst. Analyze the provided sources to identify:\n"
+                "- Recurring themes and patterns\n"
+                "- Contradictions or tensions\n"
+                "- Gaps or open questions\n"
+                "- Evolution of ideas across documents\n\n"
+                "Cite sources [S#] when referencing specific passages, but focus on\n"
+                "synthesis across the corpus rather than answering narrow questions.\n"
+                "Style: analytical, thematic, insightful."
+            )
+        else:
+            instructions = (
+                "Answer the user's question using ONLY the provided sources.\n"
+                "Citation rules:\n"
+                "- Whenever you make a claim supported by a source, cite inline like [S1] or [S2].\n"
+                "- If multiple sources support a sentence, include multiple citations.\n"
+                "- Do not fabricate citations.\n"
+                "- If the sources are insufficient, say so and specify what is missing.\n"
+                "Style: concise, structured, directly responsive."
+            )
+
+        user_content = (
+            f"Question:\n{question}\n\n"
+            f"Sources:\n{context}\n\n"
+            "Write the answer with inline citations."
+        )
+
+        temperature = kwargs.get("temperature", self.config.temperature)
+        max_tokens = kwargs.get("max_tokens", self.config.max_tokens)
+
+        try:
+            try:
+                stream = self.client.messages.stream(
+                    model=self.model,
+                    max_tokens=max_tokens,
+                    temperature=temperature,
+                    system=instructions,
+                    messages=[{"role": "user", "content": user_content}],
+                )
+                with stream as s:
+                    for text in s.text_stream:
+                        if text:
+                            yield text
+            except AttributeError:
+                stream = self.client.messages.create(
+                    model=self.model,
+                    max_tokens=max_tokens,
+                    temperature=temperature,
+                    system=instructions,
+                    messages=[{"role": "user", "content": user_content}],
+                    stream=True,
+                )
+                for event in stream:
+                    event_type = getattr(event, "type", None)
+                    if event_type is None and isinstance(event, dict):
+                        event_type = event.get("type")
+                    if event_type == "content_block_delta":
+                        delta = getattr(event, "delta", None)
+                        if delta is None and isinstance(event, dict):
+                            delta = event.get("delta")
+                        text = getattr(delta, "text", None)
+                        if text is None and isinstance(delta, dict):
+                            text = delta.get("text")
+                        if text:
+                            yield text
+
+            self._record_success("stream_synthesize")
+
+        except Exception as e:
+            logger.error(f"Claude streaming synthesis failed: {e}")
+            self._record_failure(e, "stream_synthesize")
+            raise
+
     def estimate_cost(self, input_tokens: int, output_tokens: int) -> Optional[float]:
         rates = self.PRICING_PER_1M.get(self.model)
         if not rates:

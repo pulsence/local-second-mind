@@ -135,6 +135,32 @@ class TestSourceFormatting:
         assert "Test Author" in result
         assert "This is a test chunk" in result
 
+    def test_format_local_sources_wikilinks_and_tags(self):
+        """Test wikilink and tag rendering for local sources."""
+        sources = [
+            {
+                "text": "Tagged text",
+                "meta": {
+                    "source_path": "/path/to/My Note.md",
+                    "chunk_index": 1,
+                    "ai_tags": "[\"alpha\", \"beta\"]",
+                    "user_tags": "[\"gamma\"]",
+                },
+                "distance": 0.4
+            }
+        ]
+
+        result = format_local_sources(
+            sources,
+            use_wikilinks=True,
+            include_tags=True,
+        )
+
+        assert "[[My Note]]" in result
+        assert "#alpha" in result
+        assert "#beta" in result
+        assert "#gamma" in result
+
     def test_format_local_sources_truncates_long_text(self):
         """Test long text is truncated."""
         long_text = "A" * 600
@@ -216,6 +242,35 @@ class TestNoteContentGeneration:
         assert "## Local Sources" in content
         assert "Source 1" in content
         assert "test.txt" in content
+
+    def test_generate_note_with_backlinks_and_tags(self):
+        """Test backlinks and tags in note content."""
+        local_sources = [
+            {
+                "text": "Test text",
+                "meta": {
+                    "source_path": "/path/to/My Note.md",
+                    "chunk_index": 0,
+                    "ai_tags": "[\"alpha\"]",
+                },
+                "distance": 0.1
+            }
+        ]
+
+        content = generate_note_content(
+            query="Test question",
+            answer="Test answer",
+            local_sources=local_sources,
+            mode="grounded",
+            use_wikilinks=True,
+            include_backlinks=True,
+            include_tags=True,
+        )
+
+        assert "**Tags:**" in content
+        assert "#alpha" in content
+        assert "## Backlinks" in content
+        assert "[[My Note]]" in content
 
     def test_generate_note_with_remote_sources(self):
         """Test generating note with remote sources."""

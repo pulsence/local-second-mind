@@ -7,7 +7,10 @@ Manages user session state, filters, and query artifacts.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .cost_tracking import CostTracker
 
 
 @dataclass
@@ -127,6 +130,9 @@ class SessionState:
 
     pinned_chunks: List[str] = None
     """Chunk IDs pinned for forced inclusion in context."""
+
+    cost_tracker: Optional["CostTracker"] = None
+    """Session-level cost tracker for API usage."""
 
     def __post_init__(self):
         """Initialize default values for mutable fields."""

@@ -10,6 +10,8 @@ import sys
 from pathlib import Path
 from typing import Optional, Literal
 
+from openai import OpenAI
+
 from lsm.config import load_config_from_file
 from lsm.config.models import LSMConfig
 from lsm.cli.logging import get_logger
@@ -84,7 +86,7 @@ class UnifiedShell:
         logger.info("Initializing query context")
         from lsm.query.retrieval import init_embedder
         from lsm.query.session import SessionState
-        from openai import OpenAI
+        from lsm.query.cost_tracking import CostTracker
         from lsm.vectordb import create_vectordb_provider
 
         try:
@@ -117,7 +119,10 @@ class UnifiedShell:
                 self._query_client = OpenAI()  # Uses OPENAI_API_KEY env var
 
             # Initialize session state
-            self._query_state = SessionState(model=self.config.llm.model)
+            self._query_state = SessionState(
+                model=self.config.llm.model,
+                cost_tracker=CostTracker(),
+            )
 
             logger.info(f"Query context initialized with {count} chunks")
 
@@ -222,7 +227,8 @@ class UnifiedShell:
                 self._query_state,
                 self._query_client,
                 self.config,
-            self._query_provider,
+                self._query_embedder,
+                self._query_provider,
             )
 
             # If not a command, treat as question

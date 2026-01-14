@@ -7,7 +7,7 @@ from unittest.mock import Mock, patch, MagicMock
 from pathlib import Path
 
 from lsm.cli.shell import UnifiedShell
-from lsm.config.models import LSMConfig, IngestConfig, QueryConfig, LLMConfig
+from lsm.config.models import LSMConfig, IngestConfig, QueryConfig, LLMConfig, VectorDBConfig
 
 
 @pytest.fixture
@@ -24,11 +24,11 @@ def mock_config():
             model="gpt-5.2",
             api_key="test_key"
         ),
-        persist_dir=Path("/tmp/.chroma"),
-        collection="test_collection",
-        embed_model="test-model",
-        device="cpu",
-        batch_size=32,
+        vectordb=VectorDBConfig(
+            persist_dir=Path("/tmp/.chroma"),
+            collection="test_collection",
+        ),
+        config_path=Path("/tmp/config.json"),
     )
 
 
@@ -41,7 +41,7 @@ class TestUnifiedShell:
 
         assert shell.config == mock_config
         assert shell.current_context is None
-        assert shell._ingest_collection is None
+        assert shell._ingest_provider is None
         assert shell._query_embedder is None
 
     def test_print_banner(self, mock_config, capsys):
@@ -55,46 +55,48 @@ class TestUnifiedShell:
         assert "/query" in captured.out
         assert "/exit" in captured.out
 
-    @patch('lsm.cli.shell.get_chroma_collection')
-    def test_switch_to_ingest(self, mock_get_collection, mock_config, capsys):
+    @patch('lsm.vectordb.create_vectordb_provider')
+    def test_switch_to_ingest(self, mock_create_provider, mock_config, capsys):
         """Test switching to ingest context."""
-        mock_collection = Mock()
-        mock_collection.count.return_value = 100
-        mock_get_collection.return_value = mock_collection
+        mock_provider = Mock()
+        mock_provider.count.return_value = 100
+        mock_provider.get_stats.return_value = {"provider": "mock"}
+        mock_create_provider.return_value = mock_provider
 
         shell = UnifiedShell(mock_config)
         shell.switch_to_ingest()
 
         assert shell.current_context == "ingest"
-        assert shell._ingest_collection is not None
+        assert shell._ingest_provider is not None
 
         captured = capsys.readouterr()
         assert "INGEST context" in captured.out
         assert "100" in captured.out
 
-    @patch('lsm.cli.shell.init_embedder')
-    @patch('lsm.cli.shell.init_collection')
+    @patch('lsm.vectordb.create_vectordb_provider')
+    @patch('lsm.query.retrieval.init_embedder')
     @patch('lsm.cli.shell.OpenAI')
-    def test_switch_to_query(self, mock_openai, mock_init_collection, mock_init_embedder, mock_config, capsys):
+    def test_switch_to_query(self, mock_openai, mock_init_embedder, mock_create_provider, mock_config, capsys):
         """Test switching to query context."""
         mock_embedder = Mock()
-        mock_collection = Mock()
-        mock_collection.count.return_value = 50
+        mock_provider = Mock()
+        mock_provider.count.return_value = 50
+        mock_provider.get_stats.return_value = {"provider": "mock"}
         mock_client = Mock()
 
         mock_init_embedder.return_value = mock_embedder
-        mock_init_collection.return_value = mock_collection
+        mock_create_provider.return_value = mock_provider
         mock_openai.return_value = mock_client
 
         # Create persist dir
-        mock_config.persist_dir.mkdir(parents=True, exist_ok=True)
+        mock_config.vectordb.persist_dir.mkdir(parents=True, exist_ok=True)
 
         shell = UnifiedShell(mock_config)
         shell.switch_to_query()
 
         assert shell.current_context == "query"
         assert shell._query_embedder is not None
-        assert shell._query_collection is not None
+        assert shell._query_provider is not None
         assert shell._query_client is not None
         assert shell._query_state is not None
 
@@ -124,20 +126,20 @@ class TestUnifiedShell:
         assert result == 0
 
     @patch('builtins.input', side_effect=["/ingest", "/query", "/exit"])
-    @patch('lsm.cli.shell.get_chroma_collection')
-    @patch('lsm.cli.shell.init_embedder')
-    @patch('lsm.cli.shell.init_collection')
+    @patch('lsm.vectordb.create_vectordb_provider')
+    @patch('lsm.query.retrieval.init_embedder')
     @patch('lsm.cli.shell.OpenAI')
-    def test_shell_context_switching(self, mock_openai, mock_init_coll, mock_init_emb, mock_get_coll, mock_input, mock_config):
+    def test_shell_context_switching(self, mock_openai, mock_init_emb, mock_create_provider, mock_input, mock_config):
         """Test shell can switch between contexts."""
         # Setup mocks
-        mock_get_coll.return_value = Mock(count=Mock(return_value=10))
+        ingest_provider = Mock(count=Mock(return_value=10), get_stats=Mock(return_value={"provider": "mock"}))
+        query_provider = Mock(count=Mock(return_value=20), get_stats=Mock(return_value={"provider": "mock"}))
+        mock_create_provider.side_effect = [ingest_provider, query_provider]
         mock_init_emb.return_value = Mock()
-        mock_init_coll.return_value = Mock(count=Mock(return_value=20))
         mock_openai.return_value = Mock()
 
         # Create persist dir
-        mock_config.persist_dir.mkdir(parents=True, exist_ok=True)
+        mock_config.vectordb.persist_dir.mkdir(parents=True, exist_ok=True)
 
         shell = UnifiedShell(mock_config)
 
@@ -146,8 +148,8 @@ class TestUnifiedShell:
 
         assert result == 0
         # Should have switched to both contexts
-        assert shell._ingest_collection is not None
-        assert shell._query_collection is not None
+        assert shell._ingest_provider is not None
+        assert shell._query_provider is not None
 
 
 class TestShellHelpers:
@@ -163,11 +165,11 @@ class TestShellHelpers:
         assert "/ingest" in captured.out
         assert "/query" in captured.out
 
-    @patch('lsm.cli.shell.get_chroma_collection')
+    @patch('lsm.vectordb.create_vectordb_provider')
     @patch('lsm.ingest.repl.print_help')
-    def test_show_help_ingest_context(self, mock_print_help, mock_get_coll, mock_config):
+    def test_show_help_ingest_context(self, mock_print_help, mock_create_provider, mock_config):
         """Test help shows ingest commands when in ingest context."""
-        mock_get_coll.return_value = Mock(count=Mock(return_value=10))
+        mock_create_provider.return_value = Mock(count=Mock(return_value=10), get_stats=Mock(return_value={"provider": "mock"}))
 
         shell = UnifiedShell(mock_config)
         shell.switch_to_ingest()
@@ -176,16 +178,16 @@ class TestShellHelpers:
         # Should call ingest help
         mock_print_help.assert_called_once()
 
-    @patch('lsm.cli.shell.init_embedder')
-    @patch('lsm.cli.shell.init_collection')
+    @patch('lsm.vectordb.create_vectordb_provider')
+    @patch('lsm.query.retrieval.init_embedder')
     @patch('lsm.cli.shell.OpenAI')
     @patch('lsm.query.repl.print_help')
-    def test_show_help_query_context(self, mock_print_help, mock_openai, mock_init_coll, mock_init_emb, mock_config):
+    def test_show_help_query_context(self, mock_print_help, mock_openai, mock_init_emb, mock_create_provider, mock_config):
         """Test help shows query commands when in query context."""
         mock_init_emb.return_value = Mock()
-        mock_init_coll.return_value = Mock(count=Mock(return_value=10))
+        mock_create_provider.return_value = Mock(count=Mock(return_value=10), get_stats=Mock(return_value={"provider": "mock"}))
         mock_openai.return_value = Mock()
-        mock_config.persist_dir.mkdir(parents=True, exist_ok=True)
+        mock_config.vectordb.persist_dir.mkdir(parents=True, exist_ok=True)
 
         shell = UnifiedShell(mock_config)
         shell.switch_to_query()

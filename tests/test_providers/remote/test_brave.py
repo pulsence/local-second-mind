@@ -29,6 +29,19 @@ class TestBraveSearchProvider:
         assert provider.api_key == "test_brave_key"
         assert provider.max_results == 5
         assert provider.weight == 0.8
+        assert provider.endpoint == BraveSearchProvider.SEARCH_ENDPOINT
+
+    def test_brave_provider_endpoint_defaults_when_none(self):
+        """Test endpoint defaults when config provides None."""
+        config = {
+            "type": "web_search",
+            "enabled": True,
+            "api_key": "test_brave_key",
+            "endpoint": None,
+        }
+
+        provider = BraveSearchProvider(config)
+        assert provider.endpoint == BraveSearchProvider.SEARCH_ENDPOINT
 
     def test_brave_provider_uses_env_var(self):
         """Test Brave provider falls back to environment variable."""

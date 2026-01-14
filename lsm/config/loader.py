@@ -252,6 +252,10 @@ def build_notes_config(raw: Dict[str, Any]) -> NotesConfig:
         dir=raw.get("dir", "notes"),
         template=raw.get("template", "default"),
         filename_format=raw.get("filename_format", "timestamp"),
+        integration=raw.get("integration", "none"),
+        wikilinks=bool(raw.get("wikilinks", False)),
+        backlinks=bool(raw.get("backlinks", False)),
+        include_tags=bool(raw.get("include_tags", False)),
     )
 
 

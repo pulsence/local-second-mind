@@ -18,6 +18,7 @@ or be merged with built-in modes
     - db (with providers for chroma and psql)
     - ai (with providers for the different ai providers)
     - remote (with providers for the different remote apis like brave, wikimedia, etc.)
+- Check to make sure there is not unnecessary duplicated code
 
 ## Ingest
 - Add embeddings model selection (allow user to choose different embedding models)
@@ -25,8 +26,13 @@ or be merged with built-in modes
 - Add option to machine translate chunks (for cross-language search)
 - Consider version control for chunks (track document evolution over time)
 - Enable root folders in config to be tagged to aid in identifying the kind of content in folders
-- Enable tagging by folder of chucks
+- Enable tagging by folder of chunks
 - Still getting MuPDF error: library error: zlib error: incorrect header check
+- Store page number as best able of chunks and then when a chunk is cited
+or shown, include the page number
+- Chunk based upon internal document structure, meaning don't include
+different sections in the same chunk. Keeping heading levels in same chunk
+or a chunk should not span two heading levels.
 
 ## Query
 - Complete remaining documentation for query modes, notes, remote sources
@@ -40,10 +46,9 @@ if the command is missing say so and display help.
 - There should be a /status command to show the status of the different providers
 
 ## Multi-Provider Support
-- Implement Anthropic Claude provider (template ready in docs/api-reference/ADDING_PROVIDERS.md)
-- Implement local model support (via Ollama or llama.cpp)
-- Implement Azure OpenAI provider
-- Add provider health checks and status monitoring
+- Check the implimentations of the ai providers and see if the base
+BaseLLMProvider could not encapsulate the functionality or if it should
+be moved into some kind of helper.
 
 ## Advanced Features (Future)
 - Multi-hop reasoning for research mode

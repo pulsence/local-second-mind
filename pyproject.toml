@@ -21,7 +21,7 @@ dependencies = [
   "pyyaml",
   "openai",
   "anthropic",
-  "google-generativeai",
+  "google-genai",
   "requests",
   "python-dotenv",
   "pytesseract",  # For OCR support

@@ -8,7 +8,8 @@ import json
 import os
 from typing import List, Dict, Any, Optional
 
-import google.generativeai as genai
+from google import genai
+from google.genai import types as genai_types
 
 from lsm.config.models import LLMConfig
 from lsm.cli.logging import get_logger
@@ -37,7 +38,7 @@ class GeminiProvider(BaseLLMProvider):
     def __init__(self, config: LLMConfig):
         self.config = config
         self._api_key = config.api_key or os.getenv("GOOGLE_API_KEY")
-        self._configured = False
+        self._client: Optional[genai.Client] = None
         super().__init__()
         logger.debug(f"Initialized Gemini provider with model: {config.model}")
 
@@ -52,15 +53,21 @@ class GeminiProvider(BaseLLMProvider):
     def is_available(self) -> bool:
         return bool(self._api_key)
 
-    def _ensure_configured(self) -> None:
-        if not self._configured:
+    def _ensure_client(self) -> genai.Client:
+        if self._client is None:
             if not self._api_key:
                 raise ValueError(
                     "GOOGLE_API_KEY not set. "
                     "Set it in config or as environment variable."
                 )
-            genai.configure(api_key=self._api_key)
-            self._configured = True
+            self._client = genai.Client(api_key=self._api_key)
+        return self._client
+
+    def _build_config(self, temperature: float, max_tokens: int):
+        return genai_types.GenerateContentConfig(
+            temperature=temperature,
+            max_output_tokens=max_tokens,
+        )
 
     def _is_retryable_error(self, error: Exception) -> bool:
         name = error.__class__.__name__
@@ -72,19 +79,21 @@ class GeminiProvider(BaseLLMProvider):
         }
 
     def _generate(self, prompt: str, temperature: float, max_tokens: int) -> str:
-        self._ensure_configured()
+        client = self._ensure_client()
 
         def _call() -> Any:
-            model = genai.GenerativeModel(self.model)
-            config = genai.GenerationConfig(
-                temperature=temperature,
-                max_output_tokens=max_tokens,
+            config = self._build_config(temperature, max_tokens)
+            return client.models.generate_content(
+                model=self.model,
+                contents=prompt,
+                config=config,
             )
-            return model.generate_content(prompt, generation_config=config)
 
         resp = self._with_retry(_call, "generate_content", retry_on=self._is_retryable_error)
         text = getattr(resp, "text", None)
-        return (text or "").strip()
+        if not text:
+            return ""
+        return text.strip()
 
     def rerank(
         self,
@@ -269,6 +278,65 @@ Output requirements:
         except Exception as e:
             logger.error(f"Gemini tag generation failed: {e}")
             self._record_failure(e, "generate_tags")
+            raise
+
+    def stream_synthesize(
+        self,
+        question: str,
+        context: str,
+        mode: str = "grounded",
+        **kwargs
+    ):
+        if mode == "insight":
+            instructions = (
+                "You are a research analyst. Analyze the provided sources to identify:\n"
+                "- Recurring themes and patterns\n"
+                "- Contradictions or tensions\n"
+                "- Gaps or open questions\n"
+                "- Evolution of ideas across documents\n\n"
+                "Cite sources [S#] when referencing specific passages, but focus on\n"
+                "synthesis across the corpus rather than answering narrow questions.\n"
+                "Style: analytical, thematic, insightful."
+            )
+        else:
+            instructions = (
+                "Answer the user's question using ONLY the provided sources.\n"
+                "Citation rules:\n"
+                "- Whenever you make a claim supported by a source, cite inline like [S1] or [S2].\n"
+                "- If multiple sources support a sentence, include multiple citations.\n"
+                "- Do not fabricate citations.\n"
+                "- If the sources are insufficient, say so and specify what is missing.\n"
+                "Style: concise, structured, directly responsive."
+            )
+
+        user_content = (
+            f"Question:\n{question}\n\n"
+            f"Sources:\n{context}\n\n"
+            "Write the answer with inline citations."
+        )
+
+        temperature = kwargs.get("temperature", self.config.temperature)
+        max_tokens = kwargs.get("max_tokens", self.config.max_tokens)
+
+        try:
+            client = self._ensure_client()
+            config = self._build_config(temperature, max_tokens)
+            prompt = f"{instructions}\n\n{user_content}"
+            stream = client.models.generate_content_stream(
+                model=self.model,
+                contents=prompt,
+                config=config,
+            )
+            for chunk in stream:
+                text = getattr(chunk, "text", None)
+                if text:
+                    yield text
+
+            self._record_success("stream_synthesize")
+
+        except Exception as e:
+            logger.error(f"Gemini streaming synthesis failed: {e}")
+            self._record_failure(e, "stream_synthesize")
             raise
 
     def estimate_cost(self, input_tokens: int, output_tokens: int) -> Optional[float]:
