@@ -96,6 +96,37 @@ def test_generate_tags_success(llm_config):
         assert tags == ["python", "analysis"]
 
 
+def test_generate_tags_code_fence(llm_config):
+    tags_payload = "```json\n{\"tags\": [\"alpha\", \"beta\"]}\n```"
+
+    with patch("lsm.providers.anthropic.Anthropic") as mock_anthropic:
+        mock_client = Mock()
+        mock_client.messages.create.return_value = _mock_anthropic_response(tags_payload)
+        mock_anthropic.return_value = mock_client
+
+        provider = AnthropicProvider(llm_config)
+        tags = provider.generate_tags("Alpha beta", num_tags=2)
+
+        assert tags == ["alpha", "beta"]
+
+
+def test_list_models(llm_config):
+    model_items = [Mock(id="claude-3-haiku-20240307"), Mock(id="claude-3-5-sonnet-20241022")]
+    response = Mock()
+    response.data = model_items
+
+    with patch("lsm.providers.anthropic.Anthropic") as mock_anthropic:
+        mock_client = Mock()
+        mock_client.models.list.return_value = response
+        mock_anthropic.return_value = mock_client
+
+        provider = AnthropicProvider(llm_config)
+        models = provider.list_models()
+
+        assert "claude-3-haiku-20240307" in models
+        assert "claude-3-5-sonnet-20241022" in models
+
+
 def test_estimate_cost(llm_config):
     provider = AnthropicProvider(llm_config)
     cost = provider.estimate_cost(input_tokens=1000, output_tokens=500)

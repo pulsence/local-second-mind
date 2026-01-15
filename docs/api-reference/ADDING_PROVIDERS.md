@@ -361,13 +361,15 @@ Users should be able to configure your provider in `config.json`:
 
 ```json
 {
-  "llm": {
-    "provider": "your_provider",
-    "model": "your-model-name",
-    "api_key": "INSERT_YOUR_API_KEY_OR_USE_ENV_VAR",
-    "temperature": 0.7,
-    "max_tokens": 2000
-  }
+  "llms": [
+    {
+      "provider_name": "your_provider",
+      "api_key": "INSERT_YOUR_API_KEY_OR_USE_ENV_VAR",
+      "query": { "model": "your-model-name" },
+      "tagging": { "model": "your-model-name" },
+      "ranking": { "model": "your-model-name" }
+    }
+  ]
 }
 ```
 
@@ -596,11 +598,15 @@ def test_your_provider_synthesis():
 1. Add your provider to config:
 ```json
 {
-  "llm": {
-    "provider": "your_provider",
-    "model": "your-model-name",
-    "api_key": "your_api_key"
-  }
+  "llms": [
+    {
+      "provider_name": "your_provider",
+      "api_key": "your_api_key",
+      "query": { "model": "your-model-name" },
+      "tagging": { "model": "your-model-name" },
+      "ranking": { "model": "your-model-name" }
+    }
+  ]
 }
 ```
 
@@ -723,11 +729,15 @@ class YourProvider(BaseLLMProvider):
     Configuration Example:
         ```json
         {
-          "llm": {
-            "provider": "your_provider",
-            "model": "model-1",
-            "api_key": "${YOUR_PROVIDER_API_KEY}"
-          }
+          "llms": [
+            {
+              "provider_name": "your_provider",
+              "api_key": "${YOUR_PROVIDER_API_KEY}",
+              "query": { "model": "model-1" },
+              "tagging": { "model": "model-1" },
+              "ranking": { "model": "model-1" }
+            }
+          ]
         }
         ```
 

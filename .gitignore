@@ -32,6 +32,7 @@ dist/
 config.json
 config.yaml
 config.yml
+test_config.json
 
 # Environment variables
 .env

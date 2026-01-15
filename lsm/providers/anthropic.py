@@ -55,6 +55,26 @@ class AnthropicProvider(BaseLLMProvider):
     def is_available(self) -> bool:
         return bool(self._api_key)
 
+    def list_models(self) -> List[str]:
+        if not self.is_available():
+            return []
+
+        try:
+            res = self.client.models.list(limit=1000)
+            items = getattr(res, "data", None)
+            if items is None:
+                items = list(res)
+            ids: List[str] = []
+            for item in items or []:
+                model_id = getattr(item, "id", None) or getattr(item, "name", None)
+                if isinstance(model_id, str) and model_id:
+                    ids.append(model_id)
+            ids.sort()
+            return ids
+        except Exception as e:
+            logger.debug(f"Failed to list Anthropic models: {e}")
+            return []
+
     @property
     def client(self) -> Anthropic:
         if self._client is None:
@@ -85,6 +105,39 @@ class AnthropicProvider(BaseLLMProvider):
             "InternalServerError",
             "ServiceUnavailableError",
         }
+
+    def _strip_code_fences(self, text: str) -> str:
+        stripped = text.strip()
+        if stripped.startswith("```") and stripped.endswith("```"):
+            lines = stripped.splitlines()
+            if len(lines) >= 3:
+                return "\n".join(lines[1:-1]).strip()
+        return stripped
+
+    def _parse_json_payload(self, raw: str) -> Any:
+        cleaned = self._strip_code_fences(raw)
+        try:
+            return json.loads(cleaned)
+        except json.JSONDecodeError:
+            pass
+
+        obj_start = cleaned.find("{")
+        obj_end = cleaned.rfind("}")
+        if obj_start != -1 and obj_end != -1 and obj_end > obj_start:
+            try:
+                return json.loads(cleaned[obj_start:obj_end + 1])
+            except json.JSONDecodeError:
+                pass
+
+        arr_start = cleaned.find("[")
+        arr_end = cleaned.rfind("]")
+        if arr_start != -1 and arr_end != -1 and arr_end > arr_start:
+            try:
+                return json.loads(cleaned[arr_start:arr_end + 1])
+            except json.JSONDecodeError:
+                pass
+
+        raise json.JSONDecodeError("Failed to parse JSON response", cleaned, 0)
 
     def rerank(
         self,
@@ -126,6 +179,7 @@ class AnthropicProvider(BaseLLMProvider):
             "- Do NOT hallucinate facts; you are only ranking.\n\n"
             "Output requirements:\n"
             "- Return STRICT JSON only, no markdown, no extra text.\n"
+            "- Do not include code fences or commentary.\n"
             "- Schema: {\"ranking\":[{\"index\":int,\"reason\":string}...]}\n"
             f"- Include at most {k} items.\n"
         )
@@ -139,19 +193,25 @@ class AnthropicProvider(BaseLLMProvider):
         try:
             logger.debug(f"Requesting Claude rerank for {len(candidates)} candidates -> top {k}")
 
-            def _call() -> Any:
+            def _call(system_prompt: str) -> Any:
                 return self.client.messages.create(
                     model=self.model,
                     max_tokens=400,
                     temperature=0.2,
-                    system=instructions,
+                    system=system_prompt,
                     messages=[{"role": "user", "content": json.dumps(payload)}],
                 )
 
-            resp = self._with_retry(_call, "rerank", retry_on=self._is_retryable_error)
+            resp = self._with_retry(
+                lambda: _call(instructions),
+                "rerank",
+                retry_on=self._is_retryable_error,
+            )
             raw = self._extract_text(resp)
+            if not raw:
+                raise json.JSONDecodeError("Empty rerank response", raw, 0)
 
-            data = json.loads(raw)
+            data = self._parse_json_payload(raw)
             ranking = data.get("ranking", [])
             if not isinstance(ranking, list):
                 self._record_failure(ValueError("Invalid rerank response"), "rerank")
@@ -274,6 +334,7 @@ Guidelines:
 
 Output requirements:
 - Return STRICT JSON only, no markdown, no extra text.
+- Do not include code fences or commentary.
 - Schema: {{"tags":["tag1","tag2","tag3"]}}
 - Include exactly {num_tags} tags.
 """
@@ -297,7 +358,9 @@ Output requirements:
 
             resp = self._with_retry(_call, "generate_tags", retry_on=self._is_retryable_error)
             content = self._extract_text(resp)
-            data = json.loads(content)
+            if not content:
+                raise json.JSONDecodeError("Empty tag response", content, 0)
+            data = self._parse_json_payload(content)
             tags = data.get("tags", [])
 
             if isinstance(tags, list) and all(isinstance(t, str) for t in tags):

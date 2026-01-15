@@ -34,6 +34,15 @@ class TestProviderFactory:
 
             assert isinstance(provider, OpenAIProvider)
 
+    def test_create_claude_alias(self):
+        """Test that claude aliases to anthropic provider."""
+        config = LLMConfig(provider="claude", model="claude-3-5-sonnet-20241022", api_key="test")
+
+        with patch("lsm.providers.anthropic.Anthropic"):
+            provider = create_provider(config)
+
+            assert provider.name in {"anthropic", "claude"}
+
     def test_create_unknown_provider_raises_error(self):
         """Test creating unknown provider raises ValueError."""
         config = LLMConfig(provider="unknown", model="test", api_key="test")

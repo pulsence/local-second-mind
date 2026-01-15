@@ -17,7 +17,8 @@ from .models import (
     LSMConfig,
     IngestConfig,
     QueryConfig,
-    LLMConfig,
+    LLMRegistryConfig,
+    LLMProviderConfig,
     FeatureLLMConfig,
     ModeConfig,
     SourcePolicyConfig,
@@ -83,7 +84,6 @@ def build_feature_llm_config(raw: Dict[str, Any]) -> FeatureLLMConfig:
         FeatureLLMConfig instance
     """
     return FeatureLLMConfig(
-        provider=raw.get("provider"),
         model=raw.get("model"),
         api_key=raw.get("api_key"),
         temperature=raw.get("temperature"),
@@ -95,44 +95,52 @@ def build_feature_llm_config(raw: Dict[str, Any]) -> FeatureLLMConfig:
     )
 
 
-def build_llm_config(raw: Dict[str, Any]) -> LLMConfig:
+def build_llm_provider_config(raw: Dict[str, Any]) -> LLMProviderConfig:
     """
-    Build LLMConfig from raw configuration.
+    Build LLMProviderConfig from raw configuration.
+
+    Args:
+        raw: Raw provider dictionary
+
+    Returns:
+        LLMProviderConfig instance
+    """
+    provider_name = raw.get("provider_name")
+    if not provider_name:
+        raise ValueError("Each llms[] entry must include 'provider_name'")
+
+    return LLMProviderConfig(
+        provider_name=provider_name,
+        api_key=raw.get("api_key"),
+        model=raw.get("model"),
+        temperature=raw.get("temperature"),
+        max_tokens=raw.get("max_tokens"),
+        base_url=raw.get("base_url"),
+        endpoint=raw.get("endpoint"),
+        api_version=raw.get("api_version"),
+        deployment_name=raw.get("deployment_name"),
+        query=build_feature_llm_config(raw["query"]) if "query" in raw else None,
+        tagging=build_feature_llm_config(raw["tagging"]) if "tagging" in raw else None,
+        ranking=build_feature_llm_config(raw["ranking"]) if "ranking" in raw else None,
+    )
+
+
+def build_llm_config(raw: Dict[str, Any]) -> LLMRegistryConfig:
+    """
+    Build LLMRegistryConfig from raw configuration.
 
     Args:
         raw: Raw config dictionary
 
     Returns:
-        LLMConfig instance
+        LLMRegistryConfig instance
     """
-    # Check for OpenAI section (legacy) or llm section (new)
-    llm_config = raw.get("llm", {})
-    openai_config = raw.get("openai", {})
+    llms_raw = raw.get("llms")
+    if not llms_raw or not isinstance(llms_raw, list):
+        raise ValueError("Config must include 'llms' as a non-empty list")
 
-    # Merge configurations (llm takes precedence)
-    config = {
-        "provider": llm_config.get("provider", "openai"),
-        "model": llm_config.get("model") or raw.get("query", {}).get("model", "gpt-5.2"),
-        "api_key": llm_config.get("api_key") or openai_config.get("api_key"),
-        "temperature": llm_config.get("temperature", 0.7),
-        "max_tokens": llm_config.get("max_tokens", 2000),
-        "base_url": llm_config.get("base_url"),
-        "endpoint": llm_config.get("endpoint"),
-        "api_version": llm_config.get("api_version"),
-        "deployment_name": llm_config.get("deployment_name"),
-    }
-
-    # Build per-feature overrides if present
-    if "query" in llm_config:
-        config["query"] = build_feature_llm_config(llm_config["query"])
-
-    if "tagging" in llm_config:
-        config["tagging"] = build_feature_llm_config(llm_config["tagging"])
-
-    if "ranking" in llm_config:
-        config["ranking"] = build_feature_llm_config(llm_config["ranking"])
-
-    return LLMConfig(**config)
+    providers = [build_llm_provider_config(item) for item in llms_raw]
+    return LLMRegistryConfig(llms=providers)
 
 
 def build_ingest_config(raw: Dict[str, Any], config_path: Path) -> IngestConfig:

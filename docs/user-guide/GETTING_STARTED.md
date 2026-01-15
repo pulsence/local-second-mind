@@ -51,11 +51,15 @@ Edit `config.json` and update:
     "C:\\Users\\YourName\\Documents",
     "D:\\Research"
   ],
-  "llm": {
-    "provider": "openai",
-    "model": "gpt-5.2",
-    "api_key": "INSERT_YOUR_OPENAI_API_KEY"
-  }
+  "llms": [
+    {
+      "provider_name": "openai",
+      "api_key": "INSERT_YOUR_OPENAI_API_KEY",
+      "query": { "model": "gpt-5.2" },
+      "tagging": { "model": "gpt-5-nano" },
+      "ranking": { "model": "gpt-5-nano" }
+    }
+  ]
 }
 ```
 
@@ -63,9 +67,15 @@ Edit `config.json` and update:
 
 ```json
 {
-  "llm": {
-    "api_key": "${OPENAI_API_KEY}"
-  }
+  "llms": [
+    {
+      "provider_name": "openai",
+      "api_key": "${OPENAI_API_KEY}",
+      "query": { "model": "gpt-5.2" },
+      "tagging": { "model": "gpt-5-nano" },
+      "ranking": { "model": "gpt-5-nano" }
+    }
+  ]
 }
 ```
 
@@ -336,9 +346,15 @@ Set your OpenAI API key:
 
 ```bash
 # In config.json
-"llm": {
-  "api_key": "sk-..."
-}
+"llms": [
+  {
+    "provider_name": "openai",
+    "api_key": "sk-...",
+    "query": { "model": "gpt-5.2" },
+    "tagging": { "model": "gpt-5-nano" },
+    "ranking": { "model": "gpt-5-nano" }
+  }
+]
 
 # Or environment variable
 export OPENAI_API_KEY=sk-...

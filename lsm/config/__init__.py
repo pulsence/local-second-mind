@@ -4,7 +4,15 @@ Configuration management for Local Second Mind.
 This package provides typed configuration models and loaders for LSM.
 """
 
-from .models import LSMConfig, IngestConfig, QueryConfig, LLMConfig, VectorDBConfig
+from .models import (
+    LSMConfig,
+    IngestConfig,
+    QueryConfig,
+    LLMConfig,
+    LLMRegistryConfig,
+    LLMProviderConfig,
+    VectorDBConfig,
+)
 from .loader import load_config_from_file
 
 __all__ = [
@@ -12,6 +20,8 @@ __all__ = [
     "IngestConfig",
     "QueryConfig",
     "LLMConfig",
+    "LLMRegistryConfig",
+    "LLMProviderConfig",
     "VectorDBConfig",
     "load_config_from_file",
 ]

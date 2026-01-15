@@ -4,8 +4,8 @@ This guide explains how to use local LLMs with LSM via Ollama.
 
 ## Overview
 
-LSM can run reranking, synthesis, and tagging against a local model when
-`llm.provider` is set to `local`. The provider uses Ollama's HTTP API.
+LSM can run reranking, synthesis, and tagging against a local model when an
+`llms[]` entry uses `provider_name = "local"`. The provider uses Ollama's HTTP API.
 
 ## Prerequisites
 
@@ -44,13 +44,15 @@ Basic config:
 
 ```json
 {
-  "llm": {
-    "provider": "local",
-    "model": "llama2",
-    "base_url": "http://localhost:11434",
-    "temperature": 0.7,
-    "max_tokens": 2000
-  }
+  "llms": [
+    {
+      "provider_name": "local",
+      "base_url": "http://localhost:11434",
+      "query": { "model": "llama2" },
+      "tagging": { "model": "llama2" },
+      "ranking": { "model": "llama2" }
+    }
+  ]
 }
 ```
 
@@ -61,7 +63,7 @@ Notes:
 
 ### Environment Variables
 
-- `OLLAMA_BASE_URL` can be used instead of `llm.base_url`.
+- `OLLAMA_BASE_URL` can be used instead of `llms[].base_url`.
 
 ## Usage
 
@@ -127,16 +129,17 @@ to produce valid JSON. If reranking quality is low:
 Example override:
 
 ```json
-"llm": {
-  "provider": "local",
-  "model": "llama2",
-  "ranking": {
-    "model": "mistral"
+"llms": [
+  {
+    "provider_name": "local",
+    "query": { "model": "llama2" },
+    "tagging": { "model": "llama2" },
+    "ranking": { "model": "mistral" }
   }
-}
+]
 ```
 
 ## Security and Privacy
 
 Local models keep your data on your machine. No data is sent to external
-providers when using `llm.provider = local`.
+providers when using `provider_name = "local"`.

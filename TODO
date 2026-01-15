@@ -9,16 +9,19 @@
 ## Infrastructure
 - Add some kind of GUI over tooling (TUI with Textual or Web UI)
 - Complete remaining documentation stubs (see docs/ folder)
-- Run full pytest suite and verify all tests pass
 - When reading config query.modes these modes should add to existing built-in modes,
 or be merged with built-in modes
-- test_providers/remote should be test_remote
 - Create installers
 - Provider modules should have submodules for:
     - db (with providers for chroma and psql)
     - ai (with providers for the different ai providers)
     - remote (with providers for the different remote apis like brave, wikimedia, etc.)
 - Check to make sure there is not unnecessary duplicated code
+
+## Testing 
+- test_providers/remote should be test_remote
+- Run full pytest suite and verify all tests pass
+- Create synthetic test data to run intergration tests
 
 ## Ingest
 - Add embeddings model selection (allow user to choose different embedding models)

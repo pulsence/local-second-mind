@@ -88,6 +88,24 @@ class OpenAIProvider(BaseLLMProvider):
             return True
         return bool(os.getenv("OPENAI_API_KEY"))
 
+    def list_models(self) -> List[str]:
+        """List models available to the current API key."""
+        if not self.is_available():
+            return []
+
+        try:
+            res = self.client.models.list()
+            ids: List[str] = []
+            for model in getattr(res, "data", []) or []:
+                model_id = getattr(model, "id", None)
+                if isinstance(model_id, str):
+                    ids.append(model_id)
+            ids.sort()
+            return ids
+        except Exception as e:
+            logger.debug(f"Failed to list OpenAI models: {e}")
+            return []
+
     def _is_quota_error(self, error: Exception) -> bool:
         """Check if error is due to quota/rate limit."""
         if isinstance(error, RateLimitError):

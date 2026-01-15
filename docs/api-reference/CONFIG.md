@@ -10,7 +10,7 @@ Fields:
 
 - `ingest: IngestConfig` (required)
 - `query: QueryConfig` (required)
-- `llm: LLMConfig` (required)
+- `llm: LLMRegistryConfig` (required)
 - `modes: dict[str, ModeConfig] | None` (optional, built-ins if None)
 - `remote_providers: dict[str, RemoteProviderConfig] | None`
 - `config_path: Path | None` (used for path resolution)
@@ -77,17 +77,36 @@ Derived behavior:
 - `local_pool` defaults to `max(k * 3, k_rerank * 4)`.
 - `no_rerank` forces `rerank_strategy = none`.
 
-## LLMConfig
+## LLMRegistryConfig
 
-Base LLM configuration.
+Ordered list of LLM providers with per-feature selection.
 
 Fields:
 
-- `provider: str = openai`
-- `model: str = gpt-5.2`
+- `llms: list[LLMProviderConfig]`
+
+Methods:
+
+- `validate()`
+- `get_query_config()`
+- `get_tagging_config()`
+- `get_ranking_config()`
+- `get_feature_provider_map()`
+- `get_provider_names()`
+- `get_provider_by_name(name)`
+- `override_feature_model(feature_name, model)`
+
+## LLMProviderConfig
+
+Provider entry inside the registry.
+
+Fields:
+
+- `provider_name: str`
 - `api_key: str | None = None`
-- `temperature: float = 0.7`
-- `max_tokens: int = 2000`
+- `model: str | None = None`
+- `temperature: float | None = None`
+- `max_tokens: int | None = None`
 - `base_url: str | None = None` (local/hosted providers)
 - `endpoint: str | None = None` (Azure OpenAI)
 - `api_version: str | None = None` (Azure OpenAI)
@@ -96,26 +115,38 @@ Fields:
 - `tagging: FeatureLLMConfig | None`
 - `ranking: FeatureLLMConfig | None`
 
+## LLMConfig
+
+Effective LLM configuration used at runtime.
+
+Fields:
+
+- `provider: str`
+- `model: str`
+- `api_key: str | None = None`
+- `temperature: float = 0.7`
+- `max_tokens: int = 2000`
+- `base_url: str | None = None` (local/hosted providers)
+- `endpoint: str | None = None` (Azure OpenAI)
+- `api_version: str | None = None` (Azure OpenAI)
+- `deployment_name: str | None = None` (Azure OpenAI)
+
 Methods:
 
 - `validate()`
-- `get_query_config()`
-- `get_tagging_config()`
-- `get_ranking_config()`
 
 Environment resolution:
 
 - If `api_key` is not set, LSM reads `{PROVIDER}_API_KEY`.
-- For `openai`, `OPENAI_API_KEY` is also supported.
 - For `gemini`, `GOOGLE_API_KEY` is supported.
 
 ## FeatureLLMConfig
 
-Per-feature override that merges with a base `LLMConfig`.
+
+Per-feature override that merges with a provider base config.
 
 Fields:
 
-- `provider: str | None`
 - `model: str | None`
 - `api_key: str | None`
 - `temperature: float | None`

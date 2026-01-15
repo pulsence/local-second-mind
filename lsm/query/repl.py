@@ -10,10 +10,9 @@ import os
 import subprocess
 import sys
 from datetime import datetime
+from dataclasses import replace
 from pathlib import Path
 from typing import List, Dict, Any, Optional
-
-from openai import OpenAI
 
 from lsm.config.models import LSMConfig, LLMConfig
 from lsm.cli.logging import get_logger
@@ -30,6 +29,31 @@ from .cost_tracking import CostTracker, estimate_tokens, estimate_output_tokens
 from .citations import export_citations_from_note, export_citations_from_sources
 
 logger = get_logger(__name__)
+
+COMMAND_HINTS = {
+    "exit",
+    "help",
+    "show",
+    "expand",
+    "open",
+    "debug",
+    "model",
+    "models",
+    "providers",
+    "provider-status",
+    "vectordb-providers",
+    "vectordb-status",
+    "mode",
+    "note",
+    "notes",
+    "load",
+    "set",
+    "clear",
+    "costs",
+    "budget",
+    "cost-estimate",
+    "export-citations",
+}
 
 
 # -----------------------------
@@ -50,9 +74,9 @@ def print_help() -> None:
     print("  /show S#        Show the cited chunk (e.g., /show S2)")
     print("  /expand S#      Show full chunk text (no truncation)")
     print("  /open S#        Open the source file in default app")
-    print("  /models         List models available to the API key")
-    print("  /model          Show current model")
-    print("  /model <name>   Set model for this session")
+    print("  /models [provider]   List available models (optionally for one provider)")
+    print("  /model               Show current models for tasks")
+    print("  /model <task> <provider> <model>   Set model for a task")
     print("  /providers      List available LLM providers")
     print("  /provider-status Show provider health and recent stats")
     print("  /vectordb-providers List available vector DB providers")
@@ -134,58 +158,66 @@ def print_debug(state: SessionState) -> None:
 # -----------------------------
 # Model Management
 # -----------------------------
-def list_models(client: OpenAI) -> List[str]:
+def list_models(provider) -> List[str]:
     """
     List models available to the current API key.
 
-    Uses the Models API: /v1/models
-
     Args:
-        client: OpenAI client
+        provider: LLM provider instance
 
     Returns:
         List of model IDs (sorted)
     """
-    logger.debug("Fetching available models from OpenAI API")
-
-    res = client.models.list()
-
-    # Extract model IDs
-    ids: List[str] = []
-    for model in getattr(res, "data", []) or []:
-        model_id = getattr(model, "id", None)
-        if isinstance(model_id, str):
-            ids.append(model_id)
-
+    ids = provider.list_models()
     ids.sort()
     logger.info(f"Found {len(ids)} available models")
-
     return ids
 
 
-def print_models(state: SessionState, client: OpenAI) -> None:
+def _display_provider_name(name: str) -> str:
+    if name in {"anthropic", "claude"}:
+        return "claude"
+    return name
+
+
+def _format_feature_label(feature: str) -> str:
+    return {
+        "query": "query",
+        "tagging": "tag",
+        "ranking": "rerank",
+    }.get(feature, feature)
+
+
+def print_models(state: SessionState, provider) -> None:
     """
     Print available models.
 
     Args:
         state: Session state (to cache model list)
-        client: OpenAI client
+        provider: LLM provider instance
     """
     try:
-        ids = list_models(client)
+        ids = list_models(provider)
         state.available_models = ids
 
         if not ids:
-            print("No models returned by the API for this key/project.\n")
+            print("  (no models returned or listing unsupported)")
             return
 
-        print("\nAvailable models (API key scope):")
         for model_id in ids:
-            print(f"- {model_id}")
-        print()
+            print(f"  - {model_id}")
     except Exception as e:
         logger.error(f"Failed to list models: {e}")
         print(f"Failed to list models: {e}\n")
+
+
+def _get_feature_configs(config: LSMConfig) -> dict[str, Optional[LLMConfig]]:
+    feature_map = config.llm.get_feature_provider_map()
+    return {
+        "query": config.llm.get_query_config() if "query" in feature_map else None,
+        "tagging": config.llm.get_tagging_config() if "tagging" in feature_map else None,
+        "ranking": config.llm.get_ranking_config() if "ranking" in feature_map else None,
+    }
 
 
 def print_providers(config: LSMConfig) -> None:
@@ -195,67 +227,64 @@ def print_providers(config: LSMConfig) -> None:
     Args:
         config: LSM configuration
     """
-    from lsm.providers import list_available_providers
-
     print()
     print("=" * 60)
     print("AVAILABLE LLM PROVIDERS")
     print("=" * 60)
     print()
 
-    providers = list_available_providers()
+    providers = config.llm.get_provider_names()
 
     if not providers:
-        print("No providers registered.")
+        print("No providers configured.")
         print()
         return
 
-    # Show current provider
-    current_provider = config.llm.provider
-    print(f"Current Provider: {current_provider}")
-    print(f"Current Model:    {config.llm.model}")
+    print("Selections:")
+    feature_configs = _get_feature_configs(config)
+    for feature, cfg in feature_configs.items():
+        if cfg is None:
+            continue
+        label = _format_feature_label(feature)
+        provider = _display_provider_name(cfg.provider)
+        print(f"  {label:7s} {provider}/{cfg.model}")
     print()
 
-    # List all available providers
-    print(f"Available Providers ({len(providers)}):")
+    print(f"Providers ({len(providers)}):")
     print()
 
+    seen_labels = set()
     for provider_name in providers:
-        # Try to create provider to check availability
         try:
-            # Create a test config for this provider
-            use_current = provider_name == current_provider
-            test_config = LLMConfig(
-                provider=provider_name,
-                model=config.llm.model,
-                api_key=config.llm.api_key if use_current else None,
-                temperature=config.llm.temperature,
-                max_tokens=config.llm.max_tokens,
-                base_url=config.llm.base_url if use_current else None,
-                endpoint=config.llm.endpoint if use_current else None,
-                api_version=config.llm.api_version if use_current else None,
-                deployment_name=config.llm.deployment_name if use_current else None,
-            )
-            provider = create_provider(test_config)
+            provider_config = config.llm.get_provider_by_name(provider_name)
+            test_config = provider_config.resolve_first_available() if provider_config else None
 
-            # Check if available
-            is_current = "✓ ACTIVE" if provider_name == current_provider else ""
-            is_available = "✓" if provider.is_available() else "✗ (API key not configured)"
+            if test_config:
+                provider = create_provider(test_config)
+                is_available = "ok" if provider.is_available() else "- (API key not configured)"
+            elif provider_config:
+                is_available = "- (no feature config)"
+            else:
+                is_available = "- (not configured)"
 
-            print(f"  {provider_name:20s} {is_available:30s} {is_current}")
+            label = _display_provider_name(provider_name)
+            if label in seen_labels:
+                continue
+            seen_labels.add(label)
+            print(f"  {label:20s} {is_available:30s}")
 
         except Exception as e:
             logger.debug(f"Error checking provider {provider_name}: {e}")
-            is_current = "✓ ACTIVE" if provider_name == current_provider else ""
-            print(f"  {provider_name:20s} {'✗ (Error)':30s} {is_current}")
+            label = _display_provider_name(provider_name)
+            if label in seen_labels:
+                continue
+            seen_labels.add(label)
+            print(f"  {label:20s} {'- (error)':30s}")
 
     print()
     print("To switch providers, update your config.json:")
-    print('  "llm": { "provider": "provider_name", ... }')
+    print('  "llms": [ { "provider_name": "provider_name", ... } ]')
     print()
-    print("See docs/api-reference/ADDING_PROVIDERS.md for adding new providers.")
-    print()
-
 
 # -----------------------------
 # Cost Tracking Utilities
@@ -329,34 +358,34 @@ def print_provider_status(config: LSMConfig) -> None:
     Args:
         config: LSM configuration
     """
-    from lsm.providers import list_available_providers
-
     print()
     print("=" * 60)
     print("PROVIDER HEALTH STATUS")
     print("=" * 60)
     print()
 
-    providers = list_available_providers()
+    providers = config.llm.get_provider_names()
     if not providers:
         print("No providers registered.")
         print()
         return
 
+    current_provider = config.llm.get_query_config().provider
+
+    seen_labels = set()
     for provider_name in providers:
         try:
-            use_current = provider_name == config.llm.provider
-            test_config = LLMConfig(
-                provider=provider_name,
-                model=config.llm.model,
-                api_key=config.llm.api_key if use_current else None,
-                temperature=config.llm.temperature,
-                max_tokens=config.llm.max_tokens,
-                base_url=config.llm.base_url if use_current else None,
-                endpoint=config.llm.endpoint if use_current else None,
-                api_version=config.llm.api_version if use_current else None,
-                deployment_name=config.llm.deployment_name if use_current else None,
-            )
+            provider_config = config.llm.get_provider_by_name(provider_name)
+            test_config = provider_config.resolve_first_available() if provider_config else None
+            if not test_config:
+                status = "not_configured" if not provider_config else "missing_config"
+                label = _display_provider_name(provider_name)
+                if label in seen_labels:
+                    continue
+                seen_labels.add(label)
+                print(f"{label:20s} status={status:12s}")
+                continue
+
             provider = create_provider(test_config)
             health = provider.health_check()
 
@@ -365,16 +394,24 @@ def print_provider_status(config: LSMConfig) -> None:
             success = stats.get("success_count", 0)
             failure = stats.get("failure_count", 0)
             last_error = stats.get("last_error")
-            current_label = " (current)" if use_current else ""
+            current_label = " (current)" if provider_name == current_provider else ""
+            label = _display_provider_name(provider_name)
+            if label in seen_labels:
+                continue
+            seen_labels.add(label)
 
             print(
-                f"{provider_name:20s} status={status:12s} success={success:4d} failure={failure:4d}{current_label}"
+                f"{label:20s} status={status:12s} success={success:4d} failure={failure:4d}{current_label}"
             )
             if last_error:
                 print(f"{'':20s} last_error={last_error}")
         except Exception as e:
             logger.debug(f"Error checking provider status {provider_name}: {e}")
-            print(f"{provider_name:20s} status=error        error={e}")
+            label = _display_provider_name(provider_name)
+            if label in seen_labels:
+                continue
+            seen_labels.add(label)
+            print(f"{label:20s} status=error        error={e}")
 
     print()
 
@@ -446,26 +483,28 @@ def print_vectordb_status(config: LSMConfig) -> None:
     print("=" * 60)
     print()
 
-    providers = list_available_providers()
+    providers = config.llm.get_provider_names()
     if not providers:
         print("No providers registered.")
         print()
         return
 
+    current_provider = config.llm.get_query_config().provider
+
+    seen_labels = set()
     for provider_name in providers:
         try:
-            use_current = provider_name == config.llm.provider
-            test_config = LLMConfig(
-                provider=provider_name,
-                model=config.llm.model,
-                api_key=config.llm.api_key if use_current else None,
-                temperature=config.llm.temperature,
-                max_tokens=config.llm.max_tokens,
-                base_url=config.llm.base_url if use_current else None,
-                endpoint=config.llm.endpoint if use_current else None,
-                api_version=config.llm.api_version if use_current else None,
-                deployment_name=config.llm.deployment_name if use_current else None,
-            )
+            provider_config = config.llm.get_provider_by_name(provider_name)
+            test_config = provider_config.resolve_first_available() if provider_config else None
+            if not test_config:
+                status = "not_configured" if not provider_config else "missing_config"
+                label = _display_provider_name(provider_name)
+                if label in seen_labels:
+                    continue
+                seen_labels.add(label)
+                print(f"{label:20s} status={status:12s}")
+                continue
+
             provider = create_provider(test_config)
             health = provider.health_check()
 
@@ -474,13 +513,25 @@ def print_vectordb_status(config: LSMConfig) -> None:
             success = stats.get("success_count", 0)
             failure = stats.get("failure_count", 0)
             last_error = stats.get("last_error")
+            current_label = " (current)" if provider_name == current_provider else ""
+            label = _display_provider_name(provider_name)
+            if label in seen_labels:
+                continue
+            seen_labels.add(label)
 
-            print(f"{provider_name:20s} status={status:12s} success={success:4d} failure={failure:4d}")
+            print(
+                f"{label:20s} status={status:12s} "
+                f"success={success:4d} failure={failure:4d}{current_label}"
+            )
             if last_error:
                 print(f"{'':20s} last_error={last_error}")
         except Exception as e:
             logger.debug(f"Error checking provider status {provider_name}: {e}")
-            print(f"{provider_name:20s} status=error        error={e}")
+            label = _display_provider_name(provider_name)
+            if label in seen_labels:
+                continue
+            seen_labels.add(label)
+            print(f"{label:20s} status=error        error={e}")
 
     print()
 
@@ -518,7 +569,6 @@ def open_file(path: str) -> None:
 def handle_command(
     line: str,
     state: SessionState,
-    client: OpenAI,
     config: LSMConfig,
     embedder,
     collection,
@@ -529,7 +579,6 @@ def handle_command(
     Args:
         line: User input line
         state: Session state
-        client: OpenAI client
         config: Global configuration
         embedder: SentenceTransformer model
         collection: ChromaDB collection
@@ -661,8 +710,40 @@ def handle_command(
         return True
 
     # List available models
-    if ql.strip() == "/models":
-        print_models(state, client)
+    if ql.startswith("/models"):
+        parts = q.split()
+        provider_filter = parts[1].strip().lower() if len(parts) > 1 else None
+        providers = config.llm.get_provider_names()
+        if provider_filter:
+            if provider_filter == "claude":
+                providers = [p for p in providers if p in {"claude", "anthropic"}]
+            else:
+                providers = [p for p in providers if p.lower() == provider_filter]
+            if not providers:
+                print(f"Provider not found in config: {provider_filter}\n")
+                return True
+
+        seen_labels = set()
+        for provider_name in providers:
+            label = _display_provider_name(provider_name)
+            if label in seen_labels:
+                continue
+            seen_labels.add(label)
+            provider_config = config.llm.get_provider_by_name(provider_name)
+            if not provider_config:
+                continue
+            try:
+                test_config = provider_config.resolve_first_available()
+                print(f"{label}:")
+                if not test_config:
+                    print("  (not configured for any feature)\n")
+                    continue
+                provider = create_provider(test_config)
+                print_models(state, provider)
+                print()
+            except Exception as e:
+                logger.error(f"Failed to list models for {provider_name}: {e}")
+                print(f"  (failed to list models: {e})\n")
         return True
 
     # List available providers
@@ -687,27 +768,54 @@ def handle_command(
     if ql.startswith("/model"):
         parts = q.split()
         if len(parts) == 1:
-            print(f"Current model: {state.model}\n")
+            feature_configs = _get_feature_configs(config)
+            for feature, cfg in feature_configs.items():
+                if cfg is None:
+                    continue
+                label = _format_feature_label(feature)
+                provider = _display_provider_name(cfg.provider)
+                print(f"{label}: {provider}/{cfg.model}")
+            print()
             return True
 
-        if len(parts) != 2:
+        if len(parts) != 4:
             print("Usage:")
-            print("  /model           (show current)")
-            print("  /model <name>    (set model for this session)")
-            print("  /models          (list available models)\n")
+            print("  /model                   (show current)")
+            print("  /model <task> <provider> <model>  (set model for a task)")
+            print("  /models [provider]       (list available models)\n")
             return True
 
-        new_model = parts[1].strip()
+        task = parts[1].strip().lower()
+        provider_name = parts[2].strip()
+        model_name = parts[3].strip()
 
-        # Optional validation if we've fetched /models at least once
-        if state.available_models:
-            if new_model not in state.available_models:
-                print(f"Model not found in last /models list: {new_model}")
-                print("Run /models to refresh the list or set anyway by clearing cache.\n")
-                return True
+        task_map = {
+            "query": "query",
+            "tag": "tagging",
+            "tagging": "tagging",
+            "rerank": "ranking",
+            "ranking": "ranking",
+        }
+        feature = task_map.get(task)
+        if not feature:
+            print("Unknown task. Use: query, tag, rerank\n")
+            return True
 
-        state.model = new_model
-        print(f"Model set to: {state.model}\n")
+        try:
+            provider_names = config.llm.get_provider_names()
+            normalized = provider_name
+            if provider_name == "anthropic" and "claude" in provider_names:
+                normalized = "claude"
+            elif provider_name == "claude" and "anthropic" in provider_names:
+                normalized = "anthropic"
+
+            config.llm.set_feature_selection(feature, normalized, model_name)
+            if feature == "query":
+                state.model = model_name
+            label = _format_feature_label(feature)
+            print(f"Model set: {label} = {_display_provider_name(normalized)}/{model_name}\n")
+        except Exception as e:
+            print(f"Failed to set model: {e}\n")
         return True
 
     # Show/set current mode
@@ -1361,10 +1469,6 @@ def run_query_turn(
         print()
         return
 
-    # Create provider and rerank/synthesize
-    if state.model and state.model != config.llm.model:
-        config.llm.model = state.model
-
     # Use ranking-specific LLM config if available
     ranking_config = config.llm.get_ranking_config()
     provider = create_provider(ranking_config)
@@ -1435,6 +1539,10 @@ def run_query_turn(
 
     # Use query-specific LLM config for synthesis
     query_config = config.llm.get_query_config()
+    if state.model and state.model != query_config.model:
+        query_config = replace(query_config, model=state.model)
+    if state.model and state.model != query_config.model:
+        query_config = replace(query_config, model=state.model)
     synthesis_provider = create_provider(query_config)
 
     synth_est = estimate_synthesis_cost(
@@ -1531,7 +1639,6 @@ def run_repl(
     config: LSMConfig,
     embedder,
     collection,
-    client: OpenAI,
 ) -> None:
     """
     Run the interactive REPL loop.
@@ -1540,16 +1647,16 @@ def run_repl(
         config: Global configuration
         embedder: SentenceTransformer model
         collection: ChromaDB collection
-        client: OpenAI client
     """
     logger.info("Starting REPL session")
 
     # Initialize session state from config
+    query_config = config.llm.get_query_config()
     state = SessionState(
         path_contains=config.query.path_contains,
         ext_allow=config.query.ext_allow,
         ext_deny=config.query.ext_deny,
-        model=config.llm.model,
+        model=query_config.model,
         cost_tracker=CostTracker(),
     )
 
@@ -1565,8 +1672,14 @@ def run_repl(
         if not line:
             continue
 
+        if not line.startswith("/"):
+            token = line.split(maxsplit=1)[0].lower()
+            if token in COMMAND_HINTS:
+                print(f"Did you mean '/{token}'? Commands must start with '/'.\n")
+                continue
+
         try:
-            if handle_command(line, state, client, config, embedder, collection):
+            if handle_command(line, state, config, embedder, collection):
                 continue
         except SystemExit:
             print("Exiting.")

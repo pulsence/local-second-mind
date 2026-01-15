@@ -13,10 +13,12 @@ from lsm.config.models import (
     RemoteSourcePolicy,
     ModelKnowledgePolicy,
     NotesConfig,
-    LLMConfig,
     IngestConfig,
     QueryConfig,
-    VectorDBConfig
+    VectorDBConfig,
+    LLMRegistryConfig,
+    LLMProviderConfig,
+    FeatureLLMConfig,
 )
 
 
@@ -27,7 +29,15 @@ def _make_config(mode: str, modes: dict | None = None) -> LSMConfig:
             manifest=Path("/tmp/manifest.json"),
         ),
         query=QueryConfig(mode=mode),
-        llm=LLMConfig(provider="openai", model="gpt-5.2", api_key="test"),
+        llm=LLMRegistryConfig(
+            llms=[
+                LLMProviderConfig(
+                    provider_name="openai",
+                    api_key="test",
+                    query=FeatureLLMConfig(model="gpt-5.2"),
+                ),
+            ]
+        ),
         vectordb=VectorDBConfig(
             persist_dir=Path("/tmp/.chroma"),
             collection="test",
@@ -158,7 +168,7 @@ class TestBuiltInModes:
         mode = config.get_mode_config()
 
         assert mode.synthesis_style == "grounded"
-        assert mode.source_policy.local.enabled is True
+        assert mode.source_policy.local is not None
         assert mode.source_policy.remote.enabled is False
         assert mode.source_policy.model_knowledge.enabled is False
 
@@ -169,7 +179,7 @@ class TestBuiltInModes:
         mode = config.get_mode_config()
 
         assert mode.synthesis_style == "insight"
-        assert mode.source_policy.local.enabled is True
+        assert mode.source_policy.local is not None
         # Insight mode should allow some flexibility
         assert mode.source_policy.model_knowledge.enabled is False  # Still conservative by default
 
@@ -180,7 +190,7 @@ class TestBuiltInModes:
         mode = config.get_mode_config()
 
         assert mode.synthesis_style == "grounded"
-        assert mode.source_policy.local.enabled is True
+        assert mode.source_policy.local is not None
         assert mode.source_policy.remote.enabled is True
         assert mode.source_policy.model_knowledge.enabled is True
 
@@ -229,7 +239,7 @@ class TestModeSourceBlending:
         mode = config.get_mode_config()
         policy = mode.source_policy
 
-        assert policy.local.enabled is True
+        assert policy.local is not None
         assert policy.remote.enabled is False
         assert policy.model_knowledge.enabled is False
 
@@ -240,7 +250,7 @@ class TestModeSourceBlending:
         mode = config.get_mode_config()
         policy = mode.source_policy
 
-        assert policy.local.enabled is True
+        assert policy.local is not None
         assert policy.remote.enabled is True
         assert policy.model_knowledge.enabled is True
 
@@ -249,7 +259,7 @@ class TestModeSourceBlending:
         custom_mode = ModeConfig(
             synthesis_style="grounded",
             source_policy=SourcePolicyConfig(
-                local=LocalSourcePolicy(enabled=True, k=10),
+                local=LocalSourcePolicy(k=10),
                 remote=RemoteSourcePolicy(enabled=True, max_results=5),
                 model_knowledge=ModelKnowledgePolicy(enabled=False)
             )
@@ -261,7 +271,7 @@ class TestModeSourceBlending:
         policy = mode.source_policy
 
         # Local + Remote, but not model knowledge
-        assert policy.local.enabled is True
+        assert policy.local is not None
         assert policy.remote.enabled is True
         assert policy.model_knowledge.enabled is False
 

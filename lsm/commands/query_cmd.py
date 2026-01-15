@@ -46,7 +46,7 @@ def run_query(args: Any) -> int:
         logger.info(f"Overriding query mode to: {args.mode}")
 
     if hasattr(args, 'model') and args.model:
-        config.llm.model = args.model
+        config.llm.override_feature_model("query", args.model)
         logger.info(f"Overriding LLM model to: {args.model}")
 
     if hasattr(args, 'no_rerank') and args.no_rerank:
@@ -59,7 +59,8 @@ def run_query(args: Any) -> int:
 
     logger.debug(f"Query configuration:")
     logger.debug(f"  Collection: {config.collection}")
-    logger.debug(f"  LLM: {config.llm.provider}/{config.llm.model}")
+    query_config = config.llm.get_query_config()
+    logger.debug(f"  LLM: {query_config.provider}/{query_config.model}")
     logger.debug(f"  Retrieval: k={config.query.k}")
     logger.debug(f"  Mode: {config.query.mode}")
 
@@ -91,7 +92,6 @@ def run_single_shot_query(config: LSMConfig, question: str) -> int:
     from lsm.query.retrieval import init_embedder
     from lsm.query.repl import run_query_turn
     from lsm.query.session import SessionState
-    from openai import OpenAI
     from lsm.vectordb import create_vectordb_provider
 
     try:
@@ -119,18 +119,13 @@ def run_single_shot_query(config: LSMConfig, question: str) -> int:
 
         logger.info(f"Collection ready with {count} chunks")
 
-        # Initialize OpenAI client
-        if config.llm.api_key:
-            client = OpenAI(api_key=config.llm.api_key)
-        else:
-            client = OpenAI()  # Uses OPENAI_API_KEY env var
-
         # Initialize session state
+        query_config = config.llm.get_query_config()
         state = SessionState(
             path_contains=config.query.path_contains,
             ext_allow=config.query.ext_allow,
             ext_deny=config.query.ext_deny,
-            model=config.llm.model,
+            model=query_config.model,
         )
 
         # Run single query

@@ -8,6 +8,7 @@ All notable changes to Local Second Mind are documented here.
 - Refinements to configuration reference.
 - Added Anthropic, Gemini, Local (Ollama), and Azure OpenAI providers.
 - Added provider health tracking and `/provider-status` REPL command.
+- LLM configuration now uses an ordered `llms` list with per-feature selection.
 
 ## 0.2.0
 
@@ -22,6 +23,7 @@ All notable changes to Local Second Mind are documented here.
 ### Changed
 
 - LLM configuration consolidated under `llm` with per-feature overrides.
+- LLM configuration now supports ordered multi-provider selection via `llms`.
 - Query pipeline now supports hybrid reranking and relevance gating.
 
 ### Fixed
@@ -34,8 +36,8 @@ All notable changes to Local Second Mind are documented here.
 
 ### Migration Notes
 
-- If you were using a legacy `openai` section, migrate to `llm` but the legacy
-  format is still supported.
+- Legacy `openai` and single-provider `llm` sections are removed; migrate to
+  the ordered `llms` list schema.
 
 ## 0.1.0
 

@@ -47,6 +47,7 @@ PROVIDER_REGISTRY: Dict[str, Type[BaseLLMProvider]] = {
 
 if AnthropicProvider is not None:
     PROVIDER_REGISTRY["anthropic"] = AnthropicProvider
+    PROVIDER_REGISTRY["claude"] = AnthropicProvider
 
 if LocalProvider is not None:
     PROVIDER_REGISTRY["local"] = LocalProvider
@@ -74,7 +75,7 @@ def create_provider(config: LLMConfig) -> BaseLLMProvider:
     Example:
         >>> from lsm.config import load_config_from_file
         >>> config = load_config_from_file("config.json")
-        >>> provider = create_provider(config.llm)
+        >>> provider = create_provider(config.llm.get_query_config())
         >>> print(provider)
         openai/gpt-5.2
     """

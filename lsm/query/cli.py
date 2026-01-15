@@ -8,8 +8,6 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from openai import OpenAI
-
 from lsm.config.models import LSMConfig
 from lsm.cli.logging import get_logger
 from .retrieval import init_embedder
@@ -62,17 +60,9 @@ def run_query_cli(config: LSMConfig) -> int:
 
     logger.info(f"Collection ready with {count} chunks")
 
-    # Initialize OpenAI client
-    if config.llm.api_key:
-        client = OpenAI(api_key=config.llm.api_key)
-    else:
-        client = OpenAI()  # Uses OPENAI_API_KEY env var
-
-    logger.info("OpenAI client initialized")
-
     # Start REPL
     try:
-        run_repl(config, embedder, provider, client)
+        run_repl(config, embedder, provider)
     except KeyboardInterrupt:
         print("\nInterrupted.")
         return 0

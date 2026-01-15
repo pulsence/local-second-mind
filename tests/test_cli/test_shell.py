@@ -7,7 +7,15 @@ from unittest.mock import Mock, patch, MagicMock
 from pathlib import Path
 
 from lsm.cli.shell import UnifiedShell
-from lsm.config.models import LSMConfig, IngestConfig, QueryConfig, LLMConfig, VectorDBConfig
+from lsm.config.models import (
+    LSMConfig,
+    IngestConfig,
+    QueryConfig,
+    VectorDBConfig,
+    LLMRegistryConfig,
+    LLMProviderConfig,
+    FeatureLLMConfig,
+)
 
 
 @pytest.fixture
@@ -19,10 +27,14 @@ def mock_config():
             manifest=Path("/tmp/manifest.json"),
         ),
         query=QueryConfig(),
-        llm=LLMConfig(
-            provider="openai",
-            model="gpt-5.2",
-            api_key="test_key"
+        llm=LLMRegistryConfig(
+            llms=[
+                LLMProviderConfig(
+                    provider_name="openai",
+                    api_key="test_key",
+                    query=FeatureLLMConfig(model="gpt-5.2"),
+                ),
+            ]
         ),
         vectordb=VectorDBConfig(
             persist_dir=Path("/tmp/.chroma"),
@@ -75,18 +87,15 @@ class TestUnifiedShell:
 
     @patch('lsm.vectordb.create_vectordb_provider')
     @patch('lsm.query.retrieval.init_embedder')
-    @patch('lsm.cli.shell.OpenAI')
-    def test_switch_to_query(self, mock_openai, mock_init_embedder, mock_create_provider, mock_config, capsys):
+    def test_switch_to_query(self, mock_init_embedder, mock_create_provider, mock_config, capsys):
         """Test switching to query context."""
         mock_embedder = Mock()
         mock_provider = Mock()
         mock_provider.count.return_value = 50
         mock_provider.get_stats.return_value = {"provider": "mock"}
-        mock_client = Mock()
 
         mock_init_embedder.return_value = mock_embedder
         mock_create_provider.return_value = mock_provider
-        mock_openai.return_value = mock_client
 
         # Create persist dir
         mock_config.vectordb.persist_dir.mkdir(parents=True, exist_ok=True)
@@ -97,7 +106,6 @@ class TestUnifiedShell:
         assert shell.current_context == "query"
         assert shell._query_embedder is not None
         assert shell._query_provider is not None
-        assert shell._query_client is not None
         assert shell._query_state is not None
 
         captured = capsys.readouterr()
@@ -128,15 +136,13 @@ class TestUnifiedShell:
     @patch('builtins.input', side_effect=["/ingest", "/query", "/exit"])
     @patch('lsm.vectordb.create_vectordb_provider')
     @patch('lsm.query.retrieval.init_embedder')
-    @patch('lsm.cli.shell.OpenAI')
-    def test_shell_context_switching(self, mock_openai, mock_init_emb, mock_create_provider, mock_input, mock_config):
+    def test_shell_context_switching(self, mock_init_emb, mock_create_provider, mock_input, mock_config):
         """Test shell can switch between contexts."""
         # Setup mocks
         ingest_provider = Mock(count=Mock(return_value=10), get_stats=Mock(return_value={"provider": "mock"}))
         query_provider = Mock(count=Mock(return_value=20), get_stats=Mock(return_value={"provider": "mock"}))
         mock_create_provider.side_effect = [ingest_provider, query_provider]
         mock_init_emb.return_value = Mock()
-        mock_openai.return_value = Mock()
 
         # Create persist dir
         mock_config.vectordb.persist_dir.mkdir(parents=True, exist_ok=True)
@@ -180,13 +186,11 @@ class TestShellHelpers:
 
     @patch('lsm.vectordb.create_vectordb_provider')
     @patch('lsm.query.retrieval.init_embedder')
-    @patch('lsm.cli.shell.OpenAI')
     @patch('lsm.query.repl.print_help')
-    def test_show_help_query_context(self, mock_print_help, mock_openai, mock_init_emb, mock_create_provider, mock_config):
+    def test_show_help_query_context(self, mock_print_help, mock_init_emb, mock_create_provider, mock_config):
         """Test help shows query commands when in query context."""
         mock_init_emb.return_value = Mock()
         mock_create_provider.return_value = Mock(count=Mock(return_value=10), get_stats=Mock(return_value={"provider": "mock"}))
-        mock_openai.return_value = Mock()
         mock_config.vectordb.persist_dir.mkdir(parents=True, exist_ok=True)
 
         shell = UnifiedShell(mock_config)

@@ -34,35 +34,48 @@
   "exclude_dirs": [".cache", "node_modules", "__pycache__"],
   "override_excludes": false,
 
-  "_comment_llm": "LLM provider configuration with per-feature overrides",
-  "llm": {
-    "provider": "openai",
-    "model": "gpt-5.2",
-    "api_key": "INSERT_YOUR_OPENAI_API_KEY",
-    "temperature": 0.7,
-    "max_tokens": 2000,
-
-    "_comment_query_override": "Optional: Override LLM settings for query/answer synthesis",
-    "query": {
-      "model": "gpt-5.2",
-      "temperature": 0.7,
-      "max_tokens": 2000
+  "_comment_llm": "LLM providers list (ordered). Later providers override per-feature selection.",
+  "llms": [
+    {
+      "_comment_provider": "Primary provider defines defaults for all features",
+      "provider_name": "openai",
+      "api_key": "INSERT_YOUR_OPENAI_API_KEY",
+      "query": {
+        "model": "gpt-5.2",
+        "temperature": 0.7,
+        "max_tokens": 2000
+      },
+      "tagging": {
+        "model": "gpt-5-nano",
+        "temperature": 0.5,
+        "max_tokens": 200
+      },
+      "ranking": {
+        "model": "gpt-5.2",
+        "temperature": 0.3,
+        "max_tokens": 500
+      }
     },
-
-    "_comment_tagging_override": "Optional: Override LLM settings for AI tagging (use cheaper/faster model)",
-    "tagging": {
-      "model": "gpt-4o-mini",
-      "temperature": 0.5,
-      "max_tokens": 200
+    {
+      "_comment_provider": "Later providers can override a single feature",
+      "provider_name": "gemini",
+      "api_key": "INSERT_YOUR_GEMINI_API_KEY",
+      "tagging": {
+        "model": "gemini-2.5-flash-lite",
+        "temperature": 1,
+        "max_tokens": 200
+      }
     },
-
-    "_comment_ranking_override": "Optional: Override LLM settings for AI-powered reranking",
-    "ranking": {
-      "model": "gpt-5.2",
-      "temperature": 0.3,
-      "max_tokens": 500
+    {
+      "provider_name": "claude",
+      "api_key": "INSERT_YOUR_CLAUDE_API_KEY",
+      "ranking": {
+        "model": "claude-haiku-4-5",
+        "temperature": 1,
+        "max_tokens": 200
+      }
     }
-  },
+  ],
 
   "_comment_query": "Query pipeline configuration",
   "query": {

@@ -53,6 +53,34 @@ class GeminiProvider(BaseLLMProvider):
     def is_available(self) -> bool:
         return bool(self._api_key)
 
+    def list_models(self) -> List[str]:
+        if not self.is_available():
+            return []
+
+        try:
+            client = self._ensure_client()
+            res = client.models.list()
+            items = getattr(res, "page", None)
+            if items is None:
+                try:
+                    items = list(res)
+                except TypeError:
+                    items = []
+
+            ids: List[str] = []
+            for item in items or []:
+                name = getattr(item, "name", None) or getattr(item, "display_name", None)
+                if not isinstance(name, str) or not name:
+                    continue
+                if "/" in name:
+                    name = name.split("/")[-1]
+                ids.append(name)
+            ids = sorted(set(ids))
+            return ids
+        except Exception as e:
+            logger.debug(f"Failed to list Gemini models: {e}")
+            return []
+
     def _ensure_client(self) -> genai.Client:
         if self._client is None:
             if not self._api_key:
@@ -77,6 +105,39 @@ class GeminiProvider(BaseLLMProvider):
             "DeadlineExceeded",
             "InternalServerError",
         }
+
+    def _strip_code_fences(self, text: str) -> str:
+        stripped = text.strip()
+        if stripped.startswith("```") and stripped.endswith("```"):
+            lines = stripped.splitlines()
+            if len(lines) >= 3:
+                return "\n".join(lines[1:-1]).strip()
+        return stripped
+
+    def _parse_json_payload(self, raw: str) -> Any:
+        cleaned = self._strip_code_fences(raw)
+        try:
+            return json.loads(cleaned)
+        except json.JSONDecodeError:
+            pass
+
+        obj_start = cleaned.find("{")
+        obj_end = cleaned.rfind("}")
+        if obj_start != -1 and obj_end != -1 and obj_end > obj_start:
+            try:
+                return json.loads(cleaned[obj_start:obj_end + 1])
+            except json.JSONDecodeError:
+                pass
+
+        arr_start = cleaned.find("[")
+        arr_end = cleaned.rfind("]")
+        if arr_start != -1 and arr_end != -1 and arr_end > arr_start:
+            try:
+                return json.loads(cleaned[arr_start:arr_end + 1])
+            except json.JSONDecodeError:
+                pass
+
+        raise json.JSONDecodeError("Failed to parse JSON response", cleaned, 0)
 
     def _generate(self, prompt: str, temperature: float, max_tokens: int) -> str:
         client = self._ensure_client()
@@ -148,7 +209,9 @@ class GeminiProvider(BaseLLMProvider):
         try:
             prompt = f"{instructions}\n\n{json.dumps(payload)}"
             raw = self._generate(prompt, temperature=0.2, max_tokens=400)
-            data = json.loads(raw)
+            if not raw:
+                raise json.JSONDecodeError("Empty rerank response", raw, 0)
+            data = self._parse_json_payload(raw)
             ranking = data.get("ranking", [])
             if not isinstance(ranking, list):
                 self._record_failure(ValueError("Invalid rerank response"), "rerank")
@@ -266,7 +329,9 @@ Output requirements:
         try:
             prompt = f"{instructions}\n\n{user_content}"
             raw = self._generate(prompt, temperature=temperature, max_tokens=max_tokens)
-            data = json.loads(raw)
+            if not raw:
+                raise json.JSONDecodeError("Empty tag response", raw, 0)
+            data = self._parse_json_payload(raw)
             tags = data.get("tags", [])
             if isinstance(tags, list) and all(isinstance(t, str) for t in tags):
                 cleaned = [t.lower().strip() for t in tags if t.strip()]

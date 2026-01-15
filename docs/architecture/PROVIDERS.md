@@ -58,13 +58,13 @@ The OpenAI provider:
 
 ## Per-Feature Overrides
 
-`LLMConfig` supports overrides for:
+`LLMRegistryConfig` supports overrides for:
 
 - `query` (synthesis)
 - `ranking` (reranking)
 - `tagging` (AI tag generation)
 
-These overrides inherit from the base `llm` config when fields are not provided.
+These overrides inherit from the selected provider entry when fields are not provided.
 
 ## Availability Checks
 
@@ -77,7 +77,7 @@ To add a provider:
 
 1. Implement `BaseLLMProvider`.
 2. Register it in `PROVIDER_REGISTRY` (or via `register_provider`).
-3. Provide configuration under `llm.provider`.
+3. Provide configuration under the ordered `llms` list.
 
 See `docs/api-reference/ADDING_PROVIDERS.md` for a worked example.
 

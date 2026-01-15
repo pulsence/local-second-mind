@@ -65,37 +65,62 @@ Default excluded directory names include: `.git`, `.hg`, `.svn`, `__pycache__`,
 
 ## LLM Configuration
 
-The `llm` section controls provider settings and optional per-feature overrides.
+The `llms` section defines an ordered list of provider entries. Later entries
+override feature selection when they define a feature (`query`, `tagging`,
+`ranking`).
 
 ```json
-"llm": {
-  "provider": "openai",
-  "model": "gpt-5.2",
-  "api_key": null,
-  "temperature": 0.7,
-  "max_tokens": 2000,
-  "query": {
-    "model": "gpt-5.2",
-    "temperature": 0.7,
-    "max_tokens": 2000
+"llms": [
+  {
+    "provider_name": "openai",
+    "api_key": null,
+    "query": {
+      "model": "gpt-5.2",
+      "temperature": 0.7,
+      "max_tokens": 2000
+    },
+    "tagging": {
+      "model": "gpt-5-nano",
+      "temperature": 0.5,
+      "max_tokens": 200
+    },
+    "ranking": {
+      "model": "gpt-5-nano",
+      "temperature": 0.3,
+      "max_tokens": 500
+    }
   },
-  "tagging": {
-    "model": "gpt-4o-mini",
-    "temperature": 0.5,
-    "max_tokens": 200
+  {
+    "provider_name": "gemini",
+    "api_key": null,
+    "tagging": {
+      "model": "gemini-2.5-flash-lite",
+      "temperature": 1,
+      "max_tokens": 200
+    }
   },
-  "ranking": {
-    "model": "gpt-5.2",
-    "temperature": 0.3,
-    "max_tokens": 500
+  {
+    "provider_name": "claude",
+    "api_key": null,
+    "ranking": {
+      "model": "claude-haiku-4-5",
+      "temperature": 1,
+      "max_tokens": 200
+    }
   }
-}
+]
 ```
 
 Notes:
 
-- `api_key` can be omitted and loaded from environment variables.
-- Per-feature overrides inherit from the base `llm` config.
+- Each `llms[]` entry must define at least one feature: `query`, `tagging`, or
+  `ranking`.
+- For each feature, the last provider in the list that defines it is selected.
+- `query` is required. `tagging` and `ranking` are optional and only needed if
+  you use those features.
+- Provider-level fields (`api_key`, `model`, `temperature`, `max_tokens`,
+  `base_url`, `endpoint`, `api_version`, `deployment_name`) apply to feature
+  configs unless overridden.
 - Supported providers: `openai`, `anthropic`, `gemini`, `local`, `azure_openai`.
 
 Provider-specific fields:
@@ -108,55 +133,59 @@ Provider-specific fields:
 Anthropic:
 
 ```json
-"llm": {
-  "provider": "anthropic",
-  "model": "claude-3-5-sonnet-20241022",
-  "api_key": "${ANTHROPIC_API_KEY}"
-}
+"llms": [
+  {
+    "provider_name": "anthropic",
+    "query": { "model": "claude-3-5-sonnet-20241022" },
+    "tagging": { "model": "claude-3-5-haiku-20241022" },
+    "ranking": { "model": "claude-3-5-haiku-20241022" }
+  }
+]
 ```
 
 Local (Ollama):
 
 ```json
-"llm": {
-  "provider": "local",
-  "model": "llama2",
-  "base_url": "http://localhost:11434"
-}
+"llms": [
+  {
+    "provider_name": "local",
+    "base_url": "http://localhost:11434",
+    "query": { "model": "llama3" },
+    "tagging": { "model": "llama3" },
+    "ranking": { "model": "llama3" }
+  }
+]
 ```
 
 Gemini:
 
 ```json
-"llm": {
-  "provider": "gemini",
-  "model": "gemini-1.5-pro",
-  "api_key": "${GOOGLE_API_KEY}"
-}
+"llms": [
+  {
+    "provider_name": "gemini",
+    "query": { "model": "gemini-1.5-pro" },
+    "tagging": { "model": "gemini-1.5-flash" },
+    "ranking": { "model": "gemini-1.5-pro" }
+  }
+]
 ```
 
 Azure OpenAI:
 
 ```json
-"llm": {
-  "provider": "azure_openai",
-  "model": "gpt-35-turbo",
-  "api_key": "${AZURE_OPENAI_API_KEY}",
-  "endpoint": "https://your-resource.openai.azure.com/",
-  "api_version": "2023-05-15",
-  "deployment_name": "gpt-35-turbo"
-}
+"llms": [
+  {
+    "provider_name": "azure_openai",
+    "api_key": "${AZURE_OPENAI_API_KEY}",
+    "endpoint": "https://your-resource.openai.azure.com/",
+    "api_version": "2023-05-15",
+    "deployment_name": "gpt-35-turbo",
+    "query": { "model": "gpt-35-turbo" },
+    "tagging": { "model": "gpt-35-turbo" },
+    "ranking": { "model": "gpt-35-turbo" }
+  }
+]
 ```
-
-### Legacy OpenAI Section
-
-A legacy `openai` section is still supported for API key loading:
-
-```json
-"openai": { "api_key": "..." }
-```
-
-Prefer `llm.api_key` going forward.
 
 ## Query Configuration
 
@@ -241,8 +270,9 @@ Common environment variables:
 - `BRAVE_API_KEY` (Brave Search provider)
 - `<PROVIDER>_API_KEY` (generic convention for future providers)
 
-If `llm.api_key` is omitted, LSM reads `OPENAI_API_KEY` or
-`{PROVIDER}_API_KEY` automatically. Local providers do not require an API key.
+If a provider entry omits `api_key`, LSM reads `{PROVIDER}_API_KEY`
+automatically (and `GOOGLE_API_KEY` for Gemini). Local providers do not require
+an API key.
 
 ## Path Resolution Rules
 
@@ -258,7 +288,12 @@ If `llm.api_key` is omitted, LSM reads `OPENAI_API_KEY` or
 ```json
 {
   "roots": ["C:/Users/You/Documents"],
-  "llm": { "api_key": null }
+  "llms": [
+    {
+      "provider_name": "openai",
+      "query": { "model": "gpt-5.2" }
+    }
+  ]
 }
 ```
 
@@ -271,7 +306,12 @@ If `llm.api_key` is omitted, LSM reads `OPENAI_API_KEY` or
     "rerank_strategy": "lexical",
     "no_rerank": true
   },
-  "llm": { "api_key": null }
+  "llms": [
+    {
+      "provider_name": "openai",
+      "query": { "model": "gpt-5.2" }
+    }
+  ]
 }
 ```
 
@@ -281,7 +321,12 @@ If `llm.api_key` is omitted, LSM reads `OPENAI_API_KEY` or
 {
   "roots": ["C:/Users/You/Scans"],
   "enable_ocr": true,
-  "llm": { "api_key": null }
+  "llms": [
+    {
+      "provider_name": "openai",
+      "query": { "model": "gpt-5.2" }
+    }
+  ]
 }
 ```
 
@@ -309,7 +354,12 @@ If `llm.api_key` is omitted, LSM reads `OPENAI_API_KEY` or
       "max_results": 5
     }
   },
-  "llm": { "api_key": null }
+  "llms": [
+    {
+      "provider_name": "openai",
+      "query": { "model": "gpt-5.2" }
+    }
+  ]
 }
 ```
 
@@ -318,5 +368,5 @@ If `llm.api_key` is omitted, LSM reads `OPENAI_API_KEY` or
 - If LSM says `query.mode` is not found, ensure it matches a key in `modes`.
 - If Chroma errors occur, verify `persist_dir` is writable and not empty.
 - If no files are found, double-check `roots`, `extensions`, and `exclude_dirs`.
-- If OpenAI is not available, set `OPENAI_API_KEY` in `.env` or `llm.api_key`.
+- If OpenAI is not available, set `OPENAI_API_KEY` in `.env` or `llms[].api_key`.
 - For Brave Search, set `BRAVE_API_KEY` or `remote_providers.<name>.api_key`.

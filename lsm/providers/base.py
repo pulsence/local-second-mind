@@ -211,6 +211,14 @@ class BaseLLMProvider(ABC):
             "stats": self._health_stats.as_dict(),
         }
 
+    def list_models(self) -> List[str]:
+        """
+        List models available to the provider.
+
+        Providers that do not support model listing should return an empty list.
+        """
+        return []
+
     def __str__(self) -> str:
         """String representation of the provider."""
         return f"{self.name}/{self.model}"

@@ -10,8 +10,6 @@ import sys
 from pathlib import Path
 from typing import Optional, Literal
 
-from openai import OpenAI
-
 from lsm.config import load_config_from_file
 from lsm.config.models import LSMConfig
 from lsm.cli.logging import get_logger
@@ -42,7 +40,6 @@ class UnifiedShell:
         self._ingest_provider = None
         self._query_embedder = None
         self._query_provider = None
-        self._query_client = None
         self._query_state = None
 
     def print_banner(self) -> None:
@@ -112,15 +109,10 @@ class UnifiedShell:
                 print(f"Warning: Collection '{self.config.collection}' is empty.")
                 print("Run /ingest to populate the database.")
 
-            # Initialize OpenAI client
-            if self.config.llm.api_key:
-                self._query_client = OpenAI(api_key=self.config.llm.api_key)
-            else:
-                self._query_client = OpenAI()  # Uses OPENAI_API_KEY env var
-
             # Initialize session state
+            query_config = self.config.llm.get_query_config()
             self._query_state = SessionState(
-                model=self.config.llm.model,
+                model=query_config.model,
                 cost_tracker=CostTracker(),
             )
 
@@ -172,7 +164,20 @@ class UnifiedShell:
             print("=" * 70)
             print(f"Collection: {self.config.collection}")
             print(f"Chunks:     {count:,}")
-            print(f"Model:      {self.config.llm.model}")
+            feature_map = self.config.llm.get_feature_provider_map()
+            for feature in ("query", "tagging", "ranking"):
+                if feature not in feature_map:
+                    continue
+                cfg = {
+                    "query": self.config.llm.get_query_config(),
+                    "tagging": self.config.llm.get_tagging_config(),
+                    "ranking": self.config.llm.get_ranking_config(),
+                }[feature]
+                label = {"query": "query", "tagging": "tag", "ranking": "rerank"}[feature]
+                provider = cfg.provider
+                if provider in {"anthropic", "claude"}:
+                    provider = "claude"
+                print(f"{label:7s} {provider}/{cfg.model}")
             print()
             print("Type your question or /help for commands, or /ingest to switch to ingest mode.")
             print()
@@ -225,7 +230,6 @@ class UnifiedShell:
             is_command = handle_command(
                 line,
                 self._query_state,
-                self._query_client,
                 self.config,
                 self._query_embedder,
                 self._query_provider,
