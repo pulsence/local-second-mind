@@ -62,11 +62,19 @@ Returns the registry mapping types to classes.
   `snippet_max_chars`, `include_disambiguation`, `user_agent`
 - Environment variable: `LSM_WIKIPEDIA_USER_AGENT` (recommended)
 
+### arXiv
+
+- Type: `arxiv`
+- Config keys: `endpoint`, `timeout`, `min_interval_seconds`, `snippet_max_chars`,
+  `sort_by`, `sort_order`, `categories`, `user_agent`
+- Environment variable: `LSM_ARXIV_USER_AGENT` (recommended)
+
 ## Integration in Query Pipeline
 
 Remote providers are used when:
 
 - a mode enables `source_policy.remote.enabled`
 - `LSMConfig.get_active_remote_providers()` returns providers with `enabled = true`
+  (filtered by `source_policy.remote.remote_providers` when present)
 
-Results are displayed after the answer.
+Results are included in the LLM context and displayed after the answer.

@@ -8,15 +8,16 @@ and provider configuration.
 
 1. A mode enables remote sources via `source_policy.remote.enabled`.
 2. LSM loads configured remote providers from `remote_providers`.
-3. Each provider searches for results and returns `RemoteResult` items.
-4. Results are displayed after the answer.
+3. If `source_policy.remote.remote_providers` is set, only those providers are used.
+4. Each provider searches for results and returns `RemoteResult` items.
+5. Results are displayed after the answer.
 
-Current behavior: remote results are not yet merged into the LLM context.
-They are presented as a separate section.
+Remote results are included in the LLM context and also presented as a
+separate section.
 
 ## Built-In Providers
 
-LSM ships with two built-in remote providers:
+LSM ships with three built-in remote providers:
 
 - Brave Search
   - Type: `web_search` or `brave_search`
@@ -24,6 +25,9 @@ LSM ships with two built-in remote providers:
 - Wikipedia
   - Type: `wikipedia`
   - Environment variable: `LSM_WIKIPEDIA_USER_AGENT` (recommended)
+- arXiv
+  - Type: `arxiv`
+  - Environment variable: `LSM_ARXIV_USER_AGENT` (recommended)
 
 ## Configuring Brave Search
 
@@ -73,6 +77,48 @@ Notes:
 - `language` controls the Wikipedia subdomain (`en`, `de`, etc.).
 - `min_interval_seconds` throttles requests to respect API rate limits.
 
+## Configuring arXiv
+
+```json
+"remote_providers": [
+  {
+    "name": "arxiv",
+    "type": "arxiv",
+    "enabled": true,
+    "weight": 0.9,
+    "user_agent": "LocalSecondMind/1.0 (contact: you@example.com)",
+    "max_results": 5,
+    "min_interval_seconds": 3.0,
+    "sort_by": "relevance",
+    "sort_order": "descending",
+    "categories": ["cs.AI", "cs.LG"]
+  }
+]
+```
+
+Notes:
+
+- `categories` filters results to arXiv categories when provided.
+- `sort_by` supports `relevance`, `lastUpdatedDate`, or `submittedDate`.
+
+### arXiv Field Labels
+
+Use these labels in your query text to target specific metadata fields:
+
+- `title:` for title matches
+- `author:` for author names
+- `abstract:` or `topic:` for abstract text
+- `cat:` or `category:` for arXiv category filters
+- `all:` for a full-record search
+
+Examples:
+
+- `title:"pulsar timing"`
+- `author:lorimer`
+- `abstract:"fast radio bursts"`
+- `cat:astro-ph.HE`
+- `title:"pulsar timing" author:lorimer`
+
 ## Enabling Remote Sources in a Mode
 
 ```json
@@ -82,7 +128,12 @@ Notes:
     "synthesis_style": "grounded",
     "source_policy": {
       "local": { "min_relevance": 0.25, "k": 12, "k_rerank": 6 },
-      "remote": { "enabled": true, "rank_strategy": "weighted", "max_results": 5 },
+      "remote": {
+        "enabled": true,
+        "rank_strategy": "weighted",
+        "max_results": 5,
+        "remote_providers": ["brave", "arxiv"]
+      },
       "model_knowledge": { "enabled": true, "require_label": true }
     },
     "notes": { "enabled": true, "dir": "notes", "template": "default", "filename_format": "timestamp" }

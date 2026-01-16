@@ -11,11 +11,13 @@ from .factory import create_remote_provider, register_remote_provider
 # Import and register built-in providers
 from .brave import BraveSearchProvider
 from .wikipedia import WikipediaProvider
+from .arxiv import ArXivProvider
 
 # Register Brave Search provider
 register_remote_provider("web_search", BraveSearchProvider)
 register_remote_provider("brave_search", BraveSearchProvider)
 register_remote_provider("wikipedia", WikipediaProvider)
+register_remote_provider("arxiv", ArXivProvider)
 
 __all__ = [
     "BaseRemoteProvider",
@@ -24,4 +26,5 @@ __all__ = [
     "register_remote_provider",
     "BraveSearchProvider",
     "WikipediaProvider",
+    "ArXivProvider",
 ]

@@ -66,7 +66,7 @@ LLM reranking is optional and uses the active provider (`BaseLLMProvider`).
 
 - Enabled per mode using `source_policy.remote.enabled`.
 - Remote results are fetched and displayed after the answer.
-- Current implementation does not merge remote results into the LLM context.
+- Remote results are merged into the LLM context when enabled.
 
 ## Session Management
 

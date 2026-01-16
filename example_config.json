@@ -109,7 +109,12 @@
         "remote": {
           "enabled": true,
           "rank_strategy": "weighted",
-          "max_results": 10
+          "max_results": 10,
+          "remote_providers": [
+            "brave",
+            "wikipedia",
+            "arxiv"
+          ]
         },
         "model_knowledge": {
           "enabled": true,
@@ -151,6 +156,21 @@
       "section_limit": 2,
       "snippet_max_chars": 600,
       "include_disambiguation": false
+    },
+    {
+      "name": "arxiv",
+      "type": "arxiv",
+      "enabled": true,
+      "weight": 0.9,
+      "user_agent": "LocalSecondMind/1.0 (contact: you@example.com)",
+      "max_results": 5,
+      "min_interval_seconds": 3.0,
+      "sort_by": "relevance",
+      "sort_order": "descending",
+      "categories": [
+        "cs.AI",
+        "cs.LG"
+      ]
     }
   ]
 }

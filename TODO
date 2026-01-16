@@ -20,7 +20,7 @@ or be merged with built-in modes
 - Check for places to improve error handling and fault resilience
 
 ## Testing 
-- test_providers/remote should be test_remote
+- test module structure should match the code module structure
 - Run full pytest suite and verify all tests pass
 - Create synthetic test data to run intergration tests
 
@@ -45,9 +45,10 @@ or a chunk should not span two heading levels.
 - Implement streaming responses for better UX on long synthesis
 - Add export citations to BibTeX/Zotero format
 - Integration with note-taking apps (Obsidian, Logseq)
-- All inputs that start with / are to be treated as a command and never a query,
-if the command is missing say so and display help.
-- There should be a /status command to show the status of the different providers
+- Impliment query caching to be efficient in call usage
+
+## Remote Providers
+- Figure out natural word processing for arvix
 
 ## Multi-Provider Support
 - Check the implimentations of the ai providers and see if the base

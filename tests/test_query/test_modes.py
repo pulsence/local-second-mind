@@ -97,6 +97,7 @@ class TestSourcePolicyConfig:
         assert policy.enabled is False
         assert policy.rank_strategy == "weighted"
         assert policy.max_results == 5
+        assert policy.remote_providers is None
 
     def test_model_knowledge_policy_defaults(self):
         """Test ModelKnowledgePolicy defaults."""
@@ -109,13 +110,14 @@ class TestSourcePolicyConfig:
         """Test SourcePolicyConfig composes all policy types."""
         source_policy = SourcePolicyConfig(
             local=LocalSourcePolicy(k=20),
-            remote=RemoteSourcePolicy(enabled=True, max_results=10),
+            remote=RemoteSourcePolicy(enabled=True, max_results=10, remote_providers=["wikipedia"]),
             model_knowledge=ModelKnowledgePolicy(enabled=True)
         )
 
         assert source_policy.local.k == 20
         assert source_policy.remote.enabled is True
         assert source_policy.remote.max_results == 10
+        assert source_policy.remote.remote_providers == ["wikipedia"]
         assert source_policy.model_knowledge.enabled is True
 
 
@@ -180,8 +182,7 @@ class TestBuiltInModes:
 
         assert mode.synthesis_style == "insight"
         assert mode.source_policy.local is not None
-        # Insight mode should allow some flexibility
-        assert mode.source_policy.model_knowledge.enabled is False  # Still conservative by default
+        assert mode.source_policy.model_knowledge.enabled is True
 
     def test_hybrid_mode_config(self):
         """Test built-in hybrid mode configuration."""
@@ -204,7 +205,7 @@ class TestCustomModes:
             synthesis_style="grounded",
             source_policy=SourcePolicyConfig(
                 local=LocalSourcePolicy(k=20, min_relevance=0.15),
-                remote=RemoteSourcePolicy(enabled=True, max_results=15),
+                remote=RemoteSourcePolicy(enabled=True, max_results=15, remote_providers=["arxiv"]),
                 model_knowledge=ModelKnowledgePolicy(enabled=True, require_label=False)
             ),
             notes=NotesConfig(enabled=True, dir="custom_notes")
@@ -217,6 +218,7 @@ class TestCustomModes:
         assert mode.synthesis_style == "grounded"
         assert mode.source_policy.local.k == 20
         assert mode.source_policy.remote.max_results == 15
+        assert mode.source_policy.remote.remote_providers == ["arxiv"]
         assert mode.notes.dir == "custom_notes"
 
     def test_mode_fallback_to_default(self):
@@ -224,6 +226,7 @@ class TestCustomModes:
         config = _make_config("nonexistent_mode")
 
         # Should fall back to grounded mode
+        config.validate()
         mode = config.get_mode_config()
 
         assert mode.synthesis_style == "grounded"
@@ -260,7 +263,7 @@ class TestModeSourceBlending:
             synthesis_style="grounded",
             source_policy=SourcePolicyConfig(
                 local=LocalSourcePolicy(k=10),
-                remote=RemoteSourcePolicy(enabled=True, max_results=5),
+                remote=RemoteSourcePolicy(enabled=True, max_results=5, remote_providers=["wikipedia"]),
                 model_knowledge=ModelKnowledgePolicy(enabled=False)
             )
         )
@@ -274,6 +277,7 @@ class TestModeSourceBlending:
         assert policy.local is not None
         assert policy.remote.enabled is True
         assert policy.model_knowledge.enabled is False
+        assert policy.remote.remote_providers == ["wikipedia"]
 
 
 class TestModeWithNotes:

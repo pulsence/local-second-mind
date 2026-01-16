@@ -50,7 +50,12 @@ A mode has three sub-systems:
     "synthesis_style": "grounded",
     "source_policy": {
       "local": { "min_relevance": 0.20, "k": 15, "k_rerank": 8 },
-      "remote": { "enabled": true, "rank_strategy": "weighted", "max_results": 10 },
+      "remote": {
+        "enabled": true,
+        "rank_strategy": "weighted",
+        "max_results": 10,
+        "remote_providers": ["brave", "wikipedia", "arxiv"]
+      },
       "model_knowledge": { "enabled": true, "require_label": true }
     },
     "notes": {
@@ -65,6 +70,7 @@ A mode has three sub-systems:
 
 ### Local Source Policy
 
+- `enabled`: enable local sources for this mode
 - `min_relevance`: minimum relevance (1 - distance) to synthesize
 - `k`: number of chunks to retrieve from Chroma
 - `k_rerank`: number of chunks to keep after reranking
@@ -74,6 +80,7 @@ A mode has three sub-systems:
 - `enabled`: enable remote sources for this mode
 - `rank_strategy`: `weighted`, `sequential`, `interleaved` (reserved for future)
 - `max_results`: max results per provider
+- `remote_providers`: optional list of `remote_providers[].name` values to use for this mode
 
 ### Model Knowledge Policy
 
@@ -133,11 +140,33 @@ The REPL shows mode details via `/mode`.
     "name": "research",
     "synthesis_style": "grounded",
     "source_policy": {
-      "local": { "min_relevance": 0.25, "k": 12, "k_rerank": 6 },
-      "remote": { "enabled": true, "rank_strategy": "weighted", "max_results": 5 },
+      "local": { "enabled": true, "min_relevance": 0.25, "k": 12, "k_rerank": 6 },
+      "remote": {
+        "enabled": true,
+        "rank_strategy": "weighted",
+        "max_results": 5,
+        "remote_providers": ["arxiv", "wikipedia"]
+      },
       "model_knowledge": { "enabled": true, "require_label": true }
     },
     "notes": { "enabled": true, "dir": "research_notes", "template": "default", "filename_format": "timestamp" }
+  }
+]
+```
+
+### Example: Remote-Only Mode
+
+```json
+"modes": [
+  {
+    "name": "remote_only",
+    "synthesis_style": "insight",
+    "source_policy": {
+      "local": { "enabled": false },
+      "remote": { "enabled": true, "rank_strategy": "weighted", "max_results": 5 },
+      "model_knowledge": { "enabled": true, "require_label": true }
+    },
+    "notes": { "enabled": true, "dir": "notes", "template": "default", "filename_format": "timestamp" }
   }
 ]
 ```
@@ -151,5 +180,4 @@ The REPL shows mode details via `/mode`.
 ## Current Limitations
 
 - `rank_strategy` is not yet applied when merging remote results.
-- Remote results are displayed but not merged into the LLM context yet.
 - `model_knowledge.require_label` is advisory in the current prompt.

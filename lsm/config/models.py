@@ -673,6 +673,9 @@ class LocalSourcePolicy:
     Controls how chunks are retrieved from the local ChromaDB collection.
     """
 
+    enabled: bool = True
+    """Whether local sources are enabled for this mode."""
+
     min_relevance: float = DEFAULT_MIN_RELEVANCE
     """Minimum relevance score (1 - distance) to include chunks."""
 
@@ -699,6 +702,9 @@ class RemoteSourcePolicy:
 
     max_results: int = 5
     """Maximum number of remote results to fetch."""
+
+    remote_providers: Optional[List[str]] = None
+    """Optional list of remote provider names to use in this mode."""
 
 
 @dataclass
@@ -1130,7 +1136,10 @@ class LSMConfig:
 
         return self.modes[name]
 
-    def get_active_remote_providers(self) -> list[RemoteProviderConfig]:
+    def get_active_remote_providers(
+        self,
+        allowed_names: Optional[Set[str]] = None,
+    ) -> list[RemoteProviderConfig]:
         """
         Get all enabled remote providers.
 
@@ -1140,7 +1149,12 @@ class LSMConfig:
         if not self.remote_providers:
             return []
 
-        return [config for config in self.remote_providers if config.enabled]
+        enabled = [config for config in self.remote_providers if config.enabled]
+        if not allowed_names:
+            return enabled
+
+        normalized = {name.lower() for name in allowed_names if name}
+        return [config for config in enabled if config.name.lower() in normalized]
 
     @property
     def persist_dir(self) -> Path:

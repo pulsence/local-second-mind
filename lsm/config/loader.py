@@ -282,8 +282,30 @@ def build_source_policy_config(raw: Dict[str, Any]) -> SourcePolicyConfig:
     remote_raw = raw.get("remote", {})
     model_raw = raw.get("model_knowledge", {})
 
+    remote_providers = remote_raw.get("remote_providers")
+    if remote_providers is None and "remote_provides" in remote_raw:
+        remote_providers = remote_raw.get("remote_provides")
+        warnings.warn(
+            "Mode config uses 'remote_provides'; please rename to 'remote_providers'."
+        )
+    if remote_providers is not None and not isinstance(remote_providers, list):
+        warnings.warn("Mode remote.remote_providers must be a list of provider names.")
+        remote_providers = None
+    if isinstance(remote_providers, list):
+        cleaned = []
+        for idx, value in enumerate(remote_providers):
+            if not isinstance(value, str):
+                warnings.warn(
+                    f"Skipping remote.remote_providers[{idx}] because it is not a string."
+                )
+                continue
+            if value.strip():
+                cleaned.append(value.strip())
+        remote_providers = cleaned or None
+
     return SourcePolicyConfig(
         local=LocalSourcePolicy(
+            enabled=bool(local_raw.get("enabled", True)),
             min_relevance=float(local_raw.get("min_relevance", 0.25)),
             k=int(local_raw.get("k", 12)),
             k_rerank=int(local_raw.get("k_rerank", 6)),
@@ -292,6 +314,7 @@ def build_source_policy_config(raw: Dict[str, Any]) -> SourcePolicyConfig:
             enabled=bool(remote_raw.get("enabled", False)),
             rank_strategy=remote_raw.get("rank_strategy", "weighted"),
             max_results=int(remote_raw.get("max_results", 5)),
+            remote_providers=remote_providers,
         ),
         model_knowledge=ModelKnowledgePolicy(
             enabled=bool(model_raw.get("enabled", False)),

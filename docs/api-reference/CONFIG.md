@@ -19,7 +19,7 @@ Methods:
 
 - `validate()`
 - `get_mode_config(mode_name=None)`
-- `get_active_remote_providers()`
+- `get_active_remote_providers(allowed_names=None)`
 
 ## IngestConfig
 
@@ -187,6 +187,7 @@ Groups source policies:
 
 Fields:
 
+- `enabled: bool = true`
 - `min_relevance: float = 0.25`
 - `k: int = 12`
 - `k_rerank: int = 6`
@@ -198,6 +199,7 @@ Fields:
 - `enabled: bool = false`
 - `rank_strategy: str = weighted`
 - `max_results: int = 5`
+- `remote_providers: list[str] | None = None`
 
 ## ModelKnowledgePolicy
 

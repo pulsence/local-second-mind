@@ -218,8 +218,13 @@ Modes define per-mode behavior for sources and notes.
     "name": "research",
     "synthesis_style": "grounded",
     "source_policy": {
-      "local": { "min_relevance": 0.20, "k": 15, "k_rerank": 8 },
-      "remote": { "enabled": true, "rank_strategy": "weighted", "max_results": 10 },
+      "local": { "enabled": true, "min_relevance": 0.20, "k": 15, "k_rerank": 8 },
+      "remote": {
+        "enabled": true,
+        "rank_strategy": "weighted",
+        "max_results": 10,
+        "remote_providers": ["brave", "wikipedia", "arxiv"]
+      },
       "model_knowledge": { "enabled": true, "require_label": true }
     },
     "notes": {
@@ -237,7 +242,8 @@ If `modes` is not defined, LSM uses built-in `grounded`, `insight`, and `hybrid`
 ## Remote Providers
 
 Remote providers live in `remote_providers` and are used when a mode enables
-remote sources.
+remote sources. Use `source_policy.remote.remote_providers` to restrict a mode
+to specific providers.
 
 ```json
 "remote_providers": [
@@ -257,6 +263,7 @@ Provider `type` must be registered by the remote provider factory. Built-ins:
 - `web_search`
 - `brave_search`
 - `wikipedia`
+- `arxiv`
 
 ## Environment Variables
 
@@ -272,6 +279,7 @@ Common environment variables:
 - `OLLAMA_BASE_URL` (Local/Ollama base URL)
 - `BRAVE_API_KEY` (Brave Search provider)
 - `LSM_WIKIPEDIA_USER_AGENT` (Wikipedia provider User-Agent)
+- `LSM_ARXIV_USER_AGENT` (arXiv provider User-Agent)
 - `<PROVIDER>_API_KEY` (generic convention for future providers)
 
 If a provider entry omits `api_key`, LSM reads `{PROVIDER}_API_KEY`
@@ -345,7 +353,12 @@ an API key.
       "synthesis_style": "grounded",
       "source_policy": {
         "local": { "min_relevance": 0.25, "k": 12, "k_rerank": 6 },
-        "remote": { "enabled": true, "rank_strategy": "weighted", "max_results": 5 },
+        "remote": {
+          "enabled": true,
+          "rank_strategy": "weighted",
+          "max_results": 5,
+          "remote_providers": ["wikipedia", "arxiv"]
+        },
         "model_knowledge": { "enabled": true, "require_label": true }
       },
       "notes": { "enabled": true, "dir": "notes", "template": "default", "filename_format": "timestamp" }
@@ -365,6 +378,13 @@ an API key.
       "enabled": true,
       "language": "en",
       "user_agent": "${LSM_WIKIPEDIA_USER_AGENT}",
+      "max_results": 5
+    },
+    {
+      "name": "arxiv",
+      "type": "arxiv",
+      "enabled": true,
+      "user_agent": "${LSM_ARXIV_USER_AGENT}",
       "max_results": 5
     }
   ],

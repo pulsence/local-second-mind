@@ -1138,8 +1138,18 @@ def fetch_remote_sources(
     if not remote_policy.enabled:
         return []
 
-    # Get active remote providers
-    active_providers = config.get_active_remote_providers()
+    # Get active remote providers (optionally filtered per mode)
+    allowed_names = None
+    if remote_policy.remote_providers is not None:
+        allowed_names = set(remote_policy.remote_providers)
+
+    active_providers = config.get_active_remote_providers(allowed_names=allowed_names)
+
+    if allowed_names:
+        known_names = {provider.name.lower() for provider in config.remote_providers or []}
+        for name in allowed_names:
+            if name.lower() not in known_names:
+                logger.warning(f"Mode requested unknown remote provider: {name}")
 
     if not active_providers:
         logger.warning("Remote sources enabled but no providers configured")
@@ -1197,6 +1207,41 @@ def fetch_remote_sources(
     return all_remote_results
 
 
+def _build_remote_candidates(remote_sources: List[Dict[str, Any]]) -> List[Candidate]:
+    """
+    Convert remote sources to Candidate objects for context building.
+    """
+    candidates: List[Candidate] = []
+    for idx, source in enumerate(remote_sources, start=1):
+        title = source.get("title") or ""
+        snippet = source.get("snippet") or ""
+        url = source.get("url") or ""
+        provider = source.get("provider") or "remote"
+
+        text_parts = [part for part in (title, snippet) if part]
+        text = "\n".join(text_parts).strip() or url or title or provider
+
+        meta = {
+            "source_path": url or f"{provider}_result_{idx}",
+            "source_name": title or provider,
+            "title": title or None,
+            "author": None,
+            "remote_provider": provider,
+            "remote": True,
+        }
+
+        candidates.append(
+            Candidate(
+                cid=f"remote:{provider}:{idx}",
+                text=text,
+                meta=meta,
+                distance=None,
+            )
+        )
+
+    return candidates
+
+
 # -----------------------------
 # Cost Estimation
 # -----------------------------
@@ -1212,6 +1257,27 @@ def estimate_query_cost(
     """
     mode_config = config.get_mode_config()
     local_policy = mode_config.source_policy.local
+    remote_policy = mode_config.source_policy.remote
+
+    if not local_policy.enabled:
+        if remote_policy.enabled:
+            print("Local sources disabled; cost estimate excludes remote retrieval.\n")
+        query_config = config.llm.get_query_config()
+        synthesis_provider = create_provider(query_config)
+        synth_est = estimate_synthesis_cost(
+            synthesis_provider,
+            question,
+            "",
+            query_config.max_tokens,
+        )
+        print()
+        print("COST ESTIMATE")
+        if synth_est["cost"] is not None:
+            print(f"- Synthesis estimate: ${synth_est['cost']:.4f}")
+        else:
+            print("- Synthesis estimate: unavailable for this provider")
+        print()
+        return
 
     batch_size = config.batch_size
     k = local_policy.k
@@ -1347,6 +1413,7 @@ def run_query_turn(
     local_policy = mode_config.source_policy.local
     model_knowledge_policy = mode_config.source_policy.model_knowledge
     notes_config = mode_config.notes
+    remote_policy = mode_config.source_policy.remote
 
     # Get configuration values (use mode-specific or fallback to query config)
     batch_size = config.batch_size
@@ -1359,195 +1426,221 @@ def run_query_turn(
 
     state.last_question = question
 
-    # Embed query
-    query_vector = embed_text(embedder, question, batch_size=batch_size)
+    chosen: List[Candidate] = []
+    filtered: List[Candidate] = []
+    local_enabled = local_policy.enabled
 
-    # Get session filters
-    path_contains = state.path_contains
-    ext_allow = state.ext_allow
-    ext_deny = state.ext_deny
+    if local_enabled:
+        # Embed query
+        query_vector = embed_text(embedder, question, batch_size=batch_size)
 
-    # Retrieve more candidates if filters are active
-    filters_active = bool(path_contains) or bool(ext_allow) or bool(ext_deny)
-    retrieve_k = config.query.retrieve_k or (max(k, k * 3) if filters_active else k)
+        # Get session filters
+        path_contains = state.path_contains
+        ext_allow = state.ext_allow
+        ext_deny = state.ext_deny
 
-    candidates = retrieve_candidates(collection, query_vector, retrieve_k)
-    state.last_all_candidates = candidates
+        # Retrieve more candidates if filters are active
+        filters_active = bool(path_contains) or bool(ext_allow) or bool(ext_deny)
+        retrieve_k = config.query.retrieve_k or (max(k, k * 3) if filters_active else k)
 
-    if not candidates:
-        print("No results found in Chroma for this query.\n")
-        return
+        candidates = retrieve_candidates(collection, query_vector, retrieve_k)
+        state.last_all_candidates = candidates
 
-    # Apply filters
-    filtered = filter_candidates(
-        candidates,
-        path_contains=path_contains,
-        ext_allow=ext_allow,
-        ext_deny=ext_deny,
-    )
-    state.last_filtered_candidates = filtered
+        if not candidates and not remote_policy.enabled:
+            print("No results found in Chroma for this query.\n")
+            return
 
-    # Add pinned chunks if any
-    if state.pinned_chunks:
-        logger.info(f"Including {len(state.pinned_chunks)} pinned chunks")
-        print(f"Including {len(state.pinned_chunks)} pinned chunks in context...\n")
+        # Apply filters
+        filtered = filter_candidates(
+            candidates,
+            path_contains=path_contains,
+            ext_allow=ext_allow,
+            ext_deny=ext_deny,
+        )
+        state.last_filtered_candidates = filtered
 
-        # Fetch pinned chunks from collection
-        try:
-            chroma = require_chroma_collection(collection, "pinned chunk retrieval")
-            pinned_results = chroma.get(
-                ids=state.pinned_chunks,
-                include=["documents", "metadatas", "distances"],
+        # Add pinned chunks if any
+        if state.pinned_chunks:
+            logger.info(f"Including {len(state.pinned_chunks)} pinned chunks")
+            print(f"Including {len(state.pinned_chunks)} pinned chunks in context...\n")
+
+            # Fetch pinned chunks from collection
+            try:
+                chroma = require_chroma_collection(collection, "pinned chunk retrieval")
+                pinned_results = chroma.get(
+                    ids=state.pinned_chunks,
+                    include=["documents", "metadatas", "distances"],
+                )
+
+                if pinned_results and pinned_results.get("ids"):
+                    # Convert to Candidate objects
+                    for i, chunk_id in enumerate(pinned_results["ids"]):
+                        pinned_candidate = Candidate(
+                            cid=chunk_id,
+                            text=pinned_results["documents"][i],
+                            meta=pinned_results["metadatas"][i],
+                            distance=0.0,  # Force high relevance
+                        )
+
+                        # Add to front of filtered list if not already present
+                        if not any(c.cid == chunk_id for c in filtered):
+                            filtered.insert(0, pinned_candidate)
+
+            except Exception as e:
+                logger.error(f"Failed to load pinned chunks: {e}")
+                print(f"Warning: Could not load pinned chunks: {e}\n")
+
+        if not filtered and not remote_policy.enabled:
+            print("No results matched the configured filters.\n")
+            return
+
+        # Determine reranking strategy
+        rerank_strategy = config.query.rerank_strategy.lower()
+
+        # Apply local reranking based on strategy
+        if rerank_strategy in ("lexical", "hybrid"):
+            # Local quality passes: dedupe, lexical rerank, diversity
+            local = apply_local_reranking(
+                question,
+                filtered,
+                max_per_file=max_per_file,
+                local_pool=local_pool,
             )
+            # Trim to k for downstream steps
+            filtered = local[: min(k, len(local))]
+        elif rerank_strategy == "none":
+            # No local reranking, just use raw similarity order
+            # Apply basic diversity enforcement
+            from lsm.query.rerank import enforce_diversity
+            filtered = enforce_diversity(filtered, max_per_file=max_per_file)
+            filtered = filtered[: min(k, len(filtered))]
+        # else: "llm" strategy - skip local reranking, will do LLM only
 
-            if pinned_results and pinned_results.get("ids"):
-                # Convert to Candidate objects
-                for i, chunk_id in enumerate(pinned_results["ids"]):
-                    pinned_candidate = Candidate(
-                        cid=chunk_id,
-                        text=pinned_results["documents"][i],
-                        meta=pinned_results["metadatas"][i],
-                        distance=0.0,  # Force high relevance
+        # Relevance gating
+        relevance = compute_relevance(filtered) if filtered else 0.0
+
+        # Save debug info
+        state.last_debug = {
+            "question": question,
+            "retrieve_k": retrieve_k,
+            "k": k,
+            "k_rerank": k_rerank,
+            "filters_active": filters_active,
+            "path_contains": path_contains,
+            "ext_allow": ext_allow,
+            "ext_deny": ext_deny,
+            "best_relevance": relevance,
+            "min_relevance": min_relevance,
+            "rerank_strategy": rerank_strategy,
+            "no_rerank": no_rerank,
+            "model": state.model,
+            "max_per_file": max_per_file,
+            "local_pool": local_pool,
+            "post_local_count": len(filtered),
+            "local_enabled": local_enabled,
+            "remote_enabled": remote_policy.enabled,
+        }
+
+        # If relevance is too low and no remote sources, skip LLM and show fallback
+        if relevance < min_relevance and not remote_policy.enabled:
+            chosen = filtered[: min(k_rerank, len(filtered))]
+            state.last_chosen = chosen
+            state.last_label_to_candidate = {f"S{i}": c for i, c in enumerate(chosen, start=1)}
+
+            answer = fallback_answer(question, chosen)
+            _, sources = build_context_block(chosen)
+
+            print("\n" + answer)
+            print(format_source_list(sources))
+            print()
+            return
+    else:
+        state.last_all_candidates = []
+        state.last_filtered_candidates = []
+        state.last_debug = {
+            "question": question,
+            "k": k,
+            "k_rerank": k_rerank,
+            "min_relevance": min_relevance,
+            "model": state.model,
+            "local_enabled": local_enabled,
+            "remote_enabled": remote_policy.enabled,
+        }
+
+        if not filtered:
+            chosen = []
+        else:
+            # Use ranking-specific LLM config if available
+            ranking_config = config.llm.get_ranking_config()
+            provider = create_provider(ranking_config)
+
+            # Apply LLM reranking based on strategy
+            should_llm_rerank = rerank_strategy in ("llm", "hybrid") and not no_rerank
+
+            if should_llm_rerank:
+                # Convert candidates to provider format
+                rerank_candidates = [
+                    {
+                        "text": c.text,
+                        "metadata": c.meta,
+                        "distance": c.distance,
+                    }
+                    for c in filtered
+                ]
+
+                rerank_est = estimate_rerank_cost(
+                    provider,
+                    question,
+                    filtered,
+                    k=min(k_rerank, len(filtered)),
+                )
+                if rerank_est["cost"] is not None:
+                    print(f"\nEstimated rerank cost: ${rerank_est['cost']:.4f}")
+
+                reranked = provider.rerank(
+                    question,
+                    rerank_candidates,
+                    k=min(k_rerank, len(filtered)),
+                )
+
+                # Convert back to Candidate objects
+                chosen = []
+                for item in reranked:
+                    chosen.append(
+                        Candidate(
+                            cid=item.get("cid", ""),
+                            text=item.get("text", ""),
+                            meta=item.get("metadata", {}),
+                            distance=item.get("distance"),
+                        )
                     )
 
-                    # Add to front of filtered list if not already present
-                    if not any(c.cid == chunk_id for c in filtered):
-                        filtered.insert(0, pinned_candidate)
-
-        except Exception as e:
-            logger.error(f"Failed to load pinned chunks: {e}")
-            print(f"Warning: Could not load pinned chunks: {e}\n")
-
-    if not filtered:
-        print("No results matched the configured filters.\n")
-        return
-
-    # Determine reranking strategy
-    rerank_strategy = config.query.rerank_strategy.lower()
-
-    # Apply local reranking based on strategy
-    if rerank_strategy in ("lexical", "hybrid"):
-        # Local quality passes: dedupe, lexical rerank, diversity
-        local = apply_local_reranking(
-            question,
-            filtered,
-            max_per_file=max_per_file,
-            local_pool=local_pool,
-        )
-        # Trim to k for downstream steps
-        filtered = local[: min(k, len(local))]
-    elif rerank_strategy == "none":
-        # No local reranking, just use raw similarity order
-        # Apply basic diversity enforcement
-        from lsm.query.rerank import enforce_diversity
-        filtered = enforce_diversity(filtered, max_per_file=max_per_file)
-        filtered = filtered[: min(k, len(filtered))]
-    # else: "llm" strategy - skip local reranking, will do LLM only
-
-    # Relevance gating
-    relevance = compute_relevance(filtered)
-
-    # Save debug info
-    state.last_debug = {
-        "question": question,
-        "retrieve_k": retrieve_k,
-        "k": k,
-        "k_rerank": k_rerank,
-        "filters_active": filters_active,
-        "path_contains": path_contains,
-        "ext_allow": ext_allow,
-        "ext_deny": ext_deny,
-        "best_relevance": relevance,
-        "min_relevance": min_relevance,
-        "rerank_strategy": rerank_strategy,
-        "no_rerank": no_rerank,
-        "model": state.model,
-        "max_per_file": max_per_file,
-        "local_pool": local_pool,
-        "post_local_count": len(filtered),
-    }
-
-    # If relevance is too low, skip LLM and show fallback
-    if relevance < min_relevance:
-        chosen = filtered[: min(k_rerank, len(filtered))]
-        state.last_chosen = chosen
-        state.last_label_to_candidate = {f"S{i}": c for i, c in enumerate(chosen, start=1)}
-
-        answer = fallback_answer(question, chosen)
-        _, sources = build_context_block(chosen)
-
-        print("\n" + answer)
-        print(format_source_list(sources))
-        print()
-        return
-
-    # Use ranking-specific LLM config if available
-    ranking_config = config.llm.get_ranking_config()
-    provider = create_provider(ranking_config)
-
-    # Apply LLM reranking based on strategy
-    should_llm_rerank = rerank_strategy in ("llm", "hybrid") and not no_rerank
-
-    if should_llm_rerank:
-        # Convert candidates to provider format
-        rerank_candidates = [
-            {
-                "text": c.text,
-                "metadata": c.meta,
-                "distance": c.distance,
-            }
-            for c in filtered
-        ]
-
-        rerank_est = estimate_rerank_cost(
-            provider,
-            question,
-            filtered,
-            k=min(k_rerank, len(filtered)),
-        )
-        if rerank_est["cost"] is not None:
-            print(f"\nEstimated rerank cost: ${rerank_est['cost']:.4f}")
-
-        reranked = provider.rerank(
-            question,
-            rerank_candidates,
-            k=min(k_rerank, len(filtered)),
-        )
-
-        # Convert back to Candidate objects
-        chosen = []
-        for item in reranked:
-            chosen.append(
-                Candidate(
-                    cid=item.get("cid", ""),
-                    text=item.get("text", ""),
-                    meta=item.get("metadata", {}),
-                    distance=item.get("distance"),
-                )
-            )
-
-        if state.cost_tracker:
-            cost = rerank_est["cost"]
-            state.cost_tracker.add_entry(
-                provider=provider.name,
-                model=provider.model,
-                input_tokens=rerank_est["input_tokens"],
-                output_tokens=rerank_est["output_tokens"],
-                cost=cost,
-                kind="rerank",
-            )
-    else:
-        # No LLM reranking - use filtered results
-        chosen = filtered[: min(k_rerank, len(filtered))]
+                if state.cost_tracker:
+                    cost = rerank_est["cost"]
+                    state.cost_tracker.add_entry(
+                        provider=provider.name,
+                        model=provider.model,
+                        input_tokens=rerank_est["input_tokens"],
+                        output_tokens=rerank_est["output_tokens"],
+                        cost=cost,
+                        kind="rerank",
+                    )
+            else:
+                # No LLM reranking - use filtered results
+                chosen = filtered[: min(k_rerank, len(filtered))]
 
     state.last_chosen = chosen
-    state.last_label_to_candidate = {f"S{i}": c for i, c in enumerate(chosen, start=1)}
 
     # Fetch remote sources if enabled
     remote_sources = fetch_remote_sources(question, config, mode_config)
+    remote_candidates = _build_remote_candidates(remote_sources)
 
     # Generate answer with citations
-    context_block, sources = build_context_block(chosen)
+    combined_candidates = chosen + remote_candidates
+    state.last_label_to_candidate = {
+        f"S{i}": c for i, c in enumerate(combined_candidates, start=1)
+    }
+    context_block, sources = build_context_block(combined_candidates)
 
     # Use query-specific LLM config for synthesis
     query_config = config.llm.get_query_config()
