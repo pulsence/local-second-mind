@@ -1,7 +1,7 @@
 ## Note-taking Integrations
 
 Local Second Mind can format query notes for Obsidian and Logseq. Enable
-integration options per mode under `modes.<mode>.notes` in `config.json`.
+integration options per mode under a `modes` entry with matching `name`.
 
 ### Obsidian
 
@@ -14,8 +14,9 @@ Recommended settings:
 Example:
 ```json
 {
-  "modes": {
-    "grounded": {
+  "modes": [
+    {
+      "name": "grounded",
       "notes": {
         "enabled": true,
         "dir": "notes",
@@ -25,7 +26,7 @@ Example:
         "include_tags": true
       }
     }
-  }
+  ]
 }
 ```
 
@@ -40,8 +41,9 @@ Recommended settings:
 Example:
 ```json
 {
-  "modes": {
-    "grounded": {
+  "modes": [
+    {
+      "name": "grounded",
       "notes": {
         "enabled": true,
         "dir": "notes",
@@ -51,7 +53,7 @@ Example:
         "include_tags": true
       }
     }
-  }
+  ]
 }
 ```
 

@@ -1147,7 +1147,8 @@ def fetch_remote_sources(
 
     all_remote_results = []
 
-    for provider_name, provider_config in active_providers.items():
+    for provider_config in active_providers:
+        provider_name = provider_config.name
         try:
             logger.info(f"Fetching from remote provider: {provider_name}")
 
@@ -1155,8 +1156,19 @@ def fetch_remote_sources(
             provider = create_remote_provider(
                 provider_config.type,
                 {
+                    "type": provider_config.type,
+                    "enabled": provider_config.enabled,
+                    "weight": provider_config.weight,
                     "api_key": provider_config.api_key,
                     "endpoint": provider_config.endpoint,
+                    "max_results": provider_config.max_results,
+                    "language": provider_config.language,
+                    "user_agent": provider_config.user_agent,
+                    "timeout": provider_config.timeout,
+                    "min_interval_seconds": provider_config.min_interval_seconds,
+                    "section_limit": provider_config.section_limit,
+                    "snippet_max_chars": provider_config.snippet_max_chars,
+                    "include_disambiguation": provider_config.include_disambiguation,
                 }
             )
 

@@ -11,7 +11,7 @@ and source excerpts to make results easy to revisit later.
 
 ## Notes Configuration
 
-Notes are configured per mode via `modes.<mode>.notes`:
+Notes are configured per mode via a `modes` entry with matching `name`:
 
 ```json
 "notes": {

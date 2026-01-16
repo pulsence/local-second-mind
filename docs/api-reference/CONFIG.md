@@ -11,8 +11,8 @@ Fields:
 - `ingest: IngestConfig` (required)
 - `query: QueryConfig` (required)
 - `llm: LLMRegistryConfig` (required)
-- `modes: dict[str, ModeConfig] | None` (optional, built-ins if None)
-- `remote_providers: dict[str, RemoteProviderConfig] | None`
+- `modes: list[ModeConfig] | None` (optional, built-ins if None)
+- `remote_providers: list[RemoteProviderConfig] | None`
 - `config_path: Path | None` (used for path resolution)
 
 Methods:
@@ -166,6 +166,7 @@ Defines a single mode.
 
 Fields:
 
+- `name: str` (required)
 - `synthesis_style: str = grounded` (`grounded` or `insight`)
 - `source_policy: SourcePolicyConfig`
 - `notes: NotesConfig`
@@ -218,9 +219,17 @@ Fields:
 
 Fields:
 
+- `name: str` (required)
 - `type: str` (required)
 - `enabled: bool = true`
 - `weight: float = 1.0`
 - `api_key: str | None = None`
 - `endpoint: str | None = None`
 - `max_results: int | None = None`
+- `language: str | None = None`
+- `user_agent: str | None = None`
+- `timeout: int | None = None`
+- `min_interval_seconds: float | None = None`
+- `section_limit: int | None = None`
+- `snippet_max_chars: int | None = None`
+- `include_disambiguation: bool | None = None`

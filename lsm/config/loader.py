@@ -8,6 +8,7 @@ to typed dataclass models.
 from __future__ import annotations
 
 import json
+import warnings
 import yaml
 from pathlib import Path
 from typing import Dict, Any
@@ -329,16 +330,38 @@ def build_modes_registry(raw: Dict[str, Any]) -> Dict[str, ModeConfig]:
     Returns:
         Dictionary mapping mode names to ModeConfig instances
     """
-    modes_raw = raw.get("modes", {})
+    modes_raw = raw.get("modes", [])
 
     if not modes_raw:
         # Return None to use built-in defaults
         return None
 
-    return {
-        mode_name: build_mode_config(mode_raw)
-        for mode_name, mode_raw in modes_raw.items()
-    }
+    if not isinstance(modes_raw, list):
+        warnings.warn("Config 'modes' must be a list. Falling back to built-in modes.")
+        return None
+
+    modes_registry: Dict[str, ModeConfig] = {}
+    for idx, mode_raw in enumerate(modes_raw):
+        if not isinstance(mode_raw, dict):
+            warnings.warn(f"Skipping modes[{idx}] because it is not an object.")
+            continue
+        mode_name = mode_raw.get("name")
+        if not mode_name:
+            warnings.warn(f"Skipping modes[{idx}] because it is missing 'name'.")
+            continue
+        if mode_name in modes_registry:
+            warnings.warn(f"Skipping duplicate mode name: {mode_name}.")
+            continue
+        try:
+            modes_registry[mode_name] = build_mode_config(mode_raw)
+        except Exception as exc:
+            warnings.warn(f"Skipping mode '{mode_name}' due to error: {exc}")
+
+    if not modes_registry:
+        warnings.warn("No valid modes found. Falling back to built-in modes.")
+        return None
+
+    return modes_registry
 
 
 def build_remote_provider_config(raw: Dict[str, Any]) -> RemoteProviderConfig:
@@ -352,16 +375,24 @@ def build_remote_provider_config(raw: Dict[str, Any]) -> RemoteProviderConfig:
         RemoteProviderConfig instance
     """
     return RemoteProviderConfig(
+        name=raw["name"],  # Required field
         type=raw["type"],  # Required field
         enabled=bool(raw.get("enabled", True)),
         weight=float(raw.get("weight", 1.0)),
         api_key=raw.get("api_key"),
         endpoint=raw.get("endpoint"),
         max_results=raw.get("max_results"),
+        language=raw.get("language"),
+        user_agent=raw.get("user_agent"),
+        timeout=raw.get("timeout"),
+        min_interval_seconds=raw.get("min_interval_seconds"),
+        section_limit=raw.get("section_limit"),
+        snippet_max_chars=raw.get("snippet_max_chars"),
+        include_disambiguation=raw.get("include_disambiguation"),
     )
 
 
-def build_remote_providers_registry(raw: Dict[str, Any]) -> Dict[str, RemoteProviderConfig]:
+def build_remote_providers_registry(raw: Dict[str, Any]) -> list[RemoteProviderConfig]:
     """
     Build remote providers registry from raw configuration.
 
@@ -371,15 +402,36 @@ def build_remote_providers_registry(raw: Dict[str, Any]) -> Dict[str, RemoteProv
     Returns:
         Dictionary mapping provider names to RemoteProviderConfig instances
     """
-    providers_raw = raw.get("remote_providers", {})
+    providers_raw = raw.get("remote_providers", [])
 
     if not providers_raw:
         return None
 
-    return {
-        provider_name: build_remote_provider_config(provider_raw)
-        for provider_name, provider_raw in providers_raw.items()
-    }
+    if not isinstance(providers_raw, list):
+        warnings.warn("Config 'remote_providers' must be a list. Ignoring invalid value.")
+        return None
+
+    providers: list[RemoteProviderConfig] = []
+    for idx, provider_raw in enumerate(providers_raw):
+        if not isinstance(provider_raw, dict):
+            warnings.warn(f"Skipping remote_providers[{idx}] because it is not an object.")
+            continue
+        if not provider_raw.get("name"):
+            warnings.warn(f"Skipping remote_providers[{idx}] because it is missing 'name'.")
+            continue
+        if not provider_raw.get("type"):
+            warnings.warn(f"Skipping remote_providers[{idx}] because it is missing 'type'.")
+            continue
+        try:
+            providers.append(build_remote_provider_config(provider_raw))
+        except Exception as exc:
+            warnings.warn(f"Skipping remote provider '{provider_raw.get('name')}' due to error: {exc}")
+
+    if not providers:
+        warnings.warn("No valid remote providers found. Remote sources will be disabled.")
+        return None
+
+    return providers
 
 
 def load_config_from_file(path: Path | str) -> LSMConfig:

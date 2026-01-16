@@ -16,16 +16,21 @@ They are presented as a separate section.
 
 ## Built-In Providers
 
-LSM ships with a Brave Search provider:
+LSM ships with two built-in remote providers:
 
-- Type: `web_search` or `brave_search`
-- Environment variable: `BRAVE_API_KEY`
+- Brave Search
+  - Type: `web_search` or `brave_search`
+  - Environment variable: `BRAVE_API_KEY`
+- Wikipedia
+  - Type: `wikipedia`
+  - Environment variable: `LSM_WIKIPEDIA_USER_AGENT` (recommended)
 
 ## Configuring Brave Search
 
 ```json
-"remote_providers": {
-  "brave": {
+"remote_providers": [
+  {
+    "name": "brave",
     "type": "web_search",
     "enabled": true,
     "weight": 1.0,
@@ -33,7 +38,7 @@ LSM ships with a Brave Search provider:
     "max_results": 5,
     "endpoint": "https://api.search.brave.com/res/v1/web/search"
   }
-}
+]
 ```
 
 Notes:
@@ -42,11 +47,38 @@ Notes:
 - `endpoint` is optional and defaults to the Brave API endpoint.
 - `max_results` can be overridden per provider.
 
+## Configuring Wikipedia
+
+```json
+"remote_providers": [
+  {
+    "name": "wikipedia",
+    "type": "wikipedia",
+    "enabled": true,
+    "weight": 0.7,
+    "language": "en",
+    "user_agent": "LocalSecondMind/1.0 (contact: you@example.com)",
+    "max_results": 5,
+    "min_interval_seconds": 1.0,
+    "section_limit": 2,
+    "snippet_max_chars": 600,
+    "include_disambiguation": false
+  }
+]
+```
+
+Notes:
+
+- `user_agent` should identify your app and contact info per Wikipedia policy.
+- `language` controls the Wikipedia subdomain (`en`, `de`, etc.).
+- `min_interval_seconds` throttles requests to respect API rate limits.
+
 ## Enabling Remote Sources in a Mode
 
 ```json
-"modes": {
-  "hybrid": {
+"modes": [
+  {
+    "name": "hybrid",
     "synthesis_style": "grounded",
     "source_policy": {
       "local": { "min_relevance": 0.25, "k": 12, "k_rerank": 6 },
@@ -55,7 +87,7 @@ Notes:
     },
     "notes": { "enabled": true, "dir": "notes", "template": "default", "filename_format": "timestamp" }
   }
-}
+]
 ```
 
 ## Provider Weighting and Ranking
@@ -69,7 +101,7 @@ To add a custom provider:
 
 1. Implement `BaseRemoteProvider`.
 2. Register it with `register_remote_provider`.
-3. Reference it by `type` in `remote_providers`.
+3. Reference it by `type` in `remote_providers` entries.
 
 See `docs/api-reference/REMOTE.md` for the provider interface.
 

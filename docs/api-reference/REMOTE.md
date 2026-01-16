@@ -55,6 +55,13 @@ Returns the registry mapping types to classes.
 - Config keys: `api_key`, `endpoint`, `timeout`
 - Environment variable: `BRAVE_API_KEY`
 
+### Wikipedia
+
+- Type: `wikipedia`
+- Config keys: `language`, `endpoint`, `timeout`, `min_interval_seconds`, `section_limit`,
+  `snippet_max_chars`, `include_disambiguation`, `user_agent`
+- Environment variable: `LSM_WIKIPEDIA_USER_AGENT` (recommended)
+
 ## Integration in Query Pipeline
 
 Remote providers are used when:

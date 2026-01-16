@@ -44,8 +44,9 @@ A mode has three sub-systems:
 ## Mode Configuration Reference
 
 ```json
-"modes": {
-  "research": {
+"modes": [
+  {
+    "name": "research",
     "synthesis_style": "grounded",
     "source_policy": {
       "local": { "min_relevance": 0.20, "k": 15, "k_rerank": 8 },
@@ -59,7 +60,7 @@ A mode has three sub-systems:
       "filename_format": "timestamp"
     }
   }
-}
+]
 ```
 
 ### Local Source Policy
@@ -93,8 +94,9 @@ The REPL shows mode details via `/mode`.
 ### Example: Strict Local-Only Q&A
 
 ```json
-"modes": {
-  "local_only": {
+"modes": [
+  {
+    "name": "local_only",
     "synthesis_style": "grounded",
     "source_policy": {
       "local": { "min_relevance": 0.30, "k": 10, "k_rerank": 5 },
@@ -103,14 +105,15 @@ The REPL shows mode details via `/mode`.
     },
     "notes": { "enabled": true, "dir": "notes", "template": "default", "filename_format": "timestamp" }
   }
-}
+]
 ```
 
 ### Example: Insight-Only Analysis
 
 ```json
-"modes": {
-  "themes": {
+"modes": [
+  {
+    "name": "themes",
     "synthesis_style": "insight",
     "source_policy": {
       "local": { "min_relevance": 0.20, "k": 18, "k_rerank": 10 },
@@ -119,14 +122,15 @@ The REPL shows mode details via `/mode`.
     },
     "notes": { "enabled": true, "dir": "analysis_notes", "template": "default", "filename_format": "query_slug" }
   }
-}
+]
 ```
 
 ### Example: Research With Remote Sources
 
 ```json
-"modes": {
-  "research": {
+"modes": [
+  {
+    "name": "research",
     "synthesis_style": "grounded",
     "source_policy": {
       "local": { "min_relevance": 0.25, "k": 12, "k_rerank": 6 },
@@ -135,7 +139,7 @@ The REPL shows mode details via `/mode`.
     },
     "notes": { "enabled": true, "dir": "research_notes", "template": "default", "filename_format": "timestamp" }
   }
-}
+]
 ```
 
 ## Mode Comparison Tips

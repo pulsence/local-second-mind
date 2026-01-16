@@ -213,8 +213,9 @@ The `query` section controls retrieval and reranking behavior.
 Modes define per-mode behavior for sources and notes.
 
 ```json
-"modes": {
-  "research": {
+"modes": [
+  {
+    "name": "research",
     "synthesis_style": "grounded",
     "source_policy": {
       "local": { "min_relevance": 0.20, "k": 15, "k_rerank": 8 },
@@ -228,7 +229,7 @@ Modes define per-mode behavior for sources and notes.
       "filename_format": "timestamp"
     }
   }
-}
+]
 ```
 
 If `modes` is not defined, LSM uses built-in `grounded`, `insight`, and `hybrid`.
@@ -239,21 +240,23 @@ Remote providers live in `remote_providers` and are used when a mode enables
 remote sources.
 
 ```json
-"remote_providers": {
-  "brave": {
+"remote_providers": [
+  {
+    "name": "brave",
     "type": "web_search",
     "enabled": true,
     "weight": 1.0,
     "api_key": "...",
     "max_results": 5
   }
-}
+]
 ```
 
 Provider `type` must be registered by the remote provider factory. Built-ins:
 
 - `web_search`
 - `brave_search`
+- `wikipedia`
 
 ## Environment Variables
 
@@ -268,6 +271,7 @@ Common environment variables:
 - `AZURE_OPENAI_DEPLOYMENT_NAME` (Azure OpenAI deployment name)
 - `OLLAMA_BASE_URL` (Local/Ollama base URL)
 - `BRAVE_API_KEY` (Brave Search provider)
+- `LSM_WIKIPEDIA_USER_AGENT` (Wikipedia provider User-Agent)
 - `<PROVIDER>_API_KEY` (generic convention for future providers)
 
 If a provider entry omits `api_key`, LSM reads `{PROVIDER}_API_KEY`
@@ -335,8 +339,9 @@ an API key.
 ```json
 {
   "roots": ["C:/Users/You/Documents"],
-  "modes": {
-    "hybrid": {
+  "modes": [
+    {
+      "name": "hybrid",
       "synthesis_style": "grounded",
       "source_policy": {
         "local": { "min_relevance": 0.25, "k": 12, "k_rerank": 6 },
@@ -345,15 +350,24 @@ an API key.
       },
       "notes": { "enabled": true, "dir": "notes", "template": "default", "filename_format": "timestamp" }
     }
-  },
-  "remote_providers": {
-    "brave": {
+  ],
+  "remote_providers": [
+    {
+      "name": "brave",
       "type": "web_search",
       "enabled": true,
       "api_key": "${BRAVE_API_KEY}",
       "max_results": 5
+    },
+    {
+      "name": "wikipedia",
+      "type": "wikipedia",
+      "enabled": true,
+      "language": "en",
+      "user_agent": "${LSM_WIKIPEDIA_USER_AGENT}",
+      "max_results": 5
     }
-  },
+  ],
   "llms": [
     {
       "provider_name": "openai",
@@ -365,8 +379,9 @@ an API key.
 
 ## Troubleshooting Configuration
 
-- If LSM says `query.mode` is not found, ensure it matches a key in `modes`.
+- If LSM says `query.mode` is not found, ensure it matches a `modes` entry name.
 - If Chroma errors occur, verify `persist_dir` is writable and not empty.
 - If no files are found, double-check `roots`, `extensions`, and `exclude_dirs`.
 - If OpenAI is not available, set `OPENAI_API_KEY` in `.env` or `llms[].api_key`.
-- For Brave Search, set `BRAVE_API_KEY` or `remote_providers.<name>.api_key`.
+- For Brave Search, set `BRAVE_API_KEY` or the `remote_providers` entry `api_key`.
+- For Wikipedia, set `LSM_WIKIPEDIA_USER_AGENT` or the `remote_providers` entry `user_agent`.

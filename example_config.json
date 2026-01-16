@@ -96,8 +96,9 @@
   },
 
   "_comment_modes": "Query mode definitions (grounded/insight/hybrid built-in, add custom modes here)",
-  "modes": {
-    "research": {
+  "modes": [
+    {
+      "name": "research",
       "synthesis_style": "grounded",
       "source_policy": {
         "local": {
@@ -126,16 +127,30 @@
         "include_tags": false
       }
     }
-  },
+  ],
 
   "_comment_remote_providers": "Remote source providers (web search, APIs, etc.)",
-  "remote_providers": {
-    "brave": {
+  "remote_providers": [
+    {
+      "name": "brave",
       "type": "web_search",
       "enabled": true,
       "weight": 1.0,
       "api_key": "INSERT_YOUR_BRAVE_API_KEY",
       "max_results": 5
+    },
+    {
+      "name": "wikipedia",
+      "type": "wikipedia",
+      "enabled": true,
+      "weight": 0.7,
+      "language": "en",
+      "user_agent": "LocalSecondMind/1.0 (contact: you@example.com)",
+      "max_results": 5,
+      "min_interval_seconds": 1.0,
+      "section_limit": 2,
+      "snippet_max_chars": 600,
+      "include_disambiguation": false
     }
-  }
+  ]
 }

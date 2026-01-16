@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass, field
+import warnings
 from pathlib import Path
 from typing import List, Optional, Set
 
@@ -800,6 +801,9 @@ class RemoteProviderConfig:
     Defines how to connect to and weight a remote source provider.
     """
 
+    name: str
+    """Provider name used for display and selection."""
+
     type: str
     """Provider type: 'web_search', 'api', etc."""
 
@@ -818,6 +822,27 @@ class RemoteProviderConfig:
 
     max_results: Optional[int] = None
     """Override max results for this provider."""
+
+    language: Optional[str] = None
+    """Language code for providers that support localization."""
+
+    user_agent: Optional[str] = None
+    """User-Agent header for HTTP requests."""
+
+    timeout: Optional[int] = None
+    """Request timeout in seconds."""
+
+    min_interval_seconds: Optional[float] = None
+    """Minimum seconds between requests."""
+
+    section_limit: Optional[int] = None
+    """Max sections to include in extracted snippets."""
+
+    snippet_max_chars: Optional[int] = None
+    """Max characters to include in extracted snippets."""
+
+    include_disambiguation: Optional[bool] = None
+    """Include disambiguation pages when supported."""
 
     def validate(self) -> None:
         """Validate provider configuration."""
@@ -938,8 +963,8 @@ class LSMConfig:
     modes: Optional[dict[str, ModeConfig]] = None
     """Registry of available query modes. If None, uses built-in defaults."""
 
-    remote_providers: Optional[dict[str, RemoteProviderConfig]] = None
-    """Registry of remote source providers (web search, APIs, etc)."""
+    remote_providers: Optional[list[RemoteProviderConfig]] = None
+    """List of remote source providers (web search, APIs, etc)."""
 
     config_path: Optional[Path] = None
     """Path to the config file (for resolving relative paths)."""
@@ -974,19 +999,41 @@ class LSMConfig:
         # Validate mode registry
         if self.modes:
             for mode_name, mode_config in self.modes.items():
-                mode_config.validate()
+                try:
+                    mode_config.validate()
+                except Exception as exc:
+                    warnings.warn(f"Mode '{mode_name}' failed validation: {exc}")
 
         # Validate that query.mode references a valid mode
-        if self.query.mode not in self.modes:
-            raise ValueError(
+        if self.modes and self.query.mode not in self.modes:
+            fallback = "grounded"
+            if fallback not in self.modes and self.modes:
+                fallback = next(iter(self.modes.keys()))
+            warnings.warn(
                 f"query.mode '{self.query.mode}' not found in modes registry. "
-                f"Available modes: {list(self.modes.keys())}"
+                f"Falling back to '{fallback}'."
             )
+            self.query.mode = fallback
 
         # Validate remote providers
         if self.remote_providers:
-            for provider_name, provider_config in self.remote_providers.items():
-                provider_config.validate()
+            seen_names = set()
+            valid_providers = []
+            for provider_config in self.remote_providers:
+                if not provider_config.name:
+                    warnings.warn("Skipping remote provider entry missing a name.")
+                    continue
+                if provider_config.name in seen_names:
+                    warnings.warn(f"Skipping duplicate remote provider name: {provider_config.name}")
+                    continue
+                try:
+                    provider_config.validate()
+                except Exception as exc:
+                    warnings.warn(f"Skipping remote provider '{provider_config.name}': {exc}")
+                    continue
+                seen_names.add(provider_config.name)
+                valid_providers.append(provider_config)
+            self.remote_providers = valid_providers or None
 
     @staticmethod
     def _get_builtin_modes() -> dict[str, ModeConfig]:
@@ -1083,7 +1130,7 @@ class LSMConfig:
 
         return self.modes[name]
 
-    def get_active_remote_providers(self) -> dict[str, RemoteProviderConfig]:
+    def get_active_remote_providers(self) -> list[RemoteProviderConfig]:
         """
         Get all enabled remote providers.
 
@@ -1091,13 +1138,9 @@ class LSMConfig:
             Dictionary of enabled remote providers
         """
         if not self.remote_providers:
-            return {}
+            return []
 
-        return {
-            name: config
-            for name, config in self.remote_providers.items()
-            if config.enabled
-        }
+        return [config for config in self.remote_providers if config.enabled]
 
     @property
     def persist_dir(self) -> Path:
