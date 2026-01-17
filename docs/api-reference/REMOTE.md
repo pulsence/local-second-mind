@@ -91,6 +91,59 @@ paper recommendations.
 Aggregates open access research from repositories worldwide. Provides access to
 millions of full-text papers from institutional repositories and journals.
 
+### PhilPapers
+
+- Type: `philpapers`
+- Config keys: `api_id`, `api_key`, `timeout`, `min_interval_seconds`,
+  `snippet_max_chars`, `subject_categories`, `include_books`, `open_access_only`
+- Environment variables: `PHILPAPERS_API_ID`, `PHILPAPERS_API_KEY` (optional)
+
+PhilPapers is a comprehensive index and bibliography of philosophy maintained
+by the community of philosophers. Uses the OAI-PMH interface for open access
+content.
+
+**Subject Categories:**
+- Epistemology, Ethics, Metaphysics
+- Philosophy of Mind, Language, Science
+- Logic, History of Philosophy, Political Philosophy
+- Aesthetics, Philosophy of Religion
+- Ancient, Medieval, Modern, Continental Philosophy
+- And many more specialized areas
+
+**Query Syntax:**
+- `author:Name` - Search by author name
+- `subject:category` - Search by subject category (e.g., `subject:ethics`)
+- `title:phrase` - Search in titles
+
+### Index Theologicus (IxTheo)
+
+- Type: `ixtheo`
+- Config keys: `endpoint`, `timeout`, `min_interval_seconds`, `snippet_max_chars`,
+  `language`, `traditions`, `search_type`, `include_reviews`, `year_from`, `year_to`
+- Environment variable: None required (free access)
+
+Index Theologicus is an international scientific open access bibliography for
+theology and religious studies, maintained by the University of Tübingen. Covers
+Christianity and dialogue with other religions across confessions, languages,
+and media types.
+
+**Supported Languages:** English (en), German (de), French (fr), Italian (it),
+Spanish (es), Portuguese (pt), Greek (el), Russian (ru), Chinese (zh), Latin (la),
+Hebrew (he), Arabic (ar)
+
+**Religious Traditions:**
+- Christian: Catholic, Protestant, Orthodox
+- Judaism, Islam, Buddhism, Hinduism
+- Comparative Religion, Religious Studies
+
+**Query Syntax:**
+- `author:Name` - Search by author
+- `title:phrase` - Search in titles
+- `subject:topic` - Search by subject
+- Bible references in quotes (e.g., `"Mt 5:1-12"`, `"Gen 1:1"`)
+
+**Search Types:** all, title, author, subject, series, toc, isbn, publisher
+
 ## Integration in Query Pipeline
 
 Remote providers are used when:

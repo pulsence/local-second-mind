@@ -14,6 +14,8 @@ from .wikipedia import WikipediaProvider
 from .arxiv import ArXivProvider
 from .semantic_scholar import SemanticScholarProvider
 from .core import COREProvider
+from .philpapers import PhilPapersProvider
+from .ixtheo import IxTheoProvider
 
 # Register Brave Search provider
 register_remote_provider("web_search", BraveSearchProvider)
@@ -22,6 +24,8 @@ register_remote_provider("wikipedia", WikipediaProvider)
 register_remote_provider("arxiv", ArXivProvider)
 register_remote_provider("semantic_scholar", SemanticScholarProvider)
 register_remote_provider("core", COREProvider)
+register_remote_provider("philpapers", PhilPapersProvider)
+register_remote_provider("ixtheo", IxTheoProvider)
 
 __all__ = [
     "BaseRemoteProvider",
@@ -33,4 +37,6 @@ __all__ = [
     "ArXivProvider",
     "SemanticScholarProvider",
     "COREProvider",
+    "PhilPapersProvider",
+    "IxTheoProvider",
 ]

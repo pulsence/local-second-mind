@@ -199,6 +199,37 @@
       "year_to": null,
       "full_text_only": false,
       "language": null
+    },
+    {
+      "_comment": "PhilPapers - philosophy papers and research",
+      "name": "philpapers",
+      "type": "philpapers",
+      "enabled": false,
+      "weight": 0.9,
+      "api_id": "INSERT_YOUR_PHILPAPERS_API_ID",
+      "api_key": "INSERT_YOUR_PHILPAPERS_API_KEY",
+      "max_results": 5,
+      "min_interval_seconds": 2.0,
+      "snippet_max_chars": 700,
+      "subject_categories": [],
+      "include_books": true,
+      "open_access_only": false
+    },
+    {
+      "_comment": "IxTheo - theology and religious studies",
+      "name": "ixtheo",
+      "type": "ixtheo",
+      "enabled": false,
+      "weight": 0.9,
+      "max_results": 5,
+      "min_interval_seconds": 1.0,
+      "snippet_max_chars": 700,
+      "language": "en",
+      "traditions": [],
+      "search_type": "all",
+      "include_reviews": true,
+      "year_from": null,
+      "year_to": null
     }
   ]
 }
