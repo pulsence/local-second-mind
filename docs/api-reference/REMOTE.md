@@ -69,6 +69,28 @@ Returns the registry mapping types to classes.
   `sort_by`, `sort_order`, `categories`, `user_agent`
 - Environment variable: `LSM_ARXIV_USER_AGENT` (recommended)
 
+### Semantic Scholar
+
+- Type: `semantic_scholar`
+- Config keys: `api_key`, `endpoint`, `timeout`, `min_interval_seconds`,
+  `snippet_max_chars`, `fields_of_study`, `year_range`, `open_access_only`
+- Environment variable: `SEMANTIC_SCHOLAR_API_KEY` (optional, increases rate limit)
+
+Provides academic paper search across computer science, neuroscience, and other
+disciplines. Includes rich citation metadata, influential citation metrics, and
+paper recommendations.
+
+### CORE
+
+- Type: `core`
+- Config keys: `api_key`, `endpoint`, `timeout`, `min_interval_seconds`,
+  `snippet_max_chars`, `repository_ids`, `year_from`, `year_to`,
+  `full_text_only`, `language`
+- Environment variable: `CORE_API_KEY` (required)
+
+Aggregates open access research from repositories worldwide. Provides access to
+millions of full-text papers from institutional repositories and journals.
+
 ## Integration in Query Pipeline
 
 Remote providers are used when:

@@ -17,7 +17,7 @@ separate section.
 
 ## Built-In Providers
 
-LSM ships with three built-in remote providers:
+LSM ships with five built-in remote providers:
 
 - Brave Search
   - Type: `web_search` or `brave_search`
@@ -28,6 +28,12 @@ LSM ships with three built-in remote providers:
 - arXiv
   - Type: `arxiv`
   - Environment variable: `LSM_ARXIV_USER_AGENT` (recommended)
+- Semantic Scholar
+  - Type: `semantic_scholar`
+  - Environment variable: `SEMANTIC_SCHOLAR_API_KEY` (optional, increases rate limit)
+- CORE
+  - Type: `core`
+  - Environment variable: `CORE_API_KEY` (required)
 
 ## Configuring Brave Search
 
@@ -118,6 +124,74 @@ Examples:
 - `abstract:"fast radio bursts"`
 - `cat:astro-ph.HE`
 - `title:"pulsar timing" author:lorimer`
+
+## Configuring Semantic Scholar
+
+```json
+"remote_providers": [
+  {
+    "name": "semantic_scholar",
+    "type": "semantic_scholar",
+    "enabled": true,
+    "weight": 0.9,
+    "api_key": "${SEMANTIC_SCHOLAR_API_KEY}",
+    "max_results": 5,
+    "min_interval_seconds": 1.0,
+    "fields_of_study": ["Computer Science", "Neuroscience"],
+    "year_range": "2020-2024",
+    "open_access_only": false
+  }
+]
+```
+
+Notes:
+
+- `api_key` is optional but recommended for higher rate limits.
+- `fields_of_study` filters to specific academic disciplines.
+- `year_range` format is `YYYY-YYYY` or `YYYY-` for open-ended.
+- `open_access_only` restricts results to papers with free PDF access.
+
+### Semantic Scholar Features
+
+- **Citations and References**: Retrieve papers that cite or are cited by a paper.
+- **Influential Citations**: Filter by influential citation count.
+- **Paper Recommendations**: Get recommended papers based on a seed paper.
+- **Author Papers**: Find all papers by a specific author.
+
+## Configuring CORE
+
+```json
+"remote_providers": [
+  {
+    "name": "core",
+    "type": "core",
+    "enabled": true,
+    "weight": 0.8,
+    "api_key": "${CORE_API_KEY}",
+    "max_results": 5,
+    "min_interval_seconds": 1.0,
+    "repository_ids": [],
+    "year_from": 2020,
+    "year_to": 2024,
+    "full_text_only": false,
+    "language": "en"
+  }
+]
+```
+
+Notes:
+
+- `api_key` is required. Register at https://core.ac.uk/services/api
+- `repository_ids` filters to specific institutional repositories.
+- `full_text_only` restricts to papers with full text available.
+- `language` filters by language code (e.g., "en", "de").
+
+### CORE Features
+
+- **Open Access**: Access millions of open access research papers.
+- **Full Text**: Download full-text PDFs when available.
+- **Repository Filtering**: Search within specific institutional repositories.
+- **Multi-Language**: Filter by language for non-English research.
 
 ## Enabling Remote Sources in a Mode
 

@@ -12,12 +12,16 @@ from .factory import create_remote_provider, register_remote_provider
 from .brave import BraveSearchProvider
 from .wikipedia import WikipediaProvider
 from .arxiv import ArXivProvider
+from .semantic_scholar import SemanticScholarProvider
+from .core import COREProvider
 
 # Register Brave Search provider
 register_remote_provider("web_search", BraveSearchProvider)
 register_remote_provider("brave_search", BraveSearchProvider)
 register_remote_provider("wikipedia", WikipediaProvider)
 register_remote_provider("arxiv", ArXivProvider)
+register_remote_provider("semantic_scholar", SemanticScholarProvider)
+register_remote_provider("core", COREProvider)
 
 __all__ = [
     "BaseRemoteProvider",
@@ -27,4 +31,6 @@ __all__ = [
     "BraveSearchProvider",
     "WikipediaProvider",
     "ArXivProvider",
+    "SemanticScholarProvider",
+    "COREProvider",
 ]

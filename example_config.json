@@ -171,6 +171,34 @@
         "cs.AI",
         "cs.LG"
       ]
+    },
+    {
+      "name": "semantic_scholar",
+      "type": "semantic_scholar",
+      "enabled": false,
+      "weight": 0.9,
+      "api_key": "INSERT_YOUR_SEMANTIC_SCHOLAR_API_KEY",
+      "max_results": 5,
+      "min_interval_seconds": 1.0,
+      "snippet_max_chars": 700,
+      "fields_of_study": [],
+      "year_range": null,
+      "open_access_only": false
+    },
+    {
+      "name": "core",
+      "type": "core",
+      "enabled": false,
+      "weight": 0.8,
+      "api_key": "INSERT_YOUR_CORE_API_KEY",
+      "max_results": 5,
+      "min_interval_seconds": 1.0,
+      "snippet_max_chars": 700,
+      "repository_ids": [],
+      "year_from": null,
+      "year_to": null,
+      "full_text_only": false,
+      "language": null
     }
   ]
 }

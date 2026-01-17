@@ -48,7 +48,32 @@ or a chunk should not span two heading levels.
 - Impliment query caching to be efficient in call usage
 
 ## Remote Providers
+- Provide ability to chain providers together in a meta-provider when the subproviders act a inputs
+to later providers and then the whole meta-provider becomes a source for query. Sources need to
+be maintained throughout the meta-provider
 - Figure out natural word processing for arvix
+- Create OpenAlex - Crossref - Unpaywall - CORE pipeline to find, download, and ingest documents
+- Perseus CTS API
+- Digital Public Library of America (DPLA) API
+- Library of Congress (loc.gov) JSON/YAML API
+- Smithsonian Open Access API
+- The Met Collection API (Open Access)
+- Rijksmuseum data services
+- IIIF APIs (Image / Presentation / Content Search
+- Wikidata SPARQL endpoint
+- PubMed/PubMed Central
+- SSRN (Social Science Research Network)
+- PhilArchive
+- Project MUSE (humanities)
+- NYTimes
+- News Sources
+- Social Media
+- Classical Language Text Sources:
+    - https://github.com/OpenGreekAndLatin/patrologia_latina-dev
+    - https://github.com/OpenGreekAndLatin/csel-dev
+    - https://github.com/OpenGreekAndLatin/First1KGreek
+    - https://github.com/OpenGreekAndLatin
+    - https://www.corpusthomisticum.org/
 
 ## Multi-Provider Support
 - Check the implimentations of the ai providers and see if the base
