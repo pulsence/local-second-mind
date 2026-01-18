@@ -230,6 +230,39 @@
       "include_reviews": true,
       "year_from": null,
       "year_to": null
+    },
+    {
+      "_comment": "OpenAlex - comprehensive academic database (free, no API key required)",
+      "name": "openalex",
+      "type": "openalex",
+      "enabled": false,
+      "weight": 1.0,
+      "email": "you@example.com",
+      "max_results": 5,
+      "min_interval_seconds": 0.1,
+      "snippet_max_chars": 700,
+      "year_from": null,
+      "year_to": null,
+      "open_access_only": false,
+      "type_filter": null,
+      "concepts": []
+    },
+    {
+      "_comment": "Crossref - DOI metadata and bibliographic search (free, no API key required)",
+      "name": "crossref",
+      "type": "crossref",
+      "enabled": false,
+      "weight": 0.9,
+      "email": "you@example.com",
+      "max_results": 5,
+      "min_interval_seconds": 0.5,
+      "snippet_max_chars": 700,
+      "year_from": null,
+      "year_to": null,
+      "type_filter": null,
+      "has_full_text": false,
+      "has_references": false,
+      "has_orcid": false
     }
   ]
 }

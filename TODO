@@ -46,8 +46,11 @@ or a chunk should not span two heading levels.
 - Add export citations to BibTeX/Zotero format
 - Integration with note-taking apps (Obsidian, Logseq)
 - Impliment query caching to be efficient in call usage
+- Create a way to turn natural language into API calls.
+    - There should be an "intelligent" deterministic way
+    - There should also be an AI provider way
 
-## Remote Providers
+## Remote Source Providers
 - Provide ability to chain providers together in a meta-provider when the subproviders act a inputs
 to later providers and then the whole meta-provider becomes a source for query. Sources need to
 be maintained throughout the meta-provider
@@ -75,13 +78,19 @@ be maintained throughout the meta-provider
     - https://github.com/OpenGreekAndLatin
     - https://www.corpusthomisticum.org/
 
-## Multi-Provider Support
+## AI Provider Support
 - Check the implimentations of the ai providers and see if the base
 BaseLLMProvider could not encapsulate the functionality or if it should
 be moved into some kind of helper.
 
-## Advanced Features (Future)
+## Advanced Features
 - Multi-hop reasoning for research mode
-- Performance benchmarks and optimization
+- Research into creating agents. Right now "modes" are like what other call agents,
+but really "modes" in LSM are configurations on building particular contexts. An
+agent will be a "mini-program" or "sub-routine" that can chain multiple modes
+or act upon responses to the produce further responses. And so a "mode" results
+in a single response. An agent can result in multiple response and even other
+results like the production of artifacts (e.g., files) and modifications of
+the users system itself (in theory).
 - Collaborative features (shared knowledge bases)
 - Support for larger collections (100K+ chunks with sharding strategies)

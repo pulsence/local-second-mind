@@ -144,6 +144,67 @@ Hebrew (he), Arabic (ar)
 
 **Search Types:** all, title, author, subject, series, toc, isbn, publisher
 
+### OpenAlex
+
+- Type: `openalex`
+- Config keys: `email`, `endpoint`, `timeout`, `min_interval_seconds`,
+  `snippet_max_chars`, `year_from`, `year_to`, `open_access_only`, `type`, `concepts`
+- Environment variable: `OPENALEX_EMAIL` (recommended for polite pool)
+
+OpenAlex is a fully open catalog of the global research system, indexing over
+240 million scholarly works across all academic disciplines. No API key required -
+completely free and open access. Successor to Microsoft Academic Graph.
+
+**Features:**
+- Cross-disciplinary academic paper search
+- Comprehensive metadata including citations, topics, and concepts
+- Author and institution disambiguation
+- Open access status and PDF links
+- Citation network analysis
+
+**Query Syntax:**
+- `author:Name` - Search by author name
+- `title:phrase` - Search in titles
+- `doi:10.xxxx/xxx` - Look up by DOI
+
+**Work Types:** article, book, book-chapter, dataset, dissertation, proceedings,
+proceedings-article, report, review, and more
+
+**Rate Limits:** 100,000 requests/day. Adding email increases rate from 1 req/sec
+to 10 req/sec.
+
+### Crossref
+
+- Type: `crossref`
+- Config keys: `email`, `api_key`, `endpoint`, `timeout`, `min_interval_seconds`,
+  `snippet_max_chars`, `year_from`, `year_to`, `type`, `has_full_text`,
+  `has_references`, `has_orcid`
+- Environment variables: `CROSSREF_EMAIL` (recommended), `CROSSREF_API_KEY` (optional)
+
+Crossref is the official DOI registration agency providing comprehensive
+bibliographic metadata for over 150 million scholarly works including journal
+articles, books, conference proceedings, and datasets.
+
+**Features:**
+- DOI-based metadata lookup
+- Comprehensive bibliographic data (authors, venues, publishers)
+- ORCID integration
+- Citation counts and reference lists
+- License and full-text link information
+- Journal, funder, and publisher filtering
+
+**Query Syntax:**
+- `author:Name` - Search by author name
+- `title:phrase` - Search in titles
+- `doi:10.xxxx/xxx` - Look up by DOI
+- `orcid:0000-0000-0000-0000` - Search by ORCID
+
+**Work Types:** journal-article, book, book-chapter, proceedings-article,
+dissertation, dataset, report, and many more
+
+**Rate Limits:** No signup required. Polite pool (with email) provides better
+rate limits. Metadata Plus subscription available for production use.
+
 ## Integration in Query Pipeline
 
 Remote providers are used when:
