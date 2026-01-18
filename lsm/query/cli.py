@@ -9,9 +9,9 @@ from __future__ import annotations
 from pathlib import Path
 
 from lsm.config.models import LSMConfig
-from lsm.cli.logging import get_logger
+from lsm.gui.shell.logging import get_logger
 from .retrieval import init_embedder
-from .repl import run_repl
+from lsm.gui.shell.query.repl import run_repl
 from lsm.vectordb import create_vectordb_provider
 
 logger = get_logger(__name__)

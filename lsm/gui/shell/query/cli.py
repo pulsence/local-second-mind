@@ -11,7 +11,7 @@ from pathlib import Path
 from lsm.config.models import LSMConfig
 from lsm.gui.shell.logging import get_logger
 from lsm.query.retrieval import init_embedder
-from lsm.query.repl import run_repl
+from lsm.gui.shell.query.repl import run_repl
 from lsm.vectordb import create_vectordb_provider
 
 logger = get_logger(__name__)

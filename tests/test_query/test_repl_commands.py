@@ -62,7 +62,7 @@ def test_unknown_command_shows_help(tmp_path, monkeypatch):
     def _help():
         called["help"] = True
 
-    monkeypatch.setattr("lsm.query.repl.print_help", _help)
+    monkeypatch.setattr("lsm.gui.shell.query.commands.print_help", _help)
 
     handled = handle_command("/doesnotexist", state, config, Mock(), Mock())
     assert handled is True
@@ -86,7 +86,7 @@ def test_note_custom_filename(tmp_path, monkeypatch):
     state.last_local_sources_for_notes = []
     state.last_remote_sources = []
 
-    monkeypatch.setattr("lsm.query.repl.edit_note_in_editor", lambda content: content)
+    monkeypatch.setattr("lsm.gui.shell.query.commands.edit_note_in_editor", lambda content: content)
 
     handled = handle_command("/note custom-note", state, config, Mock(), Mock())
     assert handled is True
@@ -107,7 +107,7 @@ def test_provider_status_command(tmp_path, monkeypatch, capsys):
         "status": "available",
         "stats": {"success_count": 1, "failure_count": 0},
     }
-    monkeypatch.setattr("lsm.query.repl.create_provider", lambda _: provider)
+    monkeypatch.setattr("lsm.gui.shell.query.commands.create_provider", lambda _: provider)
 
     handled = handle_command("/provider-status", state, config, Mock(), Mock())
     assert handled is True

@@ -8,9 +8,8 @@ import argparse
 import sys
 from pathlib import Path
 
-from lsm.cli.logging import configure_logging_from_args, get_logger
-from lsm.commands.ingest_cmd import run_ingest
-from lsm.commands.query_cmd import run_query
+from lsm.gui.shell.logging import configure_logging_from_args, get_logger
+from lsm.gui.shell.commands import run_ingest, run_query
 
 DEFAULT_CONFIG_PATH = (Path(__file__).resolve().parent.parent / "config.json")
 
@@ -170,7 +169,7 @@ def main(argv: list[str] | None = None) -> int:
     # Unified interactive shell if no command specified
     if not args.command:
         logger.info("Starting unified interactive shell")
-        from lsm.cli.shell import run_unified_shell
+        from lsm.gui.shell.unified import run_unified_shell
         return run_unified_shell(config)
 
     # Dispatch to appropriate command (single-shot mode)
@@ -180,7 +179,7 @@ def main(argv: list[str] | None = None) -> int:
             # Check if interactive flag is set
             if hasattr(args, 'interactive') and args.interactive:
                 # Interactive ingest REPL only
-                from lsm.ingest.repl import run_ingest_repl
+                from lsm.gui.shell.ingest import run_ingest_repl
                 return run_ingest_repl(config)
             else:
                 # Single-shot ingest
