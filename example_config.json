@@ -263,6 +263,32 @@
       "has_full_text": false,
       "has_references": false,
       "has_orcid": false
+    },
+    {
+      "_comment": "OAI-PMH - Generic harvester for institutional repositories (free, no API key required)",
+      "name": "oai_pmh",
+      "type": "oai_pmh",
+      "enabled": false,
+      "weight": 0.8,
+      "_comment_repository": "Use a known repository key (arxiv, zenodo, pubmed, doaj, hal, repec, europeana, philpapers) or a custom URL",
+      "repository": "zenodo",
+      "max_results": 5,
+      "min_interval_seconds": 1.0,
+      "snippet_max_chars": 700,
+      "metadata_prefix": "oai_dc",
+      "set_spec": null,
+      "user_agent": "LocalSecondMind/1.0 (contact: you@example.com)"
+    },
+    {
+      "_comment": "OAI-PMH Multi-Repository - Search across multiple OAI-PMH repositories",
+      "name": "oai_pmh_multi",
+      "type": "oai_pmh",
+      "enabled": false,
+      "weight": 0.8,
+      "repositories": ["zenodo", "doaj", "hal"],
+      "max_results": 5,
+      "min_interval_seconds": 1.0,
+      "snippet_max_chars": 700
     }
   ]
 }

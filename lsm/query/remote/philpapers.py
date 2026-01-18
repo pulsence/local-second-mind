@@ -5,21 +5,24 @@ Provides access to philosophy papers and research from PhilPapers,
 the premier index and bibliography of philosophy.
 API documentation: https://philpapers.org/help/api/
 OAI-PMH access: https://philpapers.org/help/oai.html
+
+This provider uses the shared OAI-PMH infrastructure from oai_pmh.py
+for common OAI-PMH functionality while adding PhilPapers-specific
+features like subject category filtering.
 """
 
 from __future__ import annotations
 
 import os
 import re
-import time
 import xml.etree.ElementTree as ET
 from datetime import datetime, timezone
 from typing import List, Dict, Any, Optional
-from urllib.parse import quote_plus
 
 import requests
 
 from .base import BaseRemoteProvider, RemoteResult
+from .oai_pmh import OAIPMHClient, OAIPMHError, DublinCoreParser
 from lsm.cli.logging import get_logger
 
 logger = get_logger(__name__)
@@ -56,13 +59,6 @@ class PhilPapersProvider(BaseRemoteProvider):
     DEFAULT_TIMEOUT = 15
     DEFAULT_MIN_INTERVAL_SECONDS = 2.0  # Be respectful to PhilPapers servers
     DEFAULT_SNIPPET_MAX_CHARS = 700
-
-    # Dublin Core namespaces for OAI-PMH
-    OAI_NAMESPACES = {
-        "oai": "http://www.openarchives.org/OAI/2.0/",
-        "dc": "http://purl.org/dc/elements/1.1/",
-        "oai_dc": "http://www.openarchives.org/OAI/2.0/oai_dc/",
-    }
 
     # Philosophy subject categories (PhilPapers categorization)
     SUBJECT_CATEGORIES = {
@@ -122,7 +118,14 @@ class PhilPapersProvider(BaseRemoteProvider):
         self.subject_categories = config.get("subject_categories") or []
         self.include_books = config.get("include_books", True)
         self.open_access_only = config.get("open_access_only", False)
-        self._last_request_time = 0.0
+
+        # Initialize OAI-PMH client using shared infrastructure
+        self._oai_client = OAIPMHClient(
+            base_url=self.OAI_ENDPOINT,
+            timeout=self.timeout,
+            user_agent="LocalSecondMind/1.0 (Philosophy Research Tool)",
+            min_interval_seconds=self.min_interval_seconds,
+        )
 
     @property
     def name(self) -> str:
@@ -227,23 +230,21 @@ class PhilPapersProvider(BaseRemoteProvider):
         Returns:
             Paper details dict or None if not found
         """
-        url = f"{self.OAI_ENDPOINT}"
-        params = {
-            "verb": "GetRecord",
-            "identifier": f"oai:philpapers.org:{philpapers_id}",
-            "metadataPrefix": "oai_dc",
-        }
-
         try:
-            data = self._request_oai(url, params)
-            if data is None:
+            # Use shared OAI-PMH client
+            result = self._oai_client.get_record(
+                identifier=f"oai:philpapers.org:{philpapers_id}",
+                metadata_prefix="oai_dc",
+            )
+
+            if result is None:
                 return None
 
-            record = data.find(".//oai:record", self.OAI_NAMESPACES)
-            if record is None:
-                return None
-
-            return self._parse_oai_record(record)
+            header, metadata_elem = result
+            return self._parse_oai_metadata(header, metadata_elem)
+        except OAIPMHError as exc:
+            logger.warning(f"OAI-PMH error fetching paper: {exc}")
+            return None
         except Exception as exc:
             logger.error(f"Error fetching paper details: {exc}")
             return None
@@ -334,113 +335,104 @@ class PhilPapersProvider(BaseRemoteProvider):
     def _fetch_oai_records(
         self, params: Dict[str, str], max_records: int
     ) -> List[Dict[str, Any]]:
-        """Fetch records from OAI-PMH endpoint."""
+        """Fetch records from OAI-PMH endpoint using shared OAI-PMH client."""
         records = []
         resumption_token = None
 
+        # Extract set_spec from params if present
+        set_spec = params.get("set")
+
         while len(records) < max_records:
-            if resumption_token:
-                request_params = {
-                    "verb": "ListRecords",
-                    "resumptionToken": resumption_token,
-                }
-            else:
-                request_params = params
+            try:
+                # Use shared OAI-PMH client for listing records
+                raw_records, next_token = self._oai_client.list_records(
+                    metadata_prefix="oai_dc",
+                    set_spec=set_spec,
+                    resumption_token=resumption_token,
+                )
 
-            data = self._request_oai(self.OAI_ENDPOINT, request_params)
-            if data is None:
+                # Parse records
+                for header, metadata_elem in raw_records:
+                    if header.get("deleted"):
+                        continue
+                    if metadata_elem is None:
+                        continue
+
+                    parsed = self._parse_oai_metadata(header, metadata_elem)
+                    if parsed:
+                        records.append(parsed)
+                        if len(records) >= max_records:
+                            break
+
+                # Check for resumption token
+                if next_token:
+                    resumption_token = next_token
+                else:
+                    break
+            except OAIPMHError as exc:
+                if exc.code == "noRecordsMatch":
+                    break
+                logger.warning(f"OAI-PMH error: {exc}")
                 break
-
-            # Parse records
-            for record in data.findall(".//oai:record", self.OAI_NAMESPACES):
-                parsed = self._parse_oai_record(record)
-                if parsed:
-                    records.append(parsed)
-                    if len(records) >= max_records:
-                        break
-
-            # Check for resumption token
-            token_elem = data.find(".//oai:resumptionToken", self.OAI_NAMESPACES)
-            if token_elem is not None and token_elem.text:
-                resumption_token = token_elem.text
-            else:
+            except Exception as exc:
+                logger.error(f"Error fetching OAI records: {exc}")
                 break
 
         return records
 
-    def _parse_oai_record(self, record: ET.Element) -> Optional[Dict[str, Any]]:
-        """Parse a single OAI-PMH record into a dict."""
+    def _parse_oai_metadata(
+        self, header: Dict[str, Any], metadata_elem: ET.Element
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Parse OAI-PMH metadata using shared Dublin Core parser.
+
+        Args:
+            header: Header dict from OAI-PMH client
+            metadata_elem: Metadata XML element
+
+        Returns:
+            Parsed record dict or None
+        """
         try:
-            header = record.find("oai:header", self.OAI_NAMESPACES)
-            metadata = record.find(".//oai_dc:dc", self.OAI_NAMESPACES)
+            # Use shared Dublin Core parser
+            parsed = DublinCoreParser.parse(metadata_elem, {})
 
-            if header is None or metadata is None:
-                return None
-
-            # Check if deleted
-            if header.get("status") == "deleted":
-                return None
-
-            identifier = header.findtext("oai:identifier", "", self.OAI_NAMESPACES)
+            identifier = header.get("identifier", "")
             # Extract PhilPapers ID from OAI identifier
             philpapers_id = identifier.replace("oai:philpapers.org:", "") if identifier else ""
 
-            # Extract Dublin Core fields
-            title = metadata.findtext("dc:title", "Untitled", self.OAI_NAMESPACES)
-            description = metadata.findtext("dc:description", "", self.OAI_NAMESPACES)
-
-            authors = []
-            for creator in metadata.findall("dc:creator", self.OAI_NAMESPACES):
-                if creator.text:
-                    authors.append(creator.text)
-
-            subjects = []
-            for subject in metadata.findall("dc:subject", self.OAI_NAMESPACES):
-                if subject.text:
-                    subjects.append(subject.text)
-
-            # Get date
-            date_str = metadata.findtext("dc:date", "", self.OAI_NAMESPACES)
-            year = self._extract_year(date_str)
-
-            # Get identifier (URL or DOI)
+            # Get URL and DOI from identifiers
             url = None
             doi = None
-            for ident in metadata.findall("dc:identifier", self.OAI_NAMESPACES):
-                if ident.text:
-                    if ident.text.startswith("http"):
-                        url = ident.text
-                    elif ident.text.startswith("10.") or "doi" in ident.text.lower():
-                        doi = ident.text.replace("doi:", "").strip()
+            for ident in parsed.get("identifiers", []):
+                if ident.startswith("http"):
+                    url = ident
+                elif ident.startswith("10.") or "doi" in ident.lower():
+                    doi = ident.replace("doi:", "").strip()
 
             if not url:
                 url = f"https://philpapers.org/rec/{philpapers_id}"
 
-            # Get type (article, book, etc.)
-            doc_type = metadata.findtext("dc:type", "", self.OAI_NAMESPACES)
-
-            # Get publisher
-            publisher = metadata.findtext("dc:publisher", "", self.OAI_NAMESPACES)
-
-            # Get source (journal/book title)
-            source = metadata.findtext("dc:source", "", self.OAI_NAMESPACES)
+            # Extract year from date
+            date_str = parsed.get("date", "")
+            year = self._extract_year(date_str)
 
             return {
                 "philpapers_id": philpapers_id,
-                "title": title,
-                "description": description,
-                "authors": authors,
-                "subjects": subjects,
+                "title": parsed.get("title") or "Untitled",
+                "description": parsed.get("description") or "",
+                "authors": parsed.get("creators", []),
+                "subjects": parsed.get("subjects", []),
                 "year": year,
                 "date": date_str,
                 "url": url,
                 "doi": doi,
-                "type": doc_type,
-                "publisher": publisher,
-                "source": source,
+                "type": parsed.get("types", [""])[0] if parsed.get("types") else "",
+                "publisher": parsed.get("publisher") or "",
+                "source": parsed.get("source") or "",
             }
         except Exception as exc:
-            logger.debug(f"Error parsing OAI record: {exc}")
+            logger.debug(f"Error parsing OAI metadata: {exc}")
             return None
 
     def _extract_year(self, date_str: str) -> Optional[int]:
@@ -497,43 +489,6 @@ class PhilPapersProvider(BaseRemoteProvider):
             score=score,
             metadata=metadata,
         )
-
-    def _request_oai(
-        self, url: str, params: Dict[str, str]
-    ) -> Optional[ET.Element]:
-        """Make an OAI-PMH request and parse XML response."""
-        self._throttle()
-
-        headers = {
-            "Accept": "application/xml",
-            "User-Agent": "LocalSecondMind/1.0 (Philosophy Research Tool)",
-        }
-
-        response = requests.get(url, params=params, headers=headers, timeout=self.timeout)
-        response.raise_for_status()
-
-        # Parse XML
-        root = ET.fromstring(response.content)
-
-        # Check for OAI-PMH errors
-        error = root.find(".//oai:error", self.OAI_NAMESPACES)
-        if error is not None:
-            error_code = error.get("code", "unknown")
-            error_msg = error.text or "Unknown error"
-            logger.warning(f"OAI-PMH error: {error_code} - {error_msg}")
-            return None
-
-        return root
-
-    def _throttle(self) -> None:
-        """Enforce rate limiting between requests."""
-        if self.min_interval_seconds <= 0:
-            return
-        now = time.time()
-        elapsed = now - self._last_request_time
-        if elapsed < self.min_interval_seconds:
-            time.sleep(self.min_interval_seconds - elapsed)
-        self._last_request_time = time.time()
 
     def _truncate(self, text: str) -> str:
         """Truncate text to snippet length."""

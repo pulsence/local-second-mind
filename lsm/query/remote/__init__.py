@@ -18,6 +18,7 @@ from .philpapers import PhilPapersProvider
 from .ixtheo import IxTheoProvider
 from .openalex import OpenAlexProvider
 from .crossref import CrossrefProvider
+from .oai_pmh import OAIPMHProvider, OAIPMHClient, OAIRecord, KNOWN_REPOSITORIES
 
 # Register Brave Search provider
 register_remote_provider("web_search", BraveSearchProvider)
@@ -30,6 +31,7 @@ register_remote_provider("philpapers", PhilPapersProvider)
 register_remote_provider("ixtheo", IxTheoProvider)
 register_remote_provider("openalex", OpenAlexProvider)
 register_remote_provider("crossref", CrossrefProvider)
+register_remote_provider("oai_pmh", OAIPMHProvider)
 
 __all__ = [
     "BaseRemoteProvider",
@@ -45,4 +47,8 @@ __all__ = [
     "IxTheoProvider",
     "OpenAlexProvider",
     "CrossrefProvider",
+    "OAIPMHProvider",
+    "OAIPMHClient",
+    "OAIRecord",
+    "KNOWN_REPOSITORIES",
 ]

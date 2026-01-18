@@ -205,6 +205,96 @@ dissertation, dataset, report, and many more
 **Rate Limits:** No signup required. Polite pool (with email) provides better
 rate limits. Metadata Plus subscription available for production use.
 
+### OAI-PMH (Open Archives Initiative)
+
+- Type: `oai_pmh`
+- Config keys: `repository`, `repositories`, `custom_repositories`, `metadata_prefix`,
+  `set_spec`, `timeout`, `min_interval_seconds`, `snippet_max_chars`, `user_agent`
+- Environment variable: `LSM_OAI_PMH_USER_AGENT` (optional)
+
+OAI-PMH (Open Archives Initiative Protocol for Metadata Harvesting) is a
+protocol for harvesting metadata from institutional repositories, digital
+libraries, and archives worldwide. No API key required for most repositories.
+
+**Features:**
+- Generic harvester supporting any OAI-PMH compliant repository
+- Multiple metadata formats: Dublin Core (oai_dc), MARC21, DataCite
+- Resumption token handling for large result sets
+- Set-based filtering for collections
+- Pre-configured well-known repositories
+- Custom repository configuration support
+
+**Pre-configured Repositories:**
+- `arxiv` - Physics, Math, CS, etc. (export.arxiv.org)
+- `pubmed` - Biomedical literature (PubMed Central)
+- `zenodo` - General research outputs
+- `doaj` - Directory of Open Access Journals
+- `hal` - French national archive (HAL)
+- `repec` - Economics papers
+- `europeana` - European cultural heritage
+- `philpapers` - Philosophy research
+
+**Configuration Examples:**
+
+Single known repository:
+```json
+{
+  "name": "oai_pmh",
+  "type": "oai_pmh",
+  "enabled": true,
+  "repository": "zenodo"
+}
+```
+
+Multiple repositories:
+```json
+{
+  "name": "oai_pmh_multi",
+  "type": "oai_pmh",
+  "enabled": true,
+  "repositories": ["arxiv", "zenodo", "pubmed"]
+}
+```
+
+Custom repository:
+```json
+{
+  "name": "institutional_repo",
+  "type": "oai_pmh",
+  "enabled": true,
+  "custom_repositories": {
+    "my_university": {
+      "name": "My University Repository",
+      "base_url": "https://repository.example.edu/oai",
+      "metadata_prefix": "oai_dc",
+      "url_template": "https://repository.example.edu/item/{id}"
+    }
+  }
+}
+```
+
+**Adding Custom Repositories:**
+
+To add a custom OAI-PMH repository, you need:
+1. The base URL of the OAI-PMH endpoint
+2. (Optional) The preferred metadata format (default: `oai_dc`)
+3. (Optional) A set spec to filter results
+4. (Optional) A URL template for linking to records
+
+You can discover OAI-PMH endpoints by:
+- Looking for "OAI-PMH" in the repository's documentation
+- Checking for common endpoint paths: `/oai`, `/oai2`, `/oai-pmh`, `/oai.pl`
+- Using the Identify verb to verify: `curl "https://repo.example.org/oai?verb=Identify"`
+
+**Supported Metadata Formats:**
+- `oai_dc` - Dublin Core (required by all OAI-PMH repositories)
+- `marc21` / `marcxml` - MARC bibliographic records
+- `datacite` - DataCite format for research data
+
+**Rate Limits:** Varies by repository. arXiv requires 3 seconds between requests;
+most others allow 1 second or less. Rate limiting is automatically applied
+based on repository configuration.
+
 ## Integration in Query Pipeline
 
 Remote providers are used when:
