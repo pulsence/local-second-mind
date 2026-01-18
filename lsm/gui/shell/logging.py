@@ -1,39 +1,16 @@
 """
 Logging configuration for Local Second Mind.
 
-DEPRECATED: This module is deprecated in favor of lsm.gui.shell.logging.
-All functionality has been moved to lsm.gui.shell.logging.
-
-This module re-exports from lsm.gui.shell.logging for backward compatibility.
+Provides structured logging with configurable levels and formatting.
 """
-
-# Re-export everything from the new location
-from lsm.gui.shell.logging import (
-    Colors,
-    ColoredFormatter,
-    setup_logging,
-    get_logger,
-    configure_logging_from_args,
-)
-
-__all__ = [
-    "Colors",
-    "ColoredFormatter",
-    "setup_logging",
-    "get_logger",
-    "configure_logging_from_args",
-]
-
-# Keep the old implementation below for reference during transition
-# This will be removed in a future version
 
 import logging
 import sys
 from typing import Optional
 
 
-# ANSI color codes for terminal output (kept for compatibility)
-class _Colors:
+# ANSI color codes for terminal output
+class Colors:
     """ANSI color codes for colored terminal output."""
     RESET = "\033[0m"
     BOLD = "\033[1m"

@@ -1,6 +1,7 @@
 .claude/
 .claude_files/
 research_notes/
+CLAUDE.md
 
 # Python bytecode
 __pycache__/

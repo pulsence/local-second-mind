@@ -1,10 +1,12 @@
+"""
+Ingest command handler.
+
+DEPRECATED: This module is deprecated in favor of lsm.gui.shell.commands.ingest.
+This module re-exports from lsm.gui.shell.commands for backward compatibility.
+"""
+
 from __future__ import annotations
 
-from lsm.ingest.cli import main as ingest_main
+from lsm.gui.shell.commands.ingest import run_ingest
 
-
-def run_ingest(args) -> int:
-    """Run ingest command with optional interactive mode."""
-    interactive = getattr(args, 'interactive', False)
-    skip_errors = getattr(args, "skip_errors", None)
-    return ingest_main(args.config, interactive=interactive, skip_errors=skip_errors)
+__all__ = ["run_ingest"]

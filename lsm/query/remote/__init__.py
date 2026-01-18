@@ -1,37 +1,36 @@
 """
 Remote source providers for query augmentation.
 
-Provides interfaces and implementations for fetching information from
-remote sources (web search, APIs, etc.) to augment local knowledge.
+DEPRECATED: This module is deprecated in favor of lsm.remote.
+All functionality has been moved to lsm.remote.
+
+This module re-exports from lsm.remote for backward compatibility.
 """
 
-from .base import BaseRemoteProvider, RemoteResult
-from .factory import create_remote_provider, register_remote_provider, get_registered_providers
-
-# Import and register built-in providers
-from .brave import BraveSearchProvider
-from .wikipedia import WikipediaProvider
-from .arxiv import ArXivProvider
-from .semantic_scholar import SemanticScholarProvider
-from .core import COREProvider
-from .philpapers import PhilPapersProvider
-from .ixtheo import IxTheoProvider
-from .openalex import OpenAlexProvider
-from .crossref import CrossrefProvider
-from .oai_pmh import OAIPMHProvider, OAIPMHClient, OAIRecord, KNOWN_REPOSITORIES
-
-# Register Brave Search provider
-register_remote_provider("web_search", BraveSearchProvider)
-register_remote_provider("brave_search", BraveSearchProvider)
-register_remote_provider("wikipedia", WikipediaProvider)
-register_remote_provider("arxiv", ArXivProvider)
-register_remote_provider("semantic_scholar", SemanticScholarProvider)
-register_remote_provider("core", COREProvider)
-register_remote_provider("philpapers", PhilPapersProvider)
-register_remote_provider("ixtheo", IxTheoProvider)
-register_remote_provider("openalex", OpenAlexProvider)
-register_remote_provider("crossref", CrossrefProvider)
-register_remote_provider("oai_pmh", OAIPMHProvider)
+# Re-export everything from the new location
+from lsm.remote import (
+    # Base classes
+    BaseRemoteProvider,
+    RemoteResult,
+    # Factory functions
+    create_remote_provider,
+    register_remote_provider,
+    get_registered_providers,
+    # Provider implementations
+    BraveSearchProvider,
+    WikipediaProvider,
+    ArXivProvider,
+    SemanticScholarProvider,
+    COREProvider,
+    OAIPMHProvider,
+    OAIPMHClient,
+    OAIRecord,
+    KNOWN_REPOSITORIES,
+    PhilPapersProvider,
+    IxTheoProvider,
+    OpenAlexProvider,
+    CrossrefProvider,
+)
 
 __all__ = [
     "BaseRemoteProvider",
