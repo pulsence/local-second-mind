@@ -5,7 +5,7 @@ Tests for Crossref provider implementation.
 from unittest.mock import Mock, patch
 import pytest
 
-from lsm.query.remote.crossref import CrossrefProvider
+from lsm.remote.providers.crossref import CrossrefProvider
 
 
 CROSSREF_RESPONSE = {

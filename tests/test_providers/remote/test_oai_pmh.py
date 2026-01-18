@@ -14,7 +14,7 @@ from unittest.mock import Mock, patch, MagicMock
 
 import pytest
 
-from lsm.query.remote.oai_pmh import (
+from lsm.remote.providers.oai_pmh import (
     OAIPMHProvider,
     OAIPMHClient,
     OAIPMHError,
@@ -794,7 +794,7 @@ class TestOAIPMHIntegration:
 
     def test_provider_registered(self):
         """Test provider is registered in factory."""
-        from lsm.query.remote import create_remote_provider
+        from lsm.remote import create_remote_provider
 
         provider = create_remote_provider("oai_pmh", {
             "type": "oai_pmh",

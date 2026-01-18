@@ -10,7 +10,7 @@ from datetime import datetime
 import time
 from typing import List, Dict, Any, Optional, Callable, Iterable
 
-from lsm.cli.logging import get_logger
+from lsm.gui.shell.logging import get_logger
 
 logger = get_logger(__name__)
 

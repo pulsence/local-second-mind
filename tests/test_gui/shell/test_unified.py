@@ -6,7 +6,7 @@ import pytest
 from unittest.mock import Mock, patch, MagicMock
 from pathlib import Path
 
-from lsm.cli.shell import UnifiedShell
+from lsm.gui.shell.unified import UnifiedShell
 from lsm.config.models import (
     LSMConfig,
     IngestConfig,
@@ -112,18 +112,22 @@ class TestUnifiedShell:
         assert "QUERY context" in captured.out
         assert "50" in captured.out
 
-    def test_context_switch_commands(self, mock_config):
+    @patch('lsm.vectordb.create_vectordb_provider')
+    def test_context_switch_commands(self, mock_create_provider, mock_config):
         """Test context switch commands are handled."""
-        shell = UnifiedShell(mock_config)
+        mock_provider = Mock()
+        mock_provider.count.return_value = 100
+        mock_provider.get_stats.return_value = {"provider": "mock"}
+        mock_create_provider.return_value = mock_provider
 
-        # Initially no context
-        assert shell.current_context is None
+        shell = UnifiedShell(mock_config)
+        shell.switch_to_ingest()  # Initialize ingest context first
 
         # Commands should trigger context switches
-        with patch.object(shell, 'switch_to_ingest') as mock_switch:
+        with patch.object(shell, 'switch_to_query') as mock_switch:
             shell.handle_ingest_command("/query")
-            # Should not call switch_to_ingest because we're checking for /query
-            mock_switch.assert_not_called()
+            # Should call switch_to_query when /query command is issued
+            mock_switch.assert_called_once()
 
     @patch('builtins.input', side_effect=["/exit"])
     def test_shell_exit(self, mock_input, mock_config):
@@ -172,7 +176,7 @@ class TestShellHelpers:
         assert "/query" in captured.out
 
     @patch('lsm.vectordb.create_vectordb_provider')
-    @patch('lsm.ingest.repl.print_help')
+    @patch('lsm.gui.shell.ingest.display.print_help')
     def test_show_help_ingest_context(self, mock_print_help, mock_create_provider, mock_config):
         """Test help shows ingest commands when in ingest context."""
         mock_create_provider.return_value = Mock(count=Mock(return_value=10), get_stats=Mock(return_value={"provider": "mock"}))
@@ -186,7 +190,7 @@ class TestShellHelpers:
 
     @patch('lsm.vectordb.create_vectordb_provider')
     @patch('lsm.query.retrieval.init_embedder')
-    @patch('lsm.query.repl.print_help')
+    @patch('lsm.gui.shell.query.display.print_help')
     def test_show_help_query_context(self, mock_print_help, mock_init_emb, mock_create_provider, mock_config):
         """Test help shows query commands when in query context."""
         mock_init_emb.return_value = Mock()

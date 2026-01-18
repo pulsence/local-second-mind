@@ -6,7 +6,7 @@ import pytest
 from unittest.mock import Mock, patch
 import requests
 
-from lsm.query.remote.brave import BraveSearchProvider
+from lsm.remote.providers.brave import BraveSearchProvider
 
 
 class TestBraveSearchProvider:

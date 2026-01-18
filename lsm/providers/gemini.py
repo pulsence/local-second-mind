@@ -12,7 +12,7 @@ from google import genai
 from google.genai import types as genai_types
 
 from lsm.config.models import LLMConfig
-from lsm.cli.logging import get_logger
+from lsm.gui.shell.logging import get_logger
 from .base import BaseLLMProvider
 
 logger = get_logger(__name__)

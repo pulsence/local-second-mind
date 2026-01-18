@@ -7,7 +7,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from lsm.cli.logging import get_logger
+from lsm.gui.shell.logging import get_logger
 from lsm.config.models import VectorDBConfig
 from lsm.vectordb.chromadb import ChromaDBProvider
 from lsm.vectordb.postgresql import PostgreSQLProvider

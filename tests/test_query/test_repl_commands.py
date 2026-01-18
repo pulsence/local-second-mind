@@ -19,7 +19,7 @@ from lsm.config.models import (
     RemoteProviderRef,
     RemoteSourcePolicy,
 )
-from lsm.query.repl import (
+from lsm.gui.shell.query.commands import (
     handle_command,
     toggle_remote_provider,
     set_remote_provider_weight,

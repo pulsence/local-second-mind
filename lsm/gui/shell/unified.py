@@ -196,7 +196,7 @@ class UnifiedShell:
         Returns:
             True to continue, False to exit
         """
-        from lsm.ingest.repl import handle_command
+        from lsm.gui.shell.ingest import handle_command
 
         # Check for context switch commands
         if line.strip().lower() in ("/query", "/q"):
@@ -223,7 +223,8 @@ class UnifiedShell:
             return True
 
         # Handle query commands and questions
-        from lsm.query.repl import handle_command, run_query_turn
+        from lsm.gui.shell.query.commands import handle_command
+        from lsm.gui.shell.query.repl import run_query_turn
 
         try:
             # Check if it's a command
@@ -337,10 +338,10 @@ class UnifiedShell:
     def show_help(self) -> None:
         """Show context-specific help."""
         if self.current_context == "ingest":
-            from lsm.ingest.repl import print_help
+            from lsm.gui.shell.ingest.display import print_help
             print_help()
         elif self.current_context == "query":
-            from lsm.query.repl import print_help
+            from lsm.gui.shell.query.display import print_help
             print_help()
         else:
             print()

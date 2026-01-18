@@ -4,8 +4,8 @@ Tests for remote provider factory.
 
 import pytest
 
-from lsm.query.remote.base import BaseRemoteProvider, RemoteResult
-from lsm.query.remote.brave import BraveSearchProvider
+from lsm.remote.base import BaseRemoteProvider, RemoteResult
+from lsm.remote.providers.brave import BraveSearchProvider
 
 
 # Note: The import error from the original file suggests these functions
@@ -37,7 +37,7 @@ class TestRemoteProviderFactory:
     @pytest.mark.skip(reason="Factory functions not yet implemented - see lsm/query/remote/factory.py")
     def test_list_available_providers(self):
         """Test listing available providers."""
-        from lsm.query.remote.factory import list_available_providers
+        from lsm.remote.factory import list_available_providers
 
         providers = list_available_providers()
 
@@ -48,7 +48,7 @@ class TestRemoteProviderFactory:
     @pytest.mark.skip(reason="Factory functions not yet implemented - see lsm/query/remote/factory.py")
     def test_register_custom_provider(self):
         """Test registering a custom provider."""
-        from lsm.query.remote.factory import register_remote_provider, list_available_providers
+        from lsm.remote.factory import register_remote_provider, list_available_providers
 
         register_remote_provider("mock", MockRemoteProvider)
 
@@ -58,7 +58,7 @@ class TestRemoteProviderFactory:
     @pytest.mark.skip(reason="Factory functions not yet implemented - see lsm/query/remote/factory.py")
     def test_create_provider_brave(self):
         """Test creating Brave Search provider."""
-        from lsm.query.remote.factory import create_remote_provider
+        from lsm.remote.factory import create_remote_provider
 
         config = {
             "type": "web_search",
@@ -76,7 +76,7 @@ class TestRemoteProviderFactory:
     @pytest.mark.skip(reason="Factory functions not yet implemented - see lsm/query/remote/factory.py")
     def test_create_provider_invalid_type(self):
         """Test creating provider with invalid type raises error."""
-        from lsm.query.remote.factory import create_remote_provider
+        from lsm.remote.factory import create_remote_provider
 
         config = {
             "type": "invalid_provider",

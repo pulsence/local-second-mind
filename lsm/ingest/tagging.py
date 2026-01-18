@@ -17,7 +17,7 @@ from chromadb.api.models.Collection import Collection
 
 from lsm.config.models import LLMConfig
 from lsm.providers import create_provider
-from lsm.cli.logging import get_logger
+from lsm.gui.shell.logging import get_logger
 from lsm.vectordb.utils import require_chroma_collection
 
 logger = get_logger(__name__)

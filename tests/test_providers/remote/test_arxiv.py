@@ -4,7 +4,7 @@ Tests for arXiv provider implementation.
 
 from unittest.mock import Mock, patch
 
-from lsm.query.remote.arxiv import ArXivProvider
+from lsm.remote.providers.arxiv import ArXivProvider
 
 
 ARXIV_FEED_XML = """<?xml version="1.0" encoding="UTF-8"?>

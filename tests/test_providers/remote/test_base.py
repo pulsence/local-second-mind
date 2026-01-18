@@ -4,7 +4,7 @@ Tests for BaseRemoteProvider abstract interface.
 
 import pytest
 
-from lsm.query.remote.base import BaseRemoteProvider, RemoteResult
+from lsm.remote.base import BaseRemoteProvider, RemoteResult
 
 
 class MockRemoteProvider(BaseRemoteProvider):

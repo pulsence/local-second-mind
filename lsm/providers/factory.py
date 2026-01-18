@@ -9,7 +9,7 @@ from __future__ import annotations
 from typing import Dict, Type
 
 from lsm.config.models import LLMConfig
-from lsm.cli.logging import get_logger
+from lsm.gui.shell.logging import get_logger
 from .base import BaseLLMProvider
 from .openai import OpenAIProvider
 

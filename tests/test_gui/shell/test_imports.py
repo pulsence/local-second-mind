@@ -6,7 +6,7 @@ import pytest
 
 
 class TestIngestModuleImports:
-    """Test that ingest module imports work from new and old locations."""
+    """Test that ingest module imports work from new locations."""
 
     def test_import_from_new_location(self):
         """Test imports from lsm.gui.shell.ingest."""
@@ -32,20 +32,9 @@ class TestIngestModuleImports:
         assert callable(print_banner)
         assert callable(print_help)
 
-    def test_import_from_deprecated_location(self):
-        """Test backward compatibility imports from lsm.ingest.repl."""
-        from lsm.ingest.repl import (
-            run_ingest_repl,
-            handle_command,
-            print_banner,
-            print_help,
-        )
-        assert callable(run_ingest_repl)
-        assert callable(handle_command)
-
 
 class TestQueryModuleImports:
-    """Test that query module imports work from new and old locations."""
+    """Test that query module imports work from new locations."""
 
     def test_import_from_new_location(self):
         """Test imports from lsm.gui.shell.query."""
@@ -64,19 +53,6 @@ class TestQueryModuleImports:
         assert callable(print_help)
         assert isinstance(COMMAND_HINTS, set)
 
-    def test_import_from_deprecated_location(self):
-        """Test backward compatibility imports from lsm.query.repl."""
-        from lsm.query.repl import (
-            run_repl,
-            run_query_turn,
-            print_banner,
-            print_help,
-            handle_command,
-            COMMAND_HINTS,
-        )
-        assert callable(run_repl)
-        assert callable(handle_command)
-
 
 class TestShellModuleImports:
     """Test that shell module imports work correctly."""
@@ -92,16 +68,6 @@ class TestShellModuleImports:
         assert callable(get_logger)
         assert callable(configure_logging_from_args)
 
-    def test_logging_import_from_deprecated_location(self):
-        """Test backward compatibility logging imports from lsm.cli.logging."""
-        from lsm.cli.logging import (
-            setup_logging,
-            get_logger,
-            configure_logging_from_args,
-        )
-        assert callable(setup_logging)
-        assert callable(get_logger)
-
     def test_unified_shell_import(self):
         """Test unified shell import."""
         from lsm.gui.shell.unified import run_unified_shell
@@ -113,11 +79,46 @@ class TestShellModuleImports:
         assert callable(run_ingest)
         assert callable(run_query)
 
-    def test_commands_import_from_deprecated_location(self):
-        """Test backward compatibility commands imports from lsm.commands."""
-        from lsm.commands import run_ingest, run_query
-        assert callable(run_ingest)
-        assert callable(run_query)
+
+class TestRemoteModuleImports:
+    """Test that remote module imports work from lsm.remote."""
+
+    def test_import_base_classes(self):
+        """Test imports of base classes from lsm.remote."""
+        from lsm.remote import (
+            BaseRemoteProvider,
+            RemoteResult,
+        )
+        assert BaseRemoteProvider is not None
+        assert RemoteResult is not None
+
+    def test_import_factory_functions(self):
+        """Test imports of factory functions from lsm.remote."""
+        from lsm.remote import (
+            create_remote_provider,
+            register_remote_provider,
+            get_registered_providers,
+        )
+        assert callable(create_remote_provider)
+        assert callable(register_remote_provider)
+        assert callable(get_registered_providers)
+
+    def test_import_providers(self):
+        """Test imports of provider classes from lsm.remote."""
+        from lsm.remote import (
+            BraveSearchProvider,
+            WikipediaProvider,
+            ArXivProvider,
+            SemanticScholarProvider,
+            COREProvider,
+            PhilPapersProvider,
+            IxTheoProvider,
+            OpenAlexProvider,
+            CrossrefProvider,
+        )
+        assert BraveSearchProvider is not None
+        assert WikipediaProvider is not None
+        assert ArXivProvider is not None
 
 
 class TestMainEntryPointImports:

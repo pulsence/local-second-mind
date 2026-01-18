@@ -13,7 +13,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import List, Optional, Dict, Any
 
-from lsm.cli.logging import get_logger
+from lsm.gui.shell.logging import get_logger
 import tempfile
 import subprocess
 import os

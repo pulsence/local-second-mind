@@ -144,7 +144,7 @@ import os
 from typing import List, Dict, Any, Optional
 
 from lsm.config.models import LLMConfig
-from lsm.cli.logging import get_logger
+from lsm.gui.shell.logging import get_logger
 from .base import BaseLLMProvider
 
 logger = get_logger(__name__)
@@ -390,7 +390,7 @@ from typing import List, Dict, Any, Optional
 from anthropic import Anthropic, HUMAN_PROMPT, AI_PROMPT
 
 from lsm.config.models import LLMConfig
-from lsm.cli.logging import get_logger
+from lsm.gui.shell.logging import get_logger
 from .base import BaseLLMProvider
 
 logger = get_logger(__name__)

@@ -58,7 +58,7 @@ def main(config_path: str | Path, interactive: bool = False, skip_errors: bool |
     # Run interactive REPL or batch ingest
     if interactive:
         logger.info("Starting interactive ingest REPL...")
-        from lsm.ingest.repl import run_ingest_repl
+        from lsm.gui.shell.ingest.repl import run_ingest_repl
         return run_ingest_repl(config)
     else:
         # Run ingest pipeline

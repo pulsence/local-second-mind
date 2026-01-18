@@ -5,7 +5,7 @@ Tests for CORE provider implementation.
 from unittest.mock import Mock, patch
 import pytest
 
-from lsm.query.remote.core import COREProvider
+from lsm.remote.providers.core import COREProvider
 
 
 CORE_SEARCH_RESPONSE = {

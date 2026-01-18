@@ -9,7 +9,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import List, Dict, Any, Tuple
 
-from lsm.cli.logging import get_logger
+from lsm.gui.shell.logging import get_logger
 from .session import Candidate
 
 logger = get_logger(__name__)

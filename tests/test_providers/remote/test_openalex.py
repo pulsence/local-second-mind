@@ -5,7 +5,7 @@ Tests for OpenAlex provider implementation.
 from unittest.mock import Mock, patch
 import pytest
 
-from lsm.query.remote.openalex import OpenAlexProvider
+from lsm.remote.providers.openalex import OpenAlexProvider
 
 
 OPENALEX_RESPONSE = {

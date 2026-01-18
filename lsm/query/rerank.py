@@ -9,7 +9,7 @@ from __future__ import annotations
 import re
 from typing import List, Dict
 
-from lsm.cli.logging import get_logger
+from lsm.gui.shell.logging import get_logger
 from .session import Candidate
 
 logger = get_logger(__name__)

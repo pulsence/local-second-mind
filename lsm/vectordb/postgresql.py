@@ -9,7 +9,7 @@ import re
 from contextlib import contextmanager
 from typing import Any, Dict, List, Optional, Iterable, Tuple
 
-from lsm.cli.logging import get_logger
+from lsm.gui.shell.logging import get_logger
 from lsm.config.models import VectorDBConfig
 from .base import BaseVectorDBProvider, VectorDBQueryResult
 

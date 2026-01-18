@@ -4,7 +4,7 @@ Tests for Wikipedia provider implementation.
 
 from unittest.mock import Mock, patch
 
-from lsm.query.remote.wikipedia import WikipediaProvider
+from lsm.remote.providers.wikipedia import WikipediaProvider
 
 
 class TestWikipediaProvider:
