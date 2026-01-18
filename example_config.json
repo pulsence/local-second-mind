@@ -98,6 +98,7 @@
   "_comment_modes": "Query mode definitions (grounded/insight/hybrid built-in, add custom modes here)",
   "modes": [
     {
+      "_comment": "General research mode with basic providers",
       "name": "research",
       "synthesis_style": "grounded",
       "source_policy": {
@@ -130,6 +131,73 @@
         "wikilinks": false,
         "backlinks": false,
         "include_tags": false
+      }
+    },
+    {
+      "_comment": "STEM research with inline weight overrides - prioritizes academic sources",
+      "name": "stem_research",
+      "synthesis_style": "grounded",
+      "source_policy": {
+        "local": {
+          "min_relevance": 0.25,
+          "k": 12,
+          "k_rerank": 6
+        },
+        "remote": {
+          "enabled": true,
+          "rank_strategy": "weighted",
+          "max_results": 15,
+          "remote_providers": [
+            {"source": "arxiv", "weight": 0.95},
+            {"source": "semantic_scholar", "weight": 0.9},
+            {"source": "openalex", "weight": 0.85},
+            {"source": "wikipedia", "weight": 0.5}
+          ]
+        },
+        "model_knowledge": {
+          "enabled": true,
+          "require_label": true
+        }
+      },
+      "notes": {
+        "enabled": true,
+        "dir": "stem_notes",
+        "template": "default",
+        "filename_format": "timestamp"
+      }
+    },
+    {
+      "_comment": "Humanities research - philosophy, theology, religious studies",
+      "name": "humanities_research",
+      "synthesis_style": "grounded",
+      "source_policy": {
+        "local": {
+          "min_relevance": 0.20,
+          "k": 15,
+          "k_rerank": 8
+        },
+        "remote": {
+          "enabled": true,
+          "rank_strategy": "weighted",
+          "max_results": 12,
+          "remote_providers": [
+            {"source": "philpapers", "weight": 0.95},
+            {"source": "ixtheo", "weight": 0.9},
+            {"source": "openalex", "weight": 0.75},
+            {"source": "crossref", "weight": 0.7},
+            {"source": "wikipedia", "weight": 0.5}
+          ]
+        },
+        "model_knowledge": {
+          "enabled": true,
+          "require_label": true
+        }
+      },
+      "notes": {
+        "enabled": true,
+        "dir": "humanities_notes",
+        "template": "default",
+        "filename_format": "timestamp"
       }
     }
   ],

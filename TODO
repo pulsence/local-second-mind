@@ -18,6 +18,7 @@ or be merged with built-in modes
     - remote (with providers for the different remote apis like brave, wikimedia, etc.)
 - Check to make sure there is not unnecessary duplicated code
 - Check for places to improve error handling and fault resilience
+- Check for files that are quite large and how they can be intelligently split into sub-modules
 
 ## Testing 
 - test module structure should match the code module structure
@@ -37,6 +38,7 @@ or shown, include the page number
 - Chunk based upon internal document structure, meaning don't include
 different sections in the same chunk. Keeping heading levels in same chunk
 or a chunk should not span two heading levels.
+- Enable partial ingest by time and file count
 
 ## Query
 - Complete remaining documentation for query modes, notes, remote sources

@@ -12,7 +12,7 @@ import os
 from dataclasses import dataclass, field
 import warnings
 from pathlib import Path
-from typing import List, Optional, Set
+from typing import List, Optional, Set, Union, Dict, Any
 
 
 # -----------------------------------------------------------------------------
@@ -687,6 +687,27 @@ class LocalSourcePolicy:
 
 
 @dataclass
+class RemoteProviderRef:
+    """
+    Reference to a remote provider with optional weight override.
+
+    Used in mode configurations to specify provider-specific weights
+    that override the global provider weight.
+    """
+
+    source: str
+    """Name of the remote provider (must match a configured provider)."""
+
+    weight: Optional[float] = None
+    """Optional weight override for this mode (0.0-1.0). If None, uses global weight."""
+
+    def validate(self) -> None:
+        """Validate provider reference."""
+        if self.weight is not None and self.weight < 0.0:
+            raise ValueError(f"weight must be non-negative, got {self.weight}")
+
+
+@dataclass
 class RemoteSourcePolicy:
     """
     Configuration for remote source retrieval (web search, APIs, etc).
@@ -703,8 +724,44 @@ class RemoteSourcePolicy:
     max_results: int = 5
     """Maximum number of remote results to fetch."""
 
-    remote_providers: Optional[List[str]] = None
-    """Optional list of remote provider names to use in this mode."""
+    remote_providers: Optional[List[Union[str, RemoteProviderRef]]] = None
+    """Optional list of remote provider names or refs to use in this mode.
+
+    Supports two formats:
+    - String list: ["brave", "wikipedia", "arxiv"]
+    - Inline weights: [{"source": "brave", "weight": 0.6}, {"source": "arxiv", "weight": 0.9}]
+    - Mixed: ["brave", {"source": "arxiv", "weight": 0.9}]
+    """
+
+    def get_provider_names(self) -> List[str]:
+        """Get list of provider names from refs."""
+        if not self.remote_providers:
+            return []
+        names = []
+        for ref in self.remote_providers:
+            if isinstance(ref, str):
+                names.append(ref)
+            elif isinstance(ref, RemoteProviderRef):
+                names.append(ref.source)
+            elif isinstance(ref, dict):
+                names.append(ref.get("source", ""))
+        return names
+
+    def get_provider_weight(self, provider_name: str) -> Optional[float]:
+        """Get mode-specific weight override for a provider."""
+        if not self.remote_providers:
+            return None
+        for ref in self.remote_providers:
+            if isinstance(ref, str):
+                if ref.lower() == provider_name.lower():
+                    return None  # Use global weight
+            elif isinstance(ref, RemoteProviderRef):
+                if ref.source.lower() == provider_name.lower():
+                    return ref.weight
+            elif isinstance(ref, dict):
+                if ref.get("source", "").lower() == provider_name.lower():
+                    return ref.get("weight")
+        return None
 
 
 @dataclass

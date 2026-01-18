@@ -6,7 +6,7 @@ remote sources (web search, APIs, etc.) to augment local knowledge.
 """
 
 from .base import BaseRemoteProvider, RemoteResult
-from .factory import create_remote_provider, register_remote_provider
+from .factory import create_remote_provider, register_remote_provider, get_registered_providers
 
 # Import and register built-in providers
 from .brave import BraveSearchProvider
@@ -38,6 +38,7 @@ __all__ = [
     "RemoteResult",
     "create_remote_provider",
     "register_remote_provider",
+    "get_registered_providers",
     "BraveSearchProvider",
     "WikipediaProvider",
     "ArXivProvider",

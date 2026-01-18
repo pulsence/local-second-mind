@@ -23,7 +23,7 @@ from .session import Candidate, SessionState
 from .retrieval import embed_text, retrieve_candidates, filter_candidates, compute_relevance
 from .rerank import apply_local_reranking
 from .synthesis import build_context_block, fallback_answer, format_source_list
-from .remote import create_remote_provider
+from .remote import create_remote_provider, get_registered_providers
 from .notes import write_note, generate_note_content, edit_note_in_editor
 from .cost_tracking import CostTracker, estimate_tokens, estimate_output_tokens
 from .citations import export_citations_from_note, export_citations_from_sources
@@ -43,6 +43,10 @@ COMMAND_HINTS = {
     "provider-status",
     "vectordb-providers",
     "vectordb-status",
+    "remote-providers",
+    "remote-provider",
+    "remote-search",
+    "remote-search-all",
     "mode",
     "note",
     "notes",
@@ -62,7 +66,7 @@ COMMAND_HINTS = {
 def print_banner() -> None:
     """Print REPL welcome banner."""
     print("Interactive query mode. Type your question and press Enter.")
-    print("Commands: /exit, /help, /show S#, /expand S#, /open S#, /debug, /model, /models, /providers, /provider-status, /vectordb-providers, /vectordb-status, /mode, /note, /notes, /load, /set, /clear, /costs, /budget, /cost-estimate, /export-citations\n")
+    print("Commands: /exit, /help, /show S#, /expand S#, /open S#, /debug, /model, /models, /providers, /provider-status, /vectordb-providers, /vectordb-status, /remote-providers, /remote-search, /mode, /note, /notes, /load, /set, /clear, /costs, /budget, /cost-estimate, /export-citations\n")
 
 
 def print_help() -> None:
@@ -81,6 +85,10 @@ def print_help() -> None:
     print("  /provider-status Show provider health and recent stats")
     print("  /vectordb-providers List available vector DB providers")
     print("  /vectordb-status Show vector DB provider status")
+    print("  /remote-providers    List available remote source providers")
+    print("  /remote-search <provider> <query>  Test a remote provider")
+    print("  /remote-search-all <query>  Search all enabled providers")
+    print("  /remote-provider enable|disable|weight <name> [value]")
     print("  /mode           Show current query mode")
     print("  /mode <name>    Switch to a different query mode")
     print("  /mode set <setting> <on|off>  Toggle mode settings (model_knowledge, remote, notes)")
@@ -535,6 +543,361 @@ def print_vectordb_status(config: LSMConfig) -> None:
 
     print()
 
+
+# -----------------------------
+# Remote Provider Management
+# -----------------------------
+# Field-specific provider recommendations
+PROVIDER_RECOMMENDATIONS = {
+    "stem": {
+        "physics": ["arxiv", "semantic_scholar", "openalex"],
+        "math": ["arxiv", "semantic_scholar", "openalex"],
+        "cs": ["arxiv", "semantic_scholar", "openalex", "core"],
+        "biology": ["semantic_scholar", "openalex", "core"],
+        "medicine": ["semantic_scholar", "openalex", "core"],
+        "general": ["openalex", "crossref", "core", "semantic_scholar"],
+    },
+    "humanities": {
+        "philosophy": ["philpapers", "openalex"],
+        "theology": ["ixtheo", "philpapers", "openalex"],
+        "religious_studies": ["ixtheo", "philpapers", "openalex"],
+        "history": ["openalex", "crossref"],
+        "classics": ["openalex", "crossref"],
+    },
+    "social_sciences": {
+        "economics": ["openalex", "crossref"],
+        "psychology": ["semantic_scholar", "openalex"],
+        "sociology": ["openalex", "crossref", "core"],
+        "general": ["openalex", "crossref", "core"],
+    },
+    "cross_disciplinary": {
+        "citation_lookup": ["crossref"],
+        "open_access": ["core", "openalex"],
+        "comprehensive": ["openalex", "crossref", "semantic_scholar"],
+    },
+}
+
+
+def print_remote_providers(config: LSMConfig) -> None:
+    """Print available remote source providers and their status."""
+    print()
+    print("=" * 60)
+    print("REMOTE SOURCE PROVIDERS")
+    print("=" * 60)
+    print()
+
+    # Show registered provider types
+    registered = get_registered_providers()
+    print(f"Registered Provider Types ({len(registered)}):")
+    for provider_type, provider_class in sorted(registered.items()):
+        print(f"  {provider_type:20s} -> {provider_class.__name__}")
+    print()
+
+    # Show configured providers
+    configured = config.remote_providers or []
+    if not configured:
+        print("No remote providers configured.")
+        print()
+        print("Add providers to your config.json:")
+        print('  "remote_providers": [{"name": "...", "type": "...", ...}]')
+        print()
+        return
+
+    print(f"Configured Providers ({len(configured)}):")
+    print()
+    print(f"  {'NAME':<20s} {'TYPE':<20s} {'STATUS':<10s} {'WEIGHT':<8s} {'API KEY'}")
+    print("  " + "-" * 70)
+
+    for provider_config in configured:
+        name = provider_config.name
+        ptype = provider_config.type
+        status = "enabled" if provider_config.enabled else "disabled"
+        weight = f"{provider_config.weight:.1f}"
+        api_key = provider_config.api_key
+        has_key = "set" if api_key and not api_key.startswith("INSERT") else "not set"
+        # For providers that don't require API keys
+        if ptype in {"wikipedia", "arxiv", "openalex", "crossref", "oai_pmh"}:
+            has_key = "n/a"
+        print(f"  {name:<20s} {ptype:<20s} {status:<10s} {weight:<8s} {has_key}")
+
+    print()
+
+    # Show current mode's remote settings
+    mode_config = config.get_mode_config()
+    remote_policy = mode_config.source_policy.remote
+    print(f"Current Mode Remote Settings:")
+    print(f"  Enabled:       {remote_policy.enabled}")
+    print(f"  Max Results:   {remote_policy.max_results}")
+    print(f"  Rank Strategy: {remote_policy.rank_strategy}")
+    if remote_policy.remote_providers:
+        print(f"  Mode Providers: {', '.join(str(p) for p in remote_policy.remote_providers)}")
+    print()
+
+    print("Commands:")
+    print("  /remote-search <provider> <query>  Test a provider")
+    print("  /remote-search-all <query>         Search all enabled providers")
+    print("  /remote-provider enable <name>     Enable a provider")
+    print("  /remote-provider disable <name>    Disable a provider")
+    print("  /remote-provider weight <name> <value>  Set provider weight")
+    print()
+
+
+def run_remote_search(
+    provider_name: str,
+    query: str,
+    config: LSMConfig,
+    max_results: int = 5,
+) -> None:
+    """
+    Run a test search on a specific remote provider.
+
+    Args:
+        provider_name: Name of the provider to search
+        query: Search query
+        config: LSM configuration
+        max_results: Maximum results to return
+    """
+    import time
+
+    # Find provider config by name
+    provider_config = None
+    for pc in config.remote_providers or []:
+        if pc.name.lower() == provider_name.lower():
+            provider_config = pc
+            break
+
+    if not provider_config:
+        print(f"Provider not found: {provider_name}")
+        print("Use /remote-providers to see available providers.\n")
+        return
+
+    print()
+    print(f"Searching '{provider_name}' for: {query}")
+    print("-" * 60)
+
+    try:
+        start_time = time.time()
+
+        # Create provider instance
+        provider = create_remote_provider(
+            provider_config.type,
+            {
+                "type": provider_config.type,
+                "enabled": provider_config.enabled,
+                "weight": provider_config.weight,
+                "api_key": provider_config.api_key,
+                "endpoint": provider_config.endpoint,
+                "max_results": provider_config.max_results,
+                "language": provider_config.language,
+                "user_agent": provider_config.user_agent,
+                "timeout": provider_config.timeout,
+                "min_interval_seconds": provider_config.min_interval_seconds,
+                "section_limit": provider_config.section_limit,
+                "snippet_max_chars": provider_config.snippet_max_chars,
+                "include_disambiguation": provider_config.include_disambiguation,
+            }
+        )
+
+        # Execute search
+        results = provider.search(query, max_results=max_results)
+        elapsed = time.time() - start_time
+
+        if not results:
+            print(f"No results found. ({elapsed:.2f}s)")
+            print()
+            return
+
+        print(f"Found {len(results)} results in {elapsed:.2f}s:\n")
+
+        for i, result in enumerate(results, 1):
+            title = result.title or "(no title)"
+            url = result.url or ""
+            snippet = result.snippet or ""
+            score = result.score
+
+            print(f"{i}. {title}")
+            if url:
+                print(f"   URL: {url}")
+            if score is not None:
+                print(f"   Score: {score:.3f}")
+            if snippet:
+                # Truncate long snippets
+                if len(snippet) > 200:
+                    snippet = snippet[:200] + "..."
+                print(f"   {snippet}")
+            print()
+
+    except Exception as e:
+        logger.error(f"Remote search failed: {e}")
+        print(f"Search failed: {e}\n")
+
+
+def run_remote_search_all(
+    query: str,
+    config: LSMConfig,
+    state: SessionState,
+) -> None:
+    """
+    Run a search across all enabled remote providers.
+
+    Args:
+        query: Search query
+        config: LSM configuration
+        state: Session state to store results
+    """
+    import time
+
+    active_providers = config.get_active_remote_providers()
+
+    if not active_providers:
+        print("No enabled remote providers configured.")
+        print("Use /remote-providers to see available providers.\n")
+        return
+
+    print()
+    print(f"Searching {len(active_providers)} providers for: {query}")
+    print("=" * 60)
+
+    all_results = []
+    start_time = time.time()
+
+    for provider_config in active_providers:
+        provider_name = provider_config.name
+        print(f"\n[{provider_name}]")
+
+        try:
+            # Create provider instance
+            provider = create_remote_provider(
+                provider_config.type,
+                {
+                    "type": provider_config.type,
+                    "enabled": provider_config.enabled,
+                    "weight": provider_config.weight,
+                    "api_key": provider_config.api_key,
+                    "endpoint": provider_config.endpoint,
+                    "max_results": provider_config.max_results,
+                    "language": provider_config.language,
+                    "user_agent": provider_config.user_agent,
+                    "timeout": provider_config.timeout,
+                    "min_interval_seconds": provider_config.min_interval_seconds,
+                    "section_limit": provider_config.section_limit,
+                    "snippet_max_chars": provider_config.snippet_max_chars,
+                    "include_disambiguation": provider_config.include_disambiguation,
+                }
+            )
+
+            # Execute search
+            max_results = provider_config.max_results or 5
+            results = provider.search(query, max_results=max_results)
+
+            if not results:
+                print(f"  No results")
+                continue
+
+            print(f"  Found {len(results)} results")
+
+            # Add to combined results with provider metadata
+            for result in results:
+                all_results.append({
+                    "title": result.title,
+                    "url": result.url,
+                    "snippet": result.snippet,
+                    "score": result.score,
+                    "provider": provider_name,
+                    "weight": provider_config.weight,
+                    "weighted_score": (result.score or 0.5) * provider_config.weight,
+                    "metadata": result.metadata,
+                })
+
+        except Exception as e:
+            logger.error(f"Search failed for {provider_name}: {e}")
+            print(f"  Error: {e}")
+
+    elapsed = time.time() - start_time
+
+    # Sort by weighted score
+    all_results.sort(key=lambda x: x.get("weighted_score", 0), reverse=True)
+
+    # Deduplicate by URL
+    seen_urls = set()
+    unique_results = []
+    for result in all_results:
+        url = result.get("url", "")
+        if url and url in seen_urls:
+            continue
+        if url:
+            seen_urls.add(url)
+        unique_results.append(result)
+
+    print()
+    print("=" * 60)
+    print(f"Total: {len(unique_results)} unique results in {elapsed:.2f}s")
+    print("=" * 60)
+
+    # Display top results
+    for i, result in enumerate(unique_results[:10], 1):
+        title = result.get("title") or "(no title)"
+        provider = result.get("provider", "")
+        weighted_score = result.get("weighted_score", 0)
+        url = result.get("url", "")
+
+        print(f"\n{i}. [{provider}] {title}")
+        print(f"   Weighted Score: {weighted_score:.3f}")
+        if url:
+            print(f"   URL: {url}")
+
+    print()
+
+    # Store results in session state
+    state.last_remote_sources = unique_results
+
+
+def toggle_remote_provider(
+    config: LSMConfig,
+    provider_name: str,
+    enabled: bool,
+) -> bool:
+    """
+    Enable or disable a remote provider.
+
+    Args:
+        config: LSM configuration
+        provider_name: Name of the provider
+        enabled: True to enable, False to disable
+
+    Returns:
+        True if provider was found and updated, False otherwise
+    """
+    for provider_config in config.remote_providers or []:
+        if provider_config.name.lower() == provider_name.lower():
+            provider_config.enabled = enabled
+            return True
+    return False
+
+
+def set_remote_provider_weight(
+    config: LSMConfig,
+    provider_name: str,
+    weight: float,
+) -> bool:
+    """
+    Set the weight for a remote provider.
+
+    Args:
+        config: LSM configuration
+        provider_name: Name of the provider
+        weight: New weight value (0.0-1.0)
+
+    Returns:
+        True if provider was found and updated, False otherwise
+    """
+    for provider_config in config.remote_providers or []:
+        if provider_config.name.lower() == provider_name.lower():
+            provider_config.weight = weight
+            return True
+    return False
+
+
 # -----------------------------
 # File Opening
 # -----------------------------
@@ -762,6 +1125,79 @@ def handle_command(
 
     if ql.strip() == "/vectordb-status":
         print_vectordb_status(config)
+        return True
+
+    # Remote providers listing
+    if ql.strip() == "/remote-providers":
+        print_remote_providers(config)
+        return True
+
+    # Remote search on a specific provider
+    if ql.startswith("/remote-search-all"):
+        parts = q.split(maxsplit=1)
+        if len(parts) < 2:
+            print("Usage: /remote-search-all <query>\n")
+            return True
+        search_query = parts[1].strip()
+        run_remote_search_all(search_query, config, state)
+        return True
+
+    if ql.startswith("/remote-search"):
+        parts = q.split(maxsplit=2)
+        if len(parts) < 3:
+            print("Usage: /remote-search <provider> <query>")
+            print("Example: /remote-search wikipedia machine learning\n")
+            return True
+        provider_name = parts[1].strip()
+        search_query = parts[2].strip()
+        run_remote_search(provider_name, search_query, config)
+        return True
+
+    # Remote provider enable/disable/weight
+    if ql.startswith("/remote-provider"):
+        parts = q.split()
+        if len(parts) < 3:
+            print("Usage:")
+            print("  /remote-provider enable <name>")
+            print("  /remote-provider disable <name>")
+            print("  /remote-provider weight <name> <value>\n")
+            return True
+
+        action = parts[1].strip().lower()
+        provider_name = parts[2].strip()
+
+        if action == "enable":
+            if toggle_remote_provider(config, provider_name, True):
+                print(f"Provider '{provider_name}' enabled.\n")
+            else:
+                print(f"Provider not found: {provider_name}\n")
+            return True
+
+        if action == "disable":
+            if toggle_remote_provider(config, provider_name, False):
+                print(f"Provider '{provider_name}' disabled.\n")
+            else:
+                print(f"Provider not found: {provider_name}\n")
+            return True
+
+        if action == "weight":
+            if len(parts) < 4:
+                print("Usage: /remote-provider weight <name> <value>\n")
+                return True
+            try:
+                weight = float(parts[3].strip())
+                if weight < 0.0:
+                    print("Weight must be non-negative.\n")
+                    return True
+                if set_remote_provider_weight(config, provider_name, weight):
+                    print(f"Provider '{provider_name}' weight set to {weight:.2f}.\n")
+                else:
+                    print(f"Provider not found: {provider_name}\n")
+            except ValueError:
+                print("Invalid weight value. Use a numeric value.\n")
+            return True
+
+        print("Unknown action. Use: enable, disable, weight\n")
         return True
 
     # Show/set current model
@@ -1131,7 +1567,7 @@ def fetch_remote_sources(
         mode_config: Mode configuration with source policies
 
     Returns:
-        List of remote source dicts
+        List of remote source dicts, sorted by weighted score if rank_strategy is 'weighted'
     """
     remote_policy = mode_config.source_policy.remote
 
@@ -1139,9 +1575,10 @@ def fetch_remote_sources(
         return []
 
     # Get active remote providers (optionally filtered per mode)
+    # Extract provider names from refs (handles both string and dict formats)
     allowed_names = None
     if remote_policy.remote_providers is not None:
-        allowed_names = set(remote_policy.remote_providers)
+        allowed_names = set(remote_policy.get_provider_names())
 
     active_providers = config.get_active_remote_providers(allowed_names=allowed_names)
 
@@ -1162,13 +1599,17 @@ def fetch_remote_sources(
         try:
             logger.info(f"Fetching from remote provider: {provider_name}")
 
+            # Get mode-specific weight override, or fall back to global weight
+            mode_weight = remote_policy.get_provider_weight(provider_name)
+            effective_weight = mode_weight if mode_weight is not None else provider_config.weight
+
             # Create provider instance
             provider = create_remote_provider(
                 provider_config.type,
                 {
                     "type": provider_config.type,
                     "enabled": provider_config.enabled,
-                    "weight": provider_config.weight,
+                    "weight": effective_weight,
                     "api_key": provider_config.api_key,
                     "endpoint": provider_config.endpoint,
                     "max_results": provider_config.max_results,
@@ -1188,13 +1629,17 @@ def fetch_remote_sources(
             # Fetch results
             results = provider.search(question, max_results=max_results)
 
-            # Convert to dict format
+            # Convert to dict format with weighted score
             for result in results:
+                base_score = result.score if result.score is not None else 0.5
+                weighted_score = base_score * effective_weight
                 all_remote_results.append({
                     "title": result.title,
                     "url": result.url,
                     "snippet": result.snippet,
                     "score": result.score,
+                    "weight": effective_weight,
+                    "weighted_score": weighted_score,
                     "provider": provider_name,
                     "metadata": result.metadata,
                 })
@@ -1202,6 +1647,12 @@ def fetch_remote_sources(
         except Exception as e:
             logger.error(f"Failed to fetch from {provider_name}: {e}")
             # Continue with other providers
+
+    # Apply ranking strategy
+    if remote_policy.rank_strategy == "weighted" and all_remote_results:
+        # Sort by weighted score (highest first)
+        all_remote_results.sort(key=lambda x: x.get("weighted_score", 0), reverse=True)
+        logger.info(f"Applied weighted ranking to {len(all_remote_results)} results")
 
     logger.info(f"Fetched {len(all_remote_results)} remote results")
     return all_remote_results

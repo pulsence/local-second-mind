@@ -17,23 +17,45 @@ separate section.
 
 ## Built-In Providers
 
-LSM ships with five built-in remote providers:
+LSM ships with eleven built-in remote providers covering STEM, humanities, and cross-disciplinary research:
 
-- Brave Search
+### General & Web Search
+- **Brave Search** - General web search
   - Type: `web_search` or `brave_search`
   - Environment variable: `BRAVE_API_KEY`
-- Wikipedia
+- **Wikipedia** - Encyclopedia articles
   - Type: `wikipedia`
-  - Environment variable: `LSM_WIKIPEDIA_USER_AGENT` (recommended)
-- arXiv
+  - No API key required (user agent recommended)
+
+### STEM Research
+- **arXiv** - Physics, Math, CS, Quantitative Biology, etc.
   - Type: `arxiv`
-  - Environment variable: `LSM_ARXIV_USER_AGENT` (recommended)
-- Semantic Scholar
+  - No API key required
+- **Semantic Scholar** - Computer Science, Neuroscience, Biomedical
   - Type: `semantic_scholar`
   - Environment variable: `SEMANTIC_SCHOLAR_API_KEY` (optional, increases rate limit)
-- CORE
+- **CORE** - Open access research aggregator
   - Type: `core`
   - Environment variable: `CORE_API_KEY` (required)
+
+### Humanities & Philosophy
+- **PhilPapers** - Philosophy papers and books
+  - Type: `philpapers`
+  - Environment variable: `PHILPAPERS_API_ID` and `PHILPAPERS_API_KEY`
+- **IxTheo** - Theology and religious studies (Index Theologicus)
+  - Type: `ixtheo`
+  - No API key required
+
+### Cross-Disciplinary Academic
+- **OpenAlex** - Comprehensive academic database (200M+ works)
+  - Type: `openalex`
+  - No API key required (email recommended for polite pool)
+- **Crossref** - DOI metadata and bibliographic search
+  - Type: `crossref`
+  - No API key required (email recommended)
+- **OAI-PMH** - Generic harvester for institutional repositories
+  - Type: `oai_pmh`
+  - Supports: arXiv, PubMed Central, Zenodo, DOAJ, HAL, RePEc, Europeana, PhilPapers
 
 ## Configuring Brave Search
 
@@ -217,8 +239,157 @@ Notes:
 
 ## Provider Weighting and Ranking
 
-`weight` and `rank_strategy` are reserved for future blending strategies. The
-current implementation simply aggregates results in provider order.
+Each provider has a `weight` (0.0-1.0) that affects result ranking. When
+`rank_strategy` is set to `"weighted"`, results are sorted by `score * weight`.
+
+### Global Weights
+
+Set default weights in the provider configuration:
+
+```json
+"remote_providers": [
+  {"name": "arxiv", "type": "arxiv", "weight": 0.9},
+  {"name": "wikipedia", "type": "wikipedia", "weight": 0.7}
+]
+```
+
+### Per-Mode Weight Overrides
+
+Override weights for specific modes using inline provider references:
+
+```json
+"modes": [
+  {
+    "name": "philosophy_research",
+    "source_policy": {
+      "remote": {
+        "enabled": true,
+        "rank_strategy": "weighted",
+        "remote_providers": [
+          {"source": "philpapers", "weight": 0.95},
+          {"source": "openalex", "weight": 0.7},
+          {"source": "wikipedia", "weight": 0.5}
+        ]
+      }
+    }
+  }
+]
+```
+
+You can mix string names (use global weight) and objects (override weight):
+
+```json
+"remote_providers": ["brave", {"source": "arxiv", "weight": 0.95}]
+```
+
+### Rank Strategies
+
+- `"weighted"` - Sort results by `score * weight` (recommended)
+- `"sequential"` - Return results in provider order
+- `"interleaved"` - Alternate between providers
+
+## Field-Specific Provider Recommendations
+
+Choose providers based on your research domain:
+
+### Sciences (STEM)
+
+| Field | Recommended Providers |
+|-------|----------------------|
+| Physics | arXiv, Semantic Scholar, OpenAlex |
+| Mathematics | arXiv, Semantic Scholar, OpenAlex |
+| Computer Science | arXiv, Semantic Scholar, OpenAlex, CORE |
+| Biology | Semantic Scholar, OpenAlex, CORE, PubMed (via OAI-PMH) |
+| Medicine | Semantic Scholar, OpenAlex, CORE, PubMed (via OAI-PMH) |
+| General STEM | OpenAlex, Crossref, CORE, Semantic Scholar |
+
+### Humanities
+
+| Field | Recommended Providers |
+|-------|----------------------|
+| Philosophy | PhilPapers, OpenAlex |
+| Theology | IxTheo, PhilPapers, OpenAlex |
+| Religious Studies | IxTheo, PhilPapers, OpenAlex |
+| History | OpenAlex, Crossref, institutional repos (via OAI-PMH) |
+| Classics | OpenAlex, Crossref |
+
+### Social Sciences
+
+| Field | Recommended Providers |
+|-------|----------------------|
+| Economics | OpenAlex, Crossref, RePEc (via OAI-PMH) |
+| Psychology | Semantic Scholar, OpenAlex |
+| Sociology | OpenAlex, Crossref, CORE |
+| General | OpenAlex, Crossref, CORE |
+
+### Cross-Disciplinary
+
+| Use Case | Recommended Providers |
+|----------|----------------------|
+| Citation/DOI lookup | Crossref |
+| Open access papers | CORE, OpenAlex, Zenodo (via OAI-PMH) |
+| Comprehensive search | OpenAlex, Crossref, Semantic Scholar |
+| Preprints | arXiv, Zenodo (via OAI-PMH) |
+
+## Terminal Commands
+
+LSM provides several commands for managing remote providers during a session:
+
+### List Providers
+
+```
+/remote-providers
+```
+
+Shows all registered provider types, configured providers with their status,
+weight, and API key availability.
+
+### Test a Provider
+
+```
+/remote-search <provider> <query>
+```
+
+Search a specific provider and display results. Useful for testing configuration.
+
+Example:
+```
+/remote-search wikipedia machine learning
+/remote-search arxiv quantum computing
+/remote-search philpapers epistemology
+```
+
+### Search All Providers
+
+```
+/remote-search-all <query>
+```
+
+Search all enabled providers simultaneously. Results are deduplicated and sorted
+by weighted score.
+
+### Enable/Disable Providers
+
+```
+/remote-provider enable <name>
+/remote-provider disable <name>
+```
+
+Toggle a provider on or off for the current session.
+
+### Adjust Provider Weight
+
+```
+/remote-provider weight <name> <value>
+```
+
+Set a provider's weight (0.0-1.0) for the current session.
+
+Example:
+```
+/remote-provider weight arxiv 0.95
+/remote-provider weight wikipedia 0.5
+```
 
 ## Adding Custom Remote Providers
 
