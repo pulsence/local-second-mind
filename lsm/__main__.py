@@ -65,26 +65,51 @@ def build_parser() -> argparse.ArgumentParser:
         help="Ingest documents into the knowledge base",
         description="Scan directories, parse documents, and build vector database.",
     )
-    ingest_parser.add_argument(
-        "--interactive",
-        "-i",
-        action="store_true",
-        help="Start interactive ingest management REPL",
+    ingest_subparsers = ingest_parser.add_subparsers(
+        dest="ingest_command",
+        title="ingest commands",
+        required=True,
     )
-    ingest_parser.add_argument(
+    build_parser = ingest_subparsers.add_parser(
+        "build",
+        help="Build or update the vector database",
+    )
+    build_parser.add_argument(
         "--dry-run",
         action="store_true",
+        default=None,
         help="Simulate ingest without writing to database",
     )
-    ingest_parser.add_argument(
+    build_parser.add_argument(
         "--force",
         action="store_true",
-        help="Force re-ingest all files (ignore manifest)",
+        help="Force re-ingest all files (clears manifest)",
     )
-    ingest_parser.add_argument(
+    build_parser.add_argument(
         "--skip-errors",
         action="store_true",
+        default=None,
         help="Continue ingest when parsing errors occur",
+    )
+
+    tag_parser = ingest_subparsers.add_parser(
+        "tag",
+        help="Run AI tagging on untagged chunks",
+    )
+    tag_parser.add_argument(
+        "--max",
+        type=int,
+        help="Maximum number of chunks to tag",
+    )
+
+    wipe_parser = ingest_subparsers.add_parser(
+        "wipe",
+        help="Delete all chunks in the collection",
+    )
+    wipe_parser.add_argument(
+        "--confirm",
+        action="store_true",
+        help="Confirm destructive wipe",
     )
 
     # -------------------------------------------------------------------------
@@ -98,13 +123,7 @@ def build_parser() -> argparse.ArgumentParser:
     query_parser.add_argument(
         "question",
         nargs="?",
-        help="Question to ask (if omitted, starts interactive mode)",
-    )
-    query_parser.add_argument(
-        "--interactive",
-        "-i",
-        action="store_true",
-        help="Start interactive query REPL (ignores question argument)",
+        help="Question to ask (required for CLI queries; use `lsm` for TUI)",
     )
     query_parser.add_argument(
         "--mode",
@@ -176,19 +195,13 @@ def main(argv: list[str] | None = None) -> int:
     try:
         if args.command == "ingest":
             logger.info("Starting ingest command")
-            # Check if interactive flag is set
-            if hasattr(args, 'interactive') and args.interactive:
-                # Interactive ingest REPL only
-                from lsm.gui.shell.ingest import run_ingest_repl
-                return run_ingest_repl(config)
-            else:
-                # Single-shot ingest
-                return run_ingest(args)
+            return run_ingest(args)
 
         elif args.command == "query":
             logger.info("Starting query command")
-            # Always run as single-shot for query command
-            # The run_query function will start the query REPL
+            if not getattr(args, "question", None):
+                print("Interactive query is now TUI-only. Run `lsm` to launch the TUI.")
+                return 2
             return run_query(args)
 
         else:

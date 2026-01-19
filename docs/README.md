@@ -29,7 +29,7 @@ Detailed API documentation for developers.
 - [Configuration API](api-reference/CONFIG.md) - Configuration dataclasses
 - [Provider API](api-reference/PROVIDERS.md) - LLM provider interface
 - [Remote API](api-reference/REMOTE.md) - Remote source providers
-- [REPL Commands](api-reference/REPL.md) - Interactive command reference
+- [TUI Commands](api-reference/REPL.md) - Interactive command reference
 
 ### 🛠️ Development
 Contributing to LSM development.

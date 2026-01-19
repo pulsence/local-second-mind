@@ -115,11 +115,11 @@ The manifest enables three fast checks:
 
 - AI tagging is supported via `lsm/ingest/tagging.py`.
 - Tags are stored in chunk metadata.
-- Tagging can be triggered in the ingest REPL via `/tag`.
+- Tagging can be triggered in the TUI Ingest tab via `/tag`.
 
-## Ingest REPL
+## Ingest Commands (TUI)
 
-The ingest REPL provides management commands for:
+The TUI Ingest tab provides management commands for:
 
 - collection stats and exploration
 - re-ingest (`/build`)

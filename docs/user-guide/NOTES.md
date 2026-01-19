@@ -5,7 +5,7 @@ and source excerpts to make results easy to revisit later.
 
 ## How Notes Work
 
-- Notes are generated from the last query in the query REPL.
+- Notes are generated from the last query in the Query tab (TUI).
 - `/note` opens the note in your default editor so you can edit before saving.
 - Notes are stored as Markdown files in a configured directory.
 
@@ -70,9 +70,9 @@ Notes include these sections:
 
 This format is generated in `lsm/query/notes.py`.
 
-## Using Notes in the Query REPL
+## Using Notes in the TUI Query Tab
 
-1. Run a query in the REPL.
+1. Run a query in the Query tab.
 2. Type `/note` to open the note for editing.
 3. Save and close the editor to write the note.
 

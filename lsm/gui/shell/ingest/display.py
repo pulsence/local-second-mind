@@ -33,7 +33,7 @@ def print_banner() -> None:
     print("  /help              - Show this help")
     print("  /exit              - Exit")
     print()
-    print("Tip: Type /query to switch to query mode (in the unified shell).")
+    print("Tip: Use the Query tab (Ctrl+Q) in the TUI to run queries.")
     print()
 
 

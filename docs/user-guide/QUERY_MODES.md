@@ -2,7 +2,7 @@
 
 Query modes define how LSM retrieves sources, which sources are allowed, and how
 the answer is synthesized. Modes live in the config under `modes` and are
-selected via `query.mode` or `/mode` in the query REPL.
+selected via `query.mode` or `/mode` in the TUI Query tab.
 
 ## Built-In Modes
 
@@ -92,9 +92,9 @@ A mode has three sub-systems:
 Modes are selected by:
 
 - `query.mode` in config (default for all sessions)
-- `/mode <name>` in the query REPL (session override)
+- `/mode <name>` in the TUI Query tab (session override)
 
-The REPL shows mode details via `/mode`.
+The TUI shows mode details via `/mode`.
 
 ## Custom Mode Examples
 

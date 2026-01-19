@@ -151,6 +151,14 @@ class QueryScreen(Widget):
         Args:
             command: Command string (e.g., "/help", "/show S1")
         """
+        normalized = command.strip().lower()
+        if normalized in {"/ingest", "/i"}:
+            self.app.action_switch_ingest()
+            return
+        if normalized in {"/query", "/q"}:
+            self.app.action_switch_query()
+            return
+
         output = await self._run_query_command(command)
         if output:
             self._show_message(output)
@@ -217,14 +225,18 @@ class QueryScreen(Widget):
 
         try:
             # Show loading state
-            self._show_message(f"Searching for: {query}\n\nProcessing...")
+            self._show_message(
+                f"Searching for: {query}\n\nProcessing...",
+                preserve_candidates=False,
+            )
 
             # Get app reference and check if query context is ready
             app = self.app
-            if not hasattr(app, 'query_provider') or app.query_provider is None:
+            if not hasattr(app, "query_provider") or app.query_provider is None:
                 self._show_message(
                     "Query context not initialized.\n\n"
-                    "Please wait for initialization or check settings."
+                    "Please wait for initialization or check settings.",
+                    preserve_candidates=False,
                 )
                 return
 
@@ -236,12 +248,12 @@ class QueryScreen(Widget):
             self._last_response = response
 
             # Update display with results using ResultsPanel
-            results_panel.update_results(response, [])
+            results_panel.update_results(response, candidates)
             self.app.current_mode = self.app.config.query.mode
 
         except Exception as e:
             logger.error(f"Query error: {e}", exc_info=True)
-            self._show_message(f"Error: {e}")
+            self._show_message(f"Error: {e}", preserve_candidates=False)
         finally:
             self.is_loading = False
 
@@ -274,6 +286,21 @@ class QueryScreen(Widget):
             if result:
                 response_text = result.get("response", "No response generated.")
                 candidates = result.get("candidates", [])
+                remote_sources = result.get("remote_sources", []) or []
+
+                if remote_sources:
+                    lines = ["", "=" * 60, "REMOTE SOURCES", "=" * 60]
+                    for i, remote in enumerate(remote_sources, 1):
+                        title = remote.get("title") or "(no title)"
+                        url = remote.get("url") or ""
+                        snippet = remote.get("snippet") or ""
+                        lines.append(f"\\n{i}. {title}")
+                        if url:
+                            lines.append(f"   {url}")
+                        if snippet:
+                            snippet = snippet[:150] + "..." if len(snippet) > 150 else snippet
+                            lines.append(f"   {snippet}")
+                    response_text += "\\n".join(lines)
 
                 # Update cost tracking
                 if "cost" in result and hasattr(app, 'update_cost'):
@@ -304,15 +331,17 @@ class QueryScreen(Widget):
         # will integrate with the existing query system
         return f"Query: {query}\n\n[Query execution placeholder - integrate with existing system]"
 
-    def _show_message(self, message: str) -> None:
+    def _show_message(self, message: str, preserve_candidates: bool = True) -> None:
         """
         Display a message in the results panel.
 
         Args:
             message: Message to display
+            preserve_candidates: If True, keep prior citations in the panel
         """
         results_panel = self.query_one("#query-results-panel", ResultsPanel)
-        results_panel.update_results(message, [])
+        candidates = self._last_candidates if preserve_candidates else []
+        results_panel.update_results(message, candidates)
 
     def _show_help(self) -> None:
         """Display help text."""

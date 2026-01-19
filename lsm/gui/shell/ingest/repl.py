@@ -1,7 +1,8 @@
 """
 Interactive REPL for ingest pipeline management.
 
-Provides the main loop and command dispatcher for the ingest REPL.
+Deprecated: interactive ingest runs only in the TUI; command handlers remain
+for reuse by the TUI screens.
 """
 
 from __future__ import annotations
@@ -9,9 +10,7 @@ from __future__ import annotations
 from chromadb.api.models.Collection import Collection
 
 from lsm.config.models import LSMConfig
-from lsm.ingest.stats import get_collection_info
-from lsm.vectordb import create_vectordb_provider
-from .display import print_banner, print_help
+from .display import print_help
 from .commands import (
     handle_info_command,
     handle_stats_command,
@@ -118,57 +117,5 @@ def run_ingest_repl(config: LSMConfig) -> int:
     Returns:
         Exit code (0 for success)
     """
-    # Get provider
-    try:
-        collection = create_vectordb_provider(config.vectordb)
-    except Exception as e:
-        print(f"Error: Could not connect to vector DB: {e}")
-        return 1
-
-    # Print banner
-    print_banner()
-
-    # Show initial info
-    if getattr(collection, "name", "") == "chromadb":
-        info = get_collection_info(collection)
-        print(f"Connected to collection: {info['name']}")
-        print(f"Current chunks: {info['count']:,}")
-    else:
-        stats = collection.get_stats()
-        print(f"Connected to vector DB: {stats.get('provider', 'unknown')}")
-        print(f"Current chunks: {collection.count():,}")
-    print()
-    print("Type /help for available commands.")
-    print()
-
-    # Main loop
-    try:
-        while True:
-            try:
-                line = input("> ").strip()
-
-                if not line:
-                    continue
-
-                # Check if it's a command
-                if line.startswith("/"):
-                    should_continue = handle_command(line, collection, config)
-                    if not should_continue:
-                        break
-                else:
-                    print("Commands must start with '/'")
-                    print("Type /help for available commands.")
-
-            except EOFError:
-                print("\nGoodbye!")
-                break
-
-            except KeyboardInterrupt:
-                print("\nUse /exit to quit")
-                continue
-
-    except Exception as e:
-        print(f"\nError: {e}")
-        return 1
-
-    return 0
+    print("Interactive ingest is now TUI-only. Run `lsm` to launch the TUI.")
+    return 2

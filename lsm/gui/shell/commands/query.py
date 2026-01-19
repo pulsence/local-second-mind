@@ -27,9 +27,6 @@ def run_query(args: Any) -> int:
     Returns:
         Exit code (0 for success)
     """
-    # Lazy import to avoid loading dependencies if not needed
-    from lsm.query import run_query_cli
-
     # Load configuration
     cfg_path = Path(args.config).expanduser().resolve()
 
@@ -64,18 +61,15 @@ def run_query(args: Any) -> int:
     logger.debug(f"  Retrieval: k={config.query.k}")
     logger.debug(f"  Mode: {config.query.mode}")
 
-    # Check if single-shot mode (question provided and not interactive)
-    is_interactive = getattr(args, 'interactive', False)
-    question = getattr(args, 'question', None)
-
-    if not is_interactive and question:
-        # Single-shot query mode
+    # Single-shot mode only (TUI handles interactivity)
+    question = getattr(args, "question", None)
+    if question:
         logger.info(f"Running single-shot query: {question}")
         return run_single_shot_query(config, question)
-    else:
-        # Interactive REPL mode
-        logger.info("Starting interactive query REPL")
-        return run_query_cli(config)
+
+    logger.info("Interactive query disabled for CLI; use TUI")
+    print("Interactive query is now TUI-only. Run `lsm` to launch the TUI.")
+    return 2
 
 
 def run_single_shot_query(config: LSMConfig, question: str) -> int:

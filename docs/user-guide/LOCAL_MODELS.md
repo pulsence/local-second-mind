@@ -73,11 +73,11 @@ Run queries as usual:
 lsm query "What is the retention policy for project X?"
 ```
 
-In the REPL, you can view provider health:
+In the TUI Query tab, you can view provider health:
 
 ```bash
 lsm
-> /provider-status
+/provider-status
 ```
 
 ## Performance Considerations

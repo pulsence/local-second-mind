@@ -615,7 +615,7 @@ def test_your_provider_synthesis():
 lsm query "Test question"
 ```
 
-3. Verify in REPL:
+3. Verify in the TUI:
 ```bash
 lsm
 > /query

@@ -30,7 +30,7 @@ These are defined in `LSMConfig._get_builtin_modes()`.
 ## Mode Selection Logic
 
 - Default mode is `query.mode` in `QueryConfig`.
-- The query REPL can switch modes with `/mode <name>`.
+- The TUI Query tab can switch modes with `/mode <name>`.
 - `LSMConfig.validate()` ensures the selected mode exists.
 
 ## Source Policy Integration

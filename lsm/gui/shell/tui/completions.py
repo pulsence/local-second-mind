@@ -21,8 +21,6 @@ GLOBAL_COMMANDS: Dict[str, str] = {
     "/exit": "Exit the application",
     "/quit": "Exit the application",
     "/help": "Show help",
-    "/ingest": "Switch to ingest context",
-    "/query": "Switch to query context",
 }
 
 INGEST_COMMANDS: Dict[str, str] = {
@@ -249,7 +247,7 @@ def format_command_help(context: ContextType) -> str:
 
     # Group commands by category
     categories = {
-        "Navigation": ["/exit", "/quit", "/help", "/ingest", "/query"],
+        "Navigation": ["/exit", "/quit", "/help"],
         "Information": ["/info", "/stats", "/debug", "/costs"],
         "Exploration": ["/explore", "/show", "/search", "/tags"],
         "Operations": ["/build", "/tag", "/wipe", "/load"],

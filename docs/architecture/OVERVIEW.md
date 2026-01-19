@@ -22,8 +22,8 @@ This document provides a high-level overview of Local Second Mind's architecture
 
 ### 4. User Control
 - **Explicit configuration** - No hidden magic
-- **Interactive tools** - REPLs for exploration
-- **Multiple interfaces** - CLI, single-shot, interactive
+- **Interactive tools** - TUI for exploration
+- **Multiple interfaces** - CLI (single-shot) and TUI (interactive)
 
 ## System Architecture
 

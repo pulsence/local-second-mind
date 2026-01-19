@@ -1,10 +1,6 @@
-"""LSM Ingest Shell module - ingest mode REPL and CLI.
+"""LSM Ingest Shell module - shared ingest commands and CLI utilities.
 
-This module contains:
-- repl: Interactive REPL for ingest management
-- commands: Command handlers for the ingest REPL
-- display: Display utilities (banner, help, tree formatting)
-- cli: Command-line interface for ingest operations
+Interactive usage is now TUI-only; REPL helpers remain for reuse.
 """
 
 from __future__ import annotations
@@ -29,7 +25,9 @@ __all__ = [
     "handle_vectordb_providers_command",
     "handle_vectordb_status_command",
     # CLI
-    "main",
+    "run_build_cli",
+    "run_tag_cli",
+    "run_wipe_cli",
 ]
 
 from lsm.gui.shell.ingest.repl import run_ingest_repl, handle_command
@@ -47,4 +45,4 @@ from lsm.gui.shell.ingest.commands import (
     handle_vectordb_providers_command,
     handle_vectordb_status_command,
 )
-from lsm.gui.shell.ingest.cli import main
+from lsm.gui.shell.ingest.cli import run_build_cli, run_tag_cli, run_wipe_cli

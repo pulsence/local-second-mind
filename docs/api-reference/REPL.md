@@ -1,68 +1,34 @@
-﻿# REPL Command Reference
+﻿# TUI Command Reference
 
-LSM provides multiple interactive interfaces: a unified shell, TUI (Textual User Interface),
-and two REPLs (ingest and query). This document lists all supported commands, syntax, and side effects.
-
-## Unified Shell
-
-Run with:
-
-```bash
-python -m lsm shell --config config.json
-```
-
-Global commands:
-
-- `/ingest` or `/i`: switch to ingest context
-- `/query` or `/q`: switch to query context
-- `/help`: show global or context-specific help
-- `/exit` or `/quit`: exit the shell
+LSM uses the TUI as the only interactive interface. This document lists the available commands in the Query and Ingest tabs, along with keyboard shortcuts and side effects.
 
 ## TUI (Textual User Interface)
 
-The TUI provides a rich terminal interface built with Textual. It offers tabbed navigation
-between Query, Ingest, and Settings views.
+Launch with:
 
-Location: `lsm/gui/shell/tui/`
+```bash
+lsm
+```
 
 ### TUI Structure
 
 ```
 lsm/gui/shell/tui/
-├── __init__.py           # Module exports (LSMApp, run_tui)
-├── app.py                # Main LSMApp class
-├── styles.tcss           # Textual CSS styling
-├── completions.py        # Autocomplete logic
-├── screens/
-│   ├── main.py           # Main layout screen
-│   ├── query.py          # Query interface
-│   ├── ingest.py         # Ingest management
-│   ├── settings.py       # Configuration panel
-│   └── help.py           # Help modal
-└── widgets/
-    ├── results.py        # Results display with citations
-    ├── input.py          # Command input with history
-    └── status.py         # Status bar
+|-- __init__.py           # Module exports (LSMApp, run_tui)
+|-- app.py                # Main LSMApp class
+|-- styles.tcss           # Textual CSS styling
+|-- completions.py        # Autocomplete logic
+|-- screens/
+|   |-- main.py           # Main layout screen
+|   |-- query.py          # Query interface
+|   |-- ingest.py         # Ingest management
+|   |-- settings.py       # Configuration panel
+|   `-- help.py           # Help modal
+`-- widgets/
+    |-- results.py        # Results display with citations
+    |-- input.py          # Command input with history
+    `-- status.py         # Status bar
 ```
-
-### TUI Widgets
-
-**ResultsPanel** (`lsm/gui/shell/tui/widgets/results.py`):
-- Displays query results with clickable citations
-- Each result shows source path, chunk index, and semantic distance
-- Click to select, expand to show full text
-- Messages: `CitationSelected`, `CitationExpanded`
-
-**CommandInput** (`lsm/gui/shell/tui/widgets/input.py`):
-- Text input with command history (Up/Down navigation)
-- Tab completion using `completions.py`
-- History stored per session (max 100 items)
-- Messages: `CommandSubmitted`
-
-**StatusBar** (`lsm/gui/shell/tui/widgets/status.py`):
-- Reactive display synced with app state
-- Shows: Mode, Chunk count, Session cost, Provider status
-- Updates automatically when app properties change
 
 ### TUI Keyboard Shortcuts
 
@@ -89,19 +55,7 @@ lsm/gui/shell/tui/
 - `Tab` - Autocomplete
 - `Escape` - Clear input
 
-### Using the TUI
-
-```python
-from lsm.gui.shell.tui import LSMApp, run_tui
-from lsm.config import load_config_from_file
-
-config = load_config_from_file("config.json")
-run_tui(config)  # Launches TUI
-```
-
-## Ingest REPL Commands
-
-Context: `lsm/ingest/repl.py`
+## Ingest Commands (TUI)
 
 - `/info`:
   - show collection name, ID, and chunk count
@@ -116,7 +70,7 @@ Context: `lsm/ingest/repl.py`
   - search metadata by path substring
 - `/build [--force]`:
   - run ingest pipeline (incremental by default)
-  - `--force` reprocesses all files after confirmation
+  - `--force` clears the manifest and reprocesses all files
 - `/tag [--max N]`:
   - run AI tagging on untagged chunks
 - `/tags`:
@@ -126,48 +80,60 @@ Context: `lsm/ingest/repl.py`
 - `/help`:
   - show ingest help
 - `/exit`:
-  - exit the ingest REPL
+  - exit the TUI
 
 Side effects:
 
-- `/build` writes to the Chroma collection and updates the manifest.
+- `/build` writes to the vector DB and updates the manifest.
 - `/wipe` deletes all data in the collection.
 - `/tag` writes tags into chunk metadata.
 
-## Query REPL Commands
-
-Context: `lsm/query/repl.py`
+## Query Commands (TUI)
 
 - `/help`:
   - show help
 - `/exit`:
-  - exit the query REPL
+  - exit the TUI
 - `/show S#`:
   - show the cited chunk text
 - `/expand S#`:
   - show the full chunk text without truncation
 - `/open S#`:
   - open the source file using the OS default application
-- `/models`:
-  - list models available to the OpenAI API key
+- `/models [provider]`:
+  - list models available to the configured provider(s)
 - `/model`:
   - show current model
-- `/model <name>`:
-  - set model for this session
+- `/model <task> <provider> <model>`:
+  - set model for a task
 - `/providers`:
   - list available LLM providers
+- `/provider-status`:
+  - show provider health
+- `/vectordb-providers`:
+  - list available vector DB providers
+- `/vectordb-status`:
+  - show vector DB status
+- `/remote-providers`:
+  - list remote source providers
+- `/remote-search <provider> <query>`:
+  - test a remote provider
+- `/remote-search-all <query>`:
+  - search all enabled providers
+- `/remote-provider enable|disable|weight <name> [value]`:
+  - configure remote providers
 - `/mode`:
   - show current mode
 - `/mode <name>`:
   - switch mode for this session
+- `/mode set <setting> <on|off>`:
+  - toggle mode settings
 - `/note`:
   - open the last query in an editor and save as a note
 - `/load <path>`:
   - pin all chunks from a file for the next query
 - `/load clear`:
   - clear all pinned chunks
-- `/debug`:
-  - show last query diagnostics
 - `/set path_contains <substring> [more...]`:
   - set path filters for this session
 - `/set ext_allow .md .pdf`:
@@ -176,6 +142,18 @@ Context: `lsm/query/repl.py`
   - set denylist extensions
 - `/clear path_contains|ext_allow|ext_deny`:
   - clear a filter
+- `/costs`:
+  - show session cost summary
+- `/costs export <path>`:
+  - export cost data to CSV
+- `/budget set <amount>`:
+  - set session budget
+- `/cost-estimate <query>`:
+  - estimate cost without running a query
+- `/export-citations [format] [note_path]`:
+  - export citations (bibtex|zotero)
+- `/debug`:
+  - show last query diagnostics
 
 Side effects:
 

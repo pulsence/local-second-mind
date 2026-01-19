@@ -98,6 +98,7 @@ class ResultItem(Widget):
         source_path = meta.get("source_path", "unknown")
         chunk_index = meta.get("chunk_index", "N/A")
         distance = self.candidate.distance
+        distance_label = f"{distance:.4f}" if distance is not None else "n/a"
 
         # Citation header
         yield Static(
@@ -107,7 +108,7 @@ class ResultItem(Widget):
 
         # Metadata line
         yield Static(
-            f"chunk {chunk_index} | distance: {distance:.4f}",
+            f"chunk {chunk_index} | distance: {distance_label}",
             classes="source-path",
         )
 

@@ -1,7 +1,7 @@
 """
 Unified interactive shell for LSM.
 
-Provides a single REPL where users can switch between ingest and query contexts.
+Deprecated: interactive usage is now TUI-only.
 """
 
 from __future__ import annotations
@@ -264,6 +264,9 @@ class UnifiedShell:
         Returns:
             Exit code (0 for success)
         """
+        print("Unified shell has been removed. Run `lsm` to launch the TUI.")
+        return 2
+
         self.print_banner()
 
         # Main loop

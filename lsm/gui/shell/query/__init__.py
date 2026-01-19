@@ -1,10 +1,6 @@
-"""LSM Query Shell module - query mode REPL and CLI.
+"""LSM Query Shell module - shared query commands and CLI utilities.
 
-This module contains:
-- repl: Interactive REPL for query sessions
-- commands: Command handlers for the query REPL
-- display: Display utilities (banner, help, result formatting)
-- cli: Command-line interface for query operations
+Interactive usage is now TUI-only; REPL helpers remain for reuse.
 """
 
 from __future__ import annotations

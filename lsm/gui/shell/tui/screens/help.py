@@ -52,23 +52,24 @@ class HelpScreen(ModalScreen):
                 )
 
                 yield Static(
-                    "\nQUERY COMMANDS",
+                    "\nQUERY COMMANDS (TUI)",
                     classes="help-section",
                 )
 
                 yield Static(
-                    "/help           Show help\n"
-                    "/mode           Show current mode\n"
-                    "/mode <name>    Switch mode (grounded/insight/hybrid)\n"
-                    "/show S#        Show citation details\n"
-                    "/expand S#      Expand citation text\n"
-                    "/costs          Show session costs\n"
-                    "/debug          Show debug info\n"
-                    "/exit           Quit",
+                    "/help                 Show full command list\n"
+                    "/mode                 Show current mode\n"
+                    "/mode <name>          Switch mode\n"
+                    "/show S#              Show citation details\n"
+                    "/expand S#            Expand citation text\n"
+                    "/open S#              Open source file\n"
+                    "/costs                Show session costs\n"
+                    "/debug                Show debug info\n"
+                    "/exit                 Quit TUI",
                 )
 
                 yield Static(
-                    "\nINGEST COMMANDS",
+                    "\nINGEST COMMANDS (TUI)",
                     classes="help-section",
                 )
 
@@ -79,7 +80,8 @@ class HelpScreen(ModalScreen):
                     "/explore [query]  Browse files\n"
                     "/show <path>      Show file chunks\n"
                     "/search <query>   Search metadata\n"
-                    "/wipe             Clear collection",
+                    "/wipe             Clear collection\n"
+                    "/exit             Quit TUI",
                 )
 
                 yield Static(

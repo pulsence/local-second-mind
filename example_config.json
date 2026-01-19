@@ -34,7 +34,7 @@
   "exclude_dirs": [".cache", "node_modules", "__pycache__"],
   "override_excludes": false,
 
-  "_comment_llm": "LLM providers list (ordered). Later providers override per-feature selection.",
+  "_comment_llm": "LLM providers list (ordered). API keys can be omitted and provided via .env instead.",
   "llms": [
     {
       "_comment_provider": "Primary provider defines defaults for all features",
@@ -202,7 +202,7 @@
     }
   ],
 
-  "_comment_remote_providers": "Remote source providers (web search, APIs, etc.)",
+  "_comment_remote_providers": "Remote source providers (web search, APIs, etc.). API keys can be omitted and provided via .env instead.",
   "remote_providers": [
     {
       "name": "brave",

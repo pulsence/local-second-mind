@@ -54,7 +54,6 @@ Edit `config.json` and update:
   "llms": [
     {
       "provider_name": "openai",
-      "api_key": "INSERT_YOUR_OPENAI_API_KEY",
       "query": { "model": "gpt-5.2" },
       "tagging": { "model": "gpt-5-nano" },
       "ranking": { "model": "gpt-5-nano" }
@@ -63,23 +62,7 @@ Edit `config.json` and update:
 }
 ```
 
-**Security Tip:** Use environment variables instead of hardcoding API keys:
-
-```json
-{
-  "llms": [
-    {
-      "provider_name": "openai",
-      "api_key": "${OPENAI_API_KEY}",
-      "query": { "model": "gpt-5.2" },
-      "tagging": { "model": "gpt-5-nano" },
-      "ranking": { "model": "gpt-5-nano" }
-    }
-  ]
-}
-```
-
-Then set the environment variable:
+**Security Tip:** Put API keys in a `.env` file (see `.env.example`) or export them in your shell:
 
 ```bash
 # Windows
@@ -93,41 +76,24 @@ export OPENAI_API_KEY=your-key-here
 
 The first step is to ingest your documents into LSM's knowledge base.
 
-### Option 1: Interactive Ingest
+### Option 1: TUI Ingest (Recommended)
 
 ```bash
-lsm ingest --interactive
+lsm
 ```
 
-This starts an interactive session where you can:
-- Check collection stats with `/info`
-- Run the ingest with `/build`
-- Explore indexed files with `/explore`
+Open the Ingest tab and run:
 
 ```
-[ingest] > /build
-Starting ingest pipeline...
-------------------------------------------------------------
-Scanning directories...
-Found 42 documents
-Processing...
-Ingested 42 files, 1,234 chunks
-Ingest completed successfully!
-
-[ingest] > /stats
-============================================================
-COLLECTION STATISTICS
-============================================================
-Total Chunks:    1,234
-Unique Files:    42
-Collection Size: 15.2 MB
-...
+/build
+/stats
+/explore
 ```
 
 ### Option 2: Single-Shot Ingest
 
 ```bash
-lsm ingest
+lsm ingest build
 ```
 
 This runs the ingest once and exits. Use this for automation.
@@ -144,62 +110,19 @@ This runs the ingest once and exits. Use this for automation.
 
 Now that your documents are indexed, you can query them!
 
-### Option 1: Unified Shell (Recommended)
+### Option 1: TUI (Recommended)
 
 ```bash
 lsm
 ```
 
-This drops you into a unified shell where you can switch between ingest and query:
+Open the Query tab and ask a question:
 
 ```
-==================================================
-          Local Second Mind (LSM)
-==================================================
-
-Welcome to the unified LSM shell!
-
-> /query
-==================================================
-Switched to QUERY context
-==================================================
-Collection: local_kb
-Chunks:     1,234
-Model:      gpt-5.2
-
-[query] > What are the main themes in my research notes?
-
-[Searching and analyzing...]
-
-Based on your research notes, three main themes emerge:
-
-1. **Machine Learning Applications** [S1, S3, S7]
-   Your notes focus heavily on practical ML applications,
-   particularly in natural language processing and computer vision.
-
-2. **Research Methodology** [S2, S5]
-   Several documents discuss research design and
-   experimental methodology.
-
-3. **Future Work and Open Questions** [S4, S9]
-   You've documented numerous areas for future exploration,
-   especially in transfer learning.
-
-Sources:
-[S1] research/ml_survey.md (chunk 2)
-[S2] notes/methodology_notes.txt (chunk 1)
-...
+What are the main themes in my research notes?
 ```
 
-### Option 2: Interactive Query REPL
-
-```bash
-lsm query --interactive
-```
-
-Starts the query REPL directly (without unified shell).
-
-### Option 3: Single-Shot Query
+### Option 2: Single-Shot Query
 
 ```bash
 lsm query "What is the capital of France?"
@@ -237,9 +160,9 @@ Sources:
 - **Source Snippets** - Preview the actual text
 - **Metadata** - File paths, chunk indices, titles, authors
 
-## Useful Commands
+## Useful Commands (TUI)
 
-### In Query Context
+### Query Tab
 
 ```bash
 /help           # Show all commands
@@ -249,10 +172,10 @@ Sources:
 /mode insight   # Switch to thematic analysis mode
 /note           # Save this query as an editable note
 /debug          # Show retrieval diagnostics
-/exit           # Exit (or switch contexts)
+/exit           # Exit TUI
 ```
 
-### In Ingest Context
+### Ingest Tab
 
 ```bash
 /info           # Show collection statistics
@@ -261,16 +184,7 @@ Sources:
 /build          # Run ingest pipeline
 /build --force  # Force full rebuild
 /wipe           # Clear collection (with confirmation)
-/exit           # Exit (or switch contexts)
-```
-
-### Global Commands
-
-```bash
-/ingest, /i     # Switch to ingest context
-/query, /q      # Switch to query context
-/help           # Show context-specific help
-/exit, /quit    # Exit LSM
+/exit           # Exit TUI
 ```
 
 ## Next Steps
@@ -305,10 +219,10 @@ See [Remote Sources](REMOTE_SOURCES.md) to set up Brave Search API.
 Use the notes system to save queries with sources:
 
 ```bash
-[query] > What are my action items?
+What are my action items?
 [answer appears]
 
-[query] > /note
+/note
 [Opens in editor for you to refine]
 Note saved to: notes/20260112-143022.md
 ```
@@ -330,7 +244,7 @@ cp example_config.json config.json
 You need to run ingest first:
 
 ```bash
-lsm ingest
+lsm ingest build
 ```
 
 ### "Collection is empty"
@@ -363,7 +277,7 @@ export OPENAI_API_KEY=sk-...
 ### Slow Ingest
 
 Ingest can be slow for large collections. Tips:
-- Use `--dry-run` to test without writing
+- Use `lsm ingest build --dry-run` to test without writing
 - Exclude large directories in `exclude_dirs`
 - Use GPU with `"device": "cuda"` in config
 

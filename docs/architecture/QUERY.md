@@ -31,7 +31,7 @@ question -> embed -> retrieve -> filter -> rerank -> gate -> synthesize -> forma
 
 ### Filtering
 
-- Optional filters from config or REPL session:
+- Optional filters from config or TUI session:
   - `path_contains`
   - `ext_allow`
   - `ext_deny`
@@ -77,9 +77,9 @@ LLM reranking is optional and uses the active provider (`BaseLLMProvider`).
 - Last answer and remote sources
 - Pinned chunk IDs for forced inclusion
 
-## Query REPL
+## Query Commands (TUI)
 
-The query REPL (`lsm/query/repl.py`) supports:
+The Query tab uses shared command handlers to support:
 
 - interactive questions
 - model selection
