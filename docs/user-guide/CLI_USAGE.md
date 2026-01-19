@@ -19,9 +19,27 @@ run_tui(config)
 The TUI provides:
 - **Tabbed interface** - Switch between Query, Ingest, and Settings tabs
 - **Keyboard shortcuts** - Navigate with Ctrl+Q/I/S, build with Ctrl+B, etc.
-- **Autocomplete** - Tab completion for commands
-- **Command history** - Up/Down arrow navigation
+- **Autocomplete** - Tab completion for commands (press Tab)
+- **Command history** - Up/Down arrow navigation through previous commands
 - **Status bar** - Real-time mode, cost, and chunk count display
+- **Results panel** - Scrollable results with expandable citations
+- **File browser** - Directory tree for exploring indexed files (Ingest tab)
+
+**TUI Screens:**
+
+| Screen | Description |
+|--------|-------------|
+| Query | Search your knowledge base with natural language queries |
+| Ingest | Manage document ingestion, build pipeline, view statistics |
+| Settings | Configure query modes, view provider status, session info |
+
+**TUI Widgets:**
+
+| Widget | Description |
+|--------|-------------|
+| ResultsPanel | Displays query results with expandable citations (click to select) |
+| CommandInput | Input with command history (Up/Down) and Tab completion |
+| StatusBar | Shows current mode, chunk count, session cost, provider status |
 
 **TUI Keyboard Shortcuts:**
 
@@ -35,6 +53,11 @@ The TUI provides:
 | Ctrl+B | Run build (Ingest) |
 | Ctrl+T | Run tagging (Ingest) |
 | Ctrl+R | Refresh stats (Ingest) |
+| Ctrl+E | Expand selected citation (Query) |
+| Ctrl+O | Open source file (Query) |
+| Tab | Autocomplete command |
+| Up/Down | Navigate command history |
+| Escape | Clear input |
 
 ### 2. Unified Interactive Shell
 

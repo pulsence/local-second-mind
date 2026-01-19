@@ -2,24 +2,27 @@
 Query screen for LSM TUI.
 
 Provides the query interface with:
-- Query input area
+- Query input area with history and autocomplete
 - Results display with expandable citations
 - Remote search results section
 """
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Optional, List
+from typing import TYPE_CHECKING, Optional, List, Any
 
 from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Container, Vertical, ScrollableContainer
-from textual.widgets import Static, TextArea, Input
+from textual.widgets import Static
 from textual.widget import Widget
 from textual.message import Message
 from textual.reactive import reactive
 
 from lsm.gui.shell.logging import get_logger
+from lsm.gui.shell.tui.widgets.results import ResultsPanel, CitationSelected, CitationExpanded
+from lsm.gui.shell.tui.widgets.input import CommandInput, CommandSubmitted
+from lsm.gui.shell.tui.completions import create_completer
 
 if TYPE_CHECKING:
     from lsm.query.session import Candidate
@@ -40,8 +43,8 @@ class QueryScreen(Widget):
     Query interface screen.
 
     Provides:
-    - Text input for queries and commands
-    - Scrollable results panel
+    - Text input for queries and commands with history and autocomplete
+    - Scrollable results panel with expandable citations
     - Citation expansion
     - Streaming response display
     """
@@ -66,43 +69,50 @@ class QueryScreen(Widget):
         super().__init__(*args, **kwargs)
         self._last_response: str = ""
         self._last_candidates: List["Candidate"] = []
+        self._completer = create_completer("query", self._get_candidates)
+
+    def _get_candidates(self) -> Optional[List[str]]:
+        """Get current candidates for completion."""
+        if self._last_candidates:
+            return [f"S{i}" for i in range(1, len(self._last_candidates) + 1)]
+        return None
 
     def compose(self) -> ComposeResult:
         """Compose the query screen layout."""
         with Vertical(id="query-layout"):
-            # Results area (scrollable)
-            with ScrollableContainer(id="results-container", classes="query-results-container"):
-                yield Static(
-                    "Enter a question to query your knowledge base.\n\n"
-                    "Commands: /help, /mode, /show S#, /expand S#, /costs",
-                    id="results-content",
-                    classes="results-panel",
-                )
+            # Results area with ResultsPanel widget
+            yield ResultsPanel(id="query-results-panel")
 
-            # Input area
+            # Input area with CommandInput widget
             with Container(classes="query-input-container"):
-                yield Input(
+                yield CommandInput(
                     placeholder="Enter your question or command...",
-                    id="query-input",
-                    classes="command-input",
+                    completer=self._completer,
+                    id="query-command-input",
                 )
 
     def on_mount(self) -> None:
         """Handle screen mount - focus the input."""
         logger.debug("Query screen mounted")
-        self.query_one("#query-input", Input).focus()
+        self.query_one("#query-command-input", CommandInput).focus()
 
-    async def on_input_submitted(self, event: Input.Submitted) -> None:
-        """Handle input submission."""
-        query = event.value.strip()
-        if not query:
+    async def on_command_submitted(self, event: CommandSubmitted) -> None:
+        """Handle command input submission from CommandInput widget."""
+        command = event.command.strip()
+        if not command:
             return
 
-        # Clear the input
-        event.input.value = ""
-
         # Process the input
-        await self._process_input(query)
+        await self._process_input(command)
+
+    def on_citation_selected(self, event: CitationSelected) -> None:
+        """Handle citation selection from ResultsPanel."""
+        self.selected_citation = event.index
+        logger.debug(f"Citation S{event.index} selected")
+
+    def on_citation_expanded(self, event: CitationExpanded) -> None:
+        """Handle citation expansion from ResultsPanel."""
+        logger.debug(f"Citation S{event.index} expanded")
 
     async def _process_input(self, text: str) -> None:
         """
@@ -125,7 +135,7 @@ class QueryScreen(Widget):
             command: Command string (e.g., "/help", "/show S1")
         """
         cmd_lower = command.lower().strip()
-        results_widget = self.query_one("#results-content", Static)
+        results_panel = self.query_one("#query-results-panel", ResultsPanel)
 
         if cmd_lower == "/help":
             self._show_help()
@@ -147,7 +157,7 @@ class QueryScreen(Widget):
         elif cmd_lower in ("/exit", "/quit"):
             self.app.exit()
         else:
-            results_widget.update(f"Unknown command: {command}\n\nType /help for available commands.")
+            self._show_message(f"Unknown command: {command}\n\nType /help for available commands.")
 
     async def _handle_query(self, query: str) -> None:
         """
@@ -156,35 +166,39 @@ class QueryScreen(Widget):
         Args:
             query: Query text
         """
-        results_widget = self.query_one("#results-content", Static)
+        results_panel = self.query_one("#query-results-panel", ResultsPanel)
         self.is_loading = True
 
         try:
             # Show loading state
-            results_widget.update(f"Searching for: {query}\n\nProcessing...")
+            self._show_message(f"Searching for: {query}\n\nProcessing...")
 
             # Get app reference and check if query context is ready
             app = self.app
             if not hasattr(app, 'query_provider') or app.query_provider is None:
-                results_widget.update(
+                self._show_message(
                     "Query context not initialized.\n\n"
                     "Please wait for initialization or check settings."
                 )
                 return
 
             # Run the query in a thread to not block UI
-            response = await self._run_query(query)
+            response, candidates = await self._run_query(query)
 
-            # Update display with results
-            self._display_results(query, response)
+            # Store candidates for completion
+            self._last_candidates = candidates
+            self._last_response = response
+
+            # Update display with results using ResultsPanel
+            results_panel.update_results(f"Q: {query}\n\n{response}", candidates)
 
         except Exception as e:
             logger.error(f"Query error: {e}", exc_info=True)
-            results_widget.update(f"Error: {e}")
+            self._show_message(f"Error: {e}")
         finally:
             self.is_loading = False
 
-    async def _run_query(self, query: str) -> str:
+    async def _run_query(self, query: str) -> tuple[str, List["Candidate"]]:
         """
         Run a query against the knowledge base.
 
@@ -192,30 +206,44 @@ class QueryScreen(Widget):
             query: Query text
 
         Returns:
-            Response text
+            Tuple of (response text, list of candidates)
         """
         app = self.app
+        candidates: List["Candidate"] = []
 
-        # Import query execution
-        from lsm.gui.shell.query.repl import run_query_turn_async
+        try:
+            # Import query execution functions
+            from lsm.gui.shell.query.commands import handle_query_turn
 
-        # Check if async query turn exists, otherwise use sync version
-        if hasattr(run_query_turn_async, '__call__'):
-            result = await run_query_turn_async(
-                query,
-                app.config,
-                app.query_state,
-                app.query_embedder,
-                app.query_provider,
-            )
-        else:
-            # Fallback to sync version in thread
-            from lsm.gui.shell.query.repl import run_query_turn
+            # Run query in thread to not block UI
             result = await app.run_in_thread(
-                lambda: self._sync_query(query)
+                lambda: handle_query_turn(
+                    query,
+                    app.config,
+                    app.query_state,
+                    app.query_embedder,
+                    app.query_provider,
+                )
             )
 
-        return result or "No response generated."
+            if result:
+                response_text = result.get("response", "No response generated.")
+                candidates = result.get("candidates", [])
+
+                # Update cost tracking
+                if "cost" in result and hasattr(app, 'update_cost'):
+                    app.update_cost(result["cost"])
+
+                return response_text, candidates
+
+        except ImportError:
+            logger.warning("Query commands module not available, using fallback")
+        except Exception as e:
+            logger.error(f"Query execution error: {e}", exc_info=True)
+            return f"Query error: {e}", []
+
+        # Fallback for when query module is not available
+        return self._sync_query(query), []
 
     def _sync_query(self, query: str) -> str:
         """
@@ -231,29 +259,18 @@ class QueryScreen(Widget):
         # will integrate with the existing query system
         return f"Query: {query}\n\n[Query execution placeholder - integrate with existing system]"
 
-    def _display_results(self, query: str, response: str) -> None:
+    def _show_message(self, message: str) -> None:
         """
-        Display query results.
+        Display a message in the results panel.
 
         Args:
-            query: Original query
-            response: Response text
+            message: Message to display
         """
-        results_widget = self.query_one("#results-content", Static)
-        self._last_response = response
-
-        # Format the output
-        output = f"Q: {query}\n\n{response}"
-
-        # Add citation hints if we have candidates
-        if self._last_candidates:
-            output += f"\n\n[{len(self._last_candidates)} sources found - use /show S# to view]"
-
-        results_widget.update(output)
+        results_panel = self.query_one("#query-results-panel", ResultsPanel)
+        results_panel.update_results(message, [])
 
     def _show_help(self) -> None:
         """Display help text."""
-        results_widget = self.query_one("#results-content", Static)
         help_text = """QUERY COMMANDS
 
 /help           Show this help
@@ -275,56 +292,100 @@ Ctrl+C          Quit
 Enter your question to search your knowledge base.
 Use /mode to switch between grounded, insight, and hybrid modes."""
 
-        results_widget.update(help_text)
+        self._show_message(help_text)
 
     def _show_mode(self) -> None:
         """Display current mode."""
-        results_widget = self.query_one("#results-content", Static)
         app = self.app
 
         if hasattr(app, 'current_mode'):
             mode = app.current_mode
-            results_widget.update(f"Current mode: {mode}\n\nAvailable modes:\n- grounded\n- insight\n- hybrid\n\nUse /mode <name> to switch.")
+            self._show_message(
+                f"Current mode: {mode}\n\n"
+                "Available modes:\n- grounded\n- insight\n- hybrid\n\n"
+                "Use /mode <name> to switch."
+            )
         else:
-            results_widget.update("Mode information not available.")
+            self._show_message("Mode information not available.")
 
     async def _set_mode(self, mode: str) -> None:
         """Set the query mode."""
-        results_widget = self.query_one("#results-content", Static)
         app = self.app
 
         valid_modes = ["grounded", "insight", "hybrid"]
         if mode.lower() in valid_modes:
             app.current_mode = mode.lower()
-            results_widget.update(f"Switched to {mode} mode.")
+            self._show_message(f"Switched to {mode} mode.")
         else:
-            results_widget.update(f"Invalid mode: {mode}\n\nValid modes: {', '.join(valid_modes)}")
+            self._show_message(f"Invalid mode: {mode}\n\nValid modes: {', '.join(valid_modes)}")
 
     def _show_citation(self, citation: str) -> None:
         """Show a specific citation."""
-        results_widget = self.query_one("#results-content", Static)
-        results_widget.update(f"Showing citation: {citation}\n\n[Citation display placeholder]")
+        # Parse citation number (S1, S2, etc.)
+        try:
+            index = int(citation.upper().replace("S", ""))
+            results_panel = self.query_one("#query-results-panel", ResultsPanel)
+            candidate = results_panel.get_candidate(index)
+
+            if candidate:
+                meta = candidate.meta or {}
+                source_path = meta.get("source_path", "unknown")
+                chunk_index = meta.get("chunk_index", "N/A")
+                text = (candidate.text or "").strip()
+
+                self._show_message(
+                    f"Citation S{index}\n"
+                    f"{'=' * 40}\n"
+                    f"Source: {source_path}\n"
+                    f"Chunk: {chunk_index}\n"
+                    f"Distance: {candidate.distance:.4f}\n\n"
+                    f"{text[:500]}{'...' if len(text) > 500 else ''}"
+                )
+            else:
+                self._show_message(f"Citation S{index} not found.")
+        except (ValueError, AttributeError):
+            self._show_message(f"Invalid citation format: {citation}\n\nUse S# format (e.g., S1, S2)")
 
     def _expand_citation(self, citation: str) -> None:
-        """Expand a specific citation."""
-        results_widget = self.query_one("#results-content", Static)
-        results_widget.update(f"Expanded citation: {citation}\n\n[Expanded view placeholder]")
+        """Expand a specific citation to show full text."""
+        try:
+            index = int(citation.upper().replace("S", ""))
+            results_panel = self.query_one("#query-results-panel", ResultsPanel)
+            results_panel.expand_citation(index)
+        except (ValueError, AttributeError):
+            self._show_message(f"Invalid citation format: {citation}\n\nUse S# format (e.g., S1, S2)")
 
     def _show_costs(self) -> None:
         """Show session costs."""
-        results_widget = self.query_one("#results-content", Static)
         app = self.app
 
         if hasattr(app, 'total_cost'):
             cost = app.total_cost
-            results_widget.update(f"Session Cost Summary\n\nTotal: ${cost:.4f}")
+            self._show_message(f"Session Cost Summary\n\nTotal: ${cost:.4f}")
         else:
-            results_widget.update("Cost tracking not available.")
+            self._show_message("Cost tracking not available.")
 
     def _show_debug(self) -> None:
         """Show debug information."""
-        results_widget = self.query_one("#results-content", Static)
-        results_widget.update("Debug information:\n\n[Debug placeholder]")
+        app = self.app
+        debug_info = ["Debug Information", "=" * 40]
+
+        if hasattr(app, 'current_mode'):
+            debug_info.append(f"Mode: {app.current_mode}")
+        if hasattr(app, 'chunk_count'):
+            debug_info.append(f"Chunks: {app.chunk_count:,}")
+        if hasattr(app, 'query_provider') and app.query_provider:
+            debug_info.append("Query provider: initialized")
+        else:
+            debug_info.append("Query provider: not initialized")
+        if hasattr(app, 'query_embedder') and app.query_embedder:
+            debug_info.append("Embedder: initialized")
+        else:
+            debug_info.append("Embedder: not initialized")
+
+        debug_info.append(f"\nLast candidates: {len(self._last_candidates)}")
+
+        self._show_message("\n".join(debug_info))
 
     # -------------------------------------------------------------------------
     # Actions
@@ -332,21 +393,48 @@ Use /mode to switch between grounded, insight, and hybrid modes."""
 
     def action_submit_query(self) -> None:
         """Submit the current query."""
-        input_widget = self.query_one("#query-input", Input)
-        if input_widget.value:
-            # Trigger submission
-            input_widget.action_submit()
+        command_input = self.query_one("#query-command-input", CommandInput)
+        if command_input.value:
+            # Trigger submission by posting the message
+            self.post_message(CommandSubmitted(command_input.value))
+            command_input.clear()
 
     def action_expand_citation(self) -> None:
         """Expand the selected citation."""
         if self.selected_citation is not None:
             self._expand_citation(f"S{self.selected_citation}")
+        else:
+            self.app.notify("No citation selected", severity="warning")
 
     def action_open_source(self) -> None:
         """Open the source file for the selected citation."""
-        self.app.notify("Open source: not yet implemented", severity="warning")
+        if self.selected_citation is not None:
+            results_panel = self.query_one("#query-results-panel", ResultsPanel)
+            candidate = results_panel.get_candidate(self.selected_citation)
+            if candidate:
+                meta = candidate.meta or {}
+                source_path = meta.get("source_path")
+                if source_path:
+                    import subprocess
+                    import sys
+                    try:
+                        if sys.platform == "win32":
+                            subprocess.run(["start", "", source_path], shell=True)
+                        elif sys.platform == "darwin":
+                            subprocess.run(["open", source_path])
+                        else:
+                            subprocess.run(["xdg-open", source_path])
+                        self.app.notify(f"Opening {source_path}")
+                    except Exception as e:
+                        self.app.notify(f"Failed to open file: {e}", severity="error")
+                else:
+                    self.app.notify("No source path available", severity="warning")
+            else:
+                self.app.notify("Citation not found", severity="warning")
+        else:
+            self.app.notify("No citation selected", severity="warning")
 
     def action_clear_input(self) -> None:
         """Clear the input field."""
-        input_widget = self.query_one("#query-input", Input)
-        input_widget.value = ""
+        command_input = self.query_one("#query-command-input", CommandInput)
+        command_input.clear()

@@ -195,3 +195,41 @@ class TestLSMAppActions:
         assert callable(app.action_switch_settings)
         assert callable(app.action_show_help)
         assert callable(app.action_quit)
+
+
+class TestLSMAppStatusBarIntegration:
+    """Tests for LSMApp StatusBar integration."""
+
+    def test_has_watch_methods(self):
+        """LSMApp should have watch methods for StatusBar sync."""
+        from lsm.gui.shell.tui.app import LSMApp
+
+        mock_config = Mock()
+        mock_config.vectordb = Mock()
+        mock_config.query = Mock()
+        mock_config.query.mode = "grounded"
+
+        app = LSMApp(mock_config)
+
+        assert hasattr(app, 'watch_current_mode')
+        assert hasattr(app, 'watch_chunk_count')
+        assert hasattr(app, 'watch_total_cost')
+        assert callable(app.watch_current_mode)
+        assert callable(app.watch_chunk_count)
+        assert callable(app.watch_total_cost)
+
+    def test_watch_methods_handle_missing_statusbar(self):
+        """Watch methods should handle missing StatusBar gracefully."""
+        from lsm.gui.shell.tui.app import LSMApp
+
+        mock_config = Mock()
+        mock_config.vectordb = Mock()
+        mock_config.query = Mock()
+        mock_config.query.mode = "grounded"
+
+        app = LSMApp(mock_config)
+
+        # These should not raise even when StatusBar is not mounted
+        app.watch_current_mode("insight")
+        app.watch_chunk_count(100)
+        app.watch_total_cost(1.50)

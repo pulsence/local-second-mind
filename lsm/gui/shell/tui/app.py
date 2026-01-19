@@ -4,7 +4,7 @@ Main TUI Application for LSM.
 Provides a rich terminal interface using Textual with:
 - Tabbed interface for Ingest/Query/Settings
 - Keyboard shortcuts for navigation
-- Reactive status display
+- Reactive status display with StatusBar widget
 """
 
 from __future__ import annotations
@@ -18,6 +18,7 @@ from textual.widgets import Header, Footer, TabbedContent, TabPane
 from textual.reactive import reactive
 
 from lsm.gui.shell.logging import get_logger
+from lsm.gui.shell.tui.widgets.status import StatusBar
 
 if TYPE_CHECKING:
     from lsm.config.models import LSMConfig
@@ -93,6 +94,9 @@ class LSMApp(App):
             with TabPane("Settings", id="settings"):
                 from lsm.gui.shell.tui.screens.settings import SettingsScreen
                 yield SettingsScreen(id="settings-screen")
+
+        # Status bar showing mode, chunks, cost
+        yield StatusBar(id="main-status-bar")
 
         yield Footer()
 
@@ -244,6 +248,34 @@ class LSMApp(App):
             if context in ("ingest", "query", "settings"):
                 self.current_context = context
                 logger.debug(f"Tab activated: {context}")
+
+    # -------------------------------------------------------------------------
+    # Watch methods for StatusBar sync
+    # -------------------------------------------------------------------------
+
+    def watch_current_mode(self, mode: str) -> None:
+        """Sync mode changes to StatusBar."""
+        try:
+            status_bar = self.query_one("#main-status-bar", StatusBar)
+            status_bar.mode = mode
+        except Exception:
+            pass
+
+    def watch_chunk_count(self, count: int) -> None:
+        """Sync chunk count changes to StatusBar."""
+        try:
+            status_bar = self.query_one("#main-status-bar", StatusBar)
+            status_bar.chunk_count = count
+        except Exception:
+            pass
+
+    def watch_total_cost(self, cost: float) -> None:
+        """Sync cost changes to StatusBar."""
+        try:
+            status_bar = self.query_one("#main-status-bar", StatusBar)
+            status_bar.total_cost = cost
+        except Exception:
+            pass
 
     # -------------------------------------------------------------------------
     # Public API for screens/widgets

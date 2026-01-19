@@ -126,3 +126,91 @@ class TestMainScreen:
         """MainScreen should be a Screen subclass."""
         from lsm.gui.shell.tui.screens.main import MainScreen
         assert issubclass(MainScreen, Screen)
+
+
+class TestQueryScreenIntegration:
+    """Integration tests for QueryScreen with widgets."""
+
+    def test_has_completer(self):
+        """QueryScreen should have a completer for autocomplete."""
+        from lsm.gui.shell.tui.screens.query import QueryScreen
+        screen = QueryScreen()
+        assert hasattr(screen, '_completer')
+        assert callable(screen._completer)
+
+    def test_has_get_candidates(self):
+        """QueryScreen should have _get_candidates method."""
+        from lsm.gui.shell.tui.screens.query import QueryScreen
+        screen = QueryScreen()
+        assert hasattr(screen, '_get_candidates')
+        assert callable(screen._get_candidates)
+
+    def test_get_candidates_returns_none_initially(self):
+        """_get_candidates should return None when no candidates."""
+        from lsm.gui.shell.tui.screens.query import QueryScreen
+        screen = QueryScreen()
+        result = screen._get_candidates()
+        assert result is None
+
+    def test_has_show_message_method(self):
+        """QueryScreen should have _show_message method."""
+        from lsm.gui.shell.tui.screens.query import QueryScreen
+        screen = QueryScreen()
+        assert hasattr(screen, '_show_message')
+        assert callable(screen._show_message)
+
+    def test_has_show_citation_method(self):
+        """QueryScreen should have _show_citation method."""
+        from lsm.gui.shell.tui.screens.query import QueryScreen
+        screen = QueryScreen()
+        assert hasattr(screen, '_show_citation')
+        assert callable(screen._show_citation)
+
+    def test_has_expand_citation_method(self):
+        """QueryScreen should have _expand_citation method."""
+        from lsm.gui.shell.tui.screens.query import QueryScreen
+        screen = QueryScreen()
+        assert hasattr(screen, '_expand_citation')
+        assert callable(screen._expand_citation)
+
+    def test_has_run_query_method(self):
+        """QueryScreen should have _run_query method."""
+        from lsm.gui.shell.tui.screens.query import QueryScreen
+        screen = QueryScreen()
+        assert hasattr(screen, '_run_query')
+
+    def test_has_sync_query_method(self):
+        """QueryScreen should have _sync_query method."""
+        from lsm.gui.shell.tui.screens.query import QueryScreen
+        screen = QueryScreen()
+        assert hasattr(screen, '_sync_query')
+        assert callable(screen._sync_query)
+
+
+class TestIngestScreenIntegration:
+    """Integration tests for IngestScreen with widgets."""
+
+    def test_has_completer(self):
+        """IngestScreen should have a completer for autocomplete."""
+        from lsm.gui.shell.tui.screens.ingest import IngestScreen
+        screen = IngestScreen()
+        assert hasattr(screen, '_completer')
+        assert callable(screen._completer)
+
+    def test_has_process_command_method(self):
+        """IngestScreen should have _process_command method."""
+        from lsm.gui.shell.tui.screens.ingest import IngestScreen
+        screen = IngestScreen()
+        assert hasattr(screen, '_process_command')
+
+    def test_has_run_build_method(self):
+        """IngestScreen should have _run_build method."""
+        from lsm.gui.shell.tui.screens.ingest import IngestScreen
+        screen = IngestScreen()
+        assert hasattr(screen, '_run_build')
+
+    def test_has_refresh_stats_method(self):
+        """IngestScreen should have _refresh_stats method."""
+        from lsm.gui.shell.tui.screens.ingest import IngestScreen
+        screen = IngestScreen()
+        assert hasattr(screen, '_refresh_stats')

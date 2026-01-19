@@ -4,11 +4,27 @@ All notable changes to Local Second Mind are documented here.
 
 ## Unreleased
 
+### Added
+
+- **TUI (Textual User Interface)** - Rich terminal interface with:
+  - Tabbed navigation (Query, Ingest, Settings)
+  - ResultsPanel widget with expandable citations
+  - CommandInput widget with history and Tab autocomplete
+  - StatusBar widget showing mode, chunks, cost, provider status
+  - Keyboard shortcuts (Ctrl+B to build, Ctrl+E to expand, etc.)
+  - Help modal (F1) with command reference
 - Documentation expansion across user guide, architecture, API, and dev guides.
 - Refinements to configuration reference.
 - Added Anthropic, Gemini, Local (Ollama), and Azure OpenAI providers.
 - Added provider health tracking and `/provider-status` REPL command.
 - LLM configuration now uses an ordered `llms` list with per-feature selection.
+
+### Changed
+
+- Module restructuring for GUI preparation:
+  - CLI/REPL code moved to `lsm/gui/shell/`
+  - Remote providers moved to `lsm/remote/`
+  - Split large REPL files into modular components
 
 ## 0.2.0
 

@@ -545,3 +545,131 @@ Switch {
 .provider-status-error {
     color: $error;
 }
+
+/* ============================================================================
+ * Main StatusBar Widget (bottom of app)
+ * ============================================================================ */
+
+#main-status-bar {
+    dock: bottom;
+    height: 1;
+    margin-bottom: 1;
+    background: $primary-darken-1;
+}
+
+StatusBar {
+    height: 1;
+    background: $primary-darken-1;
+    padding: 0 1;
+}
+
+StatusBar > Horizontal {
+    width: 100%;
+    height: 1;
+}
+
+/* ============================================================================
+ * CommandInput Widget
+ * ============================================================================ */
+
+CommandInput {
+    height: auto;
+    min-height: 3;
+    max-height: 10;
+    background: $surface-darken-1;
+    border: tall $primary-darken-1;
+    padding: 0 1;
+}
+
+CommandInput:focus-within {
+    border: tall $primary;
+}
+
+#query-command-input {
+    dock: bottom;
+    width: 100%;
+}
+
+#ingest-command-input {
+    dock: bottom;
+    width: 100%;
+}
+
+/* ============================================================================
+ * ResultsPanel Widget
+ * ============================================================================ */
+
+ResultsPanel {
+    height: 1fr;
+    background: $surface;
+    border: round $primary-darken-1;
+    padding: 1;
+}
+
+ResultsPanel:focus {
+    border: round $primary;
+}
+
+#query-results-panel {
+    height: 1fr;
+}
+
+#response-text {
+    margin-bottom: 1;
+    padding: 1;
+    background: $surface-darken-1;
+}
+
+#results-list {
+    height: auto;
+}
+
+#results-scroll {
+    height: 100%;
+}
+
+/* ============================================================================
+ * ResultItem Widget
+ * ============================================================================ */
+
+ResultItem {
+    height: auto;
+    margin-bottom: 1;
+    padding: 1;
+    background: $surface-darken-1;
+    border: round $primary-darken-2;
+}
+
+ResultItem:hover {
+    background: $surface-lighten-1;
+    border: round $primary;
+}
+
+ResultItem.-selected {
+    background: $primary-darken-2;
+    border: round $primary;
+}
+
+/* ============================================================================
+ * Query Layout
+ * ============================================================================ */
+
+#query-layout {
+    height: 100%;
+    layout: vertical;
+}
+
+/* ============================================================================
+ * Ingest Layout
+ * ============================================================================ */
+
+#ingest-layout {
+    height: 100%;
+    layout: horizontal;
+}
+
+#ingest-output-container {
+    height: 1fr;
+    border: round $primary-darken-2;
+    padding: 1;
+}

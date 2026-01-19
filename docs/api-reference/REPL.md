@@ -45,6 +45,25 @@ lsm/gui/shell/tui/
     └── status.py         # Status bar
 ```
 
+### TUI Widgets
+
+**ResultsPanel** (`lsm/gui/shell/tui/widgets/results.py`):
+- Displays query results with clickable citations
+- Each result shows source path, chunk index, and semantic distance
+- Click to select, expand to show full text
+- Messages: `CitationSelected`, `CitationExpanded`
+
+**CommandInput** (`lsm/gui/shell/tui/widgets/input.py`):
+- Text input with command history (Up/Down navigation)
+- Tab completion using `completions.py`
+- History stored per session (max 100 items)
+- Messages: `CommandSubmitted`
+
+**StatusBar** (`lsm/gui/shell/tui/widgets/status.py`):
+- Reactive display synced with app state
+- Shows: Mode, Chunk count, Session cost, Provider status
+- Updates automatically when app properties change
+
 ### TUI Keyboard Shortcuts
 
 **Global:**
@@ -58,11 +77,17 @@ lsm/gui/shell/tui/
 - `Enter` - Submit query
 - `Up/Down` - Command history
 - `Tab` - Autocomplete
+- `Ctrl+E` - Expand selected citation
+- `Ctrl+O` - Open source file
+- `Escape` - Clear input
 
 **Ingest View:**
 - `Ctrl+B` - Run build
 - `Ctrl+T` - Run tagging
 - `Ctrl+R` - Refresh stats
+- `Up/Down` - Command history
+- `Tab` - Autocomplete
+- `Escape` - Clear input
 
 ### Using the TUI
 

@@ -5,7 +5,7 @@ Provides the document ingestion interface with:
 - File tree browser
 - Build progress display
 - Stats panel
-- Command input for ingest operations
+- Command input for ingest operations with history and autocomplete
 """
 
 from __future__ import annotations
@@ -16,11 +16,13 @@ from typing import TYPE_CHECKING, Optional, Dict, Any
 from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Container, Horizontal, Vertical, ScrollableContainer
-from textual.widgets import Static, Input, DirectoryTree, ProgressBar
+from textual.widgets import Static, DirectoryTree, ProgressBar
 from textual.widget import Widget
 from textual.reactive import reactive
 
 from lsm.gui.shell.logging import get_logger
+from lsm.gui.shell.tui.widgets.input import CommandInput, CommandSubmitted
+from lsm.gui.shell.tui.completions import create_completer
 
 if TYPE_CHECKING:
     pass
@@ -60,6 +62,7 @@ class IngestScreen(Widget):
         """Initialize the ingest screen."""
         super().__init__(*args, **kwargs)
         self._stats: Dict[str, Any] = {}
+        self._completer = create_completer("ingest")
 
     def compose(self) -> ComposeResult:
         """Compose the ingest screen layout."""
@@ -98,11 +101,11 @@ class IngestScreen(Widget):
                         id="ingest-output",
                     )
 
-        # Command input at bottom
-        yield Input(
+        # Command input at bottom with history and autocomplete
+        yield CommandInput(
             placeholder="Enter ingest command (e.g., /build, /stats, /explore)...",
-            id="ingest-input",
-            classes="ingest-command-input",
+            completer=self._completer,
+            id="ingest-command-input",
         )
 
     def on_mount(self) -> None:
@@ -110,18 +113,14 @@ class IngestScreen(Widget):
         logger.debug("Ingest screen mounted")
         # Refresh stats on mount
         self.call_later(self._refresh_stats)
+        # Focus command input
+        self.query_one("#ingest-command-input", CommandInput).focus()
 
-    async def on_input_submitted(self, event: Input.Submitted) -> None:
-        """Handle command input submission."""
-        if event.input.id != "ingest-input":
-            return
-
-        command = event.value.strip()
+    async def on_command_submitted(self, event: CommandSubmitted) -> None:
+        """Handle command input submission from CommandInput widget."""
+        command = event.command.strip()
         if not command:
             return
-
-        # Clear input
-        event.input.value = ""
 
         # Process command
         await self._process_command(command)
@@ -465,5 +464,5 @@ Options:
 
     def action_clear_input(self) -> None:
         """Clear the input field."""
-        input_widget = self.query_one("#ingest-input", Input)
-        input_widget.value = ""
+        command_input = self.query_one("#ingest-command-input", CommandInput)
+        command_input.clear()
