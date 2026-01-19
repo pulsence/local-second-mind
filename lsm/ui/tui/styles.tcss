@@ -496,15 +496,6 @@ Switch {
     layout: vertical;
 }
 
-#query-input-container {
-    height: 5;
-    min-height: 5;
-    max-height: 7;
-    padding: 1 1 0 1;
-    background: $surface-darken-1;
-    border-top: solid $primary-darken-1;
-}
-
 .query-results-container {
     height: 1fr;
     padding: 1;

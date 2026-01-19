@@ -96,12 +96,11 @@ class QueryScreen(Widget):
                     yield Log(id="query-log", auto_scroll=True)
 
             # Input area with CommandInput widget
-            with Container(id="query-input-container"):
-                yield CommandInput(
-                    placeholder="Enter your question or command...",
-                    completer=self._completer,
-                    id="query-command-input",
-                )
+            yield CommandInput(
+                placeholder="Enter your question or command...",
+                completer=self._completer,
+                id="query-command-input",
+            )
 
     def on_mount(self) -> None:
         """Handle screen mount - focus the input."""
