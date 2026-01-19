@@ -3,11 +3,6 @@
 from __future__ import annotations
 
 import pytest
-
-pytest.skip(
-    "TUI tests moved to tests/test_gui/tui; shell package no longer contains TUI tests.",
-    allow_module_level=True,
-)
 from unittest.mock import Mock, MagicMock, patch
 from dataclasses import dataclass
 
