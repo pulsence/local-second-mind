@@ -5,6 +5,7 @@ Tests the full query flow from embedding to synthesis.
 """
 
 import pytest
+from types import SimpleNamespace
 from unittest.mock import Mock, patch, MagicMock
 from pathlib import Path
 
@@ -87,8 +88,8 @@ class TestQueryIntegration:
         return collection
 
     @pytest.mark.skip(reason="Mock setup requires numpy array format for embeddings")
-    @patch("lsm.vectordb.create_vectordb_provider")
-    @patch("lsm.query.retrieval.init_embedder")
+    @patch("lsm.query.execution.create_vectordb_provider")
+    @patch("lsm.query.execution.init_embedder")
     def test_full_query_flow_no_rerank(
         self,
         mock_init_embedder,
@@ -99,7 +100,7 @@ class TestQueryIntegration:
         tmp_path,
     ):
         """Test complete query flow without LLM reranking."""
-        from lsm.ui.shell.commands.query import run_single_shot_query
+        from lsm.query.execution import run_query
 
         # Create a real persist_dir so the path check passes
         persist_dir = tmp_path / ".chroma"
@@ -119,9 +120,20 @@ class TestQueryIntegration:
         # Disable reranking
         mock_config.query.no_rerank = True
 
-        with patch("lsm.query.repl.create_provider", return_value=provider):
-            with patch("builtins.print"):  # Suppress output
-                result = run_single_shot_query(mock_config, "What is Python?")
+        args = SimpleNamespace(
+            config=tmp_path / "config.json",
+            question="What is Python?",
+            mode=None,
+            model=None,
+            no_rerank=False,
+            k=None,
+        )
+        args.config.write_text("{}", encoding="utf-8")
+
+        with patch("lsm.query.execution.load_config_from_file", return_value=mock_config):
+            with patch("lsm.query.repl.create_provider", return_value=provider):
+                with patch("builtins.print"):  # Suppress output
+                    result = run_query(args)
 
         # Should complete successfully
         assert result == 0
@@ -296,15 +308,16 @@ class TestQueryIntegration:
 class TestErrorHandling:
     """Integration tests for error handling."""
 
-    @patch("lsm.vectordb.create_vectordb_provider")
-    @patch("lsm.query.retrieval.init_embedder")
+    @patch("lsm.query.execution.create_vectordb_provider")
+    @patch("lsm.query.execution.init_embedder")
     def test_query_with_empty_collection(
         self,
         mock_init_embedder,
         mock_create_provider,
+        tmp_path,
     ):
         """Test query flow with empty collection."""
-        from lsm.ui.shell.commands.query import run_single_shot_query
+        from lsm.query.execution import run_query
         from lsm.config.models import LSMConfig, QueryConfig, LLMRegistryConfig, LLMProviderConfig, FeatureLLMConfig
 
         config = LSMConfig(
@@ -338,7 +351,22 @@ class TestErrorHandling:
         mock_init_embedder.return_value = mock_embedder
         mock_create_provider.return_value = mock_collection
 
-        result = run_single_shot_query(config, "Test question")
+        persist_dir = tmp_path / ".chroma"
+        persist_dir.mkdir()
+        config.vectordb.persist_dir = persist_dir
+
+        args = SimpleNamespace(
+            config=tmp_path / "config.json",
+            question="Test question",
+            mode=None,
+            model=None,
+            no_rerank=False,
+            k=None,
+        )
+        args.config.write_text("{}", encoding="utf-8")
+
+        with patch("lsm.query.execution.load_config_from_file", return_value=config):
+            result = run_query(args)
 
         # Should exit with error code
         assert result == 1

@@ -20,6 +20,25 @@ from lsm.vectordb.utils import require_chroma_collection
 logger = get_logger(__name__)
 
 
+def run_ingest(args) -> int:
+    """Run ingest command with build/tag/wipe subcommands."""
+    command = getattr(args, "ingest_command", None)
+    if command == "build":
+        return run_build_cli(
+            args.config,
+            force=getattr(args, "force", False),
+            skip_errors=getattr(args, "skip_errors", None),
+            dry_run=getattr(args, "dry_run", None),
+        )
+    if command == "tag":
+        return run_tag_cli(args.config, max_chunks=getattr(args, "max", None))
+    if command == "wipe":
+        return run_wipe_cli(args.config, confirm=getattr(args, "confirm", False))
+
+    print("Missing ingest subcommand. Use `lsm ingest --help` for options.")
+    return 2
+
+
 def _load_config(config_path: str | Path) -> LSMConfig:
     """Load and validate configuration."""
     cfg_path = Path(config_path).expanduser().resolve()

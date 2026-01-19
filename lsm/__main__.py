@@ -9,7 +9,7 @@ import sys
 from pathlib import Path
 
 from lsm.logging import configure_logging_from_args, get_logger
-from lsm.ui.shell.commands import run_ingest, run_query
+from lsm.ui.shell.cli import run_ingest
 
 DEFAULT_CONFIG_PATH = (Path(__file__).resolve().parent.parent / "config.json")
 
@@ -112,39 +112,6 @@ def build_parser() -> argparse.ArgumentParser:
         help="Confirm destructive wipe",
     )
 
-    # -------------------------------------------------------------------------
-    # Query subcommand
-    # -------------------------------------------------------------------------
-    query_parser = subparsers.add_parser(
-        "query",
-        help="Query the knowledge base",
-        description="Search and ask questions about your documents.",
-    )
-    query_parser.add_argument(
-        "question",
-        nargs="?",
-        help="Question to ask (required for CLI queries; use `lsm` for TUI)",
-    )
-    query_parser.add_argument(
-        "--mode",
-        choices=["grounded", "insight", "hybrid"],
-        help="Query mode: grounded (strict citations), insight (thematic), or hybrid",
-    )
-    query_parser.add_argument(
-        "--model",
-        help="Override LLM model from config",
-    )
-    query_parser.add_argument(
-        "--no-rerank",
-        action="store_true",
-        help="Skip LLM reranking step",
-    )
-    query_parser.add_argument(
-        "-k",
-        type=int,
-        help="Number of chunks to retrieve",
-    )
-
     return parser
 
 
@@ -196,13 +163,6 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "ingest":
             logger.info("Starting ingest command")
             return run_ingest(args)
-
-        elif args.command == "query":
-            logger.info("Starting query command")
-            if not getattr(args, "question", None):
-                print("Interactive query is now TUI-only. Run `lsm` to launch the TUI.")
-                return 2
-            return run_query(args)
 
         else:
             # Should not reach here with required=True in subparsers

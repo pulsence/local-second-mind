@@ -2,14 +2,7 @@
 Tests for query REPL display utilities.
 """
 
-import pytest
-
-from lsm.query.display import (
-    display_provider_name,
-    format_feature_label,
-    stream_output,
-)
-from lsm.query.session import Candidate, SessionState
+from lsm.query.commands import display_provider_name, format_feature_label
 
 
 class TestDisplayProviderName:
@@ -34,20 +27,3 @@ class TestFormatFeatureLabel:
         assert format_feature_label("unknown") == "unknown"
 
 
-class TestStreamOutput:
-    def test_combines_chunks(self, capsys):
-        result = stream_output(["Hello", " ", "world"])
-        captured = capsys.readouterr()
-        assert "Typing..." in captured.out
-        assert "Hello world" in captured.out
-        assert result == "Hello world"
-
-    def test_empty_chunks_ignored(self, capsys):
-        result = stream_output(["Hello", "", None, "world"])
-        assert result == "Helloworld"
-
-    def test_empty_input(self, capsys):
-        result = stream_output([])
-        captured = capsys.readouterr()
-        assert "Typing..." in captured.out
-        assert result == ""

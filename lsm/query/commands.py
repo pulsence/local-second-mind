@@ -28,14 +28,6 @@ from lsm.remote import create_remote_provider, get_registered_providers
 from lsm.query.notes import get_note_filename, generate_note_content
 from lsm.query.cost_tracking import estimate_tokens
 from lsm.query.citations import export_citations_from_note, export_citations_from_sources
-from .display import (
-    get_help,
-    format_source_chunk,
-    format_debug,
-    format_costs,
-    display_provider_name,
-    format_feature_label,
-)
 
 logger = get_logger(__name__)
 
@@ -98,6 +90,84 @@ PROVIDER_RECOMMENDATIONS = {
         "comprehensive": ["openalex", "crossref", "semantic_scholar"],
     },
 }
+
+
+def get_help() -> str:
+    """
+    Get the query mode help text.
+
+    Returns:
+        Help text string
+    """
+    lines = [
+        "Enter a question to query your local knowledge base.",
+        "Commands:",
+        "  /exit           Quit",
+        "  /help           Show this help",
+        "  /show S#        Show the cited chunk (e.g., /show S2)",
+        "  /expand S#      Show full chunk text (no truncation)",
+        "  /open S#        Open the source file in default app",
+        "  /models [provider]   List available models (optionally for one provider)",
+        "  /model               Show current models for tasks",
+        "  /model <task> <provider> <model>   Set model for a task",
+        "  /providers      List available LLM providers",
+        "  /provider-status Show provider health and recent stats",
+        "  /vectordb-providers List available vector DB providers",
+        "  /vectordb-status Show vector DB provider status",
+        "  /remote-providers    List available remote source providers",
+        "  /remote-search <provider> <query>  Test a remote provider",
+        "  /remote-search-all <query>  Search all enabled providers",
+        "  /remote-provider enable|disable|weight <name> [value]",
+        "  /mode           Show current query mode",
+        "  /mode <name>    Switch to a different query mode",
+        "  /mode set <setting> <on|off>  Toggle mode settings (model_knowledge, remote, notes)",
+        "  /note           Save last query as an editable note",
+        "  /note <name>    Save last query note with custom filename",
+        "  /notes          Alias for /note",
+        "  /load <path>    Pin a document for forced context inclusion",
+        "  /costs          Show session cost summary",
+        "  /costs export <path>  Export cost data to CSV",
+        "  /budget set <amount>  Set a session budget limit",
+        "  /cost-estimate <query>  Estimate cost for a query without running it",
+        "  /export-citations [format] [note_path]  Export citations (bibtex|zotero)",
+        "  /debug          Print retrieval diagnostics for the last query",
+        "  /set <filter>   Set session filters (path/ext)",
+        "  /clear <filter> Clear session filters",
+        "",
+    ]
+    return "\n".join(lines)
+
+
+def display_provider_name(name: str) -> str:
+    """
+    Normalize provider name for display.
+
+    Args:
+        name: Raw provider name
+
+    Returns:
+        Display-friendly provider name
+    """
+    if name in {"anthropic", "claude"}:
+        return "claude"
+    return name
+
+
+def format_feature_label(feature: str) -> str:
+    """
+    Format a feature name for display.
+
+    Args:
+        feature: Raw feature name
+
+    Returns:
+        Short label for display
+    """
+    return {
+        "query": "query",
+        "tagging": "tag",
+        "ranking": "rerank",
+    }.get(feature, feature)
 
 
 # -----------------------------
@@ -1044,7 +1114,7 @@ def handle_command(
 
     # Debug
     if ql == "/debug":
-        return CommandResult(output=format_debug(state))
+        return CommandResult(output=state.format_debug())
 
     # Cost summary / export
     if ql.startswith("/costs"):
@@ -1053,7 +1123,7 @@ def handle_command(
             return CommandResult(output="Cost tracking is not initialized.\n")
         parts = q.split()
         if len(parts) == 1:
-            return CommandResult(output=format_costs(state))
+            return CommandResult(output=state.format_costs())
         if len(parts) >= 2 and parts[1].lower() == "export":
             export_path = None
             if len(parts) >= 3:
@@ -1475,7 +1545,7 @@ def handle_command(
         if not candidate:
             return CommandResult(output=f"No such label in last results: {label}\n")
 
-        output = format_source_chunk(label, candidate, expanded=ql.startswith("/expand"))
+        output = candidate.format(label=label, expanded=ql.startswith("/expand"))
         return CommandResult(output=output)
 
     # Open

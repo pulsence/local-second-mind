@@ -5,30 +5,16 @@ Tests verifying that all imports work correctly after module restructuring.
 import pytest
 
 
-class TestIngestModuleImports:
-    """Test that ingest module imports work from new locations."""
+class TestIngestCLIImports:
+    """Test that ingest CLI imports work from lsm.ui.shell.cli."""
 
     def test_import_from_new_location(self):
-        """Test imports from lsm.ui.shell.ingest."""
-        from lsm.ui.shell.ingest import (
-            handle_command,
-            print_banner,
-            print_help,
-            handle_info_command,
-            handle_stats_command,
-            handle_explore_command,
-            handle_show_command,
-            handle_search_command,
-            handle_build_command,
-            handle_tag_command,
-            handle_tags_command,
-            handle_wipe_command,
-            handle_vectordb_providers_command,
-            handle_vectordb_status_command,
-        )
-        assert callable(handle_command)
-        assert callable(print_banner)
-        assert callable(print_help)
+        """Test imports from lsm.ui.shell.cli."""
+        from lsm.ui.shell.cli import run_ingest, run_build_cli, run_tag_cli, run_wipe_cli
+        assert callable(run_ingest)
+        assert callable(run_build_cli)
+        assert callable(run_tag_cli)
+        assert callable(run_wipe_cli)
 
 
 class TestQueryModuleImports:
@@ -36,17 +22,11 @@ class TestQueryModuleImports:
 
     def test_import_from_core_query(self):
         """Test imports from lsm.query (core module)."""
-        from lsm.query.execution import run_repl, run_query_turn
-        from lsm.query.display import (
-            print_banner,
-            print_help,
-            print_source_chunk,
-        )
-        from lsm.query.commands import handle_command, COMMAND_HINTS
-        assert callable(run_repl)
+        from lsm.query.execution import run_query_turn, run_query
+        from lsm.query.commands import handle_command, COMMAND_HINTS, get_help
         assert callable(run_query_turn)
-        assert callable(print_banner)
-        assert callable(print_help)
+        assert callable(run_query)
+        assert callable(get_help)
         assert isinstance(COMMAND_HINTS, set)
 
 
@@ -66,10 +46,9 @@ class TestShellModuleImports:
 
 
     def test_commands_import_from_new_location(self):
-        """Test commands imports from lsm.ui.shell.commands."""
-        from lsm.ui.shell.commands import run_ingest, run_query
+        """Test commands imports from lsm.ui.shell.cli."""
+        from lsm.ui.shell.cli import run_ingest
         assert callable(run_ingest)
-        assert callable(run_query)
 
 
 class TestRemoteModuleImports:

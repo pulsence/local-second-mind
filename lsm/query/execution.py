@@ -3,35 +3,51 @@ Query execution orchestration.
 
 Contains the core query execution functions:
 - fetch_remote_sources: Fetches sources from remote providers
+- run_query: CLI query handler
 - run_query_turn: Synchronous query execution (for CLI)
 - run_query_turn_async: Asynchronous query execution (for TUI)
-- run_repl: Interactive REPL loop (deprecated, use TUI instead)
 """
 
 from __future__ import annotations
 
 from dataclasses import replace
+from pathlib import Path
 from typing import List, Dict, Any
 
+from lsm.config import load_config_from_file
 from lsm.config.models import LSMConfig
 from lsm.logging import get_logger
 from lsm.providers import create_provider
 from lsm.vectordb.utils import require_chroma_collection
+from lsm.vectordb import create_vectordb_provider
 from lsm.query.session import Candidate, SessionState
-from lsm.query.retrieval import embed_text, retrieve_candidates, filter_candidates, compute_relevance
+from lsm.query.retrieval import (
+    embed_text,
+    retrieve_candidates,
+    filter_candidates,
+    compute_relevance,
+    init_embedder,
+)
 from lsm.query.rerank import apply_local_reranking
 from lsm.query.synthesis import build_context_block, fallback_answer, format_source_list
 from lsm.remote import create_remote_provider
-from lsm.query.cost_tracking import CostTracker, estimate_tokens, estimate_output_tokens
-from .display import print_banner, stream_output
+from lsm.query.cost_tracking import estimate_tokens, estimate_output_tokens
 from .commands import (
-    handle_command,
-    COMMAND_HINTS,
     estimate_synthesis_cost,
     estimate_rerank_cost,
 )
 
 logger = get_logger(__name__)
+
+def _stream_output(chunks) -> str:
+    print("\nTyping...")
+    parts: List[str] = []
+    for chunk in chunks:
+        if chunk:
+            parts.append(chunk)
+            print(chunk, end="", flush=True)
+    print()
+    return "".join(parts).strip()
 
 
 # -----------------------------
@@ -180,6 +196,103 @@ def _build_remote_candidates(remote_sources: List[Dict[str, Any]]) -> List[Candi
 # -----------------------------
 # Query Execution
 # -----------------------------
+def run_query(args: Any) -> int:
+    """
+    Run the query command.
+
+    Args:
+        args: Parsed command-line arguments
+
+    Returns:
+        Exit code (0 for success)
+    """
+    # Load configuration
+    cfg_path = Path(args.config).expanduser().resolve()
+
+    if not cfg_path.exists():
+        logger.error(f"Config file not found: {cfg_path}")
+        raise FileNotFoundError(f"Query config not found: {cfg_path}")
+
+    logger.info(f"Loading configuration from: {cfg_path}")
+    config = load_config_from_file(cfg_path)
+
+    # Apply CLI overrides to config
+    if hasattr(args, "mode") and args.mode:
+        config.query.mode = args.mode
+        logger.info(f"Overriding query mode to: {args.mode}")
+
+    if hasattr(args, "model") and args.model:
+        config.llm.override_feature_model("query", args.model)
+        logger.info(f"Overriding LLM model to: {args.model}")
+
+    if hasattr(args, "no_rerank") and args.no_rerank:
+        config.query.no_rerank = True
+        logger.info("Disabling reranking")
+
+    if hasattr(args, "k") and args.k:
+        config.query.k = args.k
+        logger.info(f"Overriding retrieval depth to: {args.k}")
+
+    logger.debug("Query configuration:")
+    logger.debug(f"  Collection: {config.collection}")
+    query_config = config.llm.get_query_config()
+    logger.debug(f"  LLM: {query_config.provider}/{query_config.model}")
+    logger.debug(f"  Retrieval: k={config.query.k}")
+    logger.debug(f"  Mode: {config.query.mode}")
+
+    # Single-shot mode only (TUI handles interactivity)
+    question = getattr(args, "question", None)
+    if not question:
+        logger.info("Interactive query disabled for CLI; use TUI")
+        print("Interactive query is now TUI-only. Run `lsm` to launch the TUI.")
+        return 2
+
+    try:
+        logger.info(f"Running single-shot query: {question}")
+
+        # Initialize embedder
+        logger.info(f"Initializing embedder: {config.embed_model}")
+        embedder = init_embedder(config.embed_model, device=config.device)
+
+        # Initialize vector DB provider
+        if config.vectordb.provider == "chromadb":
+            persist_dir = Path(config.persist_dir)
+            if not persist_dir.exists():
+                print(f"Error: ChromaDB directory not found: {persist_dir}")
+                print("Run 'lsm ingest' first to create the database.")
+                return 1
+
+        logger.info(f"Initializing vector DB provider: {config.vectordb.provider}")
+        provider = create_vectordb_provider(config.vectordb)
+
+        # Check collection has data
+        count = provider.count()
+        if count == 0:
+            print(f"Warning: Collection '{config.collection}' is empty.")
+            print("Run 'lsm ingest' to populate the database.")
+            return 1
+
+        logger.info(f"Collection ready with {count} chunks")
+
+        # Initialize session state
+        state = SessionState(
+            path_contains=config.query.path_contains,
+            ext_allow=config.query.ext_allow,
+            ext_deny=config.query.ext_deny,
+            model=query_config.model,
+        )
+
+        # Run single query
+        run_query_turn(question, config, state, embedder, provider)
+
+        return 0
+
+    except Exception as e:
+        logger.error(f"Single-shot query failed: {e}", exc_info=True)
+        print(f"\nError: {e}")
+        return 1
+
+
 def run_query_turn(
     question: str,
     config: LSMConfig,
@@ -451,7 +564,7 @@ def run_query_turn(
 
     used_streaming = False
     try:
-        answer = stream_output(
+        answer = _stream_output(
             synthesis_provider.stream_synthesize(
                 question,
                 context_block,
@@ -763,57 +876,3 @@ async def run_query_turn_async(
     }
 
 
-# -----------------------------
-# Main REPL Loop
-# -----------------------------
-def run_repl(
-    config: LSMConfig,
-    embedder,
-    collection,
-) -> None:
-    """
-    Run the interactive REPL loop.
-
-    Args:
-        config: Global configuration
-        embedder: SentenceTransformer model
-        collection: ChromaDB collection
-    """
-    logger.info("Starting REPL session")
-
-    # Initialize session state from config
-    query_config = config.llm.get_query_config()
-    state = SessionState(
-        path_contains=config.query.path_contains,
-        ext_allow=config.query.ext_allow,
-        ext_deny=config.query.ext_deny,
-        model=query_config.model,
-        cost_tracker=CostTracker(),
-    )
-
-    print_banner()
-
-    while True:
-        try:
-            line = input("> ").strip()
-        except (EOFError, KeyboardInterrupt):
-            print("\nExiting.")
-            return
-
-        if not line:
-            continue
-
-        if not line.startswith("/"):
-            token = line.split(maxsplit=1)[0].lower()
-            if token in COMMAND_HINTS:
-                print(f"Did you mean '/{token}'? Commands must start with '/'.\n")
-                continue
-
-        try:
-            if handle_command(line, state, config, embedder, collection):
-                continue
-        except SystemExit:
-            print("Exiting.")
-            return
-
-        run_query_turn(line, config, state, embedder, collection)
