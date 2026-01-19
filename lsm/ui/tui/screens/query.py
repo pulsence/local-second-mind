@@ -272,7 +272,7 @@ class QueryScreen(Widget):
 
         try:
             # Import query execution functions
-            from lsm.query.repl import run_query_turn_async
+            from lsm.query.execution import run_query_turn_async
 
             # Run query - this function is designed for async/TUI use
             result = await run_query_turn_async(

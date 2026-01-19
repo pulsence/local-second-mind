@@ -1,13 +1,13 @@
 """
-Display utilities for the query REPL.
+Display utilities for the query module.
 
-Contains result formatting, citation display, streaming output, and banner/help printing.
+Contains result formatting, citation display, and help text generation.
+All functions return strings - the UI layer decides how to display them.
 """
 
 from __future__ import annotations
 
-from pathlib import Path
-from typing import List, Dict, Any
+from typing import List, Optional
 
 from lsm.query.session import Candidate, SessionState
 
@@ -15,143 +15,122 @@ from lsm.query.session import Candidate, SessionState
 # -----------------------------
 # Banner and Help
 # -----------------------------
-def print_banner() -> None:
-    """Print REPL welcome banner."""
-    print("Interactive query mode. Type your question and press Enter.")
-    print("Commands: /exit, /help, /show S#, /expand S#, /open S#, /debug, /model, /models, /providers, /provider-status, /vectordb-providers, /vectordb-status, /remote-providers, /remote-search, /mode, /note, /notes, /load, /set, /clear, /costs, /budget, /cost-estimate, /export-citations\n")
+def get_banner() -> str:
+    """
+    Get the query mode welcome banner.
+
+    Returns:
+        Banner text string
+    """
+    lines = [
+        "Interactive query mode. Type your question and press Enter.",
+        "Commands: /exit, /help, /show S#, /expand S#, /open S#, /debug, /model, /models, /providers, /provider-status, /vectordb-providers, /vectordb-status, /remote-providers, /remote-search, /mode, /note, /notes, /load, /set, /clear, /costs, /budget, /cost-estimate, /export-citations",
+        "",
+    ]
+    return "\n".join(lines)
 
 
-def print_help() -> None:
-    """Print REPL help text."""
-    print("Enter a question to query your local knowledge base.")
-    print("Commands:")
-    print("  /exit           Quit")
-    print("  /help           Show this help")
-    print("  /show S#        Show the cited chunk (e.g., /show S2)")
-    print("  /expand S#      Show full chunk text (no truncation)")
-    print("  /open S#        Open the source file in default app")
-    print("  /models [provider]   List available models (optionally for one provider)")
-    print("  /model               Show current models for tasks")
-    print("  /model <task> <provider> <model>   Set model for a task")
-    print("  /providers      List available LLM providers")
-    print("  /provider-status Show provider health and recent stats")
-    print("  /vectordb-providers List available vector DB providers")
-    print("  /vectordb-status Show vector DB provider status")
-    print("  /remote-providers    List available remote source providers")
-    print("  /remote-search <provider> <query>  Test a remote provider")
-    print("  /remote-search-all <query>  Search all enabled providers")
-    print("  /remote-provider enable|disable|weight <name> [value]")
-    print("  /mode           Show current query mode")
-    print("  /mode <name>    Switch to a different query mode")
-    print("  /mode set <setting> <on|off>  Toggle mode settings (model_knowledge, remote, notes)")
-    print("  /note           Save last query as an editable note")
-    print("  /note <name>    Save last query note with custom filename")
-    print("  /notes          Alias for /note")
-    print("  /load <path>    Pin a document for forced context inclusion")
-    print("  /costs          Show session cost summary")
-    print("  /costs export <path>  Export cost data to CSV")
-    print("  /budget set <amount>  Set a session budget limit")
-    print("  /cost-estimate <query>  Estimate cost for a query without running it")
-    print("  /export-citations [format] [note_path]  Export citations (bibtex|zotero)")
-    print("  /debug          Print retrieval diagnostics for the last query")
-    print("  /set …          Set session filters (path/ext)")
-    print("  /clear …        Clear session filters\n")
+def get_help() -> str:
+    """
+    Get the query mode help text.
+
+    Returns:
+        Help text string
+    """
+    lines = [
+        "Enter a question to query your local knowledge base.",
+        "Commands:",
+        "  /exit           Quit",
+        "  /help           Show this help",
+        "  /show S#        Show the cited chunk (e.g., /show S2)",
+        "  /expand S#      Show full chunk text (no truncation)",
+        "  /open S#        Open the source file in default app",
+        "  /models [provider]   List available models (optionally for one provider)",
+        "  /model               Show current models for tasks",
+        "  /model <task> <provider> <model>   Set model for a task",
+        "  /providers      List available LLM providers",
+        "  /provider-status Show provider health and recent stats",
+        "  /vectordb-providers List available vector DB providers",
+        "  /vectordb-status Show vector DB provider status",
+        "  /remote-providers    List available remote source providers",
+        "  /remote-search <provider> <query>  Test a remote provider",
+        "  /remote-search-all <query>  Search all enabled providers",
+        "  /remote-provider enable|disable|weight <name> [value]",
+        "  /mode           Show current query mode",
+        "  /mode <name>    Switch to a different query mode",
+        "  /mode set <setting> <on|off>  Toggle mode settings (model_knowledge, remote, notes)",
+        "  /note           Save last query as an editable note",
+        "  /note <name>    Save last query note with custom filename",
+        "  /notes          Alias for /note",
+        "  /load <path>    Pin a document for forced context inclusion",
+        "  /costs          Show session cost summary",
+        "  /costs export <path>  Export cost data to CSV",
+        "  /budget set <amount>  Set a session budget limit",
+        "  /cost-estimate <query>  Estimate cost for a query without running it",
+        "  /export-citations [format] [note_path]  Export citations (bibtex|zotero)",
+        "  /debug          Print retrieval diagnostics for the last query",
+        "  /set …          Set session filters (path/ext)",
+        "  /clear …        Clear session filters",
+        "",
+    ]
+    return "\n".join(lines)
 
 
 # -----------------------------
 # Source Chunk Display
 # -----------------------------
-def print_source_chunk(
+def format_source_chunk(
     label: str,
     candidate: Candidate,
     expanded: bool = False,
-) -> None:
+) -> str:
     """
-    Print a single source chunk.
+    Format a single source chunk for display.
+
+    DEPRECATED: Use candidate.format(label, expanded) instead.
 
     Args:
         label: Citation label (e.g., "S1")
         candidate: Candidate to display
         expanded: If True, show full text without truncation
+
+    Returns:
+        Formatted chunk string
     """
-    meta = candidate.meta or {}
-    source_path = meta.get("source_path", "unknown")
-    chunk_index = meta.get("chunk_index", "NA")
-    distance = candidate.distance
-
-    if expanded:
-        print(f"\n{label} — {source_path}")
-        print(f"chunk_index={chunk_index}, distance={distance}")
-        print("=" * 80)
-        print((candidate.text or "").strip())
-        print("=" * 80 + "\n")
-    else:
-        print(f"\n{label} — {source_path} (chunk_index={chunk_index}, distance={distance})")
-        print("-" * 80)
-        print((candidate.text or "").strip())
-        print("-" * 80 + "\n")
+    return candidate.format(label=label, expanded=expanded)
 
 
-def print_debug(state: SessionState) -> None:
+def format_debug(state: SessionState) -> str:
     """
-    Print debug information from last query.
+    Format debug information from last query.
+
+    DEPRECATED: Use state.format_debug() instead.
 
     Args:
         state: Session state with debug artifacts
+
+    Returns:
+        Formatted debug string
     """
-    if not state.last_debug:
-        print("No debug info yet. Ask a question first.\n")
-        return
-
-    print("\nDebug (last query):")
-    for key, value in state.last_debug.items():
-        print(f"- {key}: {value}")
-
-    print("\nTop candidates (post-filter):")
-    max_display = min(10, len(state.last_filtered_candidates))
-    for i, c in enumerate(state.last_filtered_candidates[:max_display], start=1):
-        meta = c.meta or {}
-        source_path = meta.get("source_path", "unknown")
-        source_name = meta.get("source_name") or Path(source_path).name
-        chunk_index = meta.get("chunk_index", "NA")
-        print(f"  {i:02d}. {source_name} (chunk_index={chunk_index}, distance={c.distance})")
-    print()
+    return state.format_debug()
 
 
 # -----------------------------
 # Cost Display
 # -----------------------------
-def print_costs(state: SessionState) -> None:
-    """Print current session cost summary."""
-    tracker = state.cost_tracker
-    if not tracker:
-        print("Cost tracking is not initialized.\n")
-        return
-    if not tracker.entries:
-        print("No costs recorded for this session.\n")
-        return
-    print()
-    print(tracker.format_summary())
-    print()
-
-
-# -----------------------------
-# Streaming Output
-# -----------------------------
-def stream_output(chunks) -> str:
+def format_costs(state: SessionState) -> str:
     """
-    Stream chunks to stdout and return combined text.
+    Format current session cost summary.
 
-    Prints a simple typing indicator before output.
+    DEPRECATED: Use state.format_costs() instead.
+
+    Args:
+        state: Session state with cost tracker
+
+    Returns:
+        Formatted cost summary string
     """
-    print("\nTyping...")
-    parts: List[str] = []
-    for chunk in chunks:
-        if chunk:
-            parts.append(chunk)
-            print(chunk, end="", flush=True)
-    print()
-    return "".join(parts).strip()
+    return state.format_costs()
 
 
 # -----------------------------
@@ -187,3 +166,52 @@ def format_feature_label(feature: str) -> str:
         "tagging": "tag",
         "ranking": "rerank",
     }.get(feature, feature)
+
+
+# -----------------------------
+# Backwards compatibility aliases
+# -----------------------------
+def print_banner() -> None:
+    """Print REPL welcome banner. DEPRECATED: Use get_banner() instead."""
+    print(get_banner())
+
+
+def print_help() -> None:
+    """Print REPL help text. DEPRECATED: Use get_help() instead."""
+    print(get_help())
+
+
+def print_source_chunk(
+    label: str,
+    candidate: Candidate,
+    expanded: bool = False,
+) -> None:
+    """Print a single source chunk. DEPRECATED: Use format_source_chunk() instead."""
+    print(format_source_chunk(label, candidate, expanded))
+
+
+def print_debug(state: SessionState) -> None:
+    """Print debug information. DEPRECATED: Use format_debug() instead."""
+    print(format_debug(state))
+
+
+def print_costs(state: SessionState) -> None:
+    """Print cost summary. DEPRECATED: Use format_costs() instead."""
+    print(format_costs(state))
+
+
+def stream_output(chunks) -> str:
+    """
+    Stream chunks to stdout and return combined text.
+
+    DEPRECATED: This function prints directly. UI layers should handle
+    streaming display themselves.
+    """
+    print("\nTyping...")
+    parts: List[str] = []
+    for chunk in chunks:
+        if chunk:
+            parts.append(chunk)
+            print(chunk, end="", flush=True)
+    print()
+    return "".join(parts).strip()

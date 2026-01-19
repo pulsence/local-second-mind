@@ -13,8 +13,6 @@ from __future__ import annotations
 from pathlib import Path
 from typing import TYPE_CHECKING, Optional, Dict, Any, Deque, List
 from collections import deque
-from contextlib import redirect_stdout, redirect_stderr
-import builtins
 import io
 import asyncio
 
@@ -28,37 +26,12 @@ from textual.reactive import reactive
 from lsm.logging import get_logger
 from lsm.ui.tui.widgets.input import CommandInput, CommandSubmitted
 from lsm.ui.tui.completions import create_completer
-from lsm.ingest.repl import handle_command as handle_ingest_command
+from lsm.ingest.commands import handle_command as handle_ingest_command, CommandResult, run_build, run_wipe, run_tag
 
 if TYPE_CHECKING:
     pass
 
 logger = get_logger(__name__)
-
-
-class _InputRequest(Exception):
-    """Internal signal for command handlers requesting user input."""
-
-    def __init__(self, prompt: str, consumed: List[str]) -> None:
-        super().__init__(prompt)
-        self.prompt = prompt
-        self.consumed = consumed
-
-
-class _StreamCapture(io.TextIOBase):
-    """Capture stdout/stderr and notify on updates."""
-
-    def __init__(self, buffer: io.StringIO, on_write) -> None:
-        super().__init__()
-        self._buffer = buffer
-        self._on_write = on_write
-
-    def write(self, s: str) -> int:
-        if not s:
-            return 0
-        self._buffer.write(s)
-        self._on_write(self._buffer)
-        return len(s)
 
 
 class IngestScreen(Widget):
@@ -363,51 +336,91 @@ Options:
         stats_progress_callback,
         explore_progress_callback,
         explore_emit_tree,
-    ) -> tuple[bool, str, Optional[str], List[str]]:
-        """Run the ingest command handler and capture output."""
+    ) -> tuple[CommandResult, str, Optional[str], List[str]]:
+        """Run the ingest command handler and return CommandResult."""
         buffer = io.StringIO()
-        stream = _StreamCapture(buffer, stream_callback)
         consumed: List[str] = []
 
-        def input_func(prompt: str = "") -> str:
-            if responses:
-                value = responses.popleft()
-                consumed.append(value)
-                return value
-            raise _InputRequest(prompt or "Input required:", consumed)
-
-        original_input = builtins.input
-
         try:
-            with redirect_stdout(stream), redirect_stderr(stream):
-                builtins.input = input_func
-                handled = handle_ingest_command(
-                    command,
-                    self.app.ingest_provider,
-                    self.app.config,
-                    stats_progress_callback=stats_progress_callback,
-                    explore_progress_callback=explore_progress_callback,
-                    explore_emit_tree=explore_emit_tree,
-                )
-        except _InputRequest as exc:
-            output = buffer.getvalue()
-            return False, output, exc.prompt, exc.consumed
+            # Call new CommandResult-based handler
+            result = handle_ingest_command(
+                command,
+                self.app.ingest_provider,
+                self.app.config,
+                progress_callback=stats_progress_callback,
+            )
+
+            # Handle actions that need user confirmation
+            if result.action == "build_confirm":
+                # Force build needs confirmation
+                if responses:
+                    confirm = responses.popleft()
+                    consumed.append(confirm)
+                    if confirm.lower() == "yes":
+                        build_result = run_build(result.action_data["config"], force=True)
+                        return CommandResult(output=result.output + "\n" + build_result), buffer.getvalue(), None, consumed
+                    else:
+                        return CommandResult(output="Cancelled."), buffer.getvalue(), None, consumed
+                else:
+                    return result, buffer.getvalue(), "Continue? (yes/no): ", consumed
+
+            elif result.action == "build_run":
+                # Non-force build - run directly
+                build_result = run_build(result.action_data["config"], force=False)
+                return CommandResult(output=result.output + "\n" + build_result), buffer.getvalue(), None, consumed
+
+            elif result.action == "wipe_confirm":
+                # Wipe needs double confirmation
+                if len(responses) >= 2:
+                    confirm1 = responses.popleft()
+                    consumed.append(confirm1)
+                    confirm2 = responses.popleft()
+                    consumed.append(confirm2)
+                    if confirm1 == "DELETE" and confirm2.lower() == "yes":
+                        wipe_result = run_wipe(result.action_data["collection"])
+                        return CommandResult(output=result.output + "\n" + wipe_result), buffer.getvalue(), None, consumed
+                    else:
+                        return CommandResult(output="Cancelled."), buffer.getvalue(), None, consumed
+                elif len(responses) == 1:
+                    confirm1 = responses.popleft()
+                    consumed.append(confirm1)
+                    if confirm1 == "DELETE":
+                        return result, buffer.getvalue(), "Are you absolutely sure? (yes/no): ", consumed
+                    else:
+                        return CommandResult(output="Cancelled."), buffer.getvalue(), None, consumed
+                else:
+                    return result, buffer.getvalue(), "Type 'DELETE' to confirm: ", consumed
+
+            elif result.action == "tag_confirm":
+                # Tag needs confirmation
+                if responses:
+                    confirm = responses.popleft()
+                    consumed.append(confirm)
+                    if confirm.lower() == "yes":
+                        tag_result = run_tag(
+                            result.action_data["collection"],
+                            result.action_data["config"],
+                            result.action_data.get("max_chunks"),
+                        )
+                        return CommandResult(output=result.output + "\n" + tag_result), buffer.getvalue(), None, consumed
+                    else:
+                        return CommandResult(output="Cancelled."), buffer.getvalue(), None, consumed
+                else:
+                    return result, buffer.getvalue(), "Proceed with tagging? (yes/no): ", consumed
+
+            return result, buffer.getvalue(), None, consumed
+
         except Exception as exc:
             output = buffer.getvalue()
             output += f"\nError: {exc}"
-            return False, output, None, consumed
-        finally:
-            builtins.input = original_input
-
-        output = buffer.getvalue()
-        return handled, output, None, consumed
+            return CommandResult(output=output, handled=False), "", None, consumed
 
     async def _run_ingest_command(
         self,
         command: str,
         responses: List[str],
     ) -> tuple[str, Optional[str]]:
-        """Run an ingest command using the shared REPL handlers."""
+        """Run an ingest command using the new CommandResult-based handlers."""
         app = self.app
         self._explore_tree_active = False
 
@@ -461,7 +474,7 @@ Options:
                 self._render_explore_tree(tree_data, label)
             self.app.call_from_thread(update)
 
-        handled, output, prompt, consumed = await asyncio.to_thread(
+        result, extra_output, prompt, consumed = await asyncio.to_thread(
             self._execute_ingest_command,
             command,
             responses_queue,
@@ -474,8 +487,14 @@ Options:
         if prompt:
             self._pending_responses = consumed
 
-        if command.strip().lower() == "/exit" and handled is False:
+        # Check for exit
+        if result.should_exit:
             self.app.exit()
+
+        # Combine output
+        output = result.output
+        if extra_output:
+            output = extra_output + "\n" + output if output else extra_output
 
         return output.rstrip() if output else "", prompt
 

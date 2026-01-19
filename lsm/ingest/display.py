@@ -1,43 +1,57 @@
 """
 Display utilities for ingest operations.
 
-Contains banner printing, help text, tree formatting, and output helpers.
+Contains banner, help text, tree formatting, and output helpers.
+All functions return strings - the UI layer decides how to display them.
 """
 
 from __future__ import annotations
 
-from typing import Any, Dict
+from typing import Any, Dict, List
 
 
-def print_banner() -> None:
-    """Print welcome banner for ingest commands."""
-    print()
-    print("=" * 60)
-    print(" Local Second Mind - Ingest Management")
-    print("=" * 60)
-    print()
-    print("Commands:")
-    print("  /info              - Show collection information")
-    print("  /stats             - Show detailed statistics")
-    print("  /explore [query]   - Explore indexed files")
-    print("  /show <path>       - Show chunks for a file")
-    print("  /search <query>    - Search metadata")
-    print("  /build [--force]   - Run ingest pipeline")
-    print("  /tag [--max N]     - Run AI tagging on untagged chunks")
-    print("  /tags              - Show all tags in collection")
-    print("  /vectordb-providers - List available vector DB providers")
-    print("  /vectordb-status   - Show vector DB provider status")
-    print("  /wipe              - Clear collection (requires confirmation)")
-    print("  /help              - Show this help")
-    print("  /exit              - Exit")
-    print()
-    print("Tip: Use the Query tab (Ctrl+Q) in the TUI to run queries.")
-    print()
+def get_banner() -> str:
+    """
+    Get the ingest management welcome banner.
+
+    Returns:
+        Banner text string
+    """
+    lines = [
+        "",
+        "=" * 60,
+        " Local Second Mind - Ingest Management",
+        "=" * 60,
+        "",
+        "Commands:",
+        "  /info              - Show collection information",
+        "  /stats             - Show detailed statistics",
+        "  /explore [query]   - Explore indexed files",
+        "  /show <path>       - Show chunks for a file",
+        "  /search <query>    - Search metadata",
+        "  /build [--force]   - Run ingest pipeline",
+        "  /tag [--max N]     - Run AI tagging on untagged chunks",
+        "  /tags              - Show all tags in collection",
+        "  /vectordb-providers - List available vector DB providers",
+        "  /vectordb-status   - Show vector DB provider status",
+        "  /wipe              - Clear collection (requires confirmation)",
+        "  /help              - Show this help",
+        "  /exit              - Exit",
+        "",
+        "Tip: Use the Query tab (Ctrl+Q) in the TUI to run queries.",
+        "",
+    ]
+    return "\n".join(lines)
 
 
-def print_help() -> None:
-    """Print detailed help text."""
-    help_text = """
+def get_help() -> str:
+    """
+    Get the ingest help text.
+
+    Returns:
+        Help text string
+    """
+    return """
 INGEST COMMANDS
 
 /info
@@ -117,34 +131,35 @@ TIPS:
 - Run /tag after ingesting to add AI-generated tags for better organization
 - Use the Query tab (Ctrl+Q) in the TUI to run queries
 """
-    print(help_text)
 
 
-def print_tree(root: Dict[str, Any], label: str, max_entries: int = 200) -> None:
+def format_tree(root: Dict[str, Any], label: str, max_entries: int = 200) -> str:
     """
-    Print a file tree to stdout.
+    Format a file tree as a string.
 
     Args:
         root: Root tree node
         label: Label for the tree root
-        max_entries: Maximum number of entries to print before truncating
+        max_entries: Maximum number of entries before truncating
+
+    Returns:
+        Formatted tree string
     """
-    printed = 0
+    lines: List[str] = []
     truncated = False
 
     def add_line(line: str) -> bool:
-        nonlocal printed, truncated
-        if printed >= max_entries:
+        nonlocal truncated
+        if len(lines) >= max_entries:
             truncated = True
             return False
-        print(line)
-        printed += 1
+        lines.append(line)
         return True
 
     add_line(f"{label}/ ({root['file_count']:,} files, {root['chunk_count']:,} chunks)")
 
     def walk(node: Dict[str, Any], prefix: str) -> None:
-        nonlocal printed, truncated
+        nonlocal truncated
         children = sorted(node["children"].values(), key=lambda n: n["name"].lower())
         files = sorted(node["files"].items(), key=lambda item: item[0].lower())
 
@@ -174,4 +189,24 @@ def print_tree(root: Dict[str, Any], label: str, max_entries: int = 200) -> None
     walk(root, "")
 
     if truncated:
-        print("\nOutput truncated. Use /explore <path> or /explore <pattern> to narrow results.")
+        lines.append("\nOutput truncated. Use /explore <path> or /explore <pattern> to narrow results.")
+
+    return "\n".join(lines)
+
+
+# -----------------------------
+# Backwards compatibility aliases
+# -----------------------------
+def print_banner() -> None:
+    """Print welcome banner. DEPRECATED: Use get_banner() instead."""
+    print(get_banner())
+
+
+def print_help() -> None:
+    """Print help text. DEPRECATED: Use get_help() instead."""
+    print(get_help())
+
+
+def print_tree(root: Dict[str, Any], label: str, max_entries: int = 200) -> None:
+    """Print a file tree. DEPRECATED: Use format_tree() instead."""
+    print(format_tree(root, label, max_entries))

@@ -1,6 +1,6 @@
 """LSM Ingest Shell module - shared ingest commands and CLI utilities.
 
-Interactive usage is now TUI-only; REPL helpers remain for reuse.
+Interactive usage is now TUI-only; command handlers are in lsm.ingest.commands.
 """
 
 from __future__ import annotations
@@ -8,6 +8,7 @@ from __future__ import annotations
 __all__ = [
     # Command dispatch
     "handle_command",
+    "CommandResult",
     # Display
     "print_banner",
     "print_help",
@@ -29,9 +30,10 @@ __all__ = [
     "run_wipe_cli",
 ]
 
-from lsm.ingest.repl import handle_command
 from lsm.ingest.display import print_banner, print_help
 from lsm.ingest.commands import (
+    handle_command,
+    CommandResult,
     handle_info_command,
     handle_stats_command,
     handle_explore_command,

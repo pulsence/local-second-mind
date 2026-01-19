@@ -1,7 +1,11 @@
 """
-REPL (Read-Eval-Print Loop) for interactive query sessions.
+Query execution orchestration.
 
-Provides the main loop and query execution orchestration.
+Contains the core query execution functions:
+- fetch_remote_sources: Fetches sources from remote providers
+- run_query_turn: Synchronous query execution (for CLI)
+- run_query_turn_async: Asynchronous query execution (for TUI)
+- run_repl: Interactive REPL loop (deprecated, use TUI instead)
 """
 
 from __future__ import annotations

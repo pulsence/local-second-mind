@@ -7,6 +7,7 @@ Manages user session state, filters, and query artifacts.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
 from typing import List, Dict, Any, Optional, TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -73,6 +74,37 @@ class Candidate:
             return -1.0
 
         return rel
+
+    def format(self, label: str = "", expanded: bool = False) -> str:
+        """
+        Format this candidate for display.
+
+        Args:
+            label: Citation label (e.g., "S1")
+            expanded: If True, show full text without truncation
+
+        Returns:
+            Formatted chunk string
+        """
+        chunk_index = self.chunk_index
+        distance = self.distance
+
+        lines = []
+        if expanded:
+            lines.append(f"\n{label} — {self.source_path}")
+            lines.append(f"chunk_index={chunk_index}, distance={distance}")
+            lines.append("=" * 80)
+            lines.append((self.text or "").strip())
+            lines.append("=" * 80)
+            lines.append("")
+        else:
+            lines.append(f"\n{label} — {self.source_path} (chunk_index={chunk_index}, distance={distance})")
+            lines.append("-" * 80)
+            lines.append((self.text or "").strip())
+            lines.append("-" * 80)
+            lines.append("")
+
+        return "\n".join(lines)
 
 
 @dataclass
@@ -193,3 +225,41 @@ class SessionState:
             parts.append(f"Excluding: {', '.join(self.ext_deny)}")
 
         return "; ".join(parts)
+
+    def format_debug(self) -> str:
+        """
+        Format debug information from last query.
+
+        Returns:
+            Formatted debug string
+        """
+        if not self.last_debug:
+            return "No debug info yet. Ask a question first.\n"
+
+        lines = ["\nDebug (last query):"]
+        for key, value in self.last_debug.items():
+            lines.append(f"- {key}: {value}")
+
+        lines.append("\nTop candidates (post-filter):")
+        max_display = min(10, len(self.last_filtered_candidates))
+        for i, c in enumerate(self.last_filtered_candidates[:max_display], start=1):
+            source_name = c.source_name or Path(c.source_path).name
+            chunk_index = c.chunk_index
+            lines.append(f"  {i:02d}. {source_name} (chunk_index={chunk_index}, distance={c.distance})")
+        lines.append("")
+
+        return "\n".join(lines)
+
+    def format_costs(self) -> str:
+        """
+        Format current session cost summary.
+
+        Returns:
+            Formatted cost summary string
+        """
+        tracker = self.cost_tracker
+        if not tracker:
+            return "Cost tracking is not initialized.\n"
+        if not tracker.entries:
+            return "No costs recorded for this session.\n"
+        return f"\n{tracker.format_summary()}\n"

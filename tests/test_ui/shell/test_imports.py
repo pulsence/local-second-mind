@@ -36,7 +36,7 @@ class TestQueryModuleImports:
 
     def test_import_from_core_query(self):
         """Test imports from lsm.query (core module)."""
-        from lsm.query.repl import run_repl, run_query_turn
+        from lsm.query.execution import run_repl, run_query_turn
         from lsm.query.display import (
             print_banner,
             print_help,

@@ -53,32 +53,28 @@ def _build_config(tmp_path: Path) -> LSMConfig:
     return config
 
 
-def test_unknown_command_shows_help(tmp_path, monkeypatch):
+def test_unknown_command_shows_help(tmp_path):
+    """Test that unknown commands return help text."""
     config = _build_config(tmp_path)
     state = SessionState(model=config.llm.get_query_config().model)
 
-    called = {"help": False}
-
-    def _help():
-        called["help"] = True
-
-    monkeypatch.setattr("lsm.query.commands.print_help", _help)
-
-    handled = handle_command("/doesnotexist", state, config, Mock(), Mock())
-    assert handled is True
-    assert called["help"] is True
+    result = handle_command("/doesnotexist", state, config, Mock(), Mock())
+    assert result.handled is True
+    # Unknown commands should return help text
+    assert "Commands:" in result.output or "/help" in result.output
 
 
 def test_mode_set_model_knowledge(tmp_path):
     config = _build_config(tmp_path)
     state = SessionState(model=config.llm.get_query_config().model)
 
-    handled = handle_command("/mode set model_knowledge on", state, config, Mock(), Mock())
-    assert handled is True
+    result = handle_command("/mode set model_knowledge on", state, config, Mock(), Mock())
+    assert result.handled is True
     assert config.get_mode_config().source_policy.model_knowledge.enabled is True
 
 
-def test_note_custom_filename(tmp_path, monkeypatch):
+def test_note_custom_filename(tmp_path):
+    """Test /note command returns action for UI to handle."""
     config = _build_config(tmp_path)
     state = SessionState(model=config.llm.get_query_config().model)
     state.last_question = "Test question"
@@ -86,19 +82,17 @@ def test_note_custom_filename(tmp_path, monkeypatch):
     state.last_local_sources_for_notes = []
     state.last_remote_sources = []
 
-    monkeypatch.setattr("lsm.query.commands.edit_note_in_editor", lambda content: content)
-
-    handled = handle_command("/note custom-note", state, config, Mock(), Mock())
-    assert handled is True
-
-    note_path = tmp_path / "notes" / "custom-note.md"
-    assert note_path.exists()
-    content = note_path.read_text(encoding="utf-8")
-    assert "Test question" in content
-    assert "Test answer" in content
+    result = handle_command("/note custom-note", state, config, Mock(), Mock())
+    assert result.handled is True
+    # Note command now returns an action for the UI to handle
+    assert result.action == "edit_note"
+    assert "note_path" in result.action_data
+    assert "content" in result.action_data
+    assert "Test question" in result.action_data["content"]
+    assert "Test answer" in result.action_data["content"]
 
 
-def test_provider_status_command(tmp_path, monkeypatch, capsys):
+def test_provider_status_command(tmp_path, monkeypatch):
     config = _build_config(tmp_path)
     state = SessionState(model=config.llm.get_query_config().model)
 
@@ -109,10 +103,9 @@ def test_provider_status_command(tmp_path, monkeypatch, capsys):
     }
     monkeypatch.setattr("lsm.query.commands.create_provider", lambda _: provider)
 
-    handled = handle_command("/provider-status", state, config, Mock(), Mock())
-    assert handled is True
-    captured = capsys.readouterr()
-    assert "PROVIDER HEALTH STATUS" in captured.out
+    result = handle_command("/provider-status", state, config, Mock(), Mock())
+    assert result.handled is True
+    assert "PROVIDER HEALTH STATUS" in result.output
 
 
 # -----------------------------
@@ -129,22 +122,21 @@ def _build_config_with_remote_providers(tmp_path: Path) -> LSMConfig:
     return config
 
 
-def test_remote_providers_command(tmp_path, capsys):
+def test_remote_providers_command(tmp_path):
     """Test /remote-providers command lists providers."""
     config = _build_config_with_remote_providers(tmp_path)
     state = SessionState(model=config.llm.get_query_config().model)
 
-    handled = handle_command("/remote-providers", state, config, Mock(), Mock())
-    assert handled is True
+    result = handle_command("/remote-providers", state, config, Mock(), Mock())
+    assert result.handled is True
 
-    captured = capsys.readouterr()
-    assert "REMOTE SOURCE PROVIDERS" in captured.out
-    assert "wikipedia" in captured.out
-    assert "arxiv" in captured.out
-    assert "enabled" in captured.out.lower()
+    assert "REMOTE SOURCE PROVIDERS" in result.output
+    assert "wikipedia" in result.output
+    assert "arxiv" in result.output
+    assert "enabled" in result.output.lower()
 
 
-def test_remote_provider_enable_command(tmp_path, capsys):
+def test_remote_provider_enable_command(tmp_path):
     """Test /remote-provider enable command."""
     config = _build_config_with_remote_providers(tmp_path)
     state = SessionState(model=config.llm.get_query_config().model)
@@ -152,17 +144,16 @@ def test_remote_provider_enable_command(tmp_path, capsys):
     # Brave is initially disabled
     assert config.remote_providers[2].enabled is False
 
-    handled = handle_command("/remote-provider enable brave", state, config, Mock(), Mock())
-    assert handled is True
+    result = handle_command("/remote-provider enable brave", state, config, Mock(), Mock())
+    assert result.handled is True
 
     # Brave should now be enabled
     assert config.remote_providers[2].enabled is True
 
-    captured = capsys.readouterr()
-    assert "enabled" in captured.out.lower()
+    assert "enabled" in result.output.lower()
 
 
-def test_remote_provider_disable_command(tmp_path, capsys):
+def test_remote_provider_disable_command(tmp_path):
     """Test /remote-provider disable command."""
     config = _build_config_with_remote_providers(tmp_path)
     state = SessionState(model=config.llm.get_query_config().model)
@@ -170,17 +161,16 @@ def test_remote_provider_disable_command(tmp_path, capsys):
     # Wikipedia is initially enabled
     assert config.remote_providers[0].enabled is True
 
-    handled = handle_command("/remote-provider disable wikipedia", state, config, Mock(), Mock())
-    assert handled is True
+    result = handle_command("/remote-provider disable wikipedia", state, config, Mock(), Mock())
+    assert result.handled is True
 
     # Wikipedia should now be disabled
     assert config.remote_providers[0].enabled is False
 
-    captured = capsys.readouterr()
-    assert "disabled" in captured.out.lower()
+    assert "disabled" in result.output.lower()
 
 
-def test_remote_provider_weight_command(tmp_path, capsys):
+def test_remote_provider_weight_command(tmp_path):
     """Test /remote-provider weight command."""
     config = _build_config_with_remote_providers(tmp_path)
     state = SessionState(model=config.llm.get_query_config().model)
@@ -188,50 +178,46 @@ def test_remote_provider_weight_command(tmp_path, capsys):
     # Initial weight
     assert config.remote_providers[0].weight == 0.7
 
-    handled = handle_command("/remote-provider weight wikipedia 0.95", state, config, Mock(), Mock())
-    assert handled is True
+    result = handle_command("/remote-provider weight wikipedia 0.95", state, config, Mock(), Mock())
+    assert result.handled is True
 
     # Weight should be updated
     assert config.remote_providers[0].weight == 0.95
 
-    captured = capsys.readouterr()
-    assert "0.95" in captured.out
+    assert "0.95" in result.output
 
 
-def test_remote_provider_not_found(tmp_path, capsys):
+def test_remote_provider_not_found(tmp_path):
     """Test /remote-provider with unknown provider name."""
     config = _build_config_with_remote_providers(tmp_path)
     state = SessionState(model=config.llm.get_query_config().model)
 
-    handled = handle_command("/remote-provider enable nonexistent", state, config, Mock(), Mock())
-    assert handled is True
+    result = handle_command("/remote-provider enable nonexistent", state, config, Mock(), Mock())
+    assert result.handled is True
 
-    captured = capsys.readouterr()
-    assert "not found" in captured.out.lower()
+    assert "not found" in result.output.lower()
 
 
-def test_remote_search_usage(tmp_path, capsys):
+def test_remote_search_usage(tmp_path):
     """Test /remote-search shows usage when missing arguments."""
     config = _build_config_with_remote_providers(tmp_path)
     state = SessionState(model=config.llm.get_query_config().model)
 
-    handled = handle_command("/remote-search", state, config, Mock(), Mock())
-    assert handled is True
+    result = handle_command("/remote-search", state, config, Mock(), Mock())
+    assert result.handled is True
 
-    captured = capsys.readouterr()
-    assert "Usage:" in captured.out
+    assert "Usage:" in result.output
 
 
-def test_remote_search_all_usage(tmp_path, capsys):
+def test_remote_search_all_usage(tmp_path):
     """Test /remote-search-all shows usage when missing query."""
     config = _build_config_with_remote_providers(tmp_path)
     state = SessionState(model=config.llm.get_query_config().model)
 
-    handled = handle_command("/remote-search-all", state, config, Mock(), Mock())
-    assert handled is True
+    result = handle_command("/remote-search-all", state, config, Mock(), Mock())
+    assert result.handled is True
 
-    captured = capsys.readouterr()
-    assert "Usage:" in captured.out
+    assert "Usage:" in result.output
 
 
 # -----------------------------
