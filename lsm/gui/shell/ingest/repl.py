@@ -1,8 +1,7 @@
 """
-Interactive REPL for ingest pipeline management.
+Command dispatcher for ingest pipeline management.
 
-Deprecated: interactive ingest runs only in the TUI; command handlers remain
-for reuse by the TUI screens.
+Used by the TUI ingest screen.
 """
 
 from __future__ import annotations
@@ -107,15 +106,3 @@ def handle_command(
     return True
 
 
-def run_ingest_repl(config: LSMConfig) -> int:
-    """
-    Run the interactive ingest REPL.
-
-    Args:
-        config: LSM configuration
-
-    Returns:
-        Exit code (0 for success)
-    """
-    print("Interactive ingest is now TUI-only. Run `lsm` to launch the TUI.")
-    return 2

@@ -1,10 +1,10 @@
 """
-Tests for ingest REPL display utilities.
+Tests for ingest explore helpers.
 """
 
 import pytest
 
-from lsm.gui.shell.ingest.display import (
+from lsm.ingest.explore import (
     normalize_query_path,
     parse_explore_query,
     new_tree_node,

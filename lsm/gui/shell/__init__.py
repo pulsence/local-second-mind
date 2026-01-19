@@ -1,10 +1,9 @@
-"""LSM Shell module - CLI and REPL interfaces.
+"""LSM Shell module - CLI helpers and TUI interface.
 
 This module contains:
-- unified: Main unified shell combining ingest and query modes
 - logging: CLI logging utilities
-- ingest: Ingest-mode REPL and CLI
-- query: Query-mode REPL and CLI
+- ingest: Ingest command handlers and CLI helpers
+- query: Query command handlers
 - commands: Command handlers for CLI invocation
 - tui: Textual-based TUI interface
 """
@@ -16,9 +15,6 @@ __all__ = [
     "get_logger",
     "setup_logging",
     "configure_logging_from_args",
-    # Unified shell
-    "run_unified_shell",
-    "UnifiedShell",
     # TUI
     "LSMApp",
     "run_tui",
@@ -26,9 +22,6 @@ __all__ = [
 
 # Import logging utilities (these are used everywhere)
 from lsm.gui.shell.logging import get_logger, setup_logging, configure_logging_from_args
-
-# Import main entry points for convenience
-from lsm.gui.shell.unified import run_unified_shell, UnifiedShell
 
 # Lazy import for TUI to avoid loading textual unless needed
 def __getattr__(name: str):

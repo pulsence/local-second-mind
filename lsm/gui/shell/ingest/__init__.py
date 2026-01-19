@@ -6,8 +6,7 @@ Interactive usage is now TUI-only; REPL helpers remain for reuse.
 from __future__ import annotations
 
 __all__ = [
-    # REPL
-    "run_ingest_repl",
+    # Command dispatch
     "handle_command",
     # Display
     "print_banner",
@@ -30,7 +29,7 @@ __all__ = [
     "run_wipe_cli",
 ]
 
-from lsm.gui.shell.ingest.repl import run_ingest_repl, handle_command
+from lsm.gui.shell.ingest.repl import handle_command
 from lsm.gui.shell.ingest.display import print_banner, print_help
 from lsm.gui.shell.ingest.commands import (
     handle_info_command,

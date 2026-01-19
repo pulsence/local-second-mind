@@ -1,5 +1,5 @@
 """
-Command handlers for the ingest REPL.
+Command handlers for ingest operations.
 
 Contains handlers for: /info, /stats, /explore, /show, /search, /build, /tag, /tags, /wipe,
 /vectordb-providers, /vectordb-status.
@@ -30,12 +30,12 @@ from lsm.ingest.tagging import (
     tag_chunks,
     get_all_tags,
 )
-from .display import (
+from lsm.ingest.explore import (
     parse_explore_query,
     build_tree,
-    print_tree,
     compute_common_parts,
 )
+from .display import print_tree
 
 
 def _source_matches_pattern(source_path: str, pattern: str) -> bool:

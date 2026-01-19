@@ -11,7 +11,6 @@ class TestIngestModuleImports:
     def test_import_from_new_location(self):
         """Test imports from lsm.gui.shell.ingest."""
         from lsm.gui.shell.ingest import (
-            run_ingest_repl,
             handle_command,
             print_banner,
             print_help,
@@ -27,7 +26,6 @@ class TestIngestModuleImports:
             handle_vectordb_providers_command,
             handle_vectordb_status_command,
         )
-        assert callable(run_ingest_repl)
         assert callable(handle_command)
         assert callable(print_banner)
         assert callable(print_help)
@@ -68,10 +66,6 @@ class TestShellModuleImports:
         assert callable(get_logger)
         assert callable(configure_logging_from_args)
 
-    def test_unified_shell_import(self):
-        """Test unified shell import."""
-        from lsm.gui.shell.unified import run_unified_shell
-        assert callable(run_unified_shell)
 
     def test_commands_import_from_new_location(self):
         """Test commands imports from lsm.gui.shell.commands."""

@@ -73,7 +73,7 @@ class LSMApp(App):
         super().__init__(*args, **kwargs)
         self.config = config
 
-        # Lazy-loaded providers (same pattern as UnifiedShell)
+        # Lazy-loaded providers
         self._ingest_provider = None
         self._query_embedder = None
         self._query_provider = None

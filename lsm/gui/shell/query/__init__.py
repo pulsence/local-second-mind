@@ -26,8 +26,6 @@ __all__ = [
     "print_remote_providers",
     "run_remote_search",
     "run_remote_search_all",
-    # CLI
-    "run_query_cli",
 ]
 
 from lsm.gui.shell.query.repl import run_repl, run_query_turn
@@ -53,8 +51,4 @@ from lsm.gui.shell.query.commands import (
 
 
 def __getattr__(name: str):
-    """Lazy import for CLI to avoid circular imports."""
-    if name == "run_query_cli":
-        from lsm.gui.shell.query.cli import run_query_cli
-        return run_query_cli
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
