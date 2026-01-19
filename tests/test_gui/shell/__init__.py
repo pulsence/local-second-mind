@@ -1,1 +1,1 @@
-"""Tests for lsm.gui.shell package."""
+"""Tests for lsm.ui.shell package."""

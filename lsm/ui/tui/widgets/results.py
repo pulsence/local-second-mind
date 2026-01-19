@@ -18,7 +18,7 @@ from textual.widget import Widget
 from textual.reactive import reactive
 from textual.message import Message
 
-from lsm.gui.shell.logging import get_logger
+from lsm.logging import get_logger
 
 if TYPE_CHECKING:
     from lsm.query.session import Candidate

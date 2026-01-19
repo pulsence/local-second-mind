@@ -22,11 +22,11 @@ from textual.widget import Widget
 from textual.message import Message
 from textual.reactive import reactive
 
-from lsm.gui.shell.logging import get_logger
-from lsm.gui.shell.tui.widgets.results import ResultsPanel, CitationSelected, CitationExpanded
-from lsm.gui.shell.tui.widgets.input import CommandInput, CommandSubmitted
-from lsm.gui.shell.tui.completions import create_completer
-from lsm.gui.shell.query.commands import handle_command as handle_query_command
+from lsm.logging import get_logger
+from lsm.ui.tui.widgets.results import ResultsPanel, CitationSelected, CitationExpanded
+from lsm.ui.tui.widgets.input import CommandInput, CommandSubmitted
+from lsm.ui.tui.completions import create_completer
+from lsm.query.commands import handle_command as handle_query_command
 from lsm.query.session import SessionState
 from lsm.query.cost_tracking import CostTracker
 
@@ -272,7 +272,7 @@ class QueryScreen(Widget):
 
         try:
             # Import query execution functions
-            from lsm.gui.shell.query.repl import run_query_turn_async
+            from lsm.query.repl import run_query_turn_async
 
             # Run query - this function is designed for async/TUI use
             result = await run_query_turn_async(

@@ -25,10 +25,10 @@ from textual.widgets import Static, DirectoryTree, ProgressBar, Tree
 from textual.widget import Widget
 from textual.reactive import reactive
 
-from lsm.gui.shell.logging import get_logger
-from lsm.gui.shell.tui.widgets.input import CommandInput, CommandSubmitted
-from lsm.gui.shell.tui.completions import create_completer
-from lsm.gui.shell.ingest.repl import handle_command as handle_ingest_command
+from lsm.logging import get_logger
+from lsm.ui.tui.widgets.input import CommandInput, CommandSubmitted
+from lsm.ui.tui.completions import create_completer
+from lsm.ingest.repl import handle_command as handle_ingest_command
 
 if TYPE_CHECKING:
     pass

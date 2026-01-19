@@ -10,7 +10,7 @@ from __future__ import annotations
 from typing import Dict, Type, Any
 
 from lsm.remote.base import BaseRemoteProvider
-from lsm.gui.shell.logging import get_logger
+from lsm.logging import get_logger
 
 logger = get_logger(__name__)
 

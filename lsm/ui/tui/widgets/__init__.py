@@ -27,24 +27,24 @@ __all__ = [
 # Lazy imports to avoid circular dependencies
 def __getattr__(name: str):
     if name == "ResultsPanel":
-        from lsm.gui.shell.tui.widgets.results import ResultsPanel
+        from lsm.ui.tui.widgets.results import ResultsPanel
         return ResultsPanel
     elif name == "ResultItem":
-        from lsm.gui.shell.tui.widgets.results import ResultItem
+        from lsm.ui.tui.widgets.results import ResultItem
         return ResultItem
     elif name == "CitationSelected":
-        from lsm.gui.shell.tui.widgets.results import CitationSelected
+        from lsm.ui.tui.widgets.results import CitationSelected
         return CitationSelected
     elif name == "CitationExpanded":
-        from lsm.gui.shell.tui.widgets.results import CitationExpanded
+        from lsm.ui.tui.widgets.results import CitationExpanded
         return CitationExpanded
     elif name == "CommandInput":
-        from lsm.gui.shell.tui.widgets.input import CommandInput
+        from lsm.ui.tui.widgets.input import CommandInput
         return CommandInput
     elif name == "CommandSubmitted":
-        from lsm.gui.shell.tui.widgets.input import CommandSubmitted
+        from lsm.ui.tui.widgets.input import CommandSubmitted
         return CommandSubmitted
     elif name == "StatusBar":
-        from lsm.gui.shell.tui.widgets.status import StatusBar
+        from lsm.ui.tui.widgets.status import StatusBar
         return StatusBar
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

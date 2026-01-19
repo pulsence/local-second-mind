@@ -11,4 +11,4 @@ __all__ = [
     "run_tui",
 ]
 
-from lsm.gui.shell.tui.app import LSMApp, run_tui
+from lsm.ui.tui.app import LSMApp, run_tui

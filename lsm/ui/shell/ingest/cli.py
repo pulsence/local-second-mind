@@ -11,7 +11,7 @@ from typing import Optional
 
 from lsm.config import load_config_from_file
 from lsm.config.models import LSMConfig
-from lsm.gui.shell.logging import get_logger
+from lsm.logging import get_logger
 from lsm.ingest.pipeline import ingest
 from lsm.ingest.tagging import tag_chunks
 from lsm.vectordb import create_vectordb_provider

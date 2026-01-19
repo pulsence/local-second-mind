@@ -20,15 +20,15 @@ __all__ = [
 # Lazy imports to avoid circular dependencies
 def __getattr__(name: str):
     if name == "MainScreen":
-        from lsm.gui.shell.tui.screens.main import MainScreen
+        from lsm.ui.tui.screens.main import MainScreen
         return MainScreen
     elif name == "IngestScreen":
-        from lsm.gui.shell.tui.screens.ingest import IngestScreen
+        from lsm.ui.tui.screens.ingest import IngestScreen
         return IngestScreen
     elif name == "QueryScreen":
-        from lsm.gui.shell.tui.screens.query import QueryScreen
+        from lsm.ui.tui.screens.query import QueryScreen
         return QueryScreen
     elif name == "SettingsScreen":
-        from lsm.gui.shell.tui.screens.settings import SettingsScreen
+        from lsm.ui.tui.screens.settings import SettingsScreen
         return SettingsScreen
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

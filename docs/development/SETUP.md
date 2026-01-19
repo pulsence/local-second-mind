@@ -48,19 +48,19 @@ cp example_config.json config.json
 ## Run Ingest
 
 ```bash
-python -m lsm ingest --config config.json
+python -m lsm ingest build --config config.json
 ```
 
 ## Run Query
 
 ```bash
-python -m lsm query --config config.json
+python -m lsm query "What is in my notes?" --config config.json
 ```
 
-## Use the Unified Shell
+## Launch the TUI
 
 ```bash
-python -m lsm shell --config config.json
+python -m lsm --config config.json
 ```
 
 ## Optional OCR Setup

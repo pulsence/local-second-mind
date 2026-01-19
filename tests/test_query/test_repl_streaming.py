@@ -2,7 +2,7 @@
 Tests for REPL streaming helpers.
 """
 
-from lsm.gui.shell.query.display import stream_output
+from lsm.query.display import stream_output
 
 
 def test_stream_output_combines_chunks(capsys):

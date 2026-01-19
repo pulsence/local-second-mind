@@ -13,7 +13,7 @@ import chromadb
 from chromadb.config import Settings
 from sentence_transformers import SentenceTransformer
 
-from lsm.gui.shell.logging import get_logger
+from lsm.logging import get_logger
 from lsm.vectordb.base import BaseVectorDBProvider
 from .session import Candidate
 

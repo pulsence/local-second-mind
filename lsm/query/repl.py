@@ -10,7 +10,7 @@ from dataclasses import replace
 from typing import List, Dict, Any
 
 from lsm.config.models import LSMConfig
-from lsm.gui.shell.logging import get_logger
+from lsm.logging import get_logger
 from lsm.providers import create_provider
 from lsm.vectordb.utils import require_chroma_collection
 from lsm.query.session import Candidate, SessionState

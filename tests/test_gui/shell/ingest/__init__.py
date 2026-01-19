@@ -1,1 +1,1 @@
-"""Tests for lsm.gui.shell.ingest package."""
+"""Tests for lsm.ui.shell.ingest package."""

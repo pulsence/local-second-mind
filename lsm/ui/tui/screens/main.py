@@ -11,7 +11,7 @@ from textual.containers import Container
 from textual.screen import Screen
 from textual.widgets import Static
 
-from lsm.gui.shell.logging import get_logger
+from lsm.logging import get_logger
 
 logger = get_logger(__name__)
 

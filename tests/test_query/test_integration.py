@@ -87,7 +87,7 @@ class TestQueryIntegration:
         return collection
 
     @patch("lsm.query.retrieval.init_embedder")
-    @patch("lsm.gui.shell.commands.query.create_vectordb_provider")
+    @patch("lsm.ui.shell.commands.query.create_vectordb_provider")
     def test_full_query_flow_no_rerank(
         self,
         mock_create_provider,
@@ -97,7 +97,7 @@ class TestQueryIntegration:
         mock_collection,
     ):
         """Test complete query flow without LLM reranking."""
-        from lsm.gui.shell.commands.query import run_single_shot_query
+        from lsm.ui.shell.commands.query import run_single_shot_query
 
         # Setup mocks
         mock_init_embedder.return_value = mock_embedder
@@ -112,7 +112,7 @@ class TestQueryIntegration:
         # Disable reranking
         mock_config.query.no_rerank = True
 
-        with patch("lsm.gui.shell.query.repl.create_provider", return_value=provider):
+        with patch("lsm.query.repl.create_provider", return_value=provider):
             with patch("builtins.print"):  # Suppress output
                 result = run_single_shot_query(mock_config, "What is Python?")
 
@@ -290,14 +290,14 @@ class TestErrorHandling:
     """Integration tests for error handling."""
 
     @patch("lsm.query.retrieval.init_embedder")
-    @patch("lsm.gui.shell.commands.query.create_vectordb_provider")
+    @patch("lsm.ui.shell.commands.query.create_vectordb_provider")
     def test_query_with_empty_collection(
         self,
         mock_init_embedder,
         mock_create_provider,
     ):
         """Test query flow with empty collection."""
-        from lsm.gui.shell.commands.query import run_single_shot_query
+        from lsm.ui.shell.commands.query import run_single_shot_query
         from lsm.config.models import LSMConfig, QueryConfig, LLMRegistryConfig, LLMProviderConfig, FeatureLLMConfig
 
         config = LSMConfig(

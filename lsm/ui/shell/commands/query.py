@@ -12,7 +12,7 @@ from typing import Any
 
 from lsm.config import load_config_from_file
 from lsm.config.models import LSMConfig
-from lsm.gui.shell.logging import get_logger
+from lsm.logging import get_logger
 
 logger = get_logger(__name__)
 
@@ -84,7 +84,7 @@ def run_single_shot_query(config: LSMConfig, question: str) -> int:
         Exit code (0 for success)
     """
     from lsm.query.retrieval import init_embedder
-    from lsm.gui.shell.query.repl import run_query_turn
+    from lsm.query.repl import run_query_turn
     from lsm.query.session import SessionState
     from lsm.vectordb import create_vectordb_provider
 

@@ -17,7 +17,7 @@ from textual.widgets import Static, Select, Switch, Label
 from textual.widget import Widget
 from textual.reactive import reactive
 
-from lsm.gui.shell.logging import get_logger
+from lsm.logging import get_logger
 
 if TYPE_CHECKING:
     pass

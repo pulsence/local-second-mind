@@ -16,22 +16,22 @@ class TestWidgetImports:
 
     def test_import_results_panel(self):
         """Should be able to import ResultsPanel."""
-        from lsm.gui.shell.tui.widgets.results import ResultsPanel
+        from lsm.ui.tui.widgets.results import ResultsPanel
         assert ResultsPanel is not None
 
     def test_import_result_item(self):
         """Should be able to import ResultItem."""
-        from lsm.gui.shell.tui.widgets.results import ResultItem
+        from lsm.ui.tui.widgets.results import ResultItem
         assert ResultItem is not None
 
     def test_import_command_input(self):
         """Should be able to import CommandInput."""
-        from lsm.gui.shell.tui.widgets.input import CommandInput
+        from lsm.ui.tui.widgets.input import CommandInput
         assert CommandInput is not None
 
     def test_import_status_bar(self):
         """Should be able to import StatusBar."""
-        from lsm.gui.shell.tui.widgets.status import StatusBar
+        from lsm.ui.tui.widgets.status import StatusBar
         assert StatusBar is not None
 
 
@@ -40,46 +40,46 @@ class TestResultsPanel:
 
     def test_is_widget(self):
         """ResultsPanel should be a Widget subclass."""
-        from lsm.gui.shell.tui.widgets.results import ResultsPanel
+        from lsm.ui.tui.widgets.results import ResultsPanel
         assert issubclass(ResultsPanel, Widget)
 
     def test_has_selected_index(self):
         """ResultsPanel should have selected_index reactive."""
-        from lsm.gui.shell.tui.widgets.results import ResultsPanel
+        from lsm.ui.tui.widgets.results import ResultsPanel
         panel = ResultsPanel()
         assert hasattr(panel, 'selected_index')
 
     def test_update_results_method(self):
         """ResultsPanel should have update_results method."""
-        from lsm.gui.shell.tui.widgets.results import ResultsPanel
+        from lsm.ui.tui.widgets.results import ResultsPanel
         panel = ResultsPanel()
         assert hasattr(panel, 'update_results')
         assert callable(panel.update_results)
 
     def test_clear_results_method(self):
         """ResultsPanel should have clear_results method."""
-        from lsm.gui.shell.tui.widgets.results import ResultsPanel
+        from lsm.ui.tui.widgets.results import ResultsPanel
         panel = ResultsPanel()
         assert hasattr(panel, 'clear_results')
         assert callable(panel.clear_results)
 
     def test_select_citation_method(self):
         """ResultsPanel should have select_citation method."""
-        from lsm.gui.shell.tui.widgets.results import ResultsPanel
+        from lsm.ui.tui.widgets.results import ResultsPanel
         panel = ResultsPanel()
         assert hasattr(panel, 'select_citation')
         assert callable(panel.select_citation)
 
     def test_expand_citation_method(self):
         """ResultsPanel should have expand_citation method."""
-        from lsm.gui.shell.tui.widgets.results import ResultsPanel
+        from lsm.ui.tui.widgets.results import ResultsPanel
         panel = ResultsPanel()
         assert hasattr(panel, 'expand_citation')
         assert callable(panel.expand_citation)
 
     def test_get_candidate_method(self):
         """ResultsPanel should have get_candidate method."""
-        from lsm.gui.shell.tui.widgets.results import ResultsPanel
+        from lsm.ui.tui.widgets.results import ResultsPanel
         panel = ResultsPanel()
         assert hasattr(panel, 'get_candidate')
         assert callable(panel.get_candidate)
@@ -90,12 +90,12 @@ class TestResultItem:
 
     def test_is_widget(self):
         """ResultItem should be a Widget subclass."""
-        from lsm.gui.shell.tui.widgets.results import ResultItem
+        from lsm.ui.tui.widgets.results import ResultItem
         assert issubclass(ResultItem, Widget)
 
     def test_requires_index_and_candidate(self):
         """ResultItem should require index and candidate."""
-        from lsm.gui.shell.tui.widgets.results import ResultItem
+        from lsm.ui.tui.widgets.results import ResultItem
 
         # Create mock candidate
         mock_candidate = Mock()
@@ -109,7 +109,7 @@ class TestResultItem:
 
     def test_has_reactive_properties(self):
         """ResultItem should have reactive properties."""
-        from lsm.gui.shell.tui.widgets.results import ResultItem
+        from lsm.ui.tui.widgets.results import ResultItem
 
         mock_candidate = Mock()
         mock_candidate.meta = {}
@@ -126,30 +126,30 @@ class TestCommandInput:
 
     def test_is_widget(self):
         """CommandInput should be a Widget subclass."""
-        from lsm.gui.shell.tui.widgets.input import CommandInput
+        from lsm.ui.tui.widgets.input import CommandInput
         assert issubclass(CommandInput, Widget)
 
     def test_has_bindings(self):
         """CommandInput should have keyboard bindings."""
-        from lsm.gui.shell.tui.widgets.input import CommandInput
+        from lsm.ui.tui.widgets.input import CommandInput
         assert hasattr(CommandInput, 'BINDINGS')
         assert len(CommandInput.BINDINGS) > 0
 
     def test_has_history_index(self):
         """CommandInput should have history_index reactive."""
-        from lsm.gui.shell.tui.widgets.input import CommandInput
+        from lsm.ui.tui.widgets.input import CommandInput
         widget = CommandInput()
         assert hasattr(widget, 'history_index')
 
     def test_default_placeholder(self):
         """CommandInput should accept placeholder text."""
-        from lsm.gui.shell.tui.widgets.input import CommandInput
+        from lsm.ui.tui.widgets.input import CommandInput
         widget = CommandInput(placeholder="Test placeholder")
         assert widget._placeholder == "Test placeholder"
 
     def test_accepts_completer(self):
         """CommandInput should accept a completer function."""
-        from lsm.gui.shell.tui.widgets.input import CommandInput
+        from lsm.ui.tui.widgets.input import CommandInput
 
         def my_completer(text: str):
             return ["/help", "/exit"]
@@ -159,14 +159,14 @@ class TestCommandInput:
 
     def test_add_to_history_method(self):
         """CommandInput should have add_to_history method."""
-        from lsm.gui.shell.tui.widgets.input import CommandInput
+        from lsm.ui.tui.widgets.input import CommandInput
         widget = CommandInput()
         assert hasattr(widget, 'add_to_history')
         assert callable(widget.add_to_history)
 
     def test_add_to_history_stores_commands(self):
         """add_to_history should store commands."""
-        from lsm.gui.shell.tui.widgets.input import CommandInput
+        from lsm.ui.tui.widgets.input import CommandInput
         widget = CommandInput()
 
         widget.add_to_history("/help")
@@ -177,7 +177,7 @@ class TestCommandInput:
 
     def test_add_to_history_ignores_empty(self):
         """add_to_history should ignore empty strings."""
-        from lsm.gui.shell.tui.widgets.input import CommandInput
+        from lsm.ui.tui.widgets.input import CommandInput
         widget = CommandInput()
 
         widget.add_to_history("")
@@ -186,7 +186,7 @@ class TestCommandInput:
 
     def test_add_to_history_ignores_duplicates(self):
         """add_to_history should ignore consecutive duplicates."""
-        from lsm.gui.shell.tui.widgets.input import CommandInput
+        from lsm.ui.tui.widgets.input import CommandInput
         widget = CommandInput()
 
         widget.add_to_history("/help")
@@ -195,14 +195,14 @@ class TestCommandInput:
 
     def test_clear_method(self):
         """CommandInput should have clear method."""
-        from lsm.gui.shell.tui.widgets.input import CommandInput
+        from lsm.ui.tui.widgets.input import CommandInput
         widget = CommandInput()
         assert hasattr(widget, 'clear')
         assert callable(widget.clear)
 
     def test_common_prefix_static_method(self):
         """CommandInput should have _common_prefix static method."""
-        from lsm.gui.shell.tui.widgets.input import CommandInput
+        from lsm.ui.tui.widgets.input import CommandInput
 
         assert CommandInput._common_prefix([]) == ""
         assert CommandInput._common_prefix(["test"]) == "test"
@@ -218,12 +218,12 @@ class TestStatusBar:
 
     def test_is_widget(self):
         """StatusBar should be a Widget subclass."""
-        from lsm.gui.shell.tui.widgets.status import StatusBar
+        from lsm.ui.tui.widgets.status import StatusBar
         assert issubclass(StatusBar, Widget)
 
     def test_has_reactive_properties(self):
         """StatusBar should have reactive properties."""
-        from lsm.gui.shell.tui.widgets.status import StatusBar
+        from lsm.ui.tui.widgets.status import StatusBar
         widget = StatusBar()
         assert hasattr(widget, 'mode')
         assert hasattr(widget, 'chunk_count')
@@ -232,7 +232,7 @@ class TestStatusBar:
 
     def test_default_values(self):
         """StatusBar should have sensible default values."""
-        from lsm.gui.shell.tui.widgets.status import StatusBar
+        from lsm.ui.tui.widgets.status import StatusBar
         widget = StatusBar()
         assert widget.mode == "grounded"
         assert widget.chunk_count == 0
@@ -241,7 +241,7 @@ class TestStatusBar:
 
     def test_update_from_app_method(self):
         """StatusBar should have update_from_app method."""
-        from lsm.gui.shell.tui.widgets.status import StatusBar
+        from lsm.ui.tui.widgets.status import StatusBar
         widget = StatusBar()
         assert hasattr(widget, 'update_from_app')
         assert callable(widget.update_from_app)
@@ -252,7 +252,7 @@ class TestMessages:
 
     def test_citation_selected_message(self):
         """CitationSelected message should carry index and candidate."""
-        from lsm.gui.shell.tui.widgets.results import CitationSelected
+        from lsm.ui.tui.widgets.results import CitationSelected
 
         mock_candidate = Mock()
         message = CitationSelected(1, mock_candidate)
@@ -262,7 +262,7 @@ class TestMessages:
 
     def test_citation_expanded_message(self):
         """CitationExpanded message should carry index and candidate."""
-        from lsm.gui.shell.tui.widgets.results import CitationExpanded
+        from lsm.ui.tui.widgets.results import CitationExpanded
 
         mock_candidate = Mock()
         message = CitationExpanded(2, mock_candidate)
@@ -272,7 +272,7 @@ class TestMessages:
 
     def test_command_submitted_message(self):
         """CommandSubmitted message should carry command."""
-        from lsm.gui.shell.tui.widgets.input import CommandSubmitted
+        from lsm.ui.tui.widgets.input import CommandSubmitted
 
         message = CommandSubmitted("/help")
         assert message.command == "/help"

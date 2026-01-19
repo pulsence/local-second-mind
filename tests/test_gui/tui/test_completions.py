@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from lsm.gui.shell.tui.completions import (
+from lsm.ui.tui.completions import (
     get_completions,
     get_commands,
     format_command_help,

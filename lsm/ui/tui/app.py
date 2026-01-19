@@ -19,8 +19,8 @@ from textual.binding import Binding
 from textual.widgets import Header, Footer, TabbedContent, TabPane
 from textual.reactive import reactive
 
-from lsm.gui.shell.logging import get_logger
-from lsm.gui.shell.tui.widgets.status import StatusBar
+from lsm.logging import get_logger
+from lsm.ui.tui.widgets.status import StatusBar
 
 if TYPE_CHECKING:
     from lsm.config.models import LSMConfig
@@ -86,15 +86,15 @@ class LSMApp(App):
         with TabbedContent(initial="query"):
             with TabPane("Query", id="query"):
                 # Import here to avoid circular imports
-                from lsm.gui.shell.tui.screens.query import QueryScreen
+                from lsm.ui.tui.screens.query import QueryScreen
                 yield QueryScreen(id="query-screen")
 
             with TabPane("Ingest", id="ingest"):
-                from lsm.gui.shell.tui.screens.ingest import IngestScreen
+                from lsm.ui.tui.screens.ingest import IngestScreen
                 yield IngestScreen(id="ingest-screen")
 
             with TabPane("Settings", id="settings"):
-                from lsm.gui.shell.tui.screens.settings import SettingsScreen
+                from lsm.ui.tui.screens.settings import SettingsScreen
                 yield SettingsScreen(id="settings-screen")
 
         # Status bar showing mode, chunks, cost
@@ -312,7 +312,7 @@ class LSMApp(App):
 
     def action_show_help(self) -> None:
         """Show help modal."""
-        from lsm.gui.shell.tui.screens.help import HelpScreen
+        from lsm.ui.tui.screens.help import HelpScreen
         self.push_screen(HelpScreen())
 
     def action_quit(self) -> None:

@@ -8,8 +8,8 @@ import argparse
 import sys
 from pathlib import Path
 
-from lsm.gui.shell.logging import configure_logging_from_args, get_logger
-from lsm.gui.shell.commands import run_ingest, run_query
+from lsm.logging import configure_logging_from_args, get_logger
+from lsm.ui.shell.commands import run_ingest, run_query
 
 DEFAULT_CONFIG_PATH = (Path(__file__).resolve().parent.parent / "config.json")
 
@@ -188,7 +188,7 @@ def main(argv: list[str] | None = None) -> int:
     # TUI interface if no command specified
     if not args.command:
         logger.info("Starting TUI interface")
-        from lsm.gui.shell.tui.app import run_tui
+        from lsm.ui.tui.app import run_tui
         return run_tui(config)
 
     # Dispatch to appropriate command (single-shot mode)

@@ -12,7 +12,7 @@ from textual.screen import ModalScreen
 from textual.widgets import Static, Button
 from textual.binding import Binding
 
-from lsm.gui.shell.logging import get_logger
+from lsm.logging import get_logger
 
 logger = get_logger(__name__)
 

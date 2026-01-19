@@ -12,5 +12,5 @@ __all__ = [
     "run_query",
 ]
 
-from lsm.gui.shell.commands.ingest import run_ingest
-from lsm.gui.shell.commands.query import run_query
+from lsm.ui.shell.commands.ingest import run_ingest
+from lsm.ui.shell.commands.query import run_query

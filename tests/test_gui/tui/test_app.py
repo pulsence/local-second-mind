@@ -17,17 +17,17 @@ class TestLSMAppImport:
 
     def test_import_lsm_app(self):
         """Should be able to import LSMApp."""
-        from lsm.gui.shell.tui.app import LSMApp
+        from lsm.ui.tui.app import LSMApp
         assert LSMApp is not None
 
     def test_import_run_tui(self):
         """Should be able to import run_tui function."""
-        from lsm.gui.shell.tui.app import run_tui
+        from lsm.ui.tui.app import run_tui
         assert callable(run_tui)
 
     def test_lsm_app_is_textual_app(self):
         """LSMApp should be a Textual App subclass."""
-        from lsm.gui.shell.tui.app import LSMApp
+        from lsm.ui.tui.app import LSMApp
         assert issubclass(LSMApp, App)
 
 
@@ -36,7 +36,7 @@ class TestLSMAppInit:
 
     def test_app_requires_config(self):
         """LSMApp should require a config parameter."""
-        from lsm.gui.shell.tui.app import LSMApp
+        from lsm.ui.tui.app import LSMApp
 
         # Create a mock config
         mock_config = Mock()
@@ -56,7 +56,7 @@ class TestLSMAppInit:
 
     def test_app_has_bindings(self):
         """LSMApp should have keyboard bindings defined."""
-        from lsm.gui.shell.tui.app import LSMApp
+        from lsm.ui.tui.app import LSMApp
 
         mock_config = Mock()
         mock_config.vectordb = Mock()
@@ -68,17 +68,17 @@ class TestLSMAppInit:
 
     def test_app_has_css_path(self):
         """LSMApp should have CSS path defined."""
-        from lsm.gui.shell.tui.app import LSMApp
+        from lsm.ui.tui.app import LSMApp
         assert LSMApp.CSS_PATH == "styles.tcss"
 
     def test_app_has_title(self):
         """LSMApp should have title defined."""
-        from lsm.gui.shell.tui.app import LSMApp
+        from lsm.ui.tui.app import LSMApp
         assert LSMApp.TITLE == "Local Second Mind"
 
     def test_app_reactive_properties(self):
         """LSMApp should have reactive properties."""
-        from lsm.gui.shell.tui.app import LSMApp
+        from lsm.ui.tui.app import LSMApp
 
         mock_config = Mock()
         mock_config.vectordb = Mock()
@@ -99,7 +99,7 @@ class TestLSMAppProviders:
 
     def test_providers_initially_none(self):
         """Providers should be None before initialization."""
-        from lsm.gui.shell.tui.app import LSMApp
+        from lsm.ui.tui.app import LSMApp
 
         mock_config = Mock()
         mock_config.vectordb = Mock()
@@ -115,7 +115,7 @@ class TestLSMAppProviders:
 
     def test_provider_properties(self):
         """Provider properties should return internal values."""
-        from lsm.gui.shell.tui.app import LSMApp
+        from lsm.ui.tui.app import LSMApp
 
         mock_config = Mock()
         mock_config.vectordb = Mock()
@@ -136,7 +136,7 @@ class TestLSMAppMethods:
 
     def test_update_cost(self):
         """update_cost should add to total_cost."""
-        from lsm.gui.shell.tui.app import LSMApp
+        from lsm.ui.tui.app import LSMApp
 
         mock_config = Mock()
         mock_config.vectordb = Mock()
@@ -154,7 +154,7 @@ class TestLSMAppMethods:
 
     def test_update_chunk_count(self):
         """update_chunk_count should set chunk_count."""
-        from lsm.gui.shell.tui.app import LSMApp
+        from lsm.ui.tui.app import LSMApp
 
         mock_config = Mock()
         mock_config.vectordb = Mock()
@@ -175,7 +175,7 @@ class TestLSMAppActions:
 
     def test_action_methods_exist(self):
         """Action methods should be defined."""
-        from lsm.gui.shell.tui.app import LSMApp
+        from lsm.ui.tui.app import LSMApp
 
         mock_config = Mock()
         mock_config.vectordb = Mock()
@@ -202,7 +202,7 @@ class TestLSMAppStatusBarIntegration:
 
     def test_has_watch_methods(self):
         """LSMApp should have watch methods for StatusBar sync."""
-        from lsm.gui.shell.tui.app import LSMApp
+        from lsm.ui.tui.app import LSMApp
 
         mock_config = Mock()
         mock_config.vectordb = Mock()
@@ -220,7 +220,7 @@ class TestLSMAppStatusBarIntegration:
 
     def test_watch_methods_handle_missing_statusbar(self):
         """Watch methods should handle missing StatusBar gracefully."""
-        from lsm.gui.shell.tui.app import LSMApp
+        from lsm.ui.tui.app import LSMApp
 
         mock_config = Mock()
         mock_config.vectordb = Mock()

@@ -29,9 +29,9 @@ __all__ = [
     "run_wipe_cli",
 ]
 
-from lsm.gui.shell.ingest.repl import handle_command
-from lsm.gui.shell.ingest.display import print_banner, print_help
-from lsm.gui.shell.ingest.commands import (
+from lsm.ingest.repl import handle_command
+from lsm.ingest.display import print_banner, print_help
+from lsm.ingest.commands import (
     handle_info_command,
     handle_stats_command,
     handle_explore_command,
@@ -44,4 +44,4 @@ from lsm.gui.shell.ingest.commands import (
     handle_vectordb_providers_command,
     handle_vectordb_status_command,
 )
-from lsm.gui.shell.ingest.cli import run_build_cli, run_tag_cli, run_wipe_cli
+from lsm.ui.shell.ingest.cli import run_build_cli, run_tag_cli, run_wipe_cli

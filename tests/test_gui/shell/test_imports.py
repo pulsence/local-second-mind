@@ -9,8 +9,8 @@ class TestIngestModuleImports:
     """Test that ingest module imports work from new locations."""
 
     def test_import_from_new_location(self):
-        """Test imports from lsm.gui.shell.ingest."""
-        from lsm.gui.shell.ingest import (
+        """Test imports from lsm.ui.shell.ingest."""
+        from lsm.ui.shell.ingest import (
             handle_command,
             print_banner,
             print_help,
@@ -35,8 +35,8 @@ class TestQueryModuleImports:
     """Test that query module imports work from new locations."""
 
     def test_import_from_new_location(self):
-        """Test imports from lsm.gui.shell.query."""
-        from lsm.gui.shell.query import (
+        """Test imports from lsm.ui.shell.query."""
+        from lsm.ui.shell.query import (
             run_repl,
             run_query_turn,
             print_banner,
@@ -56,8 +56,8 @@ class TestShellModuleImports:
     """Test that shell module imports work correctly."""
 
     def test_logging_import_from_new_location(self):
-        """Test logging imports from lsm.gui.shell.logging."""
-        from lsm.gui.shell.logging import (
+        """Test logging imports from lsm.logging."""
+        from lsm.logging import (
             setup_logging,
             get_logger,
             configure_logging_from_args,
@@ -68,8 +68,8 @@ class TestShellModuleImports:
 
 
     def test_commands_import_from_new_location(self):
-        """Test commands imports from lsm.gui.shell.commands."""
-        from lsm.gui.shell.commands import run_ingest, run_query
+        """Test commands imports from lsm.ui.shell.commands."""
+        from lsm.ui.shell.commands import run_ingest, run_query
         assert callable(run_ingest)
         assert callable(run_query)
 

@@ -6,7 +6,7 @@ from __future__ import annotations
 
 from typing import Dict, Type
 
-from lsm.gui.shell.logging import get_logger
+from lsm.logging import get_logger
 from lsm.config.models import VectorDBConfig
 from .base import BaseVectorDBProvider
 from .chromadb import ChromaDBProvider

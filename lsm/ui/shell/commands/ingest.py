@@ -4,7 +4,7 @@ Command handler for ingest command.
 
 from __future__ import annotations
 
-from lsm.gui.shell.ingest.cli import run_build_cli, run_tag_cli, run_wipe_cli
+from lsm.ui.shell.ingest.cli import run_build_cli, run_tag_cli, run_wipe_cli
 
 
 def run_ingest(args) -> int:

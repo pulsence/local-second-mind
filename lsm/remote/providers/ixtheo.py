@@ -18,7 +18,7 @@ from urllib.parse import quote_plus
 import requests
 
 from lsm.remote.base import BaseRemoteProvider, RemoteResult
-from lsm.gui.shell.logging import get_logger
+from lsm.logging import get_logger
 
 logger = get_logger(__name__)
 

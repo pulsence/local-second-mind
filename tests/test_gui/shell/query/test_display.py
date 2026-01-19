@@ -4,7 +4,7 @@ Tests for query REPL display utilities.
 
 import pytest
 
-from lsm.gui.shell.query.display import (
+from lsm.query.display import (
     display_provider_name,
     format_feature_label,
     stream_output,

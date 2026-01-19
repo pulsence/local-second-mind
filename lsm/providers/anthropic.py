@@ -11,7 +11,7 @@ from typing import List, Dict, Any, Optional
 from anthropic import Anthropic
 
 from lsm.config.models import LLMConfig
-from lsm.gui.shell.logging import get_logger
+from lsm.logging import get_logger
 from .base import BaseLLMProvider
 
 logger = get_logger(__name__)

@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from typing import List, Dict, Optional, Literal
 
-from lsm.gui.shell.logging import get_logger
+from lsm.logging import get_logger
 
 logger = get_logger(__name__)
 

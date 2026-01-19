@@ -28,8 +28,8 @@ __all__ = [
     "run_remote_search_all",
 ]
 
-from lsm.gui.shell.query.repl import run_repl, run_query_turn
-from lsm.gui.shell.query.display import (
+from lsm.query.repl import run_repl, run_query_turn
+from lsm.query.display import (
     print_banner,
     print_help,
     print_source_chunk,
@@ -37,7 +37,7 @@ from lsm.gui.shell.query.display import (
     print_costs,
     stream_output,
 )
-from lsm.gui.shell.query.commands import (
+from lsm.query.commands import (
     handle_command,
     COMMAND_HINTS,
     print_providers,

@@ -16,7 +16,7 @@ from pathlib import Path
 from typing import List, Dict, Any, Optional
 
 from lsm.config.models import LSMConfig, LLMConfig
-from lsm.gui.shell.logging import get_logger
+from lsm.logging import get_logger
 from lsm.providers import create_provider
 from lsm.vectordb.utils import require_chroma_collection
 from lsm.vectordb import create_vectordb_provider, list_available_providers

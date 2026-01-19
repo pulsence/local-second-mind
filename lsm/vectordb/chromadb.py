@@ -9,7 +9,7 @@ from typing import Any, Dict, List, Optional
 import chromadb
 from chromadb.config import Settings
 
-from lsm.gui.shell.logging import get_logger
+from lsm.logging import get_logger
 from lsm.config.models import VectorDBConfig
 from .base import BaseVectorDBProvider, VectorDBQueryResult
 
