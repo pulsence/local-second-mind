@@ -10,11 +10,14 @@ Provides the query interface with:
 from __future__ import annotations
 
 from typing import TYPE_CHECKING, Optional, List, Any
+from contextlib import redirect_stdout, redirect_stderr
+import asyncio
+import io
 
 from textual.app import ComposeResult
 from textual.binding import Binding
-from textual.containers import Container, Vertical, ScrollableContainer
-from textual.widgets import Static
+from textual.containers import Container, Vertical, Horizontal, ScrollableContainer
+from textual.widgets import Static, Log
 from textual.widget import Widget
 from textual.message import Message
 from textual.reactive import reactive
@@ -23,6 +26,9 @@ from lsm.gui.shell.logging import get_logger
 from lsm.gui.shell.tui.widgets.results import ResultsPanel, CitationSelected, CitationExpanded
 from lsm.gui.shell.tui.widgets.input import CommandInput, CommandSubmitted
 from lsm.gui.shell.tui.completions import create_completer
+from lsm.gui.shell.query.commands import handle_command as handle_query_command
+from lsm.query.session import SessionState
+from lsm.query.cost_tracking import CostTracker
 
 if TYPE_CHECKING:
     from lsm.query.session import Candidate
@@ -80,11 +86,17 @@ class QueryScreen(Widget):
     def compose(self) -> ComposeResult:
         """Compose the query screen layout."""
         with Vertical(id="query-layout"):
-            # Results area with ResultsPanel widget
-            yield ResultsPanel(id="query-results-panel")
+            with Horizontal(id="query-top"):
+                # Results area with ResultsPanel widget
+                yield ResultsPanel(id="query-results-panel")
+
+                # Log output panel
+                with Container(id="query-log-panel"):
+                    yield Static("Logs", classes="log-panel-title")
+                    yield Log(id="query-log", auto_scroll=True)
 
             # Input area with CommandInput widget
-            with Container(classes="query-input-container"):
+            with Container(id="query-input-container"):
                 yield CommandInput(
                     placeholder="Enter your question or command...",
                     completer=self._completer,
@@ -95,6 +107,11 @@ class QueryScreen(Widget):
         """Handle screen mount - focus the input."""
         logger.debug("Query screen mounted")
         self.query_one("#query-command-input", CommandInput).focus()
+        if hasattr(self.app, "_tui_log_buffer"):
+            log_widget = self.query_one("#query-log", Log)
+            for message in self.app._tui_log_buffer:
+                log_widget.write(f"{message}\n")
+            log_widget.scroll_end()
 
     async def on_command_submitted(self, event: CommandSubmitted) -> None:
         """Handle command input submission from CommandInput widget."""
@@ -134,30 +151,59 @@ class QueryScreen(Widget):
         Args:
             command: Command string (e.g., "/help", "/show S1")
         """
-        cmd_lower = command.lower().strip()
-        results_panel = self.query_one("#query-results-panel", ResultsPanel)
+        output = await self._run_query_command(command)
+        if output:
+            self._show_message(output)
 
-        if cmd_lower == "/help":
-            self._show_help()
-        elif cmd_lower == "/mode":
-            self._show_mode()
-        elif cmd_lower.startswith("/mode "):
-            mode = command[6:].strip()
-            await self._set_mode(mode)
-        elif cmd_lower.startswith("/show "):
-            citation = command[6:].strip()
-            self._show_citation(citation)
-        elif cmd_lower.startswith("/expand "):
-            citation = command[8:].strip()
-            self._expand_citation(citation)
-        elif cmd_lower == "/costs":
-            self._show_costs()
-        elif cmd_lower == "/debug":
-            self._show_debug()
-        elif cmd_lower in ("/exit", "/quit"):
+    def _ensure_query_state(self) -> None:
+        """Ensure a session state exists for command handling."""
+        app = self.app
+        if getattr(app, "query_state", None) is None:
+            query_config = app.config.llm.get_query_config()
+            app._query_state = SessionState(
+                path_contains=app.config.query.path_contains,
+                ext_allow=app.config.query.ext_allow,
+                ext_deny=app.config.query.ext_deny,
+                model=query_config.model,
+                cost_tracker=CostTracker(),
+            )
+
+    def _execute_query_command(self, command: str) -> tuple[bool, str]:
+        """Run the query command handler and capture output."""
+        buffer = io.StringIO()
+        try:
+            with redirect_stdout(buffer), redirect_stderr(buffer):
+                handle_query_command(
+                    command,
+                    self.app.query_state,
+                    self.app.config,
+                    self.app.query_embedder,
+                    self.app.query_provider,
+                )
+        except SystemExit:
+            return True, buffer.getvalue()
+        except Exception as exc:
+            output = buffer.getvalue()
+            return False, f"{output}\nError: {exc}".strip()
+
+        return False, buffer.getvalue()
+
+    async def _run_query_command(self, command: str) -> str:
+        """Run a query command using the shared REPL handlers."""
+        self._ensure_query_state()
+
+        normalized = command.strip()
+        if normalized.lower() == "/quit":
+            normalized = "/exit"
+
+        did_exit, output = await asyncio.to_thread(self._execute_query_command, normalized)
+
+        if normalized.lower() == "/exit" or did_exit:
             self.app.exit()
-        else:
-            self._show_message(f"Unknown command: {command}\n\nType /help for available commands.")
+        elif normalized.lower().startswith("/mode"):
+            self.app.current_mode = self.app.config.query.mode
+
+        return output.rstrip()
 
     async def _handle_query(self, query: str) -> None:
         """
@@ -190,7 +236,8 @@ class QueryScreen(Widget):
             self._last_response = response
 
             # Update display with results using ResultsPanel
-            results_panel.update_results(f"Q: {query}\n\n{response}", candidates)
+            results_panel.update_results(response, [])
+            self.app.current_mode = self.app.config.query.mode
 
         except Exception as e:
             logger.error(f"Query error: {e}", exc_info=True)
@@ -213,17 +260,15 @@ class QueryScreen(Widget):
 
         try:
             # Import query execution functions
-            from lsm.gui.shell.query.commands import handle_query_turn
+            from lsm.gui.shell.query.repl import run_query_turn_async
 
-            # Run query in thread to not block UI
-            result = await app.run_in_thread(
-                lambda: handle_query_turn(
-                    query,
-                    app.config,
-                    app.query_state,
-                    app.query_embedder,
-                    app.query_provider,
-                )
+            # Run query - this function is designed for async/TUI use
+            result = await run_query_turn_async(
+                query,
+                app.config,
+                app.query_state,
+                app.query_embedder,
+                app.query_provider,
             )
 
             if result:
@@ -236,8 +281,8 @@ class QueryScreen(Widget):
 
                 return response_text, candidates
 
-        except ImportError:
-            logger.warning("Query commands module not available, using fallback")
+        except ImportError as e:
+            logger.warning(f"Query module not available: {e}, using fallback")
         except Exception as e:
             logger.error(f"Query execution error: {e}", exc_info=True)
             return f"Query error: {e}", []

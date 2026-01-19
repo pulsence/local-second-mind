@@ -11,6 +11,8 @@ from __future__ import annotations
 
 from pathlib import Path
 from typing import Optional, Literal, TYPE_CHECKING
+import logging
+import sys
 
 from textual.app import App, ComposeResult
 from textual.binding import Binding
@@ -79,7 +81,7 @@ class LSMApp(App):
 
     def compose(self) -> ComposeResult:
         """Compose the application layout."""
-        yield Header()
+        yield Header(show_clock=True, icon="")
 
         with TabbedContent(initial="query"):
             with TabPane("Query", id="query"):
@@ -103,6 +105,7 @@ class LSMApp(App):
     async def on_mount(self) -> None:
         """Handle application mount - initialize providers."""
         logger.info("LSM TUI application mounted")
+        self._setup_tui_logging()
 
         # Try to initialize query context by default (most common use case)
         try:
@@ -115,12 +118,95 @@ class LSMApp(App):
                 timeout=5,
             )
 
+    def _setup_tui_logging(self) -> None:
+        """Route LSM logs to the query log panel when running in TUI."""
+        root_logger = logging.getLogger("lsm")
+        root_logger.propagate = False
+
+        for handler in list(root_logger.handlers):
+            if isinstance(handler, logging.StreamHandler) and getattr(handler, "stream", None) in {
+                sys.stdout,
+                sys.stderr,
+            }:
+                root_logger.removeHandler(handler)
+
+        root_global = logging.getLogger()
+        for handler in list(root_global.handlers):
+            if isinstance(handler, logging.StreamHandler) and getattr(handler, "stream", None) in {
+                sys.stdout,
+                sys.stderr,
+            }:
+                root_global.removeHandler(handler)
+
+        app = self
+        if not hasattr(self, "_tui_log_buffer"):
+            from collections import deque
+            self._tui_log_buffer = deque(maxlen=500)
+        if not hasattr(self, "_tui_stdout"):
+            self._tui_stdout = sys.stdout
+            self._tui_stderr = sys.stderr
+
+            class _TUIStream:
+                def __init__(self, app_instance: "LSMApp") -> None:
+                    self._app = app_instance
+
+                def write(self, message: str) -> int:
+                    if not message:
+                        return 0
+                    self._app._tui_log_buffer.append(message.rstrip("\n"))
+
+                    def update() -> None:
+                        try:
+                            log_widget = self._app.query_one("#query-log")
+                            log_widget.write(f"{message.rstrip()}\n")
+                        except Exception:
+                            pass
+
+                    self._app.call_from_thread(update)
+                    return len(message)
+
+                def flush(self) -> None:
+                    return None
+
+            sys.stdout = _TUIStream(self)
+            sys.stderr = _TUIStream(self)
+
+        class _TUILogHandler(logging.Handler):
+            def __init__(self, app_instance: "LSMApp") -> None:
+                super().__init__()
+                self._app = app_instance
+
+            def emit(self, record: logging.LogRecord) -> None:
+                try:
+                    message = self.format(record)
+                    self._app._tui_log_buffer.append(message)
+
+                    def update() -> None:
+                        try:
+                            log_widget = self._app.query_one("#query-log")
+                            log_widget.write(f"{message}\n")
+                        except Exception:
+                            pass
+
+                    self._app.call_from_thread(update)
+                except Exception:
+                    pass
+
+        if not any(isinstance(h, _TUILogHandler) for h in root_logger.handlers):
+            handler = _TUILogHandler(app)
+            handler.setLevel(root_logger.level)
+            formatter = logging.Formatter("[%(levelname)s] %(message)s")
+            handler.setFormatter(formatter)
+            root_logger.addHandler(handler)
+
     # -------------------------------------------------------------------------
     # Provider Initialization (lazy, async-friendly)
     # -------------------------------------------------------------------------
 
     async def _async_init_ingest_context(self) -> None:
         """Initialize ingest context asynchronously."""
+        import asyncio
+
         if self._ingest_provider is not None:
             return
 
@@ -129,8 +215,8 @@ class LSMApp(App):
 
         try:
             # Run sync provider creation in thread to not block UI
-            self._ingest_provider = await self.run_in_thread(
-                lambda: create_vectordb_provider(self.config.vectordb)
+            self._ingest_provider = await asyncio.to_thread(
+                create_vectordb_provider, self.config.vectordb
             )
             logger.info("Ingest context initialized")
         except Exception as e:
@@ -139,6 +225,8 @@ class LSMApp(App):
 
     async def _async_init_query_context(self) -> None:
         """Initialize query context asynchronously."""
+        import asyncio
+
         if self._query_provider is not None:
             return
 
@@ -150,11 +238,10 @@ class LSMApp(App):
 
         try:
             # Initialize embedder (can be slow)
-            self._query_embedder = await self.run_in_thread(
-                lambda: init_embedder(
-                    self.config.embed_model,
-                    device=self.config.device,
-                )
+            self._query_embedder = await asyncio.to_thread(
+                init_embedder,
+                self.config.embed_model,
+                device=self.config.device,
             )
 
             # Check persist directory for ChromaDB
@@ -167,8 +254,8 @@ class LSMApp(App):
                     )
 
             # Initialize vector DB provider
-            self._query_provider = await self.run_in_thread(
-                lambda: create_vectordb_provider(self.config.vectordb)
+            self._query_provider = await asyncio.to_thread(
+                create_vectordb_provider, self.config.vectordb
             )
 
             # Get chunk count

@@ -166,11 +166,11 @@ def main(argv: list[str] | None = None) -> int:
     from lsm.config import load_config_from_file
     config = load_config_from_file(cfg_path)
 
-    # Unified interactive shell if no command specified
+    # TUI interface if no command specified
     if not args.command:
-        logger.info("Starting unified interactive shell")
-        from lsm.gui.shell.unified import run_unified_shell
-        return run_unified_shell(config)
+        logger.info("Starting TUI interface")
+        from lsm.gui.shell.tui.app import run_tui
+        return run_tui(config)
 
     # Dispatch to appropriate command (single-shot mode)
     try:

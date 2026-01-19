@@ -105,7 +105,7 @@ class SettingsScreen(Widget):
     def on_mount(self) -> None:
         """Handle screen mount."""
         logger.debug("Settings screen mounted")
-        self.call_later(self._refresh_all_status)
+        self.run_worker(self._refresh_all_status(), exclusive=True)
 
     async def on_select_changed(self, event: Select.Changed) -> None:
         """Handle mode selection change."""

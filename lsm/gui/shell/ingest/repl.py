@@ -27,7 +27,14 @@ from .commands import (
 )
 
 
-def handle_command(line: str, collection: Collection, config: LSMConfig) -> bool:
+def handle_command(
+    line: str,
+    collection: Collection,
+    config: LSMConfig,
+    stats_progress_callback=None,
+    explore_progress_callback=None,
+    explore_emit_tree=None,
+) -> bool:
     """
     Handle a command from the REPL.
 
@@ -54,11 +61,20 @@ def handle_command(line: str, collection: Collection, config: LSMConfig) -> bool
         handle_info_command(collection)
 
     elif cmd == "/stats":
-        handle_stats_command(collection, config)
+        handle_stats_command(
+            collection,
+            config,
+            progress_callback=stats_progress_callback,
+        )
 
     elif cmd == "/explore":
         query = args.strip() if args else None
-        handle_explore_command(collection, query)
+        handle_explore_command(
+            collection,
+            query,
+            progress_callback=explore_progress_callback,
+            emit_tree=explore_emit_tree,
+        )
 
     elif cmd == "/show":
         handle_show_command(collection, args.strip())

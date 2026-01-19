@@ -81,15 +81,30 @@ def handle_info_command(collection: Collection) -> None:
     print()
 
 
-def handle_stats_command(collection: Collection, config: LSMConfig) -> None:
+def handle_stats_command(
+    collection: Collection,
+    config: LSMConfig,
+    progress_callback=None,
+) -> None:
     """Handle /stats command."""
     print("\nAnalyzing collection... (this may take a moment)")
     last_report = time.time()
+    total = None
+    try:
+        total = collection.count()
+    except Exception:
+        total = None
 
     def report_progress(analyzed: int) -> None:
         nonlocal last_report
         if time.time() - last_report >= 2.0:
-            print(f"  analyzed chunks: {analyzed:,}")
+            if total:
+                pct = (analyzed / total) * 100 if total > 0 else 0.0
+                print(f"  analyzed chunks: {analyzed:,} / {total:,} ({pct:.1f}%)")
+            else:
+                print(f"  analyzed chunks: {analyzed:,}")
+            if progress_callback:
+                progress_callback(analyzed, total)
             last_report = time.time()
 
     error_report_path = config.ingest.manifest.parent / "ingest_error_report.json"
@@ -112,11 +127,19 @@ def handle_stats_command(collection: Collection, config: LSMConfig) -> None:
         print(stats["message"])
         return
 
+    if progress_callback and total:
+        progress_callback(total, total)
+
     report = format_stats_report(stats)
     print(report)
 
 
-def handle_explore_command(collection: Collection, query: Optional[str] = None) -> None:
+def handle_explore_command(
+    collection: Collection,
+    query: Optional[str] = None,
+    progress_callback=None,
+    emit_tree=None,
+) -> None:
     """Handle /explore command."""
     print("\nExploring collection...")
     print("Scanning metadata... (this may take a moment)")
@@ -129,10 +152,22 @@ def handle_explore_command(collection: Collection, query: Optional[str] = None) 
     last_report = time.time()
     report_every = 2.0
 
+    total = None
+    try:
+        total = collection.count()
+    except Exception:
+        total = None
+
     for meta in iter_collection_metadatas(collection, where=where, batch_size=5000):
         scanned += 1
         if time.time() - last_report >= report_every:
-            print(f"  scanned chunks: {scanned:,}")
+            if total:
+                pct = (scanned / total) * 100 if total > 0 else 0.0
+                print(f"  scanned chunks: {scanned:,} / {total:,} ({pct:.1f}%)")
+            else:
+                print(f"  scanned chunks: {scanned:,}")
+            if progress_callback:
+                progress_callback(scanned, total)
             last_report = time.time()
         source_path = meta.get("source_path", "")
         if not source_path:
@@ -150,6 +185,9 @@ def handle_explore_command(collection: Collection, query: Optional[str] = None) 
         )
         entry["chunk_count"] += 1
 
+    if progress_callback:
+        progress_callback(scanned, total)
+
     if not file_stats:
         print("No files found.")
         return
@@ -159,7 +197,10 @@ def handle_explore_command(collection: Collection, query: Optional[str] = None) 
         common_parts = compute_common_parts(file_stats)
 
     tree = build_tree(file_stats, path_filter, common_parts)
-    print_tree(tree, display_root)
+    if emit_tree:
+        emit_tree(tree, display_root)
+    else:
+        print_tree(tree, display_root)
     print()
 
 

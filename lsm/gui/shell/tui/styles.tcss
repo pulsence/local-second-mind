@@ -21,6 +21,11 @@ Header {
     color: $text;
 }
 
+/* Hide the header icon/button area */
+Header > HeaderIcon {
+    display: none;
+}
+
 Footer {
     dock: bottom;
     background: $primary-darken-2;
@@ -31,32 +36,46 @@ Footer {
  * ============================================================================ */
 
 TabbedContent {
-    height: 100%;
+    height: 1fr;
+}
+
+ContentTabs {
+    background: $surface-darken-1;
+    height: 3;
 }
 
 TabPane {
     padding: 1 2;
+    height: 1fr;
 }
 
 /* Tab styling */
-Tabs {
-    background: $surface;
-}
-
 Tab {
     background: $surface-darken-1;
-    color: $text-muted;
-    padding: 1 3;
+    color: $text;
+    padding: 1 2;
+    height: 3;
+    width: auto;
+    min-width: 10;
+    content-align: center middle;
 }
 
 Tab:hover {
-    background: $surface-lighten-1;
+    background: $surface;
     color: $text;
 }
 
 Tab.-active {
     background: $primary;
     color: $text;
+}
+
+Underline {
+    height: 1;
+}
+
+Underline > .underline--bar {
+    color: $primary;
 }
 
 /* ============================================================================
@@ -278,6 +297,10 @@ ProgressBar > .bar--complete {
     margin: 1 0;
 }
 
+#stats-content {
+    color: $text;
+}
+
 .stats-title {
     text-style: bold;
     color: $primary;
@@ -473,12 +496,11 @@ Switch {
     layout: vertical;
 }
 
-.query-input-container {
-    dock: bottom;
-    height: auto;
+#query-input-container {
+    height: 5;
     min-height: 5;
-    max-height: 15;
-    padding: 1;
+    max-height: 7;
+    padding: 1 1 0 1;
     background: $surface-darken-1;
     border-top: solid $primary-darken-1;
 }
@@ -497,16 +519,30 @@ Switch {
 }
 
 .ingest-tree-container {
-    width: 1fr;
-    min-width: 30;
-    max-width: 50%;
+    width: 0.5fr;
+    min-width: 24;
+    max-width: 35%;
     border-right: solid $primary-darken-1;
     padding: 1;
 }
 
-.ingest-info-container {
-    width: 2fr;
+#ingest-right-pane {
+    width: 1.5fr;
     padding: 1;
+    layout: vertical;
+}
+
+#ingest-info-container {
+    height: 1fr;
+    padding: 1;
+    border: round $primary-darken-2;
+    background: $surface-darken-1;
+    layout: vertical;
+}
+
+#ingest-common-commands {
+    margin-top: 1;
+    color: $text-muted;
 }
 
 .ingest-command-input {
@@ -659,6 +695,46 @@ ResultItem.-selected {
     layout: vertical;
 }
 
+#query-top {
+    height: 1fr;
+    layout: horizontal;
+}
+
+#query-log-panel {
+    width: 1fr;
+    max-width: 40%;
+    padding: 1;
+    border: round $primary-darken-2;
+    background: $surface-darken-1;
+    layout: vertical;
+}
+
+.log-panel-title {
+    color: $primary;
+    text-style: bold;
+    margin-bottom: 1;
+}
+
+#query-log {
+    height: 1fr;
+    background: $surface;
+    border: round $primary-darken-1;
+    padding: 1;
+}
+
+#query-command-input {
+    height: auto;
+    min-height: 3;
+}
+
+#query-command-input Input {
+    height: 3;
+}
+
+#query-results-panel {
+    width: 2fr;
+}
+
 /* ============================================================================
  * Ingest Layout
  * ============================================================================ */
@@ -669,7 +745,28 @@ ResultItem.-selected {
 }
 
 #ingest-output-container {
-    height: 1fr;
+    height: 3fr;
     border: round $primary-darken-2;
+    padding: 1;
+}
+
+#ingest-command-status {
+    margin-top: 1;
+    color: $text-muted;
+}
+
+#ingest-selection-stats {
+    color: $text-muted;
+}
+
+#command-progress {
+    margin-top: 1;
+    height: 1;
+}
+
+#ingest-explore-tree {
+    height: 100%;
+    background: $surface;
+    border: round $primary-darken-1;
     padding: 1;
 }

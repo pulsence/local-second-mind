@@ -46,6 +46,8 @@ or shown, include the page number
 different sections in the same chunk. Keeping heading levels in same chunk
 or a chunk should not span two heading levels.
 - Enable partial ingest by time and file count
+- /stats should cache results and be able to be updated
+incrementally
 
 ## Query
 - Complete remaining documentation for query modes, notes, remote sources
@@ -80,6 +82,7 @@ the users system itself (in theory).
 to later providers and then the whole meta-provider becomes a source for query. Sources need to
 be maintained throughout the meta-provider
 - Create OpenAlex - Crossref - Unpaywall - CORE pipeline to find, download, and ingest documents
+- Sentiment analysis tool
 
 ## Remote Source Providers
 - Look into AI Providers Web Search API as alts to Brave
@@ -103,6 +106,9 @@ be maintained throughout the meta-provider
     - https://github.com/OpenGreekAndLatin/First1KGreek
     - https://github.com/OpenGreekAndLatin
     - https://www.corpusthomisticum.org/
+- Finantial Sources
+    - Market data
+    - Federal/Government API data
 
 ## AI Provider Support
 - Check the implimentations of the ai providers and see if the base

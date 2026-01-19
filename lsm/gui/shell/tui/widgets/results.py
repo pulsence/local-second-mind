@@ -174,6 +174,7 @@ class ResultsPanel(Widget):
             yield Static(
                 self._response_text or "Enter a query to see results.",
                 id="response-text",
+                markup=False,
             )
 
             # Results container

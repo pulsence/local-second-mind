@@ -11,23 +11,54 @@ Provides the document ingestion interface with:
 from __future__ import annotations
 
 from pathlib import Path
-from typing import TYPE_CHECKING, Optional, Dict, Any
+from typing import TYPE_CHECKING, Optional, Dict, Any, Deque, List
+from collections import deque
+from contextlib import redirect_stdout, redirect_stderr
+import builtins
+import io
+import asyncio
 
 from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Container, Horizontal, Vertical, ScrollableContainer
-from textual.widgets import Static, DirectoryTree, ProgressBar
+from textual.widgets import Static, DirectoryTree, ProgressBar, Tree
 from textual.widget import Widget
 from textual.reactive import reactive
 
 from lsm.gui.shell.logging import get_logger
 from lsm.gui.shell.tui.widgets.input import CommandInput, CommandSubmitted
 from lsm.gui.shell.tui.completions import create_completer
+from lsm.gui.shell.ingest.repl import handle_command as handle_ingest_command
 
 if TYPE_CHECKING:
     pass
 
 logger = get_logger(__name__)
+
+
+class _InputRequest(Exception):
+    """Internal signal for command handlers requesting user input."""
+
+    def __init__(self, prompt: str, consumed: List[str]) -> None:
+        super().__init__(prompt)
+        self.prompt = prompt
+        self.consumed = consumed
+
+
+class _StreamCapture(io.TextIOBase):
+    """Capture stdout/stderr and notify on updates."""
+
+    def __init__(self, buffer: io.StringIO, on_write) -> None:
+        super().__init__()
+        self._buffer = buffer
+        self._on_write = on_write
+
+    def write(self, s: str) -> int:
+        if not s:
+            return 0
+        self._buffer.write(s)
+        self._on_write(self._buffer)
+        return len(s)
 
 
 class IngestScreen(Widget):
@@ -63,6 +94,10 @@ class IngestScreen(Widget):
         super().__init__(*args, **kwargs)
         self._stats: Dict[str, Any] = {}
         self._completer = create_completer("ingest")
+        self._pending_command: Optional[str] = None
+        self._pending_responses: List[str] = []
+        self._pending_prompt: Optional[str] = None
+        self._explore_tree_active = False
 
     def compose(self) -> ComposeResult:
         """Compose the ingest screen layout."""
@@ -73,20 +108,35 @@ class IngestScreen(Widget):
                 yield DirectoryTree(".", id="file-tree")
 
             # Right pane: Stats and controls
-            with Vertical(classes="ingest-info-container"):
-                # Stats panel
-                with Container(classes="stats-panel"):
-                    yield Static("Collection Statistics", classes="stats-title")
+            with Vertical(id="ingest-right-pane"):
+                # Top info panel
+                with Vertical(id="ingest-info-container"):
+                    with Container(classes="stats-panel"):
+                        yield Static("Collection Statistics", classes="stats-title")
+                        yield Static(
+                            "Loading stats...",
+                            id="stats-content",
+                        )
+
                     yield Static(
-                        "Loading stats...",
-                        id="stats-content",
+                        "Common Commands\n"
+                        "/stats   /explore   /build   /tag   /wipe",
+                        id="ingest-common-commands",
                     )
 
-                # Progress bar (hidden when not building)
-                yield ProgressBar(
-                    id="build-progress",
-                    show_eta=True,
-                )
+                    # General command status/progress bar
+                    yield ProgressBar(
+                        id="command-progress",
+                        show_eta=False,
+                    )
+                    yield Static(
+                        "Ready.",
+                        id="ingest-command-status",
+                    )
+                    yield Static(
+                        "Selection: none",
+                        id="ingest-selection-stats",
+                    )
 
                 # Results/output area
                 with ScrollableContainer(id="ingest-output-container"):
@@ -100,6 +150,7 @@ class IngestScreen(Widget):
                         "Use Ctrl+B to build, Ctrl+T to tag, Ctrl+R to refresh.",
                         id="ingest-output",
                     )
+                    yield Tree("Explore Results", id="ingest-explore-tree")
 
         # Command input at bottom with history and autocomplete
         yield CommandInput(
@@ -112,9 +163,12 @@ class IngestScreen(Widget):
         """Handle screen mount."""
         logger.debug("Ingest screen mounted")
         # Refresh stats on mount
-        self.call_later(self._refresh_stats)
+        self.run_worker(self._refresh_stats(), exclusive=True)
         # Focus command input
         self.query_one("#ingest-command-input", CommandInput).focus()
+        # Hide explore tree until needed
+        self.query_one("#ingest-explore-tree", Tree).styles.display = "none"
+        self._set_command_status("Ready.")
 
     async def on_command_submitted(self, event: CommandSubmitted) -> None:
         """Handle command input submission from CommandInput widget."""
@@ -133,50 +187,36 @@ class IngestScreen(Widget):
             command: Command string
         """
         output_widget = self.query_one("#ingest-output", Static)
-        cmd_lower = command.lower().strip()
-
-        if cmd_lower == "/help":
-            self._show_help()
-        elif cmd_lower == "/stats":
-            await self._show_stats()
-        elif cmd_lower == "/info":
-            await self._show_info()
-        elif cmd_lower.startswith("/build"):
-            force = "--force" in command.lower()
-            await self._run_build(force=force)
-        elif cmd_lower.startswith("/tag"):
-            # Parse --max N if present
-            max_chunks = None
-            if "--max" in cmd_lower:
-                parts = command.split()
-                for i, p in enumerate(parts):
-                    if p == "--max" and i + 1 < len(parts):
-                        try:
-                            max_chunks = int(parts[i + 1])
-                        except ValueError:
-                            pass
-            await self._run_tagging(max_chunks=max_chunks)
-        elif cmd_lower == "/tags":
-            await self._show_tags()
-        elif cmd_lower.startswith("/explore"):
-            query = command[8:].strip() if len(command) > 8 else None
-            await self._explore(query)
-        elif cmd_lower.startswith("/show"):
-            path = command[5:].strip()
-            await self._show_file(path)
-        elif cmd_lower.startswith("/search"):
-            query = command[7:].strip()
-            await self._search(query)
-        elif cmd_lower == "/wipe":
-            await self._confirm_wipe()
-        elif cmd_lower == "/vectordb-providers":
-            self._show_vectordb_providers()
-        elif cmd_lower == "/vectordb-status":
-            await self._show_vectordb_status()
-        elif cmd_lower in ("/exit", "/quit"):
-            self.app.exit()
+        if self._pending_command:
+            self._pending_responses.append(command)
+            command_to_run = self._pending_command
         else:
-            output_widget.update(f"Unknown command: {command}\n\nType /help for available commands.")
+            self._pending_responses = []
+            command_to_run = command
+
+        self._set_output_mode("text")
+        if not self._pending_command:
+            self._update_output_text(f"Running {command_to_run}...")
+            self._set_command_status(f"Running: {command_to_run}")
+            self._update_command_progress(None, None)
+
+        output, prompt = await self._run_ingest_command(command_to_run, self._pending_responses)
+        if output:
+            output_widget.update(output)
+
+        if prompt:
+            self._pending_command = command_to_run
+            self._pending_prompt = prompt
+            prefix = (output + "\n") if output else ""
+            output_widget.update(prefix + prompt)
+            self._set_command_status("Waiting for input...")
+            return
+
+        self._pending_command = None
+        self._pending_prompt = None
+        self._pending_responses = []
+        self._set_command_status("Ready.")
+        self._update_command_progress(None, None)
 
     def _show_help(self) -> None:
         """Display help text."""
@@ -207,6 +247,238 @@ Options:
 
         output_widget.update(help_text)
 
+    def _set_output_mode(self, mode: str) -> None:
+        """Toggle output widgets between text and tree."""
+        output_widget = self.query_one("#ingest-output", Static)
+        tree_widget = self.query_one("#ingest-explore-tree", Tree)
+        if mode == "tree":
+            output_widget.styles.display = "none"
+            tree_widget.styles.display = "block"
+        else:
+            tree_widget.styles.display = "none"
+            output_widget.styles.display = "block"
+
+    def _update_output_text(self, text: str) -> None:
+        """Update the output text area."""
+        self._set_output_mode("text")
+        output_widget = self.query_one("#ingest-output", Static)
+        output_widget.update(text)
+
+    def _set_command_status(self, message: str) -> None:
+        """Update the command status line."""
+        status_widget = self.query_one("#ingest-command-status", Static)
+        status_widget.update(message)
+
+    def _update_command_progress(self, current: Optional[int], total: Optional[int]) -> None:
+        """Update the command progress bar."""
+        progress_bar = self.query_one("#command-progress", ProgressBar)
+        if current is None or total in (None, 0):
+            progress_bar.update(total=1, progress=0)
+            return
+        progress_bar.update(total=total, progress=min(current, total))
+
+    def _render_explore_tree(self, root: Dict[str, Any], label: str) -> None:
+        """Render explore results into the tree widget."""
+        tree_widget = self.query_one("#ingest-explore-tree", Tree)
+        tree_widget.root.set_label(
+            f"{label}/ ({root['file_count']:,} files, {root['chunk_count']:,} chunks)"
+        )
+        tree_widget.root.remove_children()
+
+        def add_nodes(parent, node, current_path: Path):
+            children = sorted(node["children"].values(), key=lambda n: n["name"].lower())
+            files = sorted(node["files"].items(), key=lambda item: item[0].lower())
+
+            for child in children:
+                child_path = current_path / child["name"]
+                label_text = (
+                    f"{child['name']}/ ({child['file_count']:,} files, "
+                    f"{child['chunk_count']:,} chunks)"
+                )
+                child_node = parent.add(label_text)
+                child_node.data = {
+                    "type": "dir",
+                    "path": str(child_path),
+                    "file_count": child["file_count"],
+                    "chunk_count": child["chunk_count"],
+                }
+                add_nodes(child_node, child, child_path)
+
+            for name, count in files:
+                file_path = current_path / name
+                file_node = parent.add(f"{name} ({count:,} chunks)")
+                file_node.data = {
+                    "type": "file",
+                    "path": str(file_path),
+                    "chunk_count": count,
+                }
+
+        add_nodes(tree_widget.root, root, Path(label))
+        tree_widget.root.expand()
+        self._set_output_mode("tree")
+        tree_widget.focus()
+
+    def on_tree_node_selected(self, event: Tree.NodeSelected) -> None:
+        """Handle selection changes in the explore tree."""
+        if event.node.tree.id != "ingest-explore-tree":
+            return
+
+        selection_widget = self.query_one("#ingest-selection-stats", Static)
+        data = getattr(event.node, "data", None) or {}
+        if data.get("type") == "file":
+            selection_widget.update(
+                f"Selection: {data.get('path')} ({data.get('chunk_count'):,} chunks)"
+            )
+        elif data.get("type") == "dir":
+            selection_widget.update(
+                f"Selection: {data.get('path')} ({data.get('file_count'):,} files, "
+                f"{data.get('chunk_count'):,} chunks)"
+            )
+        else:
+            selection_widget.update("Selection: none")
+
+    def on_tree_node_highlighted(self, event: Tree.NodeHighlighted) -> None:
+        """Handle highlight changes in the explore tree."""
+        if event.node.tree.id != "ingest-explore-tree":
+            return
+        selection_widget = self.query_one("#ingest-selection-stats", Static)
+        data = getattr(event.node, "data", None) or {}
+        if data.get("type") == "file":
+            selection_widget.update(
+                f"Selection: {data.get('path')} ({data.get('chunk_count'):,} chunks)"
+            )
+        elif data.get("type") == "dir":
+            selection_widget.update(
+                f"Selection: {data.get('path')} ({data.get('file_count'):,} files, "
+                f"{data.get('chunk_count'):,} chunks)"
+            )
+        else:
+            selection_widget.update("Selection: none")
+
+    def _execute_ingest_command(
+        self,
+        command: str,
+        responses: Deque[str],
+        stream_callback,
+        stats_progress_callback,
+        explore_progress_callback,
+        explore_emit_tree,
+    ) -> tuple[bool, str, Optional[str], List[str]]:
+        """Run the ingest command handler and capture output."""
+        buffer = io.StringIO()
+        stream = _StreamCapture(buffer, stream_callback)
+        consumed: List[str] = []
+
+        def input_func(prompt: str = "") -> str:
+            if responses:
+                value = responses.popleft()
+                consumed.append(value)
+                return value
+            raise _InputRequest(prompt or "Input required:", consumed)
+
+        original_input = builtins.input
+
+        try:
+            with redirect_stdout(stream), redirect_stderr(stream):
+                builtins.input = input_func
+                handled = handle_ingest_command(
+                    command,
+                    self.app.ingest_provider,
+                    self.app.config,
+                    stats_progress_callback=stats_progress_callback,
+                    explore_progress_callback=explore_progress_callback,
+                    explore_emit_tree=explore_emit_tree,
+                )
+        except _InputRequest as exc:
+            output = buffer.getvalue()
+            return False, output, exc.prompt, exc.consumed
+        except Exception as exc:
+            output = buffer.getvalue()
+            output += f"\nError: {exc}"
+            return False, output, None, consumed
+        finally:
+            builtins.input = original_input
+
+        output = buffer.getvalue()
+        return handled, output, None, consumed
+
+    async def _run_ingest_command(
+        self,
+        command: str,
+        responses: List[str],
+    ) -> tuple[str, Optional[str]]:
+        """Run an ingest command using the shared REPL handlers."""
+        app = self.app
+        self._explore_tree_active = False
+
+        if not hasattr(app, "ingest_provider") or app.ingest_provider is None:
+            try:
+                await app._async_init_ingest_context()
+            except Exception as exc:
+                return f"Failed to initialize ingest provider: {exc}", None
+
+        if app.ingest_provider is None:
+            return "Ingest provider not initialized.", None
+
+        responses_queue: Deque[str] = deque(responses)
+
+        def stream_callback(buffer: io.StringIO) -> None:
+            def update() -> None:
+                if self._explore_tree_active:
+                    return
+                self._update_output_text(buffer.getvalue())
+            self.app.call_from_thread(update)
+
+        def stats_progress_callback(analyzed: int, total: Optional[int]) -> None:
+            def update() -> None:
+                if total:
+                    pct = (analyzed / total) * 100 if total > 0 else 0.0
+                    self._set_command_status(
+                        f"Analyzing: {analyzed:,} / {total:,} ({pct:.1f}%)"
+                    )
+                    self._update_command_progress(analyzed, total)
+                else:
+                    self._set_command_status(f"Analyzing: {analyzed:,} chunks")
+                    self._update_command_progress(None, None)
+            self.app.call_from_thread(update)
+
+        def explore_progress_callback(scanned: int, total: Optional[int]) -> None:
+            def update() -> None:
+                if total:
+                    pct = (scanned / total) * 100 if total > 0 else 0.0
+                    self._set_command_status(
+                        f"Scanning: {scanned:,} / {total:,} ({pct:.1f}%)"
+                    )
+                    self._update_command_progress(scanned, total)
+                else:
+                    self._set_command_status(f"Scanning: {scanned:,} chunks")
+                    self._update_command_progress(None, None)
+            self.app.call_from_thread(update)
+
+        def explore_emit_tree(tree_data: Dict[str, Any], label: str) -> None:
+            def update() -> None:
+                self._explore_tree_active = True
+                self._render_explore_tree(tree_data, label)
+            self.app.call_from_thread(update)
+
+        handled, output, prompt, consumed = await asyncio.to_thread(
+            self._execute_ingest_command,
+            command,
+            responses_queue,
+            stream_callback,
+            stats_progress_callback,
+            explore_progress_callback,
+            explore_emit_tree,
+        )
+
+        if prompt:
+            self._pending_responses = consumed
+
+        if command.strip().lower() == "/exit" and handled is False:
+            self.app.exit()
+
+        return output.rstrip() if output else "", prompt
+
     async def _show_stats(self) -> None:
         """Show detailed collection statistics."""
         output_widget = self.query_one("#ingest-output", Static)
@@ -224,7 +496,8 @@ Options:
                 return
 
             # Get stats
-            stats = await app.run_in_thread(lambda: provider.get_stats())
+            import asyncio
+            stats = await asyncio.to_thread(provider.get_stats)
             count = provider.count()
 
             # Format output
@@ -297,7 +570,8 @@ Options:
                     progress_callback=self._update_progress,
                 )
 
-            result = await app.run_in_thread(do_build)
+            import asyncio
+            result = await asyncio.to_thread(do_build)
 
             # Update display
             progress_bar.update(progress=100)
@@ -321,12 +595,13 @@ Options:
             total: Total value
             message: Optional status message
         """
-        progress_bar = self.query_one("#build-progress", ProgressBar)
+        progress_bar = self.query_one("#command-progress", ProgressBar)
         progress_bar.update(total=total, progress=current)
 
         if message:
             output_widget = self.query_one("#ingest-output", Static)
             output_widget.update(f"Building: {message}\n\nProgress: {current}/{total}")
+            self._set_command_status(f"Building: {message}")
 
     async def _run_tagging(self, max_chunks: Optional[int] = None) -> None:
         """
@@ -440,7 +715,11 @@ Options:
             self.chunk_count = count
             app.update_chunk_count(count)
 
-            stats_widget.update(f"Chunks: {count:,}\nCollection: {app.config.collection}")
+            stats_widget.update(
+                f"Collection: {app.config.collection}\n"
+                f"Chunks: {count:,}\n"
+                f"Provider: {app.config.vectordb.provider}"
+            )
 
         except Exception as e:
             logger.warning(f"Failed to refresh stats: {e}")
@@ -452,15 +731,15 @@ Options:
 
     def action_run_build(self) -> None:
         """Run the build operation."""
-        self.call_later(lambda: self._run_build())
+        self.run_worker(self._process_command("/build"), exclusive=True)
 
     def action_run_tagging(self) -> None:
         """Run the tagging operation."""
-        self.call_later(lambda: self._run_tagging())
+        self.run_worker(self._process_command("/tag"), exclusive=True)
 
     def action_refresh_stats(self) -> None:
         """Refresh statistics."""
-        self.call_later(self._refresh_stats)
+        self.run_worker(self._refresh_stats(), exclusive=True)
 
     def action_clear_input(self) -> None:
         """Clear the input field."""

@@ -524,6 +524,242 @@ def run_query_turn(
 
 
 # -----------------------------
+# Async Query Turn (for TUI)
+# -----------------------------
+async def run_query_turn_async(
+    question: str,
+    config: LSMConfig,
+    state: SessionState,
+    embedder,
+    collection,
+) -> Dict[str, Any]:
+    """
+    Execute one query turn and return results (for TUI use).
+
+    This is an async-friendly version that returns results instead of printing.
+
+    Args:
+        question: User's question
+        config: Global configuration
+        state: Session state
+        embedder: SentenceTransformer model
+        collection: Vector DB provider
+
+    Returns:
+        Dict with 'response', 'candidates', 'cost', and 'remote_sources'
+    """
+    import asyncio
+
+    logger.info(f"Running async query: {question[:50]}...")
+
+    # Get mode configuration
+    mode_config = config.get_mode_config()
+    local_policy = mode_config.source_policy.local
+    model_knowledge_policy = mode_config.source_policy.model_knowledge
+    remote_policy = mode_config.source_policy.remote
+
+    # Get configuration values
+    batch_size = config.batch_size
+    k = local_policy.k
+    k_rerank = local_policy.k_rerank
+    no_rerank = config.query.no_rerank
+    min_relevance = local_policy.min_relevance
+    max_per_file = config.query.max_per_file
+    local_pool = config.query.local_pool or max(k * 3, k_rerank * 4)
+
+    state.last_question = question
+
+    chosen: List[Candidate] = []
+    filtered: List[Candidate] = []
+    local_enabled = local_policy.enabled
+    total_cost = 0.0
+
+    if local_enabled:
+        # Embed query (run in thread to not block)
+        loop = asyncio.get_event_loop()
+        query_vector = await loop.run_in_executor(
+            None, lambda: embed_text(embedder, question, batch_size=batch_size)
+        )
+
+        # Get session filters
+        path_contains = state.path_contains
+        ext_allow = state.ext_allow
+        ext_deny = state.ext_deny
+
+        # Retrieve more candidates if filters are active
+        filters_active = bool(path_contains) or bool(ext_allow) or bool(ext_deny)
+        retrieve_k = config.query.retrieve_k or (max(k, k * 3) if filters_active else k)
+
+        candidates = await loop.run_in_executor(
+            None, lambda: retrieve_candidates(collection, query_vector, retrieve_k)
+        )
+        state.last_all_candidates = candidates
+
+        if not candidates and not remote_policy.enabled:
+            return {
+                "response": "No results found in the knowledge base for this query.",
+                "candidates": [],
+                "cost": 0.0,
+                "remote_sources": [],
+            }
+
+        # Apply filters
+        filtered = filter_candidates(
+            candidates,
+            path_contains=path_contains,
+            ext_allow=ext_allow,
+            ext_deny=ext_deny,
+        )
+        state.last_filtered_candidates = filtered
+
+        # Add pinned chunks if any
+        if state.pinned_chunks:
+            logger.info(f"Including {len(state.pinned_chunks)} pinned chunks")
+            try:
+                chroma = require_chroma_collection(collection, "pinned chunk retrieval")
+                pinned_results = chroma.get(
+                    ids=state.pinned_chunks,
+                    include=["documents", "metadatas", "distances"],
+                )
+
+                if pinned_results and pinned_results.get("ids"):
+                    for i, chunk_id in enumerate(pinned_results["ids"]):
+                        pinned_candidate = Candidate(
+                            cid=chunk_id,
+                            text=pinned_results["documents"][i],
+                            meta=pinned_results["metadatas"][i],
+                            distance=0.0,
+                        )
+                        if not any(c.cid == chunk_id for c in filtered):
+                            filtered.insert(0, pinned_candidate)
+            except Exception as e:
+                logger.error(f"Failed to load pinned chunks: {e}")
+
+        if not filtered and not remote_policy.enabled:
+            return {
+                "response": "No results matched the configured filters.",
+                "candidates": [],
+                "cost": 0.0,
+                "remote_sources": [],
+            }
+
+        # Determine reranking strategy
+        rerank_strategy = config.query.rerank_strategy.lower()
+
+        # Apply local reranking based on strategy
+        if rerank_strategy in ("lexical", "hybrid"):
+            local = apply_local_reranking(
+                question,
+                filtered,
+                max_per_file=max_per_file,
+                local_pool=local_pool,
+            )
+            filtered = local[: min(k, len(local))]
+        elif rerank_strategy == "none":
+            from lsm.query.rerank import enforce_diversity
+            filtered = enforce_diversity(filtered, max_per_file=max_per_file)
+            filtered = filtered[: min(k, len(filtered))]
+
+        # Relevance gating
+        relevance = compute_relevance(filtered) if filtered else 0.0
+
+        # If relevance is too low and no remote sources, return fallback
+        if relevance < min_relevance and not remote_policy.enabled:
+            chosen = filtered[: min(k_rerank, len(filtered))]
+            state.last_chosen = chosen
+            state.last_label_to_candidate = {f"S{i}": c for i, c in enumerate(chosen, start=1)}
+
+            answer = fallback_answer(question, chosen)
+            return {
+                "response": answer,
+                "candidates": chosen,
+                "cost": 0.0,
+                "remote_sources": [],
+            }
+
+        chosen = filtered[: min(k_rerank, len(filtered))]
+    else:
+        state.last_all_candidates = []
+        state.last_filtered_candidates = []
+
+    state.last_chosen = chosen
+
+    # Fetch remote sources if enabled (run in thread)
+    loop = asyncio.get_event_loop()
+    remote_sources = await loop.run_in_executor(
+        None, lambda: fetch_remote_sources(question, config, mode_config)
+    )
+    remote_candidates = _build_remote_candidates(remote_sources)
+
+    # Generate answer with citations
+    combined_candidates = chosen + remote_candidates
+    state.last_label_to_candidate = {
+        f"S{i}": c for i, c in enumerate(combined_candidates, start=1)
+    }
+    context_block, sources = build_context_block(combined_candidates)
+
+    # Use query-specific LLM config for synthesis
+    query_config = config.llm.get_query_config()
+    if state.model and state.model != query_config.model:
+        query_config = replace(query_config, model=state.model)
+    synthesis_provider = create_provider(query_config)
+
+    # Run synthesis in thread
+    answer = await loop.run_in_executor(
+        None,
+        lambda: synthesis_provider.synthesize(
+            question,
+            context_block,
+            mode=mode_config.synthesis_style,
+        )
+    )
+
+    # Warn if no citations
+    if "[S" not in answer:
+        answer += (
+            "\n\nNote: No inline citations were emitted. "
+            "If this persists, tighten query.k / query.k_rerank or reduce chunk size."
+        )
+
+    # Store state
+    state.last_answer = answer
+    state.last_remote_sources = remote_sources
+    state.last_local_sources_for_notes = [
+        {
+            "text": c.text,
+            "meta": c.meta,
+            "distance": c.distance,
+        }
+        for c in chosen
+    ]
+
+    # Track costs
+    if state.cost_tracker:
+        input_tokens = estimate_tokens(f"{question}\n{context_block}")
+        output_tokens = estimate_output_tokens(answer, query_config.max_tokens)
+        cost = synthesis_provider.estimate_cost(input_tokens, output_tokens)
+        total_cost = cost or 0.0
+        state.cost_tracker.add_entry(
+            provider=synthesis_provider.name,
+            model=synthesis_provider.model,
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+            cost=cost,
+            kind="synthesize",
+        )
+
+    # Format source list for display
+    source_list = format_source_list(sources)
+
+    return {
+        "response": f"{answer}\n{source_list}",
+        "candidates": combined_candidates,
+        "cost": total_cost,
+        "remote_sources": remote_sources,
+    }
+
+
+# -----------------------------
 # Main REPL Loop
 # -----------------------------
 def run_repl(
