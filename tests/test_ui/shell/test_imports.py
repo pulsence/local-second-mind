@@ -32,19 +32,17 @@ class TestIngestModuleImports:
 
 
 class TestQueryModuleImports:
-    """Test that query module imports work from new locations."""
+    """Test that query module imports work from core lsm.query locations."""
 
-    def test_import_from_new_location(self):
-        """Test imports from lsm.ui.shell.query."""
-        from lsm.ui.shell.query import (
-            run_repl,
-            run_query_turn,
+    def test_import_from_core_query(self):
+        """Test imports from lsm.query (core module)."""
+        from lsm.query.repl import run_repl, run_query_turn
+        from lsm.query.display import (
             print_banner,
             print_help,
             print_source_chunk,
-            handle_command,
-            COMMAND_HINTS,
         )
+        from lsm.query.commands import handle_command, COMMAND_HINTS
         assert callable(run_repl)
         assert callable(run_query_turn)
         assert callable(print_banner)
