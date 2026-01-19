@@ -1,10 +1,42 @@
 # LSM CLI Usage
 
-The Local Second Mind (LSM) command-line interface provides both interactive and single-shot modes for managing your knowledge base.
+The Local Second Mind (LSM) command-line interface provides multiple interactive modes for managing your knowledge base, including a TUI, basic shell, and single-shot commands.
 
 ## Modes of Operation
 
-### 1. Unified Interactive Shell
+### 1. TUI (Textual User Interface)
+
+For a rich terminal experience with tabbed navigation, keyboard shortcuts, and a modern interface:
+
+```python
+from lsm.gui.shell.tui import run_tui
+from lsm.config import load_config_from_file
+
+config = load_config_from_file("config.json")
+run_tui(config)
+```
+
+The TUI provides:
+- **Tabbed interface** - Switch between Query, Ingest, and Settings tabs
+- **Keyboard shortcuts** - Navigate with Ctrl+Q/I/S, build with Ctrl+B, etc.
+- **Autocomplete** - Tab completion for commands
+- **Command history** - Up/Down arrow navigation
+- **Status bar** - Real-time mode, cost, and chunk count display
+
+**TUI Keyboard Shortcuts:**
+
+| Shortcut | Action |
+|----------|--------|
+| Ctrl+I | Switch to Ingest tab |
+| Ctrl+Q | Switch to Query tab |
+| Ctrl+S | Switch to Settings tab |
+| F1 | Show help modal |
+| Ctrl+C | Quit application |
+| Ctrl+B | Run build (Ingest) |
+| Ctrl+T | Run tagging (Ingest) |
+| Ctrl+R | Refresh stats (Ingest) |
+
+### 2. Unified Interactive Shell
 
 When you run `lsm` without any arguments, you enter the unified interactive shell where you can switch between ingest and query contexts:
 

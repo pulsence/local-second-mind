@@ -22,6 +22,10 @@ or be merged with built-in modes
 - Remove all legacy and depracted code paths
 - models.py needs to be split apart
 - Look for places to lazy load modules to improve start time
+- The global default folder for this project when one is not specified should be
+at `<USER_FOLDER>/Local Second Mind/`. Whenever relative folder paths for data files (e.g., notes, chats, etc.) are
+used, it should be assumed to be relative to this project folder.
+- The user should be able to set this global folder in the config.
 
 ## Testing 
 - test module structure should match the code module structure
@@ -54,6 +58,14 @@ or a chunk should not span two heading levels.
 - Create a way to turn natural language into API calls.
     - There should be an "intelligent" deterministic way
     - There should also be an AI provider way
+- Query chat modes: Chat or Single-shot
+- There should be a global setting for chats that sets chat saving parameters.
+The default save location shold be `<GLOBAL_FOLDER/Chats/`
+- Query modes can then adjust this save location, or if automatic saves happen.
+- Notes settings should be set gloabl in the config not per mode. 
+- Notes should default to `<GLOBAL_FOLDER/Notes/` when none is set.
+- Query modes can then set subfolder locations in the global notes
+folder and other parameters
 
 ## Modes and Agents
 - Multi-hop reasoning for research mode

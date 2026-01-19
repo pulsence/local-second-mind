@@ -1,7 +1,7 @@
 ﻿# REPL Command Reference
 
-LSM provides a unified shell and two REPLs (ingest and query). This document
-lists all supported commands, syntax, and side effects.
+LSM provides multiple interactive interfaces: a unified shell, TUI (Textual User Interface),
+and two REPLs (ingest and query). This document lists all supported commands, syntax, and side effects.
 
 ## Unified Shell
 
@@ -17,6 +17,62 @@ Global commands:
 - `/query` or `/q`: switch to query context
 - `/help`: show global or context-specific help
 - `/exit` or `/quit`: exit the shell
+
+## TUI (Textual User Interface)
+
+The TUI provides a rich terminal interface built with Textual. It offers tabbed navigation
+between Query, Ingest, and Settings views.
+
+Location: `lsm/gui/shell/tui/`
+
+### TUI Structure
+
+```
+lsm/gui/shell/tui/
+├── __init__.py           # Module exports (LSMApp, run_tui)
+├── app.py                # Main LSMApp class
+├── styles.tcss           # Textual CSS styling
+├── completions.py        # Autocomplete logic
+├── screens/
+│   ├── main.py           # Main layout screen
+│   ├── query.py          # Query interface
+│   ├── ingest.py         # Ingest management
+│   ├── settings.py       # Configuration panel
+│   └── help.py           # Help modal
+└── widgets/
+    ├── results.py        # Results display with citations
+    ├── input.py          # Command input with history
+    └── status.py         # Status bar
+```
+
+### TUI Keyboard Shortcuts
+
+**Global:**
+- `Ctrl+I` - Switch to Ingest tab
+- `Ctrl+Q` - Switch to Query tab
+- `Ctrl+S` - Switch to Settings tab
+- `F1` - Show help modal
+- `Ctrl+C` - Quit application
+
+**Query View:**
+- `Enter` - Submit query
+- `Up/Down` - Command history
+- `Tab` - Autocomplete
+
+**Ingest View:**
+- `Ctrl+B` - Run build
+- `Ctrl+T` - Run tagging
+- `Ctrl+R` - Refresh stats
+
+### Using the TUI
+
+```python
+from lsm.gui.shell.tui import LSMApp, run_tui
+from lsm.config import load_config_from_file
+
+config = load_config_from_file("config.json")
+run_tui(config)  # Launches TUI
+```
 
 ## Ingest REPL Commands
 
