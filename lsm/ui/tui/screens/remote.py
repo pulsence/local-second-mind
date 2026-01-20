@@ -15,7 +15,7 @@ from textual.widget import Widget
 from textual.reactive import reactive
 
 from lsm.logging import get_logger
-from lsm.query.commands import run_remote_search
+from lsm.ui.utils import run_remote_search
 from lsm.remote import get_registered_providers
 
 logger = get_logger(__name__)

@@ -228,6 +228,34 @@ class LSMConfig:
         normalized = {name.lower() for name in allowed_names if name}
         return [config for config in enabled if config.name.lower() in normalized]
 
+    def toggle_remote_provider(
+        self,
+        provider_name: str,
+        enabled: bool,
+    ) -> bool:
+        """
+        Enable or disable a remote provider.
+        """
+        for provider_config in self.remote_providers or []:
+            if provider_config.name.lower() == provider_name.lower():
+                provider_config.enabled = enabled
+                return True
+        return False
+
+    def set_remote_provider_weight(
+        self,
+        provider_name: str,
+        weight: float,
+    ) -> bool:
+        """
+        Set the weight for a remote provider.
+        """
+        for provider_config in self.remote_providers or []:
+            if provider_config.name.lower() == provider_name.lower():
+                provider_config.weight = weight
+                return True
+        return False
+
     @property
     def persist_dir(self) -> Path:
         """Shortcut to vectordb persist_dir."""

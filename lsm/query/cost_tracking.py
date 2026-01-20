@@ -9,7 +9,13 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Any
+
+from lsm.config.models import LSMConfig
+from lsm.providers import create_provider
+from lsm.query.session import SessionState, Candidate
+from lsm.query.synthesis import build_context_block
+from lsm.query.planning import prepare_local_candidates
 
 
 @dataclass
@@ -43,6 +49,106 @@ def estimate_output_tokens(text: Optional[str], max_tokens: Optional[int]) -> in
     if max_tokens:
         return max_tokens
     return 0
+
+
+def estimate_synthesis_cost(
+    provider,
+    question: str,
+    context: str,
+    max_tokens: Optional[int],
+) -> Dict[str, Any]:
+    """Estimate cost for synthesis step."""
+    input_tokens = estimate_tokens(f"{question}\n{context}")
+    output_tokens = max_tokens or 0
+    cost = provider.estimate_cost(input_tokens, output_tokens)
+    return {
+        "input_tokens": input_tokens,
+        "output_tokens": output_tokens,
+        "cost": cost,
+    }
+
+
+def estimate_rerank_cost(
+    provider,
+    question: str,
+    candidates: List[Candidate],
+    k: int,
+) -> Dict[str, Any]:
+    """Estimate cost for reranking step."""
+    combined = question + "\n" + "\n".join(c.text or "" for c in candidates[:k])
+    input_tokens = estimate_tokens(combined)
+    output_tokens = max(50, k * 30)
+    cost = provider.estimate_cost(input_tokens, output_tokens)
+    return {
+        "input_tokens": input_tokens,
+        "output_tokens": output_tokens,
+        "cost": cost,
+    }
+
+
+def estimate_query_cost(
+    question: str,
+    config: LSMConfig,
+    state: SessionState,
+    embedder,
+    collection,
+) -> float:
+    """
+    Estimate costs for a query without invoking the LLM.
+    """
+    mode_config = config.get_mode_config()
+    local_policy = mode_config.source_policy.local
+    remote_policy = mode_config.source_policy.remote
+
+    plan = prepare_local_candidates(question, config, state, embedder, collection)
+
+    if not local_policy.enabled:
+        query_config = config.llm.get_query_config()
+        synthesis_provider = create_provider(query_config)
+        synth_est = estimate_synthesis_cost(
+            synthesis_provider,
+            question,
+            "",
+            query_config.max_tokens,
+        )
+        return synth_est["cost"] or 0.0
+
+    if not plan.candidates and not remote_policy.enabled:
+        return 0.0
+
+    if not plan.filtered and not remote_policy.enabled:
+        return 0.0
+
+    if plan.relevance < plan.min_relevance and not remote_policy.enabled:
+        return 0.0
+
+    total_estimated = 0.0
+
+    if plan.should_llm_rerank:
+        ranking_config = config.llm.get_ranking_config()
+        rerank_provider = create_provider(ranking_config)
+        chosen = plan.filtered[: min(plan.k_rerank, len(plan.filtered))]
+        rerank_est = estimate_rerank_cost(
+            rerank_provider,
+            question,
+            chosen,
+            k=min(plan.k_rerank, len(chosen)),
+        )
+        total_estimated += rerank_est["cost"] or 0.0
+
+    chosen = plan.filtered[: min(plan.k_rerank, len(plan.filtered))]
+    context_block, _ = build_context_block(chosen)
+    query_config = config.llm.get_query_config()
+    synthesis_provider = create_provider(query_config)
+    synth_est = estimate_synthesis_cost(
+        synthesis_provider,
+        question,
+        context_block,
+        query_config.max_tokens,
+    )
+    total_estimated += synth_est["cost"] or 0.0
+
+    return total_estimated
 
 
 @dataclass
