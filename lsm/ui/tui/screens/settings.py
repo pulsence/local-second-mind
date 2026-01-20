@@ -27,12 +27,12 @@ class SettingsScreen(Widget):
     """
 
     BINDINGS = [
-        Binding("ctrl+1", "settings_tab_1", "Config", show=True),
-        Binding("ctrl+2", "settings_tab_2", "Ingest", show=True),
-        Binding("ctrl+3", "settings_tab_3", "Query", show=True),
-        Binding("ctrl+4", "settings_tab_4", "Mode", show=True),
-        Binding("ctrl+5", "settings_tab_5", "Vector DB", show=True),
-        Binding("ctrl+6", "settings_tab_6", "LLM", show=True),
+        Binding("ctrl+o", "settings_tab_1", "Config", show=True),
+        Binding("ctrl+g", "settings_tab_2", "Ingest", show=True),
+        Binding("ctrl+q", "settings_tab_3", "Query", show=True),
+        Binding("ctrl+d", "settings_tab_4", "Mode", show=True),
+        Binding("ctrl+b", "settings_tab_5", "Vector DB", show=True),
+        Binding("ctrl+l", "settings_tab_6", "LLM", show=True),
         Binding("tab", "focus_next", "Next", show=False),
         Binding("shift+tab", "focus_previous", "Previous", show=False),
     ]
@@ -41,7 +41,7 @@ class SettingsScreen(Widget):
         """Compose the settings screen layout."""
         with Vertical(id="settings-layout"):
             with TabbedContent(id="settings-tabs", initial="settings-config"):
-                with TabPane("Configuration (^1)", id="settings-config"):
+                with TabPane("Configuration (^O)", id="settings-config"):
                     with ScrollableContainer(classes="settings-scroll"):
                         with Container(classes="settings-section"):
                             yield Static("Configuration", classes="settings-section-title")
@@ -52,7 +52,7 @@ class SettingsScreen(Widget):
                                 disabled=True,
                             )
 
-                with TabPane("Ingest (^2)", id="settings-ingest"):
+                with TabPane("Ingest (^G)", id="settings-ingest"):
                     with ScrollableContainer(classes="settings-scroll"):
                         with Container(classes="settings-section"):
                             yield Static("Ingest", classes="settings-section-title")
@@ -80,7 +80,7 @@ class SettingsScreen(Widget):
                                 field_type="switch",
                             )
 
-                with TabPane("Query (^3)", id="settings-query"):
+                with TabPane("Query (^Q)", id="settings-query"):
                     with ScrollableContainer(classes="settings-scroll"):
                         with Container(classes="settings-section"):
                             yield Static("Query", classes="settings-section-title")
@@ -101,7 +101,7 @@ class SettingsScreen(Widget):
                                 field_type="switch",
                             )
 
-                with TabPane("Mode (^4)", id="settings-mode"):
+                with TabPane("Mode (^D)", id="settings-mode"):
                     with ScrollableContainer(classes="settings-scroll"):
                         with Container(classes="settings-section"):
                             yield Static("Selected Mode Settings", classes="settings-section-title")
@@ -125,7 +125,7 @@ class SettingsScreen(Widget):
                             yield self._field("Notes backlinks", "settings-mode-notes-backlinks", field_type="switch", disabled=True)
                             yield self._field("Notes include tags", "settings-mode-notes-include-tags", field_type="switch", disabled=True)
 
-                with TabPane("Vector DB (^5)", id="settings-vdb"):
+                with TabPane("Vector DB (^B)", id="settings-vdb"):
                     with ScrollableContainer(classes="settings-scroll"):
                         with Container(classes="settings-section"):
                             yield Static("Vector DB", classes="settings-section-title")
@@ -146,7 +146,7 @@ class SettingsScreen(Widget):
                             yield self._field("Index type", "settings-vdb-index-type")
                             yield self._field("Pool size", "settings-vdb-pool-size")
 
-                with TabPane("LLM Providers (^6)", id="settings-llm"):
+                with TabPane("LLM Providers (^L)", id="settings-llm"):
                     with ScrollableContainer(classes="settings-scroll"):
                         with Container(classes="settings-section"):
                             yield Static("LLM Providers", classes="settings-section-title")
