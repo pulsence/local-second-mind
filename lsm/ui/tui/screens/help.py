@@ -41,7 +41,7 @@ class HelpScreen(ModalScreen):
                 )
 
                 yield Static(
-                    "Ctrl+I      Switch to Ingest tab\n"
+                    "Ctrl+N      Switch to Ingest tab\n"
                     "Ctrl+Q      Switch to Query tab\n"
                     "Ctrl+S      Switch to Settings tab\n"
                     "Ctrl+P      Switch to Remote tab\n"

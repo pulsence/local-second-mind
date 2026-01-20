@@ -44,13 +44,19 @@ class LSMApp(App):
     CSS_PATH = "styles.tcss"
 
     BINDINGS = [
-        Binding("ctrl+i", "switch_ingest", "Ingest", show=True),
-        Binding("ctrl+q", "switch_query", "Query", show=True),
-        Binding("ctrl+r", "switch_remote", "Remote", show=True),
-        Binding("ctrl+s", "switch_settings", "Settings", show=True),
-        Binding("ctrl+p", "switch_remote", "Remote", show=True),
-        Binding("f1", "show_help", "Help", show=True),
-        Binding("ctrl+c", "quit", "Quit", show=True),
+        Binding("ctrl+n", "switch_ingest", "Ingest", show=False),
+        Binding("ctrl+q", "switch_query", "Query", show=False),
+        Binding("ctrl+r", "switch_remote", "Remote", show=False),
+        Binding("ctrl+s", "switch_settings", "Settings", show=False),
+        Binding("ctrl+p", "switch_remote", "Remote", show=False),
+        Binding("ctrl+1", "settings_tab_1", "Settings 1", show=False),
+        Binding("ctrl+2", "settings_tab_2", "Settings 2", show=False),
+        Binding("ctrl+3", "settings_tab_3", "Settings 3", show=False),
+        Binding("ctrl+4", "settings_tab_4", "Settings 4", show=False),
+        Binding("ctrl+5", "settings_tab_5", "Settings 5", show=False),
+        Binding("ctrl+6", "settings_tab_6", "Settings 6", show=False),
+        Binding("f1", "show_help", "Help", show=False),
+        Binding("ctrl+c", "quit", "Quit", show=False),
         Binding("ctrl+d", "quit", "Quit", show=False),
     ]
 
@@ -86,20 +92,20 @@ class LSMApp(App):
         yield Header(show_clock=True, icon="")
 
         with TabbedContent(initial="query"):
-            with TabPane("Query", id="query"):
+            with TabPane("Query (^q)", id="query"):
                 # Import here to avoid circular imports
                 from lsm.ui.tui.screens.query import QueryScreen
                 yield QueryScreen(id="query-screen")
 
-            with TabPane("Ingest", id="ingest"):
+            with TabPane("Ingest (^n)", id="ingest"):
                 from lsm.ui.tui.screens.ingest import IngestScreen
                 yield IngestScreen(id="ingest-screen")
 
-            with TabPane("Remote", id="remote"):
+            with TabPane("Remote (^r)", id="remote"):
                 from lsm.ui.tui.screens.remote import RemoteScreen
                 yield RemoteScreen(id="remote-screen")
 
-            with TabPane("Settings", id="settings"):
+            with TabPane("Settings (^s)", id="settings"):
                 from lsm.ui.tui.screens.settings import SettingsScreen
                 yield SettingsScreen(id="settings-screen")
 
@@ -340,6 +346,41 @@ class LSMApp(App):
         tabbed_content.active = "remote"
         self.current_context = "remote"
         logger.debug("Switched to remote context")
+
+    def _activate_settings_tab(self, tab_id: str) -> None:
+        """Switch to a settings sub-tab when settings is active."""
+        if self.current_context != "settings":
+            return
+        try:
+            settings_screen = self.query_one("#settings-screen")
+            tabs = settings_screen.query_one("#settings-tabs", TabbedContent)
+            tabs.active = tab_id
+        except Exception:
+            return
+
+    def action_settings_tab_1(self) -> None:
+        """Switch to the settings configuration tab."""
+        self._activate_settings_tab("settings-config")
+
+    def action_settings_tab_2(self) -> None:
+        """Switch to the settings ingest tab."""
+        self._activate_settings_tab("settings-ingest")
+
+    def action_settings_tab_3(self) -> None:
+        """Switch to the settings query tab."""
+        self._activate_settings_tab("settings-query")
+
+    def action_settings_tab_4(self) -> None:
+        """Switch to the settings mode tab."""
+        self._activate_settings_tab("settings-mode")
+
+    def action_settings_tab_5(self) -> None:
+        """Switch to the settings vector DB tab."""
+        self._activate_settings_tab("settings-vdb")
+
+    def action_settings_tab_6(self) -> None:
+        """Switch to the settings LLM providers tab."""
+        self._activate_settings_tab("settings-llm")
 
     def action_show_help(self) -> None:
         """Show help modal."""

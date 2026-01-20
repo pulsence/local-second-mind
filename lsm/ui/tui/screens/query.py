@@ -81,11 +81,13 @@ class QueryScreen(Widget):
     """
 
     BINDINGS = [
-        Binding("enter", "submit_query", "Submit", show=False),
-        Binding("ctrl+e", "expand_citation", "Expand", show=False),
-        Binding("ctrl+o", "open_source", "Open Source", show=False),
-        Binding("ctrl+shift+r", "refresh_logs", "Refresh Logs", show=False),
-        Binding("escape", "clear_input", "Clear", show=False),
+        Binding("enter", "submit_query", "Submit", show=True),
+        Binding("ctrl+e", "expand_citation", "Expand", show=True),
+        Binding("ctrl+o", "open_source", "Open Source", show=True),
+        Binding("ctrl+shift+r", "refresh_logs", "Refresh Logs", show=True),
+        Binding("escape", "clear_input", "Clear", show=True),
+        Binding("tab", "focus_next", "Next", show=False),
+        Binding("shift+tab", "focus_previous", "Previous", show=False),
     ]
 
     # Reactive state
@@ -1210,7 +1212,7 @@ Costs and diagnostics
 
 KEYBOARD SHORTCUTS
 
-Ctrl+I          Switch to Ingest tab
+Ctrl+N          Switch to Ingest tab
 Ctrl+Q          Switch to Query tab
 Ctrl+S          Switch to Settings tab
 Ctrl+R          Switch to Remote tab

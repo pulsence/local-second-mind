@@ -9,8 +9,9 @@ from __future__ import annotations
 from typing import Any, Optional
 
 from textual.app import ComposeResult
+from textual.binding import Binding
 from textual.containers import Container, Vertical, ScrollableContainer, Horizontal
-from textual.widgets import Static, Input, Switch, Button, Select
+from textual.widgets import Static, Input, Switch, Button, Select, TabbedContent, TabPane
 from textual.widget import Widget
 
 from lsm.logging import get_logger
@@ -25,113 +26,144 @@ class SettingsScreen(Widget):
     Shows the current configuration loaded into the app.
     """
 
+    BINDINGS = [
+        Binding("ctrl+1", "settings_tab_1", "Config", show=True),
+        Binding("ctrl+2", "settings_tab_2", "Ingest", show=True),
+        Binding("ctrl+3", "settings_tab_3", "Query", show=True),
+        Binding("ctrl+4", "settings_tab_4", "Mode", show=True),
+        Binding("ctrl+5", "settings_tab_5", "Vector DB", show=True),
+        Binding("ctrl+6", "settings_tab_6", "LLM", show=True),
+        Binding("tab", "focus_next", "Next", show=False),
+        Binding("shift+tab", "focus_previous", "Previous", show=False),
+    ]
+
     def compose(self) -> ComposeResult:
         """Compose the settings screen layout."""
         with Vertical(id="settings-layout"):
-            with ScrollableContainer(id="settings-scroll"):
-                with Container(classes="settings-section"):
-                    yield Static("Configuration", classes="settings-section-title")
-                    yield self._field(
-                        "Config file",
-                        "settings-config-path",
-                        placeholder="config.json",
-                        disabled=True,
-                    )
+            with TabbedContent(id="settings-tabs", initial="settings-config"):
+                with TabPane("Configuration (^1)", id="settings-config"):
+                    with ScrollableContainer(classes="settings-scroll"):
+                        with Container(classes="settings-section"):
+                            yield Static("Configuration", classes="settings-section-title")
+                            yield self._field(
+                                "Config file",
+                                "settings-config-path",
+                                placeholder="config.json",
+                                disabled=True,
+                            )
 
-                with Container(classes="settings-section"):
-                    yield Static("Ingest", classes="settings-section-title")
-                    yield Static("Roots (one path per line)", classes="settings-label")
-                    yield Container(id="settings-ingest-roots-list")
-                    with Horizontal(classes="settings-actions"):
-                        yield Button("Add root", id="settings-ingest-root-add")
-                    yield self._field("Persist dir", "settings-ingest-persist-dir")
-                    yield self._field("Collection", "settings-ingest-collection")
-                    yield self._field("Embed model", "settings-ingest-embed-model")
-                    yield self._field("Device", "settings-ingest-device")
-                    yield self._field("Batch size", "settings-ingest-batch-size")
-                    yield self._field("Chunk size", "settings-ingest-chunk-size")
-                    yield self._field("Chunk overlap", "settings-ingest-chunk-overlap")
-                    yield self._field("Tagging model", "settings-ingest-tagging-model")
-                    yield self._field("Tags per chunk", "settings-ingest-tags-per-chunk")
-                    yield self._field(
-                        "Enable OCR",
-                        "settings-ingest-enable-ocr",
-                        field_type="switch",
-                    )
-                    yield self._field(
-                        "Enable AI tagging",
-                        "settings-ingest-enable-ai-tagging",
-                        field_type="switch",
-                    )
+                with TabPane("Ingest (^2)", id="settings-ingest"):
+                    with ScrollableContainer(classes="settings-scroll"):
+                        with Container(classes="settings-section"):
+                            yield Static("Ingest", classes="settings-section-title")
+                            yield Static("Roots (one path per line)", classes="settings-label")
+                            yield Container(id="settings-ingest-roots-list")
+                            with Horizontal(classes="settings-actions"):
+                                yield Button("Add root", id="settings-ingest-root-add")
+                            yield self._field("Persist dir", "settings-ingest-persist-dir")
+                            yield self._field("Collection", "settings-ingest-collection")
+                            yield self._field("Embed model", "settings-ingest-embed-model")
+                            yield self._field("Device", "settings-ingest-device")
+                            yield self._field("Batch size", "settings-ingest-batch-size")
+                            yield self._field("Chunk size", "settings-ingest-chunk-size")
+                            yield self._field("Chunk overlap", "settings-ingest-chunk-overlap")
+                            yield self._field("Tagging model", "settings-ingest-tagging-model")
+                            yield self._field("Tags per chunk", "settings-ingest-tags-per-chunk")
+                            yield self._field(
+                                "Enable OCR",
+                                "settings-ingest-enable-ocr",
+                                field_type="switch",
+                            )
+                            yield self._field(
+                                "Enable AI tagging",
+                                "settings-ingest-enable-ai-tagging",
+                                field_type="switch",
+                            )
 
-                with Container(classes="settings-section"):
-                    yield Static("Query", classes="settings-section-title")
-                    yield self._select_field("Mode", "settings-query-mode")
-                    yield self._field("k", "settings-query-k")
-                    yield self._field("retrieve_k", "settings-query-retrieve-k")
-                    yield self._field("min relevance", "settings-query-min-relevance")
-                    yield self._field("k_rerank", "settings-query-k-rerank")
-                    yield self._field("rerank strategy", "settings-query-rerank-strategy")
-                    yield self._field("local_pool", "settings-query-local-pool")
-                    yield self._field("max per file", "settings-query-max-per-file")
-                    yield self._field("path contains", "settings-query-path-contains")
-                    yield self._field("ext allow", "settings-query-ext-allow")
-                    yield self._field("ext deny", "settings-query-ext-deny")
-                    yield self._field(
-                        "no rerank",
-                        "settings-query-no-rerank",
-                        field_type="switch",
-                    )
+                with TabPane("Query (^3)", id="settings-query"):
+                    with ScrollableContainer(classes="settings-scroll"):
+                        with Container(classes="settings-section"):
+                            yield Static("Query", classes="settings-section-title")
+                            yield self._select_field("Mode", "settings-query-mode")
+                            yield self._field("k", "settings-query-k")
+                            yield self._field("retrieve_k", "settings-query-retrieve-k")
+                            yield self._field("min relevance", "settings-query-min-relevance")
+                            yield self._field("k_rerank", "settings-query-k-rerank")
+                            yield self._field("rerank strategy", "settings-query-rerank-strategy")
+                            yield self._field("local_pool", "settings-query-local-pool")
+                            yield self._field("max per file", "settings-query-max-per-file")
+                            yield self._field("path contains", "settings-query-path-contains")
+                            yield self._field("ext allow", "settings-query-ext-allow")
+                            yield self._field("ext deny", "settings-query-ext-deny")
+                            yield self._field(
+                                "no rerank",
+                                "settings-query-no-rerank",
+                                field_type="switch",
+                            )
 
-                with Container(classes="settings-section"):
-                    yield Static("Selected Mode Settings", classes="settings-section-title")
-                    yield self._field("Synthesis style", "settings-mode-synthesis-style", disabled=True)
-                    yield self._field("Local enabled", "settings-mode-local-enabled", field_type="switch", disabled=True)
-                    yield self._field("Local min relevance", "settings-mode-local-min-relevance", disabled=True)
-                    yield self._field("Local k", "settings-mode-local-k", disabled=True)
-                    yield self._field("Local k_rerank", "settings-mode-local-k-rerank", disabled=True)
-                    yield self._field("Remote enabled", "settings-mode-remote-enabled", field_type="switch", disabled=True)
-                    yield self._field("Remote rank strategy", "settings-mode-remote-rank-strategy", disabled=True)
-                    yield self._field("Remote max results", "settings-mode-remote-max-results", disabled=True)
-                    yield self._field("Remote providers", "settings-mode-remote-providers", disabled=True)
-                    yield self._field("Model knowledge enabled", "settings-mode-knowledge-enabled", field_type="switch", disabled=True)
-                    yield self._field("Model knowledge label", "settings-mode-knowledge-require-label", field_type="switch", disabled=True)
-                    yield self._field("Notes enabled", "settings-mode-notes-enabled", field_type="switch", disabled=True)
-                    yield self._field("Notes dir", "settings-mode-notes-dir", disabled=True)
-                    yield self._field("Notes template", "settings-mode-notes-template", disabled=True)
-                    yield self._field("Notes filename format", "settings-mode-notes-filename-format", disabled=True)
-                    yield self._field("Notes integration", "settings-mode-notes-integration", disabled=True)
-                    yield self._field("Notes wikilinks", "settings-mode-notes-wikilinks", field_type="switch", disabled=True)
-                    yield self._field("Notes backlinks", "settings-mode-notes-backlinks", field_type="switch", disabled=True)
-                    yield self._field("Notes include tags", "settings-mode-notes-include-tags", field_type="switch", disabled=True)
+                with TabPane("Mode (^4)", id="settings-mode"):
+                    with ScrollableContainer(classes="settings-scroll"):
+                        with Container(classes="settings-section"):
+                            yield Static("Selected Mode Settings", classes="settings-section-title")
+                            yield self._field("Synthesis style", "settings-mode-synthesis-style", disabled=True)
+                            yield self._field("Local enabled", "settings-mode-local-enabled", field_type="switch", disabled=True)
+                            yield self._field("Local min relevance", "settings-mode-local-min-relevance", disabled=True)
+                            yield self._field("Local k", "settings-mode-local-k", disabled=True)
+                            yield self._field("Local k_rerank", "settings-mode-local-k-rerank", disabled=True)
+                            yield self._field("Remote enabled", "settings-mode-remote-enabled", field_type="switch", disabled=True)
+                            yield self._field("Remote rank strategy", "settings-mode-remote-rank-strategy", disabled=True)
+                            yield self._field("Remote max results", "settings-mode-remote-max-results", disabled=True)
+                            yield self._field("Remote providers", "settings-mode-remote-providers", disabled=True)
+                            yield self._field("Model knowledge enabled", "settings-mode-knowledge-enabled", field_type="switch", disabled=True)
+                            yield self._field("Model knowledge label", "settings-mode-knowledge-require-label", field_type="switch", disabled=True)
+                            yield self._field("Notes enabled", "settings-mode-notes-enabled", field_type="switch", disabled=True)
+                            yield self._field("Notes dir", "settings-mode-notes-dir", disabled=True)
+                            yield self._field("Notes template", "settings-mode-notes-template", disabled=True)
+                            yield self._field("Notes filename format", "settings-mode-notes-filename-format", disabled=True)
+                            yield self._field("Notes integration", "settings-mode-notes-integration", disabled=True)
+                            yield self._field("Notes wikilinks", "settings-mode-notes-wikilinks", field_type="switch", disabled=True)
+                            yield self._field("Notes backlinks", "settings-mode-notes-backlinks", field_type="switch", disabled=True)
+                            yield self._field("Notes include tags", "settings-mode-notes-include-tags", field_type="switch", disabled=True)
 
-                with Container(classes="settings-section"):
-                    yield Static("Vector DB", classes="settings-section-title")
-                    yield self._field("Provider", "settings-vdb-provider")
-                    yield self._field("Collection", "settings-vdb-collection")
-                    yield self._field("Persist dir", "settings-vdb-persist-dir")
-                    yield self._field("HNSW space", "settings-vdb-hnsw-space")
-                    yield self._field("Connection string", "settings-vdb-connection-string")
-                    yield self._field("Host", "settings-vdb-host")
-                    yield self._field("Port", "settings-vdb-port")
-                    yield self._field("Database", "settings-vdb-database")
-                    yield self._field("User", "settings-vdb-user")
-                    yield self._field(
-                        "Password",
-                        "settings-vdb-password",
-                        placeholder="(hidden)",
-                    )
-                    yield self._field("Index type", "settings-vdb-index-type")
-                    yield self._field("Pool size", "settings-vdb-pool-size")
+                with TabPane("Vector DB (^5)", id="settings-vdb"):
+                    with ScrollableContainer(classes="settings-scroll"):
+                        with Container(classes="settings-section"):
+                            yield Static("Vector DB", classes="settings-section-title")
+                            yield self._field("Provider", "settings-vdb-provider")
+                            yield self._field("Collection", "settings-vdb-collection")
+                            yield self._field("Persist dir", "settings-vdb-persist-dir")
+                            yield self._field("HNSW space", "settings-vdb-hnsw-space")
+                            yield self._field("Connection string", "settings-vdb-connection-string")
+                            yield self._field("Host", "settings-vdb-host")
+                            yield self._field("Port", "settings-vdb-port")
+                            yield self._field("Database", "settings-vdb-database")
+                            yield self._field("User", "settings-vdb-user")
+                            yield self._field(
+                                "Password",
+                                "settings-vdb-password",
+                                placeholder="(hidden)",
+                            )
+                            yield self._field("Index type", "settings-vdb-index-type")
+                            yield self._field("Pool size", "settings-vdb-pool-size")
 
-                with Container(classes="settings-section"):
-                    yield Static("LLM Providers", classes="settings-section-title")
-                    yield Container(id="settings-llm-container")
+                with TabPane("LLM Providers (^6)", id="settings-llm"):
+                    with ScrollableContainer(classes="settings-scroll"):
+                        with Container(classes="settings-section"):
+                            yield Static("LLM Providers", classes="settings-section-title")
+                            yield Container(id="settings-llm-container")
 
     def on_mount(self) -> None:
         """Populate the settings view after mount."""
         logger.debug("Settings screen mounted")
         self._refresh_settings()
+        self._focus_active_tab()
+
+    def _focus_active_tab(self) -> None:
+        """Focus the settings tabs when this screen is active."""
+        if getattr(self.app, "current_context", None) != "settings":
+            return
+        tabs = self.query_one("#settings-tabs", TabbedContent)
+        self.call_after_refresh(tabs.focus)
 
     def _refresh_settings(self) -> None:
         """Render the current configuration into the UI."""
@@ -282,6 +314,35 @@ class SettingsScreen(Widget):
             if 0 <= index < len(roots):
                 roots.pop(index)
             self._render_ingest_roots(roots)
+
+    def _activate_tab(self, tab_id: str) -> None:
+        """Switch to a specific settings sub-tab."""
+        tabs = self.query_one("#settings-tabs", TabbedContent)
+        tabs.active = tab_id
+
+    def action_settings_tab_1(self) -> None:
+        """Switch to Configuration tab."""
+        self._activate_tab("settings-config")
+
+    def action_settings_tab_2(self) -> None:
+        """Switch to Ingest tab."""
+        self._activate_tab("settings-ingest")
+
+    def action_settings_tab_3(self) -> None:
+        """Switch to Query tab."""
+        self._activate_tab("settings-query")
+
+    def action_settings_tab_4(self) -> None:
+        """Switch to Mode tab."""
+        self._activate_tab("settings-mode")
+
+    def action_settings_tab_5(self) -> None:
+        """Switch to Vector DB tab."""
+        self._activate_tab("settings-vdb")
+
+    def action_settings_tab_6(self) -> None:
+        """Switch to LLM Providers tab."""
+        self._activate_tab("settings-llm")
 
     def on_select_changed(self, event: Select.Changed) -> None:
         """Update mode settings when the mode selection changes."""

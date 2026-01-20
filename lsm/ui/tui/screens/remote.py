@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 
 from textual.app import ComposeResult
+from textual.binding import Binding
 from textual.containers import Container, Vertical, Horizontal, ScrollableContainer
 from textual.widgets import Static, Input, Button, Select, RichLog
 from textual.widget import Widget
@@ -32,6 +33,11 @@ class RemoteScreen(Widget):
 
     ALL_PROVIDERS_VALUE = "__all__"
     is_loading: reactive[bool] = reactive(False)
+
+    BINDINGS = [
+        Binding("tab", "focus_next", "Next", show=False),
+        Binding("shift+tab", "focus_previous", "Previous", show=False),
+    ]
 
     def compose(self) -> ComposeResult:
         """Compose the remote providers layout."""
