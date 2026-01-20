@@ -8,7 +8,8 @@ import os
 import subprocess
 import sys
 
-from typing import Dict, Any
+from pathlib import Path
+from typing import Dict, Any, List
 
 from lsm.config.models import LSMConfig
 from lsm.logging import get_logger
@@ -283,5 +284,62 @@ def run_remote_search_all(
     lines.append("")
 
     state.last_remote_sources = unique_results
+
+    return "\n".join(lines)
+
+
+def format_source_list(sources: List[Dict[str, Any]]) -> str:
+    """
+    Format sources list for display.
+
+    Groups sources by file and shows citation labels.
+
+    Args:
+        sources: List of source metadata dicts
+
+    Returns:
+        Formatted sources string
+
+    Example:
+        >>> sources = [
+        ...     {"label": "S1", "source_path": "/docs/readme.md", "source_name": "readme.md"},
+        ...     {"label": "S2", "source_path": "/docs/readme.md", "source_name": "readme.md"},
+        ...     {"label": "S3", "source_path": "/docs/guide.md", "source_name": "guide.md"},
+        ... ]
+        >>> print(format_source_list(sources))
+        Sources:
+        - [S1] [S2] readme.md — /docs/readme.md
+        - [S3] guide.md — /docs/guide.md
+    """
+    if not sources:
+        return ""
+
+    logger.debug(f"Formatting {len(sources)} sources for display")
+
+    lines = ["", "Sources:"]
+    grouped: Dict[str, Dict[str, Any]] = {}
+    order: List[str] = []
+
+    # Group sources by path
+    for s in sources:
+        path = (s.get("source_path") or "unknown").strip()
+        label = (s.get("label") or "").strip()
+        name = (s.get("source_name") or Path(path).name or "unknown").strip()
+
+        if path not in grouped:
+            grouped[path] = {
+                "name": name,
+                "labels": [],
+            }
+            order.append(path)
+
+        if label and label not in grouped[path]["labels"]:
+            grouped[path]["labels"].append(label)
+
+    # Format grouped sources
+    for path in order:
+        entry = grouped[path]
+        labels = " ".join(f"[{lbl}]" for lbl in entry["labels"])
+        lines.append(f"- {labels} {entry['name']} — {path}")
 
     return "\n".join(lines)

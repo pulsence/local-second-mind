@@ -1,14 +1,14 @@
 """
-Tests for query synthesis module.
+Tests for query context module.
 """
 
 import pytest
 
-from lsm.query.synthesis import (
+from lsm.query.context import (
     build_context_block,
     fallback_answer,
-    format_source_list,
 )
+from lsm.ui.utils import format_source_list
 from lsm.query.session import Candidate
 
 

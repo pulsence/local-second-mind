@@ -301,7 +301,8 @@ class TestQueryIntegration:
 
     def test_synthesis_and_formatting_integration(self):
         """Test synthesis and formatting integration."""
-        from lsm.query.synthesis import build_context_block, format_source_list
+        from lsm.query.context import build_context_block
+        from lsm.ui.utils import format_source_list
 
         candidates = [
             Candidate(

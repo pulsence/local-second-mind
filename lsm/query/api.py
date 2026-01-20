@@ -17,13 +17,11 @@ from lsm.query.session import Candidate, SessionState
 from lsm.query.context import (
     build_combined_context_async,
     build_remote_candidates,
-    ContextResult,
-)
-from lsm.query.synthesis import (
     build_context_block,
     fallback_answer,
-    format_source_list,
+    ContextResult,
 )
+from lsm.ui.utils import format_source_list
 from lsm.query.cost_tracking import (
     estimate_tokens,
     estimate_output_tokens,

@@ -14,7 +14,7 @@ from typing import Dict, List, Optional, Any
 from lsm.config.models import LSMConfig
 from lsm.providers import create_provider
 from lsm.query.session import SessionState, Candidate
-from lsm.query.synthesis import build_context_block
+from lsm.query.context import build_context_block
 from lsm.query.planning import prepare_local_candidates
 
 

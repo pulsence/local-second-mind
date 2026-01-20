@@ -13,6 +13,8 @@ Context Building:
     build_combined_context_async() - Async version
     build_local_context() - Build context from local KB
     build_remote_context() - Build context from remote sources
+    build_context_block() - Format candidates into LLM context
+    fallback_answer() - Generate fallback when LLM unavailable
     ContextResult - Structured context result
 
 Session Management:
@@ -30,6 +32,8 @@ from lsm.query.context import (
     build_combined_context_async,
     build_local_context,
     build_remote_context,
+    build_context_block,
+    fallback_answer,
     ContextResult,
 )
 from lsm.query.session import SessionState, Candidate
@@ -45,6 +49,8 @@ __all__ = [
     "build_combined_context_async",
     "build_local_context",
     "build_remote_context",
+    "build_context_block",
+    "fallback_answer",
     "ContextResult",
     # Session
     "SessionState",
