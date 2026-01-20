@@ -15,7 +15,9 @@ from textual.widget import Widget
 from textual.reactive import reactive
 
 from lsm.logging import get_logger
-from lsm.ui.utils import run_remote_search
+from lsm.ui.utils import run_remote_search, run_remote_search_all
+from lsm.query.session import SessionState
+from lsm.query.cost_tracking import CostTracker
 from lsm.remote import get_registered_providers
 
 logger = get_logger(__name__)
@@ -28,6 +30,7 @@ class RemoteScreen(Widget):
     Shows configured providers and runs test searches.
     """
 
+    ALL_PROVIDERS_VALUE = "__all__"
     is_loading: reactive[bool] = reactive(False)
 
     def compose(self) -> ComposeResult:
@@ -61,6 +64,14 @@ class RemoteScreen(Widget):
                 )
                 yield Button("Search", id="remote-search-button", variant="primary")
                 yield Button("Refresh", id="remote-refresh-button")
+                yield Button("Enable", id="remote-enable-button")
+                yield Button("Disable", id="remote-disable-button")
+                yield Static("Weight", classes="remote-label")
+                yield Input(
+                    placeholder="1.0",
+                    id="remote-weight-input",
+                )
+                yield Button("Set Weight", id="remote-weight-button")
 
     def on_mount(self) -> None:
         """Initialize provider list and focus."""
@@ -82,6 +93,15 @@ class RemoteScreen(Widget):
         if button_id == "remote-refresh-button":
             self._refresh_provider_list()
             return
+        if button_id == "remote-enable-button":
+            self._toggle_provider(True)
+            return
+        if button_id == "remote-disable-button":
+            self._toggle_provider(False)
+            return
+        if button_id == "remote-weight-button":
+            self._set_provider_weight()
+            return
 
     def on_input_submitted(self, event: Input.Submitted) -> None:
         """Handle Enter from input fields."""
@@ -93,6 +113,7 @@ class RemoteScreen(Widget):
         if event.select.id == "remote-provider-select":
             if getattr(self.app, "current_context", None) == "remote":
                 self.query_one("#remote-query-input", Input).focus()
+            self._sync_provider_controls()
 
     def _focus_default_input(self) -> None:
         """Focus the provider input unless already set."""
@@ -115,10 +136,25 @@ class RemoteScreen(Widget):
         """Set provider select options from config."""
         provider_select = self.query_one("#remote-provider-select", Select)
         providers = getattr(self.app.config, "remote_providers", None) or []
-        options = [(provider.name, provider.name) for provider in providers]
+        options = [("All providers", self.ALL_PROVIDERS_VALUE)]
+        options.extend((provider.name, provider.name) for provider in providers)
+        current = provider_select.value
         provider_select.set_options(options)
-        if options and not provider_select.value:
+        if current in {value for _, value in options}:
+            provider_select.value = current
+        elif options and not provider_select.value:
             provider_select.value = options[0][0]
+        self._sync_provider_controls()
+
+    def _ensure_query_state(self) -> None:
+        """Ensure a query state exists for remote searches."""
+        app = self.app
+        if getattr(app, "query_state", None) is None:
+            query_config = app.config.llm.get_query_config()
+            app._query_state = SessionState(
+                model=query_config.model,
+                cost_tracker=CostTracker(),
+            )
 
     def _format_provider_list(self) -> str:
         """Format configured providers for display."""
@@ -166,6 +202,72 @@ class RemoteScreen(Widget):
 
         return "\n".join(lines)
 
+    def _get_selected_provider_name(self) -> str | None:
+        """Return the selected provider name when applicable."""
+        provider = self.query_one("#remote-provider-select", Select).value
+        if not isinstance(provider, str) or not provider:
+            return None
+        if provider == self.ALL_PROVIDERS_VALUE:
+            return None
+        return provider
+
+    def _get_provider_config(self, provider_name: str):
+        """Return the provider config for a given name."""
+        for provider_config in self.app.config.remote_providers or []:
+            if provider_config.name.lower() == provider_name.lower():
+                return provider_config
+        return None
+
+    def _sync_provider_controls(self) -> None:
+        """Sync control inputs with the selected provider."""
+        weight_input = self.query_one("#remote-weight-input", Input)
+        provider_name = self._get_selected_provider_name()
+        if not provider_name:
+            weight_input.value = ""
+            return
+        provider_config = self._get_provider_config(provider_name)
+        if provider_config is None:
+            weight_input.value = ""
+            return
+        weight_input.value = f"{provider_config.weight:.2f}"
+
+    def _toggle_provider(self, enabled: bool) -> None:
+        """Enable or disable a remote provider."""
+        provider_name = self._get_selected_provider_name()
+        if not provider_name:
+            self._show_message("Select a specific provider to enable or disable.")
+            return
+        if self.app.config.toggle_remote_provider(provider_name, enabled):
+            state = "enabled" if enabled else "disabled"
+            self._show_message(f"Provider '{provider_name}' {state}.")
+            self._refresh_provider_list()
+        else:
+            self._show_message(f"Provider not found: {provider_name}")
+
+    def _set_provider_weight(self) -> None:
+        """Update the weight for a remote provider."""
+        provider_name = self._get_selected_provider_name()
+        if not provider_name:
+            self._show_message("Select a specific provider to set weight.")
+            return
+        weight_value = self.query_one("#remote-weight-input", Input).value.strip()
+        if not weight_value:
+            self._show_message("Enter a weight value (for example: 1.0).")
+            return
+        try:
+            weight = float(weight_value)
+        except ValueError:
+            self._show_message("Invalid weight value. Use a numeric value.")
+            return
+        if weight < 0.0:
+            self._show_message("Weight must be non-negative.")
+            return
+        if self.app.config.set_remote_provider_weight(provider_name, weight):
+            self._show_message(f"Provider '{provider_name}' weight set to {weight:.2f}.")
+            self._refresh_provider_list()
+        else:
+            self._show_message(f"Provider not found: {provider_name}")
+
     def _show_message(self, message: str) -> None:
         """Update the results output panel."""
         self.query_one("#remote-results-output", Static).update(message)
@@ -180,15 +282,25 @@ class RemoteScreen(Widget):
             return
 
         self.is_loading = True
-        self._show_message(f"Searching {provider} for: {query} ...")
+        display_provider = "all providers" if provider == self.ALL_PROVIDERS_VALUE else provider
+        self._show_message(f"Searching {display_provider} for: {query} ...")
 
         try:
-            output = await asyncio.to_thread(
-                run_remote_search,
-                provider,
-                query,
-                self.app.config,
-            )
+            if provider == self.ALL_PROVIDERS_VALUE:
+                self._ensure_query_state()
+                output = await asyncio.to_thread(
+                    run_remote_search_all,
+                    query,
+                    self.app.config,
+                    self.app.query_state,
+                )
+            else:
+                output = await asyncio.to_thread(
+                    run_remote_search,
+                    provider,
+                    query,
+                    self.app.config,
+                )
             self._show_message(output or "No output returned.")
         except Exception as exc:
             logger.error(f"Remote search failed: {exc}", exc_info=True)

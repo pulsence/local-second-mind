@@ -31,8 +31,6 @@ from lsm.ui.utils import (
     display_provider_name,
     format_feature_label,
     open_file,
-    run_remote_search,
-    run_remote_search_all,
 )
 from lsm.query.session import SessionState
 from lsm.query.cost_tracking import CostTracker
@@ -629,14 +627,6 @@ class QueryScreen(Widget):
             lines.append(f"  Mode Providers: {', '.join(str(p) for p in remote_policy.remote_providers)}")
         lines.append("")
 
-        lines.append("Commands:")
-        lines.append("  /remote-search <provider> <query>  Test a provider")
-        lines.append("  /remote-search-all <query>         Search all enabled providers")
-        lines.append("  /remote-provider enable <name>     Enable a provider")
-        lines.append("  /remote-provider disable <name>    Disable a provider")
-        lines.append("  /remote-provider weight <name> <value>  Set provider weight")
-        lines.append("")
-
         return "\n".join(lines)
 
     def _execute_query_command(self, command: str) -> CommandResult:
@@ -739,62 +729,6 @@ class QueryScreen(Widget):
                     return CommandResult(output=f"Citations exported to: {output_path}\n")
                 except Exception as exc:
                     return CommandResult(output=f"Failed to export citations: {exc}\n")
-
-            if cmd == "/remote-search-all":
-                if len(parts) < 2:
-                    return CommandResult(output="Usage: /remote-search-all <query>\n")
-                query = q.split(maxsplit=1)[1].strip()
-                output = run_remote_search_all(query, self.app.config, self.app.query_state)
-                return CommandResult(output=output)
-
-            if cmd == "/remote-search":
-                if len(parts) < 3:
-                    return CommandResult(
-                        output=(
-                            "Usage: /remote-search <provider> <query>\n"
-                            "Example: /remote-search wikipedia machine learning\n"
-                        )
-                    )
-                provider_name = parts[1].strip()
-                query = q.split(maxsplit=2)[2].strip()
-                output = run_remote_search(provider_name, query, self.app.config)
-                return CommandResult(output=output)
-
-            if cmd == "/remote-provider":
-                if len(parts) < 3:
-                    return CommandResult(
-                        output=(
-                            "Usage:\n"
-                            "  /remote-provider enable <name>\n"
-                            "  /remote-provider disable <name>\n"
-                            "  /remote-provider weight <name> <value>\n"
-                        )
-                    )
-                action = parts[1].strip().lower()
-                provider_name = parts[2].strip()
-                if action == "enable":
-                    if self.app.config.toggle_remote_provider(provider_name, True):
-                        return CommandResult(output=f"Provider '{provider_name}' enabled.\n")
-                    return CommandResult(output=f"Provider not found: {provider_name}\n")
-                if action == "disable":
-                    if self.app.config.toggle_remote_provider(provider_name, False):
-                        return CommandResult(output=f"Provider '{provider_name}' disabled.\n")
-                    return CommandResult(output=f"Provider not found: {provider_name}\n")
-                if action == "weight":
-                    if len(parts) < 4:
-                        return CommandResult(output="Usage: /remote-provider weight <name> <value>\n")
-                    try:
-                        weight = float(parts[3].strip())
-                    except ValueError:
-                        return CommandResult(output="Invalid weight value. Use a numeric value.\n")
-                    if weight < 0.0:
-                        return CommandResult(output="Weight must be non-negative.\n")
-                    if self.app.config.set_remote_provider_weight(provider_name, weight):
-                        return CommandResult(
-                            output=f"Provider '{provider_name}' weight set to {weight:.2f}.\n"
-                        )
-                    return CommandResult(output=f"Provider not found: {provider_name}\n")
-                return CommandResult(output="Unknown action. Use: enable, disable, weight\n")
 
             if cmd == "/model":
                 if len(parts) != 4:
@@ -1247,13 +1181,6 @@ Models and providers
 /vectordb-providers           Show available vector DB providers
 /vectordb-status              Show vector DB status
 /remote-providers             Show remote providers summary
-
-Remote search
-/remote-search <provider> <query>     Test a provider
-/remote-search-all <query>            Search all enabled providers
-/remote-provider enable <name>        Enable a provider
-/remote-provider disable <name>       Disable a provider
-/remote-provider weight <name> <value>  Set provider weight
 
 Results
 /show S#                      Show the cited chunk (e.g., /show S2)
