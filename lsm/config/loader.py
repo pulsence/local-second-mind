@@ -194,6 +194,56 @@ def build_ingest_config(raw: Dict[str, Any], config_path: Path) -> IngestConfig:
     return config
 
 
+def parse_config_text(content: str, path: Path | str) -> Dict[str, Any]:
+    """
+    Parse raw configuration content from JSON or YAML.
+
+    Args:
+        content: Config file content
+        path: Path or filename used for extension detection
+    """
+    if isinstance(path, str):
+        path = Path(path)
+
+    suffix = path.suffix.lower()
+    if suffix in {".yaml", ".yml"}:
+        return yaml.safe_load(content) or {}
+    if suffix == ".json":
+        return json.loads(content)
+    raise ValueError(
+        f"Unsupported config format: {suffix}. "
+        f"Use .json, .yaml, or .yml"
+    )
+
+
+def build_config_from_raw(raw: Dict[str, Any], path: Path | str) -> LSMConfig:
+    """
+    Build and validate LSMConfig from raw configuration data.
+    """
+    if isinstance(path, str):
+        path = Path(path)
+
+    path = path.expanduser().resolve()
+    llm_config = build_llm_config(raw)
+    ingest_config = build_ingest_config(raw, path)
+    query_config = build_query_config(raw)
+    vectordb_config = build_vectordb_config(raw)
+    modes = build_modes_registry(raw)
+    remote_providers = build_remote_providers_registry(raw)
+
+    config = LSMConfig(
+        ingest=ingest_config,
+        query=query_config,
+        llm=llm_config,
+        vectordb=vectordb_config,
+        modes=modes,
+        remote_providers=remote_providers,
+        config_path=path,
+    )
+    config.validate()
+    return config
+
+
 def build_vectordb_config(raw: Dict[str, Any]) -> VectorDBConfig:
     """
     Build VectorDBConfig from raw configuration.
@@ -483,33 +533,200 @@ def load_config_from_file(path: Path | str) -> LSMConfig:
 
     path = path.expanduser().resolve()
 
-    # Load raw config
     raw = load_raw_config(path)
+    return build_config_from_raw(raw, path)
 
-    # Build component configs
-    llm_config = build_llm_config(raw)
-    ingest_config = build_ingest_config(raw, path)
-    query_config = build_query_config(raw)
-    vectordb_config = build_vectordb_config(raw)
 
-    # Build mode system configs
-    modes = build_modes_registry(raw)
-    remote_providers = build_remote_providers_registry(raw)
+def save_config_to_file(config: LSMConfig, path: Path | str) -> None:
+    """
+    Serialize and save configuration to JSON/YAML file.
 
-    # Build top-level config
-    config = LSMConfig(
-        ingest=ingest_config,
-        query=query_config,
-        llm=llm_config,
-        vectordb=vectordb_config,
-        modes=modes,
-        remote_providers=remote_providers,
-        config_path=path,
-    )
+    Args:
+        config: LSMConfig instance to save
+        path: Destination config file path
+    """
+    if isinstance(path, str):
+        path = Path(path)
 
-    # Validate
-    config.validate()
+    path = path.expanduser().resolve()
+    raw = config_to_raw(config)
 
-    return config
+    suffix = path.suffix.lower()
+    if suffix == ".json":
+        path.write_text(json.dumps(raw, indent=2), encoding="utf-8")
+    elif suffix in {".yaml", ".yml"}:
+        path.write_text(yaml.safe_dump(raw, sort_keys=False), encoding="utf-8")
+    else:
+        raise ValueError(
+            f"Unsupported config format: {suffix}. "
+            f"Use .json, .yaml, or .yml"
+        )
+
+
+def config_to_raw(config: LSMConfig) -> Dict[str, Any]:
+    """
+    Serialize LSMConfig into a JSON/YAML-friendly dict.
+    """
+    llms: list[Dict[str, Any]] = []
+    for provider in config.llm.llms:
+        entry: Dict[str, Any] = {
+            "provider_name": provider.provider_name,
+            "api_key": provider.api_key,
+            "model": provider.model,
+            "temperature": provider.temperature,
+            "max_tokens": provider.max_tokens,
+            "base_url": provider.base_url,
+            "endpoint": provider.endpoint,
+            "api_version": provider.api_version,
+            "deployment_name": provider.deployment_name,
+        }
+        if provider.query is not None:
+            entry["query"] = {
+                "model": provider.query.model,
+                "api_key": provider.query.api_key,
+                "temperature": provider.query.temperature,
+                "max_tokens": provider.query.max_tokens,
+                "base_url": provider.query.base_url,
+                "endpoint": provider.query.endpoint,
+                "api_version": provider.query.api_version,
+                "deployment_name": provider.query.deployment_name,
+            }
+        if provider.tagging is not None:
+            entry["tagging"] = {
+                "model": provider.tagging.model,
+                "api_key": provider.tagging.api_key,
+                "temperature": provider.tagging.temperature,
+                "max_tokens": provider.tagging.max_tokens,
+                "base_url": provider.tagging.base_url,
+                "endpoint": provider.tagging.endpoint,
+                "api_version": provider.tagging.api_version,
+                "deployment_name": provider.tagging.deployment_name,
+            }
+        if provider.ranking is not None:
+            entry["ranking"] = {
+                "model": provider.ranking.model,
+                "api_key": provider.ranking.api_key,
+                "temperature": provider.ranking.temperature,
+                "max_tokens": provider.ranking.max_tokens,
+                "base_url": provider.ranking.base_url,
+                "endpoint": provider.ranking.endpoint,
+                "api_version": provider.ranking.api_version,
+                "deployment_name": provider.ranking.deployment_name,
+            }
+        llms.append(entry)
+
+    modes = []
+    if config.modes:
+        for name, mode in config.modes.items():
+            mode_entry = {
+                "name": name,
+                "synthesis_style": mode.synthesis_style,
+                "source_policy": {
+                    "local": {
+                        "enabled": mode.source_policy.local.enabled,
+                        "min_relevance": mode.source_policy.local.min_relevance,
+                        "k": mode.source_policy.local.k,
+                        "k_rerank": mode.source_policy.local.k_rerank,
+                    },
+                    "remote": {
+                        "enabled": mode.source_policy.remote.enabled,
+                        "rank_strategy": mode.source_policy.remote.rank_strategy,
+                        "max_results": mode.source_policy.remote.max_results,
+                        "remote_providers": mode.source_policy.remote.remote_providers,
+                    },
+                    "model_knowledge": {
+                        "enabled": mode.source_policy.model_knowledge.enabled,
+                        "require_label": mode.source_policy.model_knowledge.require_label,
+                    },
+                },
+                "notes": {
+                    "enabled": mode.notes.enabled,
+                    "dir": mode.notes.dir,
+                    "template": mode.notes.template,
+                    "filename_format": mode.notes.filename_format,
+                    "integration": mode.notes.integration,
+                    "wikilinks": mode.notes.wikilinks,
+                    "backlinks": mode.notes.backlinks,
+                    "include_tags": mode.notes.include_tags,
+                },
+            }
+            modes.append(mode_entry)
+
+    remote_providers = None
+    if config.remote_providers:
+        remote_providers = []
+        for provider in config.remote_providers:
+            remote_providers.append(
+                {
+                    "name": provider.name,
+                    "type": provider.type,
+                    "enabled": provider.enabled,
+                    "weight": provider.weight,
+                    "api_key": provider.api_key,
+                    "endpoint": provider.endpoint,
+                    "max_results": provider.max_results,
+                    "language": provider.language,
+                    "user_agent": provider.user_agent,
+                    "timeout": provider.timeout,
+                    "min_interval_seconds": provider.min_interval_seconds,
+                    "section_limit": provider.section_limit,
+                    "snippet_max_chars": provider.snippet_max_chars,
+                    "include_disambiguation": provider.include_disambiguation,
+                }
+            )
+
+    return {
+        "roots": [str(root) for root in config.ingest.roots],
+        "persist_dir": str(config.ingest.persist_dir),
+        "collection": config.ingest.collection,
+        "chroma_flush_interval": config.ingest.chroma_flush_interval,
+        "embed_model": config.ingest.embed_model,
+        "device": config.ingest.device,
+        "batch_size": config.ingest.batch_size,
+        "manifest": str(config.ingest.manifest),
+        "chunk_size": config.ingest.chunk_size,
+        "chunk_overlap": config.ingest.chunk_overlap,
+        "enable_ocr": config.ingest.enable_ocr,
+        "enable_ai_tagging": config.ingest.enable_ai_tagging,
+        "tagging_model": config.ingest.tagging_model,
+        "tags_per_chunk": config.ingest.tags_per_chunk,
+        "dry_run": config.ingest.dry_run,
+        "skip_errors": config.ingest.skip_errors,
+        "extensions": config.ingest.extensions,
+        "override_extensions": config.ingest.override_extensions,
+        "exclude_dirs": config.ingest.exclude_dirs,
+        "override_excludes": config.ingest.override_excludes,
+        "llms": llms,
+        "query": {
+            "mode": config.query.mode,
+            "k": config.query.k,
+            "retrieve_k": config.query.retrieve_k,
+            "min_relevance": config.query.min_relevance,
+            "k_rerank": config.query.k_rerank,
+            "rerank_strategy": config.query.rerank_strategy,
+            "no_rerank": config.query.no_rerank,
+            "local_pool": config.query.local_pool,
+            "max_per_file": config.query.max_per_file,
+            "path_contains": config.query.path_contains,
+            "ext_allow": config.query.ext_allow,
+            "ext_deny": config.query.ext_deny,
+        },
+        "modes": modes or None,
+        "remote_providers": remote_providers,
+        "vectordb": {
+            "provider": config.vectordb.provider,
+            "collection": config.vectordb.collection,
+            "persist_dir": str(config.vectordb.persist_dir),
+            "chroma_hnsw_space": config.vectordb.chroma_hnsw_space,
+            "connection_string": config.vectordb.connection_string,
+            "host": config.vectordb.host,
+            "port": config.vectordb.port,
+            "database": config.vectordb.database,
+            "user": config.vectordb.user,
+            "password": config.vectordb.password,
+            "index_type": config.vectordb.index_type,
+            "pool_size": config.vectordb.pool_size,
+        },
+    }
 
 

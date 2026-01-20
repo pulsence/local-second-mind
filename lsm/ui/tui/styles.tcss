@@ -343,6 +343,20 @@ ProgressBar > .bar--complete {
     margin-bottom: 1;
 }
 
+.settings-actions {
+    layout: horizontal;
+    margin-top: 1;
+    height: 3;
+    align: left middle;
+}
+
+#config-editor {
+    height: 20;
+    min-height: 8;
+    border: tall $primary-darken-2;
+    padding: 1;
+}
+
 Select {
     width: 100%;
     margin: 1 0;
@@ -551,6 +565,83 @@ Switch {
 #settings-screen {
     padding: 2;
     layout: vertical;
+    height: 100%;
+    width: 100%;
+}
+
+#settings-layout {
+    height: 1fr;
+    width: 100%;
+}
+
+#settings-scroll {
+    height: 1fr;
+    width: 100%;
+}
+
+.settings-field {
+    layout: horizontal;
+    height: auto;
+    min-height: 3;
+    margin: 0 0 1 0;
+    width: 100%;
+    align: left middle;
+}
+
+.settings-label {
+    width: 20;
+    color: $text-muted;
+}
+
+.settings-field Input {
+    width: 1fr;
+    height: 3;
+    margin: 0;
+}
+
+.settings-field Switch {
+    width: 6;
+    margin: 0;
+}
+
+.settings-field Select {
+    width: 1fr;
+    height: 3;
+    margin: 0;
+}
+
+#settings-ingest-roots-list {
+    width: 100%;
+    margin-bottom: 1;
+    layout: vertical;
+    height: auto;
+}
+
+#settings-ingest-roots-list Input {
+    width: 1fr;
+}
+
+#settings-ingest-roots-list Button {
+    width: 10;
+    margin-left: 1;
+}
+
+.settings-section {
+    width: 100%;
+    layout: vertical;
+    height: auto;
+}
+
+.settings-subsection {
+    margin-top: 1;
+    padding-top: 1;
+    border-top: solid $primary-darken-2;
+}
+
+.settings-subsection-title {
+    text-style: bold;
+    color: $secondary;
+    margin: 1 0;
 }
 
 .provider-status {
