@@ -24,7 +24,7 @@ from lsm.logging import get_logger
 from lsm.ui.tui.widgets.results import ResultsPanel, CitationSelected, CitationExpanded
 from lsm.ui.tui.widgets.input import CommandInput, CommandSubmitted
 from lsm.ui.tui.completions import create_completer
-from lsm.query.commands import handle_command as handle_query_command, CommandResult
+from lsm.query.commands import get_command_handlers, CommandResult
 from lsm.query.session import SessionState
 from lsm.query.cost_tracking import CostTracker
 
@@ -177,13 +177,20 @@ class QueryScreen(Widget):
     def _execute_query_command(self, command: str) -> CommandResult:
         """Run the query command handler and capture output."""
         try:
-            return handle_query_command(
-                command,
-                self.app.query_state,
-                self.app.config,
-                self.app.query_embedder,
-                self.app.query_provider,
-            )
+            q = command.strip()
+            ql = q.lower()
+            for handler in get_command_handlers():
+                result = handler(
+                    q,
+                    ql,
+                    self.app.query_state,
+                    self.app.config,
+                    self.app.query_embedder,
+                    self.app.query_provider,
+                )
+                if result is not None:
+                    return result
+            return CommandResult(output="", handled=False)
         except SystemExit:
             return CommandResult(output="", should_exit=True)
         except Exception as exc:

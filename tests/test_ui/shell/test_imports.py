@@ -23,11 +23,11 @@ class TestQueryModuleImports:
     def test_import_from_core_query(self):
         """Test imports from lsm.query (core module)."""
         from lsm.query.execution import run_query_turn, run_query
-        from lsm.query.commands import handle_command, COMMAND_HINTS, get_help
+        from lsm.query.commands import get_command_handlers, get_help
         assert callable(run_query_turn)
         assert callable(run_query)
         assert callable(get_help)
-        assert isinstance(COMMAND_HINTS, set)
+        assert callable(get_command_handlers)
 
 
 class TestShellModuleImports:

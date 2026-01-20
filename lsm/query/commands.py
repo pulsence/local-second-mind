@@ -13,7 +13,7 @@ import sys
 from datetime import datetime
 from dataclasses import replace
 from pathlib import Path
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Callable
 
 from lsm.config.models import LSMConfig, LLMConfig
 from lsm.logging import get_logger
@@ -30,36 +30,6 @@ from lsm.query.cost_tracking import estimate_tokens
 from lsm.query.citations import export_citations_from_note, export_citations_from_sources
 
 logger = get_logger(__name__)
-
-COMMAND_HINTS = {
-    "exit",
-    "help",
-    "show",
-    "expand",
-    "open",
-    "debug",
-    "model",
-    "models",
-    "providers",
-    "provider-status",
-    "vectordb-providers",
-    "vectordb-status",
-    "remote-providers",
-    "remote-provider",
-    "remote-search",
-    "remote-search-all",
-    "mode",
-    "note",
-    "notes",
-    "load",
-    "set",
-    "clear",
-    "costs",
-    "budget",
-    "cost-estimate",
-    "export-citations",
-}
-
 
 # Field-specific provider recommendations
 PROVIDER_RECOMMENDATIONS = {
@@ -1079,574 +1049,789 @@ class CommandResult:
 
 
 # -----------------------------
-# Main Command Handler
+# Command Handlers
 # -----------------------------
-def handle_command(
-    line: str,
+def handle_exit_command(
+    q: str,
+    ql: str,
     state: SessionState,
     config: LSMConfig,
     embedder,
     collection,
-) -> CommandResult:
-    """
-    Handle query commands.
-
-    Args:
-        line: User input line
-        state: Session state
-        config: Global configuration
-        embedder: SentenceTransformer model
-        collection: ChromaDB collection
-
-    Returns:
-        CommandResult with output text and status flags
-    """
-    q = line.strip()
-    ql = q.lower()
-
-    # Exit
+) -> Optional[CommandResult]:
     if ql in {"/exit", "exit", "quit", "q"}:
         return CommandResult(output="", should_exit=True)
+    return None
 
-    # Help
+
+def handle_help_command(
+    q: str,
+    ql: str,
+    state: SessionState,
+    config: LSMConfig,
+    embedder,
+    collection,
+) -> Optional[CommandResult]:
     if ql in {"/help", "help", "?"}:
         return CommandResult(output=get_help())
+    return None
 
-    # Debug
+
+def handle_debug_command(
+    q: str,
+    ql: str,
+    state: SessionState,
+    config: LSMConfig,
+    embedder,
+    collection,
+) -> Optional[CommandResult]:
     if ql == "/debug":
         return CommandResult(output=state.format_debug())
+    return None
 
-    # Cost summary / export
-    if ql.startswith("/costs"):
-        tracker = state.cost_tracker
-        if not tracker:
-            return CommandResult(output="Cost tracking is not initialized.\n")
-        parts = q.split()
-        if len(parts) == 1:
-            return CommandResult(output=state.format_costs())
-        if len(parts) >= 2 and parts[1].lower() == "export":
-            export_path = None
-            if len(parts) >= 3:
-                export_path = Path(parts[2])
-            else:
-                timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-                export_path = Path(f"costs-{timestamp}.csv")
-            try:
-                tracker.export_csv(export_path)
-                return CommandResult(output=f"Cost data exported to: {export_path}\n")
-            except Exception as e:
-                return CommandResult(output=f"Failed to export costs: {e}\n")
-        return CommandResult(output="Usage:\n  /costs\n  /costs export <path>\n")
 
-    # Budget
-    if ql.startswith("/budget"):
-        tracker = state.cost_tracker
-        if not tracker:
-            return CommandResult(output="Cost tracking is not initialized.\n")
-        parts = q.split()
-        if len(parts) == 1:
-            if tracker.budget_limit is None:
-                return CommandResult(output="No budget set.\n")
-            else:
-                return CommandResult(output=f"Budget limit: ${tracker.budget_limit:.4f}\n")
-        if len(parts) == 3 and parts[1].lower() == "set":
-            try:
-                tracker.budget_limit = float(parts[2])
-                return CommandResult(output=f"Budget limit set to: ${tracker.budget_limit:.4f}\n")
-            except ValueError:
-                return CommandResult(output="Invalid budget amount. Use a numeric value.\n")
-        return CommandResult(output="Usage:\n  /budget\n  /budget set <amount>\n")
-
-    # Cost estimate (no LLM call)
-    if ql.startswith("/cost-estimate"):
-        parts = q.split(maxsplit=1)
-        if len(parts) != 2:
-            return CommandResult(output="Usage: /cost-estimate <query>\n")
-        output = estimate_query_cost(parts[1].strip(), config, state, embedder, collection)
-        return CommandResult(output=output)
-
-    # Export citations
-    if ql.startswith("/export-citations"):
-        parts = q.split()
-        fmt = "bibtex"
-        note_path = None
-        if len(parts) >= 2:
-            fmt = parts[1].strip().lower()
+def handle_costs_command(
+    q: str,
+    ql: str,
+    state: SessionState,
+    config: LSMConfig,
+    embedder,
+    collection,
+) -> Optional[CommandResult]:
+    if not ql.startswith("/costs"):
+        return None
+    tracker = state.cost_tracker
+    if not tracker:
+        return CommandResult(output="Cost tracking is not initialized.\n")
+    parts = q.split()
+    if len(parts) == 1:
+        return CommandResult(output=state.format_costs())
+    if len(parts) >= 2 and parts[1].lower() == "export":
+        export_path = None
         if len(parts) >= 3:
-            note_path = parts[2].strip()
-
-        if fmt not in {"bibtex", "zotero"}:
-            return CommandResult(output="Format must be 'bibtex' or 'zotero'.\n")
-
+            export_path = Path(parts[2])
+        else:
+            timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+            export_path = Path(f"costs-{timestamp}.csv")
         try:
-            if note_path:
-                output_path = export_citations_from_note(Path(note_path), fmt=fmt)
-            else:
-                if not state.last_label_to_candidate:
-                    return CommandResult(output="No last query sources available to export.\n")
-                sources = [
-                    {
-                        "source_path": c.source_path,
-                        "source_name": c.source_name,
-                        "chunk_index": c.chunk_index,
-                        "ext": c.ext,
-                        "label": label,
-                        "title": (c.meta or {}).get("title"),
-                        "author": (c.meta or {}).get("author"),
-                        "mtime_ns": (c.meta or {}).get("mtime_ns"),
-                        "ingested_at": (c.meta or {}).get("ingested_at"),
-                    }
-                    for label, c in state.last_label_to_candidate.items()
-                ]
-                output_path = export_citations_from_sources(sources, fmt=fmt)
-            return CommandResult(output=f"Citations exported to: {output_path}\n")
+            tracker.export_csv(export_path)
+            return CommandResult(output=f"Cost data exported to: {export_path}\n")
         except Exception as e:
-            return CommandResult(output=f"Failed to export citations: {e}\n")
+            return CommandResult(output=f"Failed to export costs: {e}\n")
+    return CommandResult(output="Usage:\n  /costs\n  /costs export <path>\n")
 
-    # List available models
-    if ql.startswith("/models"):
-        parts = q.split()
-        provider_filter = parts[1].strip().lower() if len(parts) > 1 else None
-        providers = config.llm.get_provider_names()
-        if provider_filter:
-            if provider_filter == "claude":
-                providers = [p for p in providers if p in {"claude", "anthropic"}]
-            else:
-                providers = [p for p in providers if p.lower() == provider_filter]
-            if not providers:
-                return CommandResult(output=f"Provider not found in config: {provider_filter}\n")
 
-        lines = []
-        seen_labels = set()
-        for provider_name in providers:
-            label = display_provider_name(provider_name)
-            if label in seen_labels:
+def handle_budget_command(
+    q: str,
+    ql: str,
+    state: SessionState,
+    config: LSMConfig,
+    embedder,
+    collection,
+) -> Optional[CommandResult]:
+    if not ql.startswith("/budget"):
+        return None
+    tracker = state.cost_tracker
+    if not tracker:
+        return CommandResult(output="Cost tracking is not initialized.\n")
+    parts = q.split()
+    if len(parts) == 1:
+        if tracker.budget_limit is None:
+            return CommandResult(output="No budget set.\n")
+        return CommandResult(output=f"Budget limit: ${tracker.budget_limit:.4f}\n")
+    if len(parts) == 3 and parts[1].lower() == "set":
+        try:
+            tracker.budget_limit = float(parts[2])
+            return CommandResult(output=f"Budget limit set to: ${tracker.budget_limit:.4f}\n")
+        except ValueError:
+            return CommandResult(output="Invalid budget amount. Use a numeric value.\n")
+    return CommandResult(output="Usage:\n  /budget\n  /budget set <amount>\n")
+
+
+def handle_cost_estimate_command(
+    q: str,
+    ql: str,
+    state: SessionState,
+    config: LSMConfig,
+    embedder,
+    collection,
+) -> Optional[CommandResult]:
+    if not ql.startswith("/cost-estimate"):
+        return None
+    parts = q.split(maxsplit=1)
+    if len(parts) != 2:
+        return CommandResult(output="Usage: /cost-estimate <query>\n")
+    output = estimate_query_cost(parts[1].strip(), config, state, embedder, collection)
+    return CommandResult(output=output)
+
+
+def handle_export_citations_command(
+    q: str,
+    ql: str,
+    state: SessionState,
+    config: LSMConfig,
+    embedder,
+    collection,
+) -> Optional[CommandResult]:
+    if not ql.startswith("/export-citations"):
+        return None
+    parts = q.split()
+    fmt = "bibtex"
+    note_path = None
+    if len(parts) >= 2:
+        fmt = parts[1].strip().lower()
+    if len(parts) >= 3:
+        note_path = parts[2].strip()
+
+    if fmt not in {"bibtex", "zotero"}:
+        return CommandResult(output="Format must be 'bibtex' or 'zotero'.\n")
+
+    try:
+        if note_path:
+            output_path = export_citations_from_note(Path(note_path), fmt=fmt)
+        else:
+            if not state.last_label_to_candidate:
+                return CommandResult(output="No last query sources available to export.\n")
+            sources = [
+                {
+                    "source_path": c.source_path,
+                    "source_name": c.source_name,
+                    "chunk_index": c.chunk_index,
+                    "ext": c.ext,
+                    "label": label,
+                    "title": (c.meta or {}).get("title"),
+                    "author": (c.meta or {}).get("author"),
+                    "mtime_ns": (c.meta or {}).get("mtime_ns"),
+                    "ingested_at": (c.meta or {}).get("ingested_at"),
+                }
+                for label, c in state.last_label_to_candidate.items()
+            ]
+            output_path = export_citations_from_sources(sources, fmt=fmt)
+        return CommandResult(output=f"Citations exported to: {output_path}\n")
+    except Exception as e:
+        return CommandResult(output=f"Failed to export citations: {e}\n")
+
+
+def handle_models_command(
+    q: str,
+    ql: str,
+    state: SessionState,
+    config: LSMConfig,
+    embedder,
+    collection,
+) -> Optional[CommandResult]:
+    if not ql.startswith("/models"):
+        return None
+    parts = q.split()
+    provider_filter = parts[1].strip().lower() if len(parts) > 1 else None
+    providers = config.llm.get_provider_names()
+    if provider_filter:
+        if provider_filter == "claude":
+            providers = [p for p in providers if p in {"claude", "anthropic"}]
+        else:
+            providers = [p for p in providers if p.lower() == provider_filter]
+        if not providers:
+            return CommandResult(output=f"Provider not found in config: {provider_filter}\n")
+
+    lines = []
+    seen_labels = set()
+    for provider_name in providers:
+        label = display_provider_name(provider_name)
+        if label in seen_labels:
+            continue
+        seen_labels.add(label)
+        provider_config = config.llm.get_provider_by_name(provider_name)
+        if not provider_config:
+            continue
+        try:
+            test_config = provider_config.resolve_first_available()
+            lines.append(f"{label}:")
+            if not test_config:
+                lines.append("  (not configured for any feature)\n")
                 continue
-            seen_labels.add(label)
-            provider_config = config.llm.get_provider_by_name(provider_name)
-            if not provider_config:
-                continue
-            try:
-                test_config = provider_config.resolve_first_available()
-                lines.append(f"{label}:")
-                if not test_config:
-                    lines.append("  (not configured for any feature)\n")
-                    continue
-                provider = create_provider(test_config)
-                lines.append(format_models(state, provider))
-                lines.append("")
-            except Exception as e:
-                logger.error(f"Failed to list models for {provider_name}: {e}")
-                lines.append(f"  (failed to list models: {e})\n")
-        return CommandResult(output="\n".join(lines))
+            provider = create_provider(test_config)
+            lines.append(format_models(state, provider))
+            lines.append("")
+        except Exception as e:
+            logger.error(f"Failed to list models for {provider_name}: {e}")
+            lines.append(f"  (failed to list models: {e})\n")
+    return CommandResult(output="\n".join(lines))
 
-    # List available providers
+
+def handle_providers_command(
+    q: str,
+    ql: str,
+    state: SessionState,
+    config: LSMConfig,
+    embedder,
+    collection,
+) -> Optional[CommandResult]:
     if ql.strip() == "/providers":
         return CommandResult(output=format_providers(config))
+    return None
 
-    # Provider health status
+
+def handle_provider_status_command(
+    q: str,
+    ql: str,
+    state: SessionState,
+    config: LSMConfig,
+    embedder,
+    collection,
+) -> Optional[CommandResult]:
     if ql.strip() == "/provider-status":
         return CommandResult(output=format_provider_status(config))
+    return None
 
+
+def handle_vectordb_providers_command(
+    q: str,
+    ql: str,
+    state: SessionState,
+    config: LSMConfig,
+    embedder,
+    collection,
+) -> Optional[CommandResult]:
     if ql.strip() == "/vectordb-providers":
         return CommandResult(output=format_vectordb_providers(config))
+    return None
 
+
+def handle_vectordb_status_command(
+    q: str,
+    ql: str,
+    state: SessionState,
+    config: LSMConfig,
+    embedder,
+    collection,
+) -> Optional[CommandResult]:
     if ql.strip() == "/vectordb-status":
         return CommandResult(output=format_vectordb_status(config))
+    return None
 
-    # Remote providers listing
+
+def handle_remote_providers_command(
+    q: str,
+    ql: str,
+    state: SessionState,
+    config: LSMConfig,
+    embedder,
+    collection,
+) -> Optional[CommandResult]:
     if ql.strip() == "/remote-providers":
         return CommandResult(output=format_remote_providers(config))
+    return None
 
-    # Remote search on a specific provider
-    if ql.startswith("/remote-search-all"):
-        parts = q.split(maxsplit=1)
-        if len(parts) < 2:
-            return CommandResult(output="Usage: /remote-search-all <query>\n")
-        search_query = parts[1].strip()
-        output = run_remote_search_all(search_query, config, state)
-        return CommandResult(output=output)
 
-    if ql.startswith("/remote-search"):
-        parts = q.split(maxsplit=2)
-        if len(parts) < 3:
-            return CommandResult(output="Usage: /remote-search <provider> <query>\nExample: /remote-search wikipedia machine learning\n")
-        provider_name = parts[1].strip()
-        search_query = parts[2].strip()
-        output = run_remote_search(provider_name, search_query, config)
-        return CommandResult(output=output)
+def handle_remote_search_all_command(
+    q: str,
+    ql: str,
+    state: SessionState,
+    config: LSMConfig,
+    embedder,
+    collection,
+) -> Optional[CommandResult]:
+    if not ql.startswith("/remote-search-all"):
+        return None
+    parts = q.split(maxsplit=1)
+    if len(parts) < 2:
+        return CommandResult(output="Usage: /remote-search-all <query>\n")
+    search_query = parts[1].strip()
+    output = run_remote_search_all(search_query, config, state)
+    return CommandResult(output=output)
 
-    # Remote provider enable/disable/weight
-    if ql.startswith("/remote-provider"):
-        parts = q.split()
-        if len(parts) < 3:
-            return CommandResult(output="Usage:\n  /remote-provider enable <name>\n  /remote-provider disable <name>\n  /remote-provider weight <name> <value>\n")
 
-        action = parts[1].strip().lower()
-        provider_name = parts[2].strip()
+def handle_remote_search_command(
+    q: str,
+    ql: str,
+    state: SessionState,
+    config: LSMConfig,
+    embedder,
+    collection,
+) -> Optional[CommandResult]:
+    if not ql.startswith("/remote-search"):
+        return None
+    parts = q.split(maxsplit=2)
+    if len(parts) < 3:
+        return CommandResult(
+            output=(
+                "Usage: /remote-search <provider> <query>\n"
+                "Example: /remote-search wikipedia machine learning\n"
+            )
+        )
+    provider_name = parts[1].strip()
+    search_query = parts[2].strip()
+    output = run_remote_search(provider_name, search_query, config)
+    return CommandResult(output=output)
 
-        if action == "enable":
-            if toggle_remote_provider(config, provider_name, True):
-                return CommandResult(output=f"Provider '{provider_name}' enabled.\n")
-            else:
-                return CommandResult(output=f"Provider not found: {provider_name}\n")
 
-        if action == "disable":
-            if toggle_remote_provider(config, provider_name, False):
-                return CommandResult(output=f"Provider '{provider_name}' disabled.\n")
-            else:
-                return CommandResult(output=f"Provider not found: {provider_name}\n")
+def handle_remote_provider_command(
+    q: str,
+    ql: str,
+    state: SessionState,
+    config: LSMConfig,
+    embedder,
+    collection,
+) -> Optional[CommandResult]:
+    if not ql.startswith("/remote-provider"):
+        return None
+    parts = q.split()
+    if len(parts) < 3:
+        return CommandResult(
+            output=(
+                "Usage:\n"
+                "  /remote-provider enable <name>\n"
+                "  /remote-provider disable <name>\n"
+                "  /remote-provider weight <name> <value>\n"
+            )
+        )
 
-        if action == "weight":
-            if len(parts) < 4:
-                return CommandResult(output="Usage: /remote-provider weight <name> <value>\n")
-            try:
-                weight = float(parts[3].strip())
-                if weight < 0.0:
-                    return CommandResult(output="Weight must be non-negative.\n")
-                if set_remote_provider_weight(config, provider_name, weight):
-                    return CommandResult(output=f"Provider '{provider_name}' weight set to {weight:.2f}.\n")
-                else:
-                    return CommandResult(output=f"Provider not found: {provider_name}\n")
-            except ValueError:
-                return CommandResult(output="Invalid weight value. Use a numeric value.\n")
+    action = parts[1].strip().lower()
+    provider_name = parts[2].strip()
 
-        return CommandResult(output="Unknown action. Use: enable, disable, weight\n")
+    if action == "enable":
+        if toggle_remote_provider(config, provider_name, True):
+            return CommandResult(output=f"Provider '{provider_name}' enabled.\n")
+        return CommandResult(output=f"Provider not found: {provider_name}\n")
 
-    # Show/set current model
-    if ql.startswith("/model"):
-        parts = q.split()
-        if len(parts) == 1:
-            lines = []
-            feature_configs = _get_feature_configs(config)
-            for feature, cfg in feature_configs.items():
-                if cfg is None:
-                    continue
-                label = format_feature_label(feature)
-                provider = display_provider_name(cfg.provider)
-                lines.append(f"{label}: {provider}/{cfg.model}")
-            lines.append("")
-            return CommandResult(output="\n".join(lines))
+    if action == "disable":
+        if toggle_remote_provider(config, provider_name, False):
+            return CommandResult(output=f"Provider '{provider_name}' disabled.\n")
+        return CommandResult(output=f"Provider not found: {provider_name}\n")
 
-        if len(parts) != 4:
-            return CommandResult(output="Usage:\n  /model                   (show current)\n  /model <task> <provider> <model>  (set model for a task)\n  /models [provider]       (list available models)\n")
-
-        task = parts[1].strip().lower()
-        provider_name = parts[2].strip()
-        model_name = parts[3].strip()
-
-        task_map = {
-            "query": "query",
-            "tag": "tagging",
-            "tagging": "tagging",
-            "rerank": "ranking",
-            "ranking": "ranking",
-        }
-        feature = task_map.get(task)
-        if not feature:
-            return CommandResult(output="Unknown task. Use: query, tag, rerank\n")
-
+    if action == "weight":
+        if len(parts) < 4:
+            return CommandResult(output="Usage: /remote-provider weight <name> <value>\n")
         try:
-            provider_names = config.llm.get_provider_names()
-            normalized = provider_name
-            if provider_name == "anthropic" and "claude" in provider_names:
-                normalized = "claude"
-            elif provider_name == "claude" and "anthropic" in provider_names:
-                normalized = "anthropic"
+            weight = float(parts[3].strip())
+            if weight < 0.0:
+                return CommandResult(output="Weight must be non-negative.\n")
+            if set_remote_provider_weight(config, provider_name, weight):
+                return CommandResult(output=f"Provider '{provider_name}' weight set to {weight:.2f}.\n")
+            return CommandResult(output=f"Provider not found: {provider_name}\n")
+        except ValueError:
+            return CommandResult(output="Invalid weight value. Use a numeric value.\n")
 
-            config.llm.set_feature_selection(feature, normalized, model_name)
-            if feature == "query":
-                state.model = model_name
+    return CommandResult(output="Unknown action. Use: enable, disable, weight\n")
+
+
+def handle_model_command(
+    q: str,
+    ql: str,
+    state: SessionState,
+    config: LSMConfig,
+    embedder,
+    collection,
+) -> Optional[CommandResult]:
+    if not ql.startswith("/model"):
+        return None
+    parts = q.split()
+    if len(parts) == 1:
+        lines = []
+        feature_configs = _get_feature_configs(config)
+        for feature, cfg in feature_configs.items():
+            if cfg is None:
+                continue
             label = format_feature_label(feature)
-            return CommandResult(output=f"Model set: {label} = {display_provider_name(normalized)}/{model_name}\n")
-        except Exception as e:
-            return CommandResult(output=f"Failed to set model: {e}\n")
+            provider = display_provider_name(cfg.provider)
+            lines.append(f"{label}: {provider}/{cfg.model}")
+        lines.append("")
+        return CommandResult(output="\n".join(lines))
 
-    # Show/set current mode
-    if ql.startswith("/mode"):
-        parts = q.split()
-        if len(parts) == 1:
-            # Show current mode
-            current_mode = config.query.mode
-            mode_config = config.get_mode_config(current_mode)
-            lines = [
-                f"Current mode: {current_mode}",
-                f"  Synthesis style: {mode_config.synthesis_style}",
-                f"  Local sources: enabled (k={mode_config.source_policy.local.k})",
-                f"  Remote sources: {'enabled' if mode_config.source_policy.remote.enabled else 'disabled'}",
-                f"  Model knowledge: {'enabled' if mode_config.source_policy.model_knowledge.enabled else 'disabled'}",
-                f"  Notes: {'enabled' if mode_config.notes.enabled else 'disabled'}",
-                f"\nAvailable modes: {', '.join(config.modes.keys())}\n",
-            ]
-            return CommandResult(output="\n".join(lines))
+    if len(parts) != 4:
+        return CommandResult(
+            output=(
+                "Usage:\n"
+                "  /model                   (show current)\n"
+                "  /model <task> <provider> <model>  (set model for a task)\n"
+                "  /models [provider]       (list available models)\n"
+            )
+        )
 
-        if len(parts) == 2 and parts[1].lower() == "set":
-            return CommandResult(output="Usage:\n  /mode set <setting> <on|off>\nSettings: model_knowledge, remote, notes\n")
+    task = parts[1].strip().lower()
+    provider_name = parts[2].strip()
+    model_name = parts[3].strip()
 
-        if len(parts) >= 2 and parts[1].lower() == "set":
-            if len(parts) != 4:
-                return CommandResult(output="Usage:\n  /mode set <setting> <on|off>\nSettings: model_knowledge, remote, notes\n")
+    task_map = {
+        "query": "query",
+        "tag": "tagging",
+        "tagging": "tagging",
+        "rerank": "ranking",
+        "ranking": "ranking",
+    }
+    feature = task_map.get(task)
+    if not feature:
+        return CommandResult(output="Unknown task. Use: query, tag, rerank\n")
 
-            setting = parts[2].strip().lower()
-            value = parts[3].strip().lower()
-            enabled = value in {"on", "true", "yes", "1"}
+    try:
+        provider_names = config.llm.get_provider_names()
+        normalized = provider_name
+        if provider_name == "anthropic" and "claude" in provider_names:
+            normalized = "claude"
+        elif provider_name == "claude" and "anthropic" in provider_names:
+            normalized = "anthropic"
 
-            mode_config = config.get_mode_config()
-            if setting in {"model_knowledge", "model-knowledge"}:
-                mode_config.source_policy.model_knowledge.enabled = enabled
-            elif setting in {"remote", "remote_sources", "remote-sources"}:
-                mode_config.source_policy.remote.enabled = enabled
-            elif setting in {"notes"}:
-                mode_config.notes.enabled = enabled
-            else:
-                return CommandResult(output=f"Unknown setting: {setting}\nSettings: model_knowledge, remote, notes\n")
+        config.llm.set_feature_selection(feature, normalized, model_name)
+        if feature == "query":
+            state.model = model_name
+        label = format_feature_label(feature)
+        return CommandResult(
+            output=f"Model set: {label} = {display_provider_name(normalized)}/{model_name}\n"
+        )
+    except Exception as e:
+        return CommandResult(output=f"Failed to set model: {e}\n")
 
-            return CommandResult(output=f"Mode setting '{setting}' set to: {'on' if enabled else 'off'}\n")
 
-        if len(parts) != 2:
-            return CommandResult(output="Usage:\n  /mode           (show current)\n  /mode <name>    (switch to a different mode)\n")
-
-        new_mode = parts[1].strip()
-
-        # Validate mode exists
-        if new_mode not in config.modes:
-            return CommandResult(output=f"Mode not found: {new_mode}\nAvailable modes: {', '.join(config.modes.keys())}\n")
-
-        # Switch mode
-        config.query.mode = new_mode
-        mode_config = config.get_mode_config(new_mode)
+def handle_mode_command(
+    q: str,
+    ql: str,
+    state: SessionState,
+    config: LSMConfig,
+    embedder,
+    collection,
+) -> Optional[CommandResult]:
+    if not ql.startswith("/mode"):
+        return None
+    parts = q.split()
+    if len(parts) == 1:
+        current_mode = config.query.mode
+        mode_config = config.get_mode_config(current_mode)
         lines = [
-            f"Mode switched to: {new_mode}",
+            f"Current mode: {current_mode}",
             f"  Synthesis style: {mode_config.synthesis_style}",
+            f"  Local sources: enabled (k={mode_config.source_policy.local.k})",
             f"  Remote sources: {'enabled' if mode_config.source_policy.remote.enabled else 'disabled'}",
-            f"  Model knowledge: {'enabled' if mode_config.source_policy.model_knowledge.enabled else 'disabled'}\n",
+            f"  Model knowledge: {'enabled' if mode_config.source_policy.model_knowledge.enabled else 'disabled'}",
+            f"  Notes: {'enabled' if mode_config.notes.enabled else 'disabled'}",
+            f"\nAvailable modes: {', '.join(config.modes.keys())}\n",
         ]
         return CommandResult(output="\n".join(lines))
 
-    # Save note from last query
-    if ql.startswith("/note") or ql.startswith("/notes"):
-        if not state.last_question:
-            return CommandResult(output="No query to save. Run a query first.\n")
-
-        try:
-            # Get mode config for notes directory
-            mode_config = config.get_mode_config()
-            notes_config = mode_config.notes
-
-            # Resolve notes directory
-            if config.config_path:
-                base_dir = config.config_path.parent
-                notes_dir = base_dir / notes_config.dir
-            else:
-                notes_dir = Path(notes_config.dir)
-
-            # Generate note content
-            content = generate_note_content(
-                query=state.last_question,
-                answer=state.last_answer or "No answer generated",
-                local_sources=state.last_local_sources_for_notes,
-                remote_sources=state.last_remote_sources,
-                mode=config.query.mode,
-                use_wikilinks=notes_config.wikilinks,
-                include_backlinks=notes_config.backlinks,
-                include_tags=notes_config.include_tags,
-            )
-
-            # Determine filename
-            parts_list = q.split(maxsplit=1)
-            filename_override = parts_list[1].strip() if len(parts_list) > 1 else None
-            if filename_override:
-                filename = filename_override
-                if not filename.lower().endswith(".md"):
-                    filename += ".md"
-                note_path = Path(filename)
-                if not note_path.is_absolute():
-                    note_path = notes_dir / note_path
-            else:
-                filename = get_note_filename(state.last_question, format=notes_config.filename_format)
-                note_path = notes_dir / filename
-
-            # Return action for UI to handle editor opening
-            return CommandResult(
-                output="\nOpening note in editor...\nEdit the note and save/close the editor to continue.\n",
-                action="edit_note",
-                action_data={
-                    "content": content,
-                    "note_path": str(note_path),
-                    "notes_dir": str(notes_dir),
-                },
-            )
-
-        except Exception as e:
-            logger.error(f"Note save error: {e}")
-            return CommandResult(output=f"Failed to save note: {e}\n")
-
-    # Load document for context pinning
-    if ql.startswith("/load"):
-        parts = q.split(maxsplit=1)
-        if len(parts) < 2:
-            return CommandResult(output="Usage: /load <file_path>\nExample: /load /docs/important.md\n\nThis pins a document for forced inclusion in next query context.\nUse /load clear to clear pinned chunks.\n")
-
-        arg = parts[1].strip()
-
-        # Handle /load clear
-        if arg.lower() == "clear":
-            state.pinned_chunks = []
-            return CommandResult(output="Cleared all pinned chunks.\n")
-
-        file_path = arg
-
-        lines = [f"Loading chunks from: {file_path}", "Searching collection..."]
-
-        try:
-            chroma = require_chroma_collection(collection, "/load")
-            # Search for chunks from this file
-            results = chroma.get(
-                where={"source_path": {"$eq": file_path}},
-                include=["metadatas"],
-            )
-
-            if not results or not results.get("ids"):
-                lines.append(f"\nNo chunks found for path: {file_path}")
-                lines.append("Tip: Path must match exactly. Use /explore to find exact paths.\n")
-                return CommandResult(output="\n".join(lines))
-
-            chunk_ids = results["ids"]
-
-            # Add to pinned chunks
-            for chunk_id in chunk_ids:
-                if chunk_id not in state.pinned_chunks:
-                    state.pinned_chunks.append(chunk_id)
-
-            lines.append(f"\nPinned {len(chunk_ids)} chunks from {file_path}")
-            lines.append(f"Total pinned chunks: {len(state.pinned_chunks)}")
-            lines.append("\nThese chunks will be forcibly included in your next query.")
-            lines.append("Use /load clear to unpin all chunks.\n")
-
-        except Exception as e:
-            lines.append(f"Error loading chunks: {e}\n")
-            logger.error(f"Load command error: {e}")
-
-        return CommandResult(output="\n".join(lines))
-
-    # Show / Expand
-    if ql.startswith("/show") or ql.startswith("/expand"):
-        parts = q.split()
-        if len(parts) != 2:
-            usage = (
-                "/show S#   (e.g., /show S2)"
-                if ql.startswith("/show")
-                else "/expand S#   (e.g., /expand S2)"
-            )
-            return CommandResult(output=f"Usage: {usage}\n")
-
-        label = parts[1].strip().upper()
-        candidate = state.last_label_to_candidate.get(label)
-        if not candidate:
-            return CommandResult(output=f"No such label in last results: {label}\n")
-
-        output = candidate.format(label=label, expanded=ql.startswith("/expand"))
-        return CommandResult(output=output)
-
-    # Open
-    if ql.startswith("/open"):
-        parts = q.split()
-        if len(parts) != 2:
-            return CommandResult(output="Usage: /open S#   (e.g., /open S2)\n")
-
-        label = parts[1].strip().upper()
-        candidate = state.last_label_to_candidate.get(label)
-        if not candidate:
-            return CommandResult(output=f"No such label in last results: {label}\n")
-
-        path = (candidate.meta or {}).get("source_path")
-        if not path:
-            return CommandResult(output="No source_path available for this citation.\n")
-
-        # Return action for UI to handle file opening
+    if len(parts) == 2 and parts[1].lower() == "set":
         return CommandResult(
-            output="",
-            action="open_file",
-            action_data={"path": path},
+            output="Usage:\n  /mode set <setting> <on|off>\nSettings: model_knowledge, remote, notes\n"
         )
 
-    # Set filters
-    if ql.startswith("/set"):
-        parts = q.split()
-        if len(parts) < 3:
-            return CommandResult(output="Usage:\n  /set path_contains <substring> [more...]\n  /set ext_allow .md .pdf\n  /set ext_deny .txt\n")
+    if len(parts) >= 2 and parts[1].lower() == "set":
+        if len(parts) != 4:
+            return CommandResult(
+                output="Usage:\n  /mode set <setting> <on|off>\nSettings: model_knowledge, remote, notes\n"
+            )
 
-        key = parts[1]
-        values = parts[2:]
+        setting = parts[2].strip().lower()
+        value = parts[3].strip().lower()
+        enabled = value in {"on", "true", "yes", "1"}
 
-        if key == "path_contains":
-            state.path_contains = values if len(values) > 1 else values[0]
-            return CommandResult(output=f"path_contains set to: {state.path_contains}\n")
+        mode_config = config.get_mode_config()
+        if setting in {"model_knowledge", "model-knowledge"}:
+            mode_config.source_policy.model_knowledge.enabled = enabled
+        elif setting in {"remote", "remote_sources", "remote-sources"}:
+            mode_config.source_policy.remote.enabled = enabled
+        elif setting in {"notes"}:
+            mode_config.notes.enabled = enabled
+        else:
+            return CommandResult(
+                output=f"Unknown setting: {setting}\nSettings: model_knowledge, remote, notes\n"
+            )
 
-        if key == "ext_allow":
-            state.ext_allow = values
-            return CommandResult(output=f"ext_allow set to: {state.ext_allow}\n")
+        return CommandResult(output=f"Mode setting '{setting}' set to: {'on' if enabled else 'off'}\n")
 
-        if key == "ext_deny":
-            state.ext_deny = values
-            return CommandResult(output=f"ext_deny set to: {state.ext_deny}\n")
+    if len(parts) != 2:
+        return CommandResult(output="Usage:\n  /mode           (show current)\n  /mode <name>    (switch to a different mode)\n")
 
-        return CommandResult(output=f"Unknown filter key: {key}\n")
+    new_mode = parts[1].strip()
+    if new_mode not in config.modes:
+        return CommandResult(
+            output=f"Mode not found: {new_mode}\nAvailable modes: {', '.join(config.modes.keys())}\n"
+        )
 
-    # Clear filters
-    if ql.startswith("/clear"):
-        parts = q.split()
-        if len(parts) != 2:
-            return CommandResult(output="Usage: /clear path_contains|ext_allow|ext_deny\n")
+    config.query.mode = new_mode
+    mode_config = config.get_mode_config(new_mode)
+    lines = [
+        f"Mode switched to: {new_mode}",
+        f"  Synthesis style: {mode_config.synthesis_style}",
+        f"  Remote sources: {'enabled' if mode_config.source_policy.remote.enabled else 'disabled'}",
+        f"  Model knowledge: {'enabled' if mode_config.source_policy.model_knowledge.enabled else 'disabled'}\n",
+    ]
+    return CommandResult(output="\n".join(lines))
 
-        key = parts[1]
-        if key == "path_contains":
-            state.path_contains = None
-            return CommandResult(output="path_contains cleared.\n")
-        if key == "ext_allow":
-            state.ext_allow = None
-            return CommandResult(output="ext_allow cleared.\n")
-        if key == "ext_deny":
-            state.ext_deny = None
-            return CommandResult(output="ext_deny cleared.\n")
 
-        return CommandResult(output=f"Unknown filter key: {key}\n")
+def handle_note_command(
+    q: str,
+    ql: str,
+    state: SessionState,
+    config: LSMConfig,
+    embedder,
+    collection,
+) -> Optional[CommandResult]:
+    if not (ql.startswith("/note") or ql.startswith("/notes")):
+        return None
+    if not state.last_question:
+        return CommandResult(output="No query to save. Run a query first.\n")
 
+    try:
+        mode_config = config.get_mode_config()
+        notes_config = mode_config.notes
+
+        if config.config_path:
+            base_dir = config.config_path.parent
+            notes_dir = base_dir / notes_config.dir
+        else:
+            notes_dir = Path(notes_config.dir)
+
+        content = generate_note_content(
+            query=state.last_question,
+            answer=state.last_answer or "No answer generated",
+            local_sources=state.last_local_sources_for_notes,
+            remote_sources=state.last_remote_sources,
+            mode=config.query.mode,
+            use_wikilinks=notes_config.wikilinks,
+            include_backlinks=notes_config.backlinks,
+            include_tags=notes_config.include_tags,
+        )
+
+        parts_list = q.split(maxsplit=1)
+        filename_override = parts_list[1].strip() if len(parts_list) > 1 else None
+        if filename_override:
+            filename = filename_override
+            if not filename.lower().endswith(".md"):
+                filename += ".md"
+            note_path = Path(filename)
+            if not note_path.is_absolute():
+                note_path = notes_dir / note_path
+        else:
+            filename = get_note_filename(state.last_question, format=notes_config.filename_format)
+            note_path = notes_dir / filename
+
+        return CommandResult(
+            output="\nOpening note in editor...\nEdit the note and save/close the editor to continue.\n",
+            action="edit_note",
+            action_data={
+                "content": content,
+                "note_path": str(note_path),
+                "notes_dir": str(notes_dir),
+            },
+        )
+
+    except Exception as e:
+        logger.error(f"Note save error: {e}")
+        return CommandResult(output=f"Failed to save note: {e}\n")
+
+
+def handle_load_command(
+    q: str,
+    ql: str,
+    state: SessionState,
+    config: LSMConfig,
+    embedder,
+    collection,
+) -> Optional[CommandResult]:
+    if not ql.startswith("/load"):
+        return None
+    parts = q.split(maxsplit=1)
+    if len(parts) < 2:
+        return CommandResult(
+            output=(
+                "Usage: /load <file_path>\n"
+                "Example: /load /docs/important.md\n\n"
+                "This pins a document for forced inclusion in next query context.\n"
+                "Use /load clear to clear pinned chunks.\n"
+            )
+        )
+
+    arg = parts[1].strip()
+    if arg.lower() == "clear":
+        state.pinned_chunks = []
+        return CommandResult(output="Cleared all pinned chunks.\n")
+
+    file_path = arg
+    lines = [f"Loading chunks from: {file_path}", "Searching collection..."]
+
+    try:
+        chroma = require_chroma_collection(collection, "/load")
+        results = chroma.get(
+            where={"source_path": {"$eq": file_path}},
+            include=["metadatas"],
+        )
+
+        if not results or not results.get("ids"):
+            lines.append(f"\nNo chunks found for path: {file_path}")
+            lines.append("Tip: Path must match exactly. Use /explore to find exact paths.\n")
+            return CommandResult(output="\n".join(lines))
+
+        chunk_ids = results["ids"]
+        for chunk_id in chunk_ids:
+            if chunk_id not in state.pinned_chunks:
+                state.pinned_chunks.append(chunk_id)
+
+        lines.append(f"\nPinned {len(chunk_ids)} chunks from {file_path}")
+        lines.append(f"Total pinned chunks: {len(state.pinned_chunks)}")
+        lines.append("\nThese chunks will be forcibly included in your next query.")
+        lines.append("Use /load clear to unpin all chunks.\n")
+
+    except Exception as e:
+        lines.append(f"Error loading chunks: {e}\n")
+        logger.error(f"Load command error: {e}")
+
+    return CommandResult(output="\n".join(lines))
+
+
+def handle_show_expand_command(
+    q: str,
+    ql: str,
+    state: SessionState,
+    config: LSMConfig,
+    embedder,
+    collection,
+) -> Optional[CommandResult]:
+    if not (ql.startswith("/show") or ql.startswith("/expand")):
+        return None
+    parts = q.split()
+    if len(parts) != 2:
+        usage = "/show S#   (e.g., /show S2)" if ql.startswith("/show") else "/expand S#   (e.g., /expand S2)"
+        return CommandResult(output=f"Usage: {usage}\n")
+
+    label = parts[1].strip().upper()
+    candidate = state.last_label_to_candidate.get(label)
+    if not candidate:
+        return CommandResult(output=f"No such label in last results: {label}\n")
+
+    output = candidate.format(label=label, expanded=ql.startswith("/expand"))
+    return CommandResult(output=output)
+
+
+def handle_open_command(
+    q: str,
+    ql: str,
+    state: SessionState,
+    config: LSMConfig,
+    embedder,
+    collection,
+) -> Optional[CommandResult]:
+    if not ql.startswith("/open"):
+        return None
+    parts = q.split()
+    if len(parts) != 2:
+        return CommandResult(output="Usage: /open S#   (e.g., /open S2)\n")
+
+    label = parts[1].strip().upper()
+    candidate = state.last_label_to_candidate.get(label)
+    if not candidate:
+        return CommandResult(output=f"No such label in last results: {label}\n")
+
+    path = (candidate.meta or {}).get("source_path")
+    if not path:
+        return CommandResult(output="No source_path available for this citation.\n")
+
+    return CommandResult(
+        output="",
+        action="open_file",
+        action_data={"path": path},
+    )
+
+
+def handle_set_command(
+    q: str,
+    ql: str,
+    state: SessionState,
+    config: LSMConfig,
+    embedder,
+    collection,
+) -> Optional[CommandResult]:
+    if not ql.startswith("/set"):
+        return None
+    parts = q.split()
+    if len(parts) < 3:
+        return CommandResult(
+            output="Usage:\n  /set path_contains <substring> [more...]\n  /set ext_allow .md .pdf\n  /set ext_deny .txt\n"
+        )
+
+    key = parts[1]
+    values = parts[2:]
+
+    if key == "path_contains":
+        state.path_contains = values if len(values) > 1 else values[0]
+        return CommandResult(output=f"path_contains set to: {state.path_contains}\n")
+
+    if key == "ext_allow":
+        state.ext_allow = values
+        return CommandResult(output=f"ext_allow set to: {state.ext_allow}\n")
+
+    if key == "ext_deny":
+        state.ext_deny = values
+        return CommandResult(output=f"ext_deny set to: {state.ext_deny}\n")
+
+    return CommandResult(output=f"Unknown filter key: {key}\n")
+
+
+def handle_clear_command(
+    q: str,
+    ql: str,
+    state: SessionState,
+    config: LSMConfig,
+    embedder,
+    collection,
+) -> Optional[CommandResult]:
+    if not ql.startswith("/clear"):
+        return None
+    parts = q.split()
+    if len(parts) != 2:
+        return CommandResult(output="Usage: /clear path_contains|ext_allow|ext_deny\n")
+
+    key = parts[1]
+    if key == "path_contains":
+        state.path_contains = None
+        return CommandResult(output="path_contains cleared.\n")
+    if key == "ext_allow":
+        state.ext_allow = None
+        return CommandResult(output="ext_allow cleared.\n")
+    if key == "ext_deny":
+        state.ext_deny = None
+        return CommandResult(output="ext_deny cleared.\n")
+
+    return CommandResult(output=f"Unknown filter key: {key}\n")
+
+
+def handle_unknown_slash_command(
+    q: str,
+    ql: str,
+    state: SessionState,
+    config: LSMConfig,
+    embedder,
+    collection,
+) -> Optional[CommandResult]:
     if q.startswith("/"):
         return CommandResult(output=get_help())
-
-    # Not a command - should be treated as a query
-    return CommandResult(output="", handled=False)
+    return None
 
 
-# -----------------------------
-# Backwards Compatibility
-# -----------------------------
-def print_models(state: SessionState, provider) -> None:
-    """Print available models. DEPRECATED: Use format_models() instead."""
-    print(format_models(state, provider))
+def get_command_handlers() -> List[Callable[..., Optional[CommandResult]]]:
+    return [
+        handle_exit_command,
+        handle_help_command,
+        handle_debug_command,
+        handle_costs_command,
+        handle_budget_command,
+        handle_cost_estimate_command,
+        handle_export_citations_command,
+        handle_models_command,
+        handle_providers_command,
+        handle_provider_status_command,
+        handle_vectordb_providers_command,
+        handle_vectordb_status_command,
+        handle_remote_providers_command,
+        handle_remote_search_all_command,
+        handle_remote_search_command,
+        handle_remote_provider_command,
+        handle_model_command,
+        handle_mode_command,
+        handle_note_command,
+        handle_load_command,
+        handle_show_expand_command,
+        handle_open_command,
+        handle_set_command,
+        handle_clear_command,
+        handle_unknown_slash_command,
+    ]
 
 
-def print_providers(config: LSMConfig) -> None:
-    """Print available LLM providers. DEPRECATED: Use format_providers() instead."""
-    print(format_providers(config))
-
-
-def print_provider_status(config: LSMConfig) -> None:
-    """Print provider health status. DEPRECATED: Use format_provider_status() instead."""
-    print(format_provider_status(config))
-
-
-def print_vectordb_providers(config: LSMConfig) -> None:
-    """Print vector DB providers. DEPRECATED: Use format_vectordb_providers() instead."""
-    print(format_vectordb_providers(config))
-
-
-def print_vectordb_status(config: LSMConfig) -> None:
-    """Print vector DB status. DEPRECATED: Use format_vectordb_status() instead."""
-    print(format_vectordb_status(config))
-
-
-def print_remote_providers(config: LSMConfig) -> None:
-    """Print remote providers. DEPRECATED: Use format_remote_providers() instead."""
-    print(format_remote_providers(config))

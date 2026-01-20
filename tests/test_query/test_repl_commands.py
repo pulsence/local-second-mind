@@ -20,7 +20,8 @@ from lsm.config.models import (
     RemoteSourcePolicy,
 )
 from lsm.query.commands import (
-    handle_command,
+    CommandResult,
+    get_command_handlers,
     toggle_remote_provider,
     set_remote_provider_weight,
 )
@@ -53,12 +54,22 @@ def _build_config(tmp_path: Path) -> LSMConfig:
     return config
 
 
+def _run_command(command: str, state: SessionState, config: LSMConfig) -> CommandResult:
+    q = command.strip()
+    ql = q.lower()
+    for handler in get_command_handlers():
+        result = handler(q, ql, state, config, Mock(), Mock())
+        if result is not None:
+            return result
+    return CommandResult(output="", handled=False)
+
+
 def test_unknown_command_shows_help(tmp_path):
     """Test that unknown commands return help text."""
     config = _build_config(tmp_path)
     state = SessionState(model=config.llm.get_query_config().model)
 
-    result = handle_command("/doesnotexist", state, config, Mock(), Mock())
+    result = _run_command("/doesnotexist", state, config)
     assert result.handled is True
     # Unknown commands should return help text
     assert "Commands:" in result.output or "/help" in result.output
@@ -68,7 +79,7 @@ def test_mode_set_model_knowledge(tmp_path):
     config = _build_config(tmp_path)
     state = SessionState(model=config.llm.get_query_config().model)
 
-    result = handle_command("/mode set model_knowledge on", state, config, Mock(), Mock())
+    result = _run_command("/mode set model_knowledge on", state, config)
     assert result.handled is True
     assert config.get_mode_config().source_policy.model_knowledge.enabled is True
 
@@ -82,7 +93,7 @@ def test_note_custom_filename(tmp_path):
     state.last_local_sources_for_notes = []
     state.last_remote_sources = []
 
-    result = handle_command("/note custom-note", state, config, Mock(), Mock())
+    result = _run_command("/note custom-note", state, config)
     assert result.handled is True
     # Note command now returns an action for the UI to handle
     assert result.action == "edit_note"
@@ -103,7 +114,7 @@ def test_provider_status_command(tmp_path, monkeypatch):
     }
     monkeypatch.setattr("lsm.query.commands.create_provider", lambda _: provider)
 
-    result = handle_command("/provider-status", state, config, Mock(), Mock())
+    result = _run_command("/provider-status", state, config)
     assert result.handled is True
     assert "PROVIDER HEALTH STATUS" in result.output
 
@@ -127,7 +138,7 @@ def test_remote_providers_command(tmp_path):
     config = _build_config_with_remote_providers(tmp_path)
     state = SessionState(model=config.llm.get_query_config().model)
 
-    result = handle_command("/remote-providers", state, config, Mock(), Mock())
+    result = _run_command("/remote-providers", state, config)
     assert result.handled is True
 
     assert "REMOTE SOURCE PROVIDERS" in result.output
@@ -144,7 +155,7 @@ def test_remote_provider_enable_command(tmp_path):
     # Brave is initially disabled
     assert config.remote_providers[2].enabled is False
 
-    result = handle_command("/remote-provider enable brave", state, config, Mock(), Mock())
+    result = _run_command("/remote-provider enable brave", state, config)
     assert result.handled is True
 
     # Brave should now be enabled
@@ -161,7 +172,7 @@ def test_remote_provider_disable_command(tmp_path):
     # Wikipedia is initially enabled
     assert config.remote_providers[0].enabled is True
 
-    result = handle_command("/remote-provider disable wikipedia", state, config, Mock(), Mock())
+    result = _run_command("/remote-provider disable wikipedia", state, config)
     assert result.handled is True
 
     # Wikipedia should now be disabled
@@ -178,7 +189,7 @@ def test_remote_provider_weight_command(tmp_path):
     # Initial weight
     assert config.remote_providers[0].weight == 0.7
 
-    result = handle_command("/remote-provider weight wikipedia 0.95", state, config, Mock(), Mock())
+    result = _run_command("/remote-provider weight wikipedia 0.95", state, config)
     assert result.handled is True
 
     # Weight should be updated
@@ -192,7 +203,7 @@ def test_remote_provider_not_found(tmp_path):
     config = _build_config_with_remote_providers(tmp_path)
     state = SessionState(model=config.llm.get_query_config().model)
 
-    result = handle_command("/remote-provider enable nonexistent", state, config, Mock(), Mock())
+    result = _run_command("/remote-provider enable nonexistent", state, config)
     assert result.handled is True
 
     assert "not found" in result.output.lower()
@@ -203,7 +214,7 @@ def test_remote_search_usage(tmp_path):
     config = _build_config_with_remote_providers(tmp_path)
     state = SessionState(model=config.llm.get_query_config().model)
 
-    result = handle_command("/remote-search", state, config, Mock(), Mock())
+    result = _run_command("/remote-search", state, config)
     assert result.handled is True
 
     assert "Usage:" in result.output
@@ -214,7 +225,7 @@ def test_remote_search_all_usage(tmp_path):
     config = _build_config_with_remote_providers(tmp_path)
     state = SessionState(model=config.llm.get_query_config().model)
 
-    result = handle_command("/remote-search-all", state, config, Mock(), Mock())
+    result = _run_command("/remote-search-all", state, config)
     assert result.handled is True
 
     assert "Usage:" in result.output
