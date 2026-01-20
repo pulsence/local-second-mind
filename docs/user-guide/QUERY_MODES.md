@@ -14,7 +14,7 @@ LSM ships with three built-in modes when `modes` is not defined:
 | `insight` | `insight` | enabled | disabled | enabled | Thematic synthesis across local docs |
 | `hybrid` | `grounded` | enabled | enabled | enabled | Broad research with local + remote |
 
-These defaults are defined in `lsm/config/models.py`.
+These defaults are defined in `lsm/config/models/`.
 
 ## What a Mode Controls
 

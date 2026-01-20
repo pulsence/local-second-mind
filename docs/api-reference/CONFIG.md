@@ -1,6 +1,6 @@
 ﻿# Configuration API Reference
 
-This document describes the configuration dataclasses in `lsm/config/models.py`.
+This document describes the configuration dataclasses in `lsm/config/models/`.
 
 ## LSMConfig
 

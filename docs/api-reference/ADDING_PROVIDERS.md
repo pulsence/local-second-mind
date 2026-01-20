@@ -797,7 +797,7 @@ To contribute a new provider to LSM:
 - [BaseLLMProvider Source](../lsm/providers/base.py)
 - [OpenAI Provider Implementation](../lsm/providers/openai.py)
 - [Provider Factory](../lsm/providers/factory.py)
-- [Configuration Schema](../lsm/config/models.py)
+- [Configuration Schema](../lsm/config/models/)
 
 ## Support
 
