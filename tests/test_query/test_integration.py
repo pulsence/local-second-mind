@@ -87,56 +87,84 @@ class TestQueryIntegration:
         }
         return collection
 
-    @pytest.mark.skip(reason="Mock setup requires numpy array format for embeddings")
-    @patch("lsm.query.execution.create_vectordb_provider")
-    @patch("lsm.query.execution.init_embedder")
-    def test_full_query_flow_no_rerank(
+    @patch("lsm.query.api.create_provider")
+    @patch("lsm.query.context.prepare_local_candidates")
+    def test_query_api_returns_result(
         self,
-        mock_init_embedder,
+        mock_prepare_local,
         mock_create_provider,
         mock_config,
         mock_embedder,
         mock_collection,
-        tmp_path,
     ):
-        """Test complete query flow without LLM reranking."""
-        from lsm.query.execution import run_query
+        """Test that query() returns a valid QueryResult."""
+        import asyncio
+        from lsm.query.api import query, QueryResult
+        from lsm.query.session import SessionState
+        from lsm.query.planning import LocalQueryPlan
 
-        # Create a real persist_dir so the path check passes
-        persist_dir = tmp_path / ".chroma"
-        persist_dir.mkdir()
-        mock_config.vectordb.persist_dir = persist_dir
+        mock_prepare_local.return_value = LocalQueryPlan(
+            local_enabled=True,
+            candidates=[
+                Candidate(
+                    cid="1",
+                    text="Python is a programming language",
+                    meta={"source_path": "/docs/python.md", "chunk_index": 0},
+                    distance=0.1,
+                ),
+            ],
+            filtered=[
+                Candidate(
+                    cid="1",
+                    text="Python is a programming language",
+                    meta={"source_path": "/docs/python.md", "chunk_index": 0},
+                    distance=0.1,
+                ),
+            ],
+            relevance=0.9,
+            filters_active=False,
+            retrieve_k=12,
+            rerank_strategy="none",
+            should_llm_rerank=False,
+            k=12,
+            k_rerank=6,
+            min_relevance=0.3,
+            max_per_file=2,
+            local_pool=36,
+            no_rerank=True,
+        )
 
-        # Setup mocks
-        mock_init_embedder.return_value = mock_embedder
-        mock_create_provider.return_value = mock_collection
         provider = Mock()
-        provider.stream_synthesize.return_value = iter(["Python is a programming language [S1]."])
         provider.synthesize.return_value = "Python is a programming language [S1]."
         provider.estimate_cost.return_value = 0.0
         provider.name = "openai"
         provider.model = "gpt-5.2"
+        mock_create_provider.return_value = provider
 
-        # Disable reranking
+        state = SessionState(model="gpt-5.2")
         mock_config.query.no_rerank = True
 
-        args = SimpleNamespace(
-            config=tmp_path / "config.json",
-            question="What is Python?",
-            mode=None,
-            model=None,
-            no_rerank=False,
-            k=None,
-        )
-        args.config.write_text("{}", encoding="utf-8")
+        result = asyncio.run(query(
+            "What is Python?",
+            mock_config,
+            state,
+            mock_embedder,
+            mock_collection,
+        ))
 
-        with patch("lsm.query.execution.load_config_from_file", return_value=mock_config):
-            with patch("lsm.query.repl.create_provider", return_value=provider):
-                with patch("builtins.print"):  # Suppress output
-                    result = run_query(args)
+        assert isinstance(result, QueryResult)
+        assert "[S1]" in result.answer
+        assert len(result.candidates) >= 1
 
-        # Should complete successfully
-        assert result == 0
+    def test_query_api_empty_question_raises(self):
+        """Test that empty question raises ValueError."""
+        import asyncio
+        from lsm.query.api import query
+        from lsm.query.session import SessionState
+
+        state = SessionState()
+        with pytest.raises(ValueError, match="Question cannot be empty"):
+            asyncio.run(query("", Mock(), state, Mock(), Mock()))
 
     @patch("lsm.providers.openai.OpenAI")
     def test_provider_rerank_integration(self, mock_openai_class):
@@ -308,16 +336,16 @@ class TestQueryIntegration:
 class TestErrorHandling:
     """Integration tests for error handling."""
 
-    @patch("lsm.query.execution.create_vectordb_provider")
-    @patch("lsm.query.execution.init_embedder")
-    def test_query_with_empty_collection(
+    @patch("lsm.query.context.prepare_local_candidates")
+    def test_query_with_no_candidates(
         self,
-        mock_init_embedder,
-        mock_create_provider,
-        tmp_path,
+        mock_prepare_local,
     ):
-        """Test query flow with empty collection."""
-        from lsm.query.execution import run_query
+        """Test query returns appropriate message when no candidates found."""
+        import asyncio
+        from lsm.query.api import query, QueryResult
+        from lsm.query.session import SessionState
+        from lsm.query.planning import LocalQueryPlan
         from lsm.config.models import LSMConfig, QueryConfig, LLMRegistryConfig, LLMProviderConfig, FeatureLLMConfig
 
         config = LSMConfig(
@@ -343,33 +371,38 @@ class TestErrorHandling:
             config_path=Path("/test/config.json"),
         )
 
-        # Mock empty collection
+        mock_prepare_local.return_value = LocalQueryPlan(
+            local_enabled=True,
+            candidates=[],
+            filtered=[],
+            relevance=0.0,
+            filters_active=False,
+            retrieve_k=12,
+            rerank_strategy="none",
+            should_llm_rerank=False,
+            k=12,
+            k_rerank=6,
+            min_relevance=0.3,
+            max_per_file=2,
+            local_pool=36,
+            no_rerank=True,
+        )
+
+        state = SessionState(model="gpt-5.2")
         mock_embedder = Mock()
         mock_collection = Mock()
-        mock_collection.count.return_value = 0
 
-        mock_init_embedder.return_value = mock_embedder
-        mock_create_provider.return_value = mock_collection
+        result = asyncio.run(query(
+            "Test question",
+            config,
+            state,
+            mock_embedder,
+            mock_collection,
+        ))
 
-        persist_dir = tmp_path / ".chroma"
-        persist_dir.mkdir()
-        config.vectordb.persist_dir = persist_dir
-
-        args = SimpleNamespace(
-            config=tmp_path / "config.json",
-            question="Test question",
-            mode=None,
-            model=None,
-            no_rerank=False,
-            k=None,
-        )
-        args.config.write_text("{}", encoding="utf-8")
-
-        with patch("lsm.query.execution.load_config_from_file", return_value=config):
-            result = run_query(args)
-
-        # Should exit with error code
-        assert result == 1
+        assert isinstance(result, QueryResult)
+        assert "No results found" in result.answer
+        assert len(result.candidates) == 0
 
     @patch("lsm.providers.openai.OpenAI")
     def test_provider_graceful_degradation(self, mock_openai_class):

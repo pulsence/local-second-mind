@@ -22,12 +22,26 @@ class TestQueryModuleImports:
 
     def test_import_from_core_query(self):
         """Test imports from lsm.query (core module)."""
-        from lsm.query.execution import run_query_turn, run_query
-        from lsm.query.commands import get_command_handlers, get_help
-        assert callable(run_query_turn)
-        assert callable(run_query)
-        assert callable(get_help)
-        assert callable(get_command_handlers)
+        from lsm.query.api import query, query_sync, QueryResult
+        from lsm.query.context import (
+            build_combined_context,
+            build_local_context,
+            build_remote_context,
+            ContextResult,
+        )
+        from lsm.query.session import SessionState, Candidate
+        from lsm.query.planning import prepare_local_candidates, LocalQueryPlan
+        assert callable(query)
+        assert callable(query_sync)
+        assert QueryResult is not None
+        assert callable(build_combined_context)
+        assert callable(build_local_context)
+        assert callable(build_remote_context)
+        assert ContextResult is not None
+        assert SessionState is not None
+        assert Candidate is not None
+        assert callable(prepare_local_candidates)
+        assert LocalQueryPlan is not None
 
 
 class TestShellModuleImports:

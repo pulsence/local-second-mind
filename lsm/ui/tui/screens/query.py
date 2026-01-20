@@ -1134,11 +1134,9 @@ class QueryScreen(Widget):
         candidates: List["Candidate"] = []
 
         try:
-            # Import query execution functions
-            from lsm.query.execution import run_query_turn_async
+            from lsm.query.api import query as run_query
 
-            # Run query - this function is designed for async/TUI use
-            result = await run_query_turn_async(
+            result = await run_query(
                 query,
                 app.config,
                 app.query_state,
@@ -1146,30 +1144,28 @@ class QueryScreen(Widget):
                 app.query_provider,
             )
 
-            if result:
-                response_text = result.get("response", "No response generated.")
-                candidates = result.get("candidates", [])
-                remote_sources = result.get("remote_sources", []) or []
+            response_text = f"{result.answer}\n{result.sources_display}"
+            candidates = result.candidates
+            remote_sources = result.remote_sources or []
 
-                if remote_sources:
-                    lines = ["", "=" * 60, "REMOTE SOURCES", "=" * 60]
-                    for i, remote in enumerate(remote_sources, 1):
-                        title = remote.get("title") or "(no title)"
-                        url = remote.get("url") or ""
-                        snippet = remote.get("snippet") or ""
-                        lines.append(f"\\n{i}. {title}")
-                        if url:
-                            lines.append(f"   {url}")
-                        if snippet:
-                            snippet = snippet[:150] + "..." if len(snippet) > 150 else snippet
-                            lines.append(f"   {snippet}")
-                    response_text += "\\n".join(lines)
+            if remote_sources:
+                lines = ["", "=" * 60, "REMOTE SOURCES", "=" * 60]
+                for i, remote in enumerate(remote_sources, 1):
+                    title = remote.get("title") or "(no title)"
+                    url = remote.get("url") or ""
+                    snippet = remote.get("snippet") or ""
+                    lines.append(f"\\n{i}. {title}")
+                    if url:
+                        lines.append(f"   {url}")
+                    if snippet:
+                        snippet = snippet[:150] + "..." if len(snippet) > 150 else snippet
+                        lines.append(f"   {snippet}")
+                response_text += "\\n".join(lines)
 
-                # Update cost tracking
-                if "cost" in result and hasattr(app, 'update_cost'):
-                    app.update_cost(result["cost"])
+            if result.cost and hasattr(app, 'update_cost'):
+                app.update_cost(result.cost)
 
-                return response_text, candidates
+            return response_text, candidates
 
         except ImportError as e:
             logger.warning(f"Query module not available: {e}, using fallback")
@@ -1177,7 +1173,6 @@ class QueryScreen(Widget):
             logger.error(f"Query execution error: {e}", exc_info=True)
             return f"Query error: {e}", []
 
-        # Fallback for when query module is not available
         return self._sync_query(query), []
 
     def _sync_query(self, query: str) -> str:

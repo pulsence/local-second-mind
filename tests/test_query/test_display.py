@@ -2,7 +2,7 @@
 Tests for query REPL display utilities.
 """
 
-from lsm.query.commands import display_provider_name, format_feature_label
+from lsm.ui.utils import display_provider_name, format_feature_label
 
 
 class TestDisplayProviderName:
