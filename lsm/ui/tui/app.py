@@ -16,7 +16,7 @@ import sys
 
 from textual.app import App, ComposeResult
 from textual.binding import Binding
-from textual.widgets import Header, Footer, TabbedContent, TabPane
+from textual.widgets import Header, Footer, TabbedContent, TabPane, RichLog
 from textual.reactive import reactive
 
 from lsm.logging import get_logger
@@ -28,7 +28,7 @@ if TYPE_CHECKING:
 logger = get_logger(__name__)
 
 # Type alias for context
-ContextType = Literal["ingest", "query", "settings"]
+ContextType = Literal["ingest", "query", "settings", "remote"]
 
 
 class LSMApp(App):
@@ -46,7 +46,9 @@ class LSMApp(App):
     BINDINGS = [
         Binding("ctrl+i", "switch_ingest", "Ingest", show=True),
         Binding("ctrl+q", "switch_query", "Query", show=True),
+        Binding("ctrl+r", "switch_remote", "Remote", show=True),
         Binding("ctrl+s", "switch_settings", "Settings", show=True),
+        Binding("ctrl+p", "switch_remote", "Remote", show=True),
         Binding("f1", "show_help", "Help", show=True),
         Binding("ctrl+c", "quit", "Quit", show=True),
         Binding("ctrl+d", "quit", "Quit", show=False),
@@ -93,6 +95,10 @@ class LSMApp(App):
                 from lsm.ui.tui.screens.ingest import IngestScreen
                 yield IngestScreen(id="ingest-screen")
 
+            with TabPane("Remote", id="remote"):
+                from lsm.ui.tui.screens.remote import RemoteScreen
+                yield RemoteScreen(id="remote-screen")
+
             with TabPane("Settings", id="settings"):
                 from lsm.ui.tui.screens.settings import SettingsScreen
                 yield SettingsScreen(id="settings-screen")
@@ -105,6 +111,12 @@ class LSMApp(App):
     async def on_mount(self) -> None:
         """Handle application mount - initialize providers."""
         logger.info("LSM TUI application mounted")
+        try:
+            tabbed_content = self.query_one(TabbedContent)
+            tabbed_content.active = "query"
+            self.current_context = "query"
+        except Exception:
+            pass
         self._setup_tui_logging()
 
         # Try to initialize query context by default (most common use case)
@@ -123,19 +135,16 @@ class LSMApp(App):
         root_logger = logging.getLogger("lsm")
         root_logger.propagate = False
 
+        streams_to_remove = {sys.stdout, sys.stderr, sys.__stdout__, sys.__stderr__}
+
         for handler in list(root_logger.handlers):
-            if isinstance(handler, logging.StreamHandler) and getattr(handler, "stream", None) in {
-                sys.stdout,
-                sys.stderr,
-            }:
+            if isinstance(handler, logging.StreamHandler) and getattr(handler, "stream", None) in streams_to_remove:
                 root_logger.removeHandler(handler)
 
         root_global = logging.getLogger()
+        root_global.setLevel(root_logger.level)
         for handler in list(root_global.handlers):
-            if isinstance(handler, logging.StreamHandler) and getattr(handler, "stream", None) in {
-                sys.stdout,
-                sys.stderr,
-            }:
+            if isinstance(handler, logging.StreamHandler) and getattr(handler, "stream", None) in streams_to_remove:
                 root_global.removeHandler(handler)
 
         app = self
@@ -157,8 +166,7 @@ class LSMApp(App):
 
                     def update() -> None:
                         try:
-                            log_widget = self._app.query_one("#query-log")
-                            log_widget.write(f"{message.rstrip()}\n")
+                            self._app._write_tui_log(message.rstrip())
                         except Exception:
                             pass
 
@@ -175,6 +183,7 @@ class LSMApp(App):
             def __init__(self, app_instance: "LSMApp") -> None:
                 super().__init__()
                 self._app = app_instance
+                self._tui_handler = True
 
             def emit(self, record: logging.LogRecord) -> None:
                 try:
@@ -183,8 +192,7 @@ class LSMApp(App):
 
                     def update() -> None:
                         try:
-                            log_widget = self._app.query_one("#query-log")
-                            log_widget.write(f"{message}\n")
+                            self._app._write_tui_log(message)
                         except Exception:
                             pass
 
@@ -192,12 +200,28 @@ class LSMApp(App):
                 except Exception:
                     pass
 
-        if not any(isinstance(h, _TUILogHandler) for h in root_logger.handlers):
+        if not any(getattr(h, "_tui_handler", False) for h in root_logger.handlers):
             handler = _TUILogHandler(app)
             handler.setLevel(root_logger.level)
             formatter = logging.Formatter("[%(levelname)s] %(message)s")
             handler.setFormatter(formatter)
             root_logger.addHandler(handler)
+
+        if not any(getattr(h, "_tui_handler", False) for h in root_global.handlers):
+            handler = _TUILogHandler(app)
+            handler.setLevel(root_logger.level)
+            formatter = logging.Formatter("[%(levelname)s] %(message)s")
+            handler.setFormatter(formatter)
+            root_global.addHandler(handler)
+
+    def _write_tui_log(self, message: str) -> None:
+        """Write log messages to available TUI log widgets."""
+        for selector in ("#query-log", "#remote-log"):
+            try:
+                log_widget = self.query_one(selector, RichLog)
+                log_widget.write(f"{message}\n")
+            except Exception:
+                continue
 
     # -------------------------------------------------------------------------
     # Provider Initialization (lazy, async-friendly)
@@ -310,6 +334,13 @@ class LSMApp(App):
         self.current_context = "settings"
         logger.debug("Switched to settings context")
 
+    def action_switch_remote(self) -> None:
+        """Switch to remote tab."""
+        tabbed_content = self.query_one(TabbedContent)
+        tabbed_content.active = "remote"
+        self.current_context = "remote"
+        logger.debug("Switched to remote context")
+
     def action_show_help(self) -> None:
         """Show help modal."""
         from lsm.ui.tui.screens.help import HelpScreen
@@ -332,7 +363,7 @@ class LSMApp(App):
         if tab_id:
             # Remove the "-tab" suffix if present
             context = tab_id.replace("-tab", "")
-            if context in ("ingest", "query", "settings"):
+            if context in ("ingest", "query", "settings", "remote"):
                 self.current_context = context
                 logger.debug(f"Tab activated: {context}")
 

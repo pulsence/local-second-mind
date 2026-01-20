@@ -112,12 +112,10 @@ class ResultItem(Widget):
             classes="source-path",
         )
 
-        # Chunk text (truncated or full)
-        text = (self.candidate.text or "").strip()
-        if not self.is_expanded and len(text) > 300:
-            text = text[:300] + "..."
-
-        yield Static(text, classes="chunk-text")
+        # Chunk text (only when expanded)
+        if self.is_expanded:
+            text = (self.candidate.text or "").strip()
+            yield Static(text, classes="chunk-text")
 
     def watch_is_selected(self, selected: bool) -> None:
         """React to selection state changes."""
@@ -178,10 +176,7 @@ class ResultsPanel(Widget):
                 markup=False,
             )
 
-            # Results container
-            with Vertical(id="results-list"):
-                for i, candidate in enumerate(self._candidates, start=1):
-                    yield ResultItem(i, candidate, id=f"result-{i}")
+        # Results list hidden by default (citations still accessible via commands)
 
     def update_results(
         self,

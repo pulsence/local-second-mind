@@ -44,8 +44,10 @@ class HelpScreen(ModalScreen):
                     "Ctrl+I      Switch to Ingest tab\n"
                     "Ctrl+Q      Switch to Query tab\n"
                     "Ctrl+S      Switch to Settings tab\n"
+                    "Ctrl+P      Switch to Remote tab\n"
                     "F1          Show this help\n"
                     "Ctrl+C      Quit application\n"
+                    "Ctrl+Shift+R Refresh (Query/Ingest)\n"
                     "Tab         Next element\n"
                     "Shift+Tab   Previous element\n"
                     "Escape      Close modal / Clear input",
@@ -92,7 +94,7 @@ class HelpScreen(ModalScreen):
                 yield Static(
                     "Ctrl+B      Run build\n"
                     "Ctrl+T      Run tagging\n"
-                    "Ctrl+R      Refresh stats",
+                    "Ctrl+Shift+R Refresh stats",
                 )
 
                 yield Button("Close", id="close-help", variant="primary")

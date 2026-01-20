@@ -288,7 +288,19 @@ class SemanticScholarProvider(BaseRemoteProvider):
         if self.api_key:
             headers["x-api-key"] = self.api_key
 
-        response = requests.get(url, params=params, headers=headers, timeout=self.timeout)
+        retry_statuses = {429, 500, 502, 503, 504}
+        max_retries = 2
+
+        for attempt in range(max_retries + 1):
+            response = requests.get(url, params=params, headers=headers, timeout=self.timeout)
+            if response.status_code in retry_statuses and attempt < max_retries:
+                retry_after = response.headers.get("Retry-After")
+                delay = float(retry_after) if retry_after and retry_after.isdigit() else 2 ** attempt
+                time.sleep(delay)
+                continue
+            response.raise_for_status()
+            return response.json()
+
         response.raise_for_status()
         return response.json()
 

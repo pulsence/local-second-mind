@@ -120,7 +120,7 @@ class IxTheoProvider(BaseRemoteProvider):
         self.snippet_max_chars = int(
             snippet_max_chars if snippet_max_chars is not None else self.DEFAULT_SNIPPET_MAX_CHARS
         )
-        self.language = config.get("language") or "en"
+        self.language = config.get("language")
         self.traditions = config.get("traditions") or []
         self.search_type = config.get("search_type") or "all"
         self.include_reviews = config.get("include_reviews", True)
@@ -327,9 +327,11 @@ class IxTheoProvider(BaseRemoteProvider):
         # Add filters
         filters = []
 
-        # Language filter
+        # Language filter (only when explicitly configured)
         if self.language:
-            filters.append(f'language:"{self.language}"')
+            language_label = self._normalize_language(self.language)
+            if language_label:
+                filters.append(f'language:"{language_label}"')
 
         # Year filters
         if self.year_from:
@@ -592,6 +594,15 @@ class IxTheoProvider(BaseRemoteProvider):
         clean = re.sub(r"<[^>]+>", "", html)
         clean = re.sub(r"\s+", " ", clean)
         return clean.strip()
+
+    def _normalize_language(self, value: str) -> Optional[str]:
+        """Normalize language filter to IxTheo labels."""
+        if not value:
+            return None
+        lower = value.lower()
+        if lower in self.LANGUAGES:
+            return self.LANGUAGES[lower]
+        return value
 
     def _throttle(self) -> None:
         """Enforce rate limiting between requests."""

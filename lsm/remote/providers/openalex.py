@@ -69,7 +69,7 @@ class OpenAlexProvider(BaseRemoteProvider):
         self.year_from = config.get("year_from")
         self.year_to = config.get("year_to")
         self.open_access_only = config.get("open_access_only", False)
-        self.work_type = config.get("type")
+        self.work_type = self._resolve_work_type(config)
         self.concepts = config.get("concepts") or []
         self._last_request_time = 0.0
 
@@ -210,6 +210,16 @@ class OpenAlexProvider(BaseRemoteProvider):
             logger.error(f"Error fetching citations: {exc}")
             return []
 
+    def _resolve_work_type(self, config: Dict[str, Any]) -> Optional[str]:
+        """Resolve optional work type without clashing with provider config."""
+        work_type = config.get("work_type")
+        if work_type:
+            return work_type
+        fallback = config.get("type")
+        if fallback and fallback not in {"openalex", "open-alex"}:
+            return fallback
+        return None
+
     def get_references(
         self, work_id: str, max_results: int = 10
     ) -> List[Dict[str, Any]]:
@@ -281,7 +291,10 @@ class OpenAlexProvider(BaseRemoteProvider):
         if self.open_access_only:
             filters.append("open_access.is_oa:true")
         if self.work_type:
-            filters.append(f"type:{self.work_type}")
+            if self.work_type in self._get_valid_types():
+                filters.append(f"type:{self.work_type}")
+            else:
+                logger.warning(f"Ignoring invalid OpenAlex type filter: {self.work_type}")
         for concept in self.concepts:
             filters.append(f"concepts.id:{concept}")
 

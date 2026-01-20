@@ -71,7 +71,7 @@ class CrossrefProvider(BaseRemoteProvider):
         )
         self.year_from = config.get("year_from")
         self.year_to = config.get("year_to")
-        self.work_type = config.get("type")
+        self.work_type = self._resolve_work_type(config)
         self.has_full_text = config.get("has_full_text", False)
         self.has_references = config.get("has_references", False)
         self.has_orcid = config.get("has_orcid", False)
@@ -212,6 +212,16 @@ class CrossrefProvider(BaseRemoteProvider):
             logger.error(f"Error fetching funder works: {exc}")
             return []
 
+    def _resolve_work_type(self, config: Dict[str, Any]) -> Optional[str]:
+        """Resolve optional work type without clashing with provider config."""
+        work_type = config.get("work_type")
+        if work_type:
+            return work_type
+        fallback = config.get("type")
+        if fallback and fallback not in {"crossref", "cross-ref"}:
+            return fallback
+        return None
+
     def get_member_works(
         self, member_id: str, max_results: int = 10
     ) -> List[Dict[str, Any]]:
@@ -296,7 +306,10 @@ class CrossrefProvider(BaseRemoteProvider):
         if self.year_to:
             filters.append(f"until-pub-date:{self.year_to}")
         if self.work_type:
-            filters.append(f"type:{self.work_type}")
+            if self.work_type in self._get_valid_types():
+                filters.append(f"type:{self.work_type}")
+            else:
+                logger.warning(f"Ignoring invalid Crossref type filter: {self.work_type}")
         if self.has_full_text:
             filters.append("has-full-text:true")
         if self.has_references:

@@ -10,14 +10,12 @@ Provides the query interface with:
 from __future__ import annotations
 
 from typing import TYPE_CHECKING, Optional, List, Any
-from contextlib import redirect_stdout, redirect_stderr
 import asyncio
-import io
 
 from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Container, Vertical, Horizontal, ScrollableContainer
-from textual.widgets import Static, Log
+from textual.widgets import Static, RichLog
 from textual.widget import Widget
 from textual.message import Message
 from textual.reactive import reactive
@@ -26,7 +24,7 @@ from lsm.logging import get_logger
 from lsm.ui.tui.widgets.results import ResultsPanel, CitationSelected, CitationExpanded
 from lsm.ui.tui.widgets.input import CommandInput, CommandSubmitted
 from lsm.ui.tui.completions import create_completer
-from lsm.query.commands import handle_command as handle_query_command
+from lsm.query.commands import handle_command as handle_query_command, CommandResult
 from lsm.query.session import SessionState
 from lsm.query.cost_tracking import CostTracker
 
@@ -59,6 +57,7 @@ class QueryScreen(Widget):
         Binding("enter", "submit_query", "Submit", show=False),
         Binding("ctrl+e", "expand_citation", "Expand", show=False),
         Binding("ctrl+o", "open_source", "Open Source", show=False),
+        Binding("ctrl+shift+r", "refresh_logs", "Refresh Logs", show=False),
         Binding("escape", "clear_input", "Clear", show=False),
     ]
 
@@ -93,7 +92,7 @@ class QueryScreen(Widget):
                 # Log output panel
                 with Container(id="query-log-panel"):
                     yield Static("Logs", classes="log-panel-title")
-                    yield Log(id="query-log", auto_scroll=True)
+                    yield RichLog(id="query-log", auto_scroll=True, wrap=True)
 
             # Input area with CommandInput widget
             yield CommandInput(
@@ -107,7 +106,7 @@ class QueryScreen(Widget):
         logger.debug("Query screen mounted")
         self.query_one("#query-command-input", CommandInput).focus()
         if hasattr(self.app, "_tui_log_buffer"):
-            log_widget = self.query_one("#query-log", Log)
+            log_widget = self.query_one("#query-log", RichLog)
             for message in self.app._tui_log_buffer:
                 log_widget.write(f"{message}\n")
             log_widget.scroll_end()
@@ -175,25 +174,20 @@ class QueryScreen(Widget):
                 cost_tracker=CostTracker(),
             )
 
-    def _execute_query_command(self, command: str) -> tuple[bool, str]:
+    def _execute_query_command(self, command: str) -> CommandResult:
         """Run the query command handler and capture output."""
-        buffer = io.StringIO()
         try:
-            with redirect_stdout(buffer), redirect_stderr(buffer):
-                handle_query_command(
-                    command,
-                    self.app.query_state,
-                    self.app.config,
-                    self.app.query_embedder,
-                    self.app.query_provider,
-                )
+            return handle_query_command(
+                command,
+                self.app.query_state,
+                self.app.config,
+                self.app.query_embedder,
+                self.app.query_provider,
+            )
         except SystemExit:
-            return True, buffer.getvalue()
+            return CommandResult(output="", should_exit=True)
         except Exception as exc:
-            output = buffer.getvalue()
-            return False, f"{output}\nError: {exc}".strip()
-
-        return False, buffer.getvalue()
+            return CommandResult(output=f"Error: {exc}", handled=False)
 
     async def _run_query_command(self, command: str) -> str:
         """Run a query command using the shared REPL handlers."""
@@ -203,14 +197,14 @@ class QueryScreen(Widget):
         if normalized.lower() == "/quit":
             normalized = "/exit"
 
-        did_exit, output = await asyncio.to_thread(self._execute_query_command, normalized)
+        result = await asyncio.to_thread(self._execute_query_command, normalized)
 
-        if normalized.lower() == "/exit" or did_exit:
+        if normalized.lower() == "/exit" or result.should_exit:
             self.app.exit()
         elif normalized.lower().startswith("/mode"):
             self.app.current_mode = self.app.config.query.mode
 
-        return output.rstrip()
+        return result.output.rstrip()
 
     async def _handle_query(self, query: str) -> None:
         """
@@ -359,6 +353,8 @@ KEYBOARD SHORTCUTS
 Ctrl+I          Switch to Ingest tab
 Ctrl+Q          Switch to Query tab
 Ctrl+S          Switch to Settings tab
+Ctrl+P          Switch to Remote tab
+Ctrl+Shift+R    Refresh logs
 F1              Show help modal
 Ctrl+C          Quit
 
@@ -511,3 +507,13 @@ Use /mode to switch between grounded, insight, and hybrid modes."""
         """Clear the input field."""
         command_input = self.query_one("#query-command-input", CommandInput)
         command_input.clear()
+
+    def action_refresh_logs(self) -> None:
+        """Refresh the log panel from buffered logs."""
+        if not hasattr(self.app, "_tui_log_buffer"):
+            return
+        log_widget = self.query_one("#query-log", RichLog)
+        log_widget.clear()
+        for message in self.app._tui_log_buffer:
+            log_widget.write(f"{message}\n")
+        log_widget.scroll_end()

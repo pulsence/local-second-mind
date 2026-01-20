@@ -48,7 +48,7 @@ class IngestScreen(Widget):
     BINDINGS = [
         Binding("ctrl+b", "run_build", "Build", show=True),
         Binding("ctrl+t", "run_tagging", "Tag", show=True),
-        Binding("ctrl+r", "refresh_stats", "Refresh", show=True),
+        Binding("ctrl+shift+r", "refresh_stats", "Refresh", show=True),
         Binding("escape", "clear_input", "Clear", show=False),
     ]
 
@@ -120,7 +120,7 @@ class IngestScreen(Widget):
                         "/stats            - Show detailed statistics\n"
                         "/explore [query]  - Browse indexed files\n"
                         "/wipe             - Clear collection\n\n"
-                        "Use Ctrl+B to build, Ctrl+T to tag, Ctrl+R to refresh.",
+                        "Use Ctrl+B to build, Ctrl+T to tag, Ctrl+Shift+R to refresh.",
                         id="ingest-output",
                     )
                     yield Tree("Explore Results", id="ingest-explore-tree")
@@ -212,7 +212,7 @@ KEYBOARD SHORTCUTS
 
 Ctrl+B             Run build
 Ctrl+T             Run tagging
-Ctrl+R             Refresh stats
+Ctrl+Shift+R        Refresh stats
 
 Options:
   --force          Force full rebuild (skip incremental)

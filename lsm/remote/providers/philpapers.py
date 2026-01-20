@@ -18,6 +18,7 @@ import re
 import xml.etree.ElementTree as ET
 from datetime import datetime, timezone
 from typing import List, Dict, Any, Optional
+from urllib.parse import quote_plus
 
 import requests
 
@@ -55,7 +56,7 @@ class PhilPapersProvider(BaseRemoteProvider):
     """
 
     OAI_ENDPOINT = "https://philpapers.org/oai.pl"
-    SEARCH_ENDPOINT = "https://philpapers.org/s/"
+    SEARCH_ENDPOINT = "https://philpapers.org/s"
     DEFAULT_TIMEOUT = 15
     DEFAULT_MIN_INTERVAL_SECONDS = 2.0  # Be respectful to PhilPapers servers
     DEFAULT_SNIPPET_MAX_CHARS = 700
@@ -174,6 +175,10 @@ class PhilPapersProvider(BaseRemoteProvider):
 
             # Try OAI-PMH search for open access content
             results = self._search_oai(parsed_query, max_results)
+
+            # Fallback to HTML search if OAI results are sparse
+            if len(results) < max_results:
+                results = self._search_html(query, max_results)
 
             # If we didn't get enough results and have API credentials,
             # we could try the JSON API (for future extension)
@@ -299,7 +304,8 @@ class PhilPapersProvider(BaseRemoteProvider):
             if subject in self.SUBJECT_CATEGORIES:
                 params["set"] = f"subject:{subject}"
 
-        records = self._fetch_oai_records(params, max_results * 3)  # Fetch more to filter
+        fetch_limit = min(max_results * 20, 200)
+        records = self._fetch_oai_records(params, fetch_limit)
 
         # Filter records by query terms
         results = []
@@ -330,6 +336,50 @@ class PhilPapersProvider(BaseRemoteProvider):
             if result:
                 results.append(result)
 
+        return results
+
+    def _search_html(self, query: str, max_results: int) -> List[RemoteResult]:
+        """Fallback HTML search for PhilPapers."""
+        url = self.SEARCH_ENDPOINT
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) LocalSecondMind/1.0",
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            "Accept-Language": "en-US,en;q=0.9",
+            "Referer": "https://philpapers.org/",
+        }
+        params = {"search": query}
+
+        try:
+            session = requests.Session()
+            session.get("https://philpapers.org/", headers=headers, timeout=self.timeout)
+            response = session.get(url, params=params, headers=headers, timeout=self.timeout)
+            response.raise_for_status()
+        except Exception as exc:
+            logger.error(f"PhilPapers HTML search error: {exc}")
+            return []
+
+        html = response.text
+        results: List[RemoteResult] = []
+
+        pattern = re.compile(r'href="(/rec/[^"#?]+)"[^>]*>([^<]+)</a>', re.IGNORECASE)
+        for i, match in enumerate(pattern.finditer(html)):
+            if len(results) >= max_results:
+                break
+            path = match.group(1)
+            title = match.group(2).strip() or "Untitled"
+            url = f"https://philpapers.org{path}"
+            score = max(0.2, 1.0 - (i * 0.8 / max(1, max_results - 1)))
+            results.append(
+                RemoteResult(
+                    title=title,
+                    url=url,
+                    snippet="PhilPapers search result",
+                    score=score,
+                    metadata={"source": "PhilPapers"},
+                )
+            )
+
+        logger.info(f"PhilPapers HTML returned {len(results)} results")
         return results
 
     def _fetch_oai_records(
