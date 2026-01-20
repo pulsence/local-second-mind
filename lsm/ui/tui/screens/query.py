@@ -17,7 +17,7 @@ from datetime import datetime
 from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Container, Vertical, Horizontal, ScrollableContainer
-from textual.widgets import Static, RichLog
+from textual.widgets import Static, RichLog, TabbedContent
 from textual.widget import Widget
 from textual.message import Message
 from textual.reactive import reactive
@@ -133,12 +133,23 @@ class QueryScreen(Widget):
     def on_mount(self) -> None:
         """Handle screen mount - focus the input."""
         logger.debug("Query screen mounted")
-        self.query_one("#query-command-input", CommandInput).focus()
+        self._focus_command_input()
         if hasattr(self.app, "_tui_log_buffer"):
             log_widget = self.query_one("#query-log", RichLog)
             for message in self.app._tui_log_buffer:
                 log_widget.write(f"{message}\n")
             log_widget.scroll_end()
+
+    def on_tabbed_content_tab_activated(
+        self, event: TabbedContent.TabActivated
+    ) -> None:
+        """Focus input when the query tab becomes active."""
+        tab_id = event.tab.id
+        if not tab_id:
+            return
+        context = tab_id.replace("-tab", "")
+        if context == "query":
+            self._focus_command_input()
 
     async def on_command_submitted(self, event: CommandSubmitted) -> None:
         """Handle command input submission from CommandInput widget."""
@@ -1205,25 +1216,82 @@ class QueryScreen(Widget):
         """Display help text."""
         self._show_message(self._get_help_text())
 
+    def _focus_command_input(self) -> None:
+        """Focus the command input when the query context is active."""
+        if getattr(self.app, "current_context", None) != "query":
+            return
+        command_input = self.query_one("#query-command-input", CommandInput)
+        self.call_after_refresh(command_input.focus)
+
     def _get_help_text(self) -> str:
         """Build help text for the query screen."""
         return """QUERY COMMANDS
 
-/help           Show this help
-/mode           Show current query mode
-/mode <name>    Switch to a different query mode
-/show S#        Show the cited chunk (e.g., /show S2)
-/expand S#      Show full chunk text (no truncation)
-/costs          Show session cost summary
-/debug          Show retrieval diagnostics
+Navigation
+/help, /?                     Show this help
+/exit, /quit                  Exit the application
+/ingest, /i                   Switch to Ingest tab
+/query, /q                    Switch to Query tab
+
+Modes and sources
+/mode                         Show current query mode
+/mode <name>                  Switch to a different query mode
+/mode set <setting> <on|off>  Toggle model_knowledge, remote, notes
+
+Models and providers
+/model                        Show current model selections
+/model <task> <provider> <model>  Set model for query/tag/rerank
+/models [provider]            List available models
+/providers                    Show configured LLM providers
+/provider-status              Show provider health status
+/vectordb-providers           Show available vector DB providers
+/vectordb-status              Show vector DB status
+/remote-providers             Show remote providers summary
+
+Remote search
+/remote-search <provider> <query>     Test a provider
+/remote-search-all <query>            Search all enabled providers
+/remote-provider enable <name>        Enable a provider
+/remote-provider disable <name>       Disable a provider
+/remote-provider weight <name> <value>  Set provider weight
+
+Results
+/show S#                      Show the cited chunk (e.g., /show S2)
+/expand S#                    Show full chunk text (no truncation)
+/open S#                      Open cited source file
+
+Notes and citations
+/note [filename]              Save a note for the last query
+/notes [filename]             Same as /note
+/export-citations [fmt] [path]  Export citations (fmt: bibtex|zotero)
+
+Filters and pinned chunks
+/load <file_path>             Pin chunks from a file
+/load clear                   Clear pinned chunks
+/set path_contains <substring> [more...]
+/set ext_allow .md .pdf
+/set ext_deny .txt
+/clear path_contains|ext_allow|ext_deny
+
+Costs and diagnostics
+/costs                        Show session cost summary
+/costs export [path]          Export cost data to CSV
+/budget                       Show budget limit
+/budget set <amount>          Set budget limit
+/cost-estimate <query>        Estimate query cost
+/debug                        Show retrieval diagnostics
 
 KEYBOARD SHORTCUTS
 
 Ctrl+I          Switch to Ingest tab
 Ctrl+Q          Switch to Query tab
 Ctrl+S          Switch to Settings tab
+Ctrl+R          Switch to Remote tab
 Ctrl+P          Switch to Remote tab
+Ctrl+E          Expand selected citation
+Ctrl+O          Open selected citation source
 Ctrl+Shift+R    Refresh logs
+Esc             Clear input
 F1              Show help modal
 Ctrl+C          Quit
 
