@@ -10,6 +10,16 @@ import pytest
 from pathlib import Path
 from typing import Dict, Any
 
+from lsm.config.models import (
+    FeatureLLMConfig,
+    IngestConfig,
+    LLMProviderConfig,
+    LLMRegistryConfig,
+    LSMConfig,
+    QueryConfig,
+    VectorDBConfig,
+)
+
 
 # -----------------------------------------------------------------------------
 # Configuration Fixtures
@@ -322,3 +332,70 @@ def sample_metadata():
             "ingested_at": "2024-01-02T00:00:00Z"
         }
     ]
+
+
+@pytest.fixture
+def global_folder(tmp_path: Path, monkeypatch) -> Path:
+    """
+    Provide an isolated global folder for tests.
+    """
+    folder = tmp_path / "global"
+    monkeypatch.setenv("LSM_GLOBAL_FOLDER", str(folder))
+    return folder
+
+
+@pytest.fixture
+def ingest_config(tmp_path: Path, global_folder: Path) -> LSMConfig:
+    """
+    Provide a minimal valid LSMConfig for ingest API tests.
+    """
+    roots_dir = tmp_path / "docs"
+    roots_dir.mkdir(parents=True, exist_ok=True)
+
+    ingest = IngestConfig(
+        roots=[roots_dir],
+        persist_dir=tmp_path / ".chroma",
+        collection="test_collection",
+        manifest=tmp_path / ".ingest" / "manifest.json",
+    )
+    query = QueryConfig()
+    llm = LLMRegistryConfig(
+        llms=[
+            LLMProviderConfig(
+                provider_name="local",
+                query=FeatureLLMConfig(model="llama3.1"),
+            )
+        ]
+    )
+    vectordb = VectorDBConfig(
+        provider="chromadb",
+        persist_dir=tmp_path / ".chroma",
+        collection="test_collection",
+    )
+    return LSMConfig(
+        ingest=ingest,
+        query=query,
+        llm=llm,
+        vectordb=vectordb,
+        global_folder=global_folder,
+    )
+
+
+@pytest.fixture
+def mock_vectordb_provider(mocker):
+    """
+    Provide a mock vector DB provider.
+    """
+    provider = mocker.MagicMock()
+    provider.name = "chromadb"
+    provider.count.return_value = 0
+    provider.get_stats.return_value = {"provider": "chromadb"}
+    return provider
+
+
+@pytest.fixture
+def progress_callback_mock(mocker):
+    """
+    Provide a reusable progress callback mock.
+    """
+    return mocker.MagicMock()
