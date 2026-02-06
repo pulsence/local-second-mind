@@ -1089,7 +1089,16 @@ class QueryScreen(Widget):
                     except Exception:
                         pass
 
-                self.app.call_from_thread(update)
+                if hasattr(self.app, "run_on_ui_thread"):
+                    self.app.run_on_ui_thread(update)
+                else:
+                    try:
+                        self.app.call_from_thread(update)
+                    except RuntimeError as exc:
+                        if "must run in a different thread" in str(exc):
+                            update()
+                        else:
+                            raise
 
             result = await run_query(
                 query,

@@ -419,7 +419,16 @@ class IngestScreen(Widget):
                 else:
                     self._set_command_status(f"Analyzing: {analyzed:,} chunks")
                     self._update_command_progress(None, None)
-            self.app.call_from_thread(update)
+            if hasattr(self.app, "run_on_ui_thread"):
+                self.app.run_on_ui_thread(update)
+            else:
+                try:
+                    self.app.call_from_thread(update)
+                except RuntimeError as exc:
+                    if "must run in a different thread" in str(exc):
+                        update()
+                    else:
+                        raise
 
         def build_progress_callback(event: str, current: int, total: int, message: str) -> None:
             def update() -> None:
@@ -428,7 +437,16 @@ class IngestScreen(Widget):
                     self._update_command_progress(current, total)
                 else:
                     self._update_command_progress(None, None)
-            self.app.call_from_thread(update)
+            if hasattr(self.app, "run_on_ui_thread"):
+                self.app.run_on_ui_thread(update)
+            else:
+                try:
+                    self.app.call_from_thread(update)
+                except RuntimeError as exc:
+                    if "must run in a different thread" in str(exc):
+                        update()
+                    else:
+                        raise
 
         result, prompt, consumed = await asyncio.to_thread(
             self._execute_ingest_command,

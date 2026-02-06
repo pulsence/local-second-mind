@@ -87,6 +87,7 @@
       chunks, a chunk should NEVER include two different paragraphs. When headings are present the
       heading title should be stored in the Chunk metadata. A chunk should NEVER include two different
       headings.
+    - Once the base chunk amount is settled by the above criteria then there should be a 20-30% overlap.
 - Enable partial ingest by time and file count
 - /stats should cache results and be able to be updated incrementally
 

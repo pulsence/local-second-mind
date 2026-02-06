@@ -52,6 +52,7 @@ class LSMApp(App):
         Binding("f1", "show_help", "Help", show=False),
         Binding("ctrl+c", "quit", "Quit", show=False),
         Binding("ctrl+d", "quit", "Quit", show=False),
+        Binding("ctrl+z", "quit", "Quit", show=False),
     ]
 
     # Reactive properties for state
@@ -170,7 +171,7 @@ class LSMApp(App):
                         except Exception:
                             pass
 
-                    self._app.call_from_thread(update)
+                    self._app.run_on_ui_thread(update)
                     return len(message)
 
                 def flush(self) -> None:
@@ -196,7 +197,7 @@ class LSMApp(App):
                         except Exception:
                             pass
 
-                    self._app.call_from_thread(update)
+                    self._app.run_on_ui_thread(update)
                 except Exception:
                     pass
 
@@ -222,6 +223,17 @@ class LSMApp(App):
                 log_widget.write(f"{message}\n")
             except Exception:
                 continue
+
+    def run_on_ui_thread(self, callback) -> None:
+        """Run a callback on the app UI thread from either same or worker thread."""
+        try:
+            self.call_from_thread(callback)
+        except RuntimeError as exc:
+            # Textual raises this when already on the app thread.
+            if "must run in a different thread" in str(exc):
+                callback()
+                return
+            raise
 
     # -------------------------------------------------------------------------
     # Provider Initialization (lazy, async-friendly)

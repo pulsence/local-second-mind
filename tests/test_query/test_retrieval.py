@@ -41,8 +41,10 @@ class TestEmbedderInit:
     """Tests for embedder initialization."""
 
     @patch("lsm.query.retrieval.SentenceTransformer")
-    def test_init_embedder_cpu(self, mock_st_class):
+    def test_init_embedder_cpu(self, mock_st_class, monkeypatch):
         """Test initializing embedder on CPU."""
+        import lsm.query.retrieval as retrieval
+        monkeypatch.setattr(retrieval, "_sentence_transformer_import_error", None)
         mock_model = Mock()
         mock_st_class.return_value = mock_model
 
@@ -55,14 +57,40 @@ class TestEmbedderInit:
         assert embedder == mock_model
 
     @patch("lsm.query.retrieval.SentenceTransformer")
-    def test_init_embedder_cuda(self, mock_st_class):
+    def test_init_embedder_cuda(self, mock_st_class, monkeypatch):
         """Test initializing embedder on CUDA."""
+        import lsm.query.retrieval as retrieval
+        monkeypatch.setattr(retrieval, "_sentence_transformer_import_error", None)
         mock_model = Mock()
         mock_st_class.return_value = mock_model
 
         embedder = init_embedder("test-model", "cuda")
 
         mock_st_class.assert_called_once_with("test-model", device="cuda")
+
+    def test_init_embedder_import_error(self, monkeypatch):
+        """Test clear error when sentence-transformers import failed."""
+        import lsm.query.retrieval as retrieval
+
+        monkeypatch.setattr(retrieval, "_sentence_transformer_import_error", ImportError("missing dep"))
+        with pytest.raises(RuntimeError, match="Failed to import sentence-transformers"):
+            retrieval.init_embedder("test-model", "cpu")
+
+    @patch("lsm.query.retrieval.SentenceTransformer")
+    def test_init_embedder_cuda_falls_back_to_cpu(self, mock_st_class, monkeypatch):
+        """If CUDA isn't available, init should retry on CPU."""
+        import lsm.query.retrieval as retrieval
+
+        monkeypatch.setattr(retrieval, "_sentence_transformer_import_error", None)
+        mock_model = Mock()
+        mock_st_class.side_effect = [RuntimeError("Torch not compiled with CUDA enabled"), mock_model]
+
+        embedder = init_embedder("test-model", "cuda")
+
+        assert embedder == mock_model
+        assert mock_st_class.call_count == 2
+        assert mock_st_class.call_args_list[0].kwargs["device"] == "cuda"
+        assert mock_st_class.call_args_list[1].kwargs["device"] == "cpu"
 
 
 class TestEmbedText:

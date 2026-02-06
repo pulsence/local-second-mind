@@ -68,6 +68,8 @@ class TestLSMAppInit:
 
         app = LSMApp(mock_config)
         assert len(app.BINDINGS) > 0
+        keys = {binding.key for binding in app.BINDINGS}
+        assert "ctrl+z" in keys
 
     def test_app_has_css_path(self):
         """LSMApp should have CSS path defined."""
@@ -171,6 +173,28 @@ class TestLSMAppMethods:
 
         app.update_chunk_count(5000)
         assert app.chunk_count == 5000
+
+    def test_run_on_ui_thread_falls_back_on_same_thread_error(self):
+        """run_on_ui_thread should execute callback directly on same-thread error."""
+        from lsm.ui.tui.app import LSMApp
+
+        mock_config = Mock()
+        mock_config.vectordb = Mock()
+        mock_config.query = Mock()
+        mock_config.query.mode = "grounded"
+
+        app = LSMApp(mock_config)
+        seen = {"called": False}
+
+        def _cb():
+            seen["called"] = True
+
+        def _raise(_fn):
+            raise RuntimeError("The `call_from_thread` method must run in a different thread from the app.")
+
+        app.call_from_thread = _raise  # type: ignore[assignment]
+        app.run_on_ui_thread(_cb)
+        assert seen["called"] is True
 
 
 class TestLSMAppActions:

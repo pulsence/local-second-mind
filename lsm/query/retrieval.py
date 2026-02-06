@@ -16,11 +16,19 @@ from lsm.logging import get_logger
 from lsm.vectordb.base import BaseVectorDBProvider
 from .session import Candidate
 
+_sentence_transformer_import_error: Exception | None = None
 try:
     from sentence_transformers import SentenceTransformer
-except Exception:  # pragma: no cover - compatibility fallback for test/runtime environments
+except Exception as exc:  # pragma: no cover - compatibility fallback for test/runtime environments
+    _sentence_transformer_import_error = exc
+
     class SentenceTransformer:  # type: ignore[no-redef]
-        pass
+        def __init__(self, *args, **kwargs) -> None:
+            raise RuntimeError(
+                "sentence-transformers is unavailable. "
+                "Install compatible dependencies (e.g. `pip install sentence-transformers`) "
+                "and verify torch is installed."
+            ) from _sentence_transformer_import_error
 
 logger = get_logger(__name__)
 
@@ -80,7 +88,30 @@ def init_embedder(model_name: str, device: str = "cpu") -> "SentenceTransformer"
         >>> embedder = init_embedder("sentence-transformers/all-MiniLM-L6-v2", "cpu")
     """
     logger.debug(f"Initializing embedder: {model_name} on {device}")
-    model = SentenceTransformer(model_name, device=device)
+    if _sentence_transformer_import_error is not None:
+        raise RuntimeError(
+            "Failed to import sentence-transformers. "
+            "Install compatible dependencies (e.g. `pip install sentence-transformers`) "
+            "and ensure torch is available."
+        ) from _sentence_transformer_import_error
+
+    try:
+        model = SentenceTransformer(model_name, device=device)
+    except Exception as exc:
+        # Common local setup issue: config asks for CUDA but installed torch is CPU-only.
+        if str(device).lower().startswith("cuda"):
+            message = str(exc).lower()
+            if "not compiled with cuda" in message or "cuda" in message:
+                logger.warning(
+                    "Embedder init failed on device '%s' (%s). Falling back to CPU.",
+                    device,
+                    exc,
+                )
+                model = SentenceTransformer(model_name, device="cpu")
+            else:
+                raise
+        else:
+            raise
     logger.info(f"Embedder ready: {model_name}")
     return model
 
