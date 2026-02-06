@@ -4,7 +4,9 @@ Tests for query session module.
 
 import pytest
 
-from lsm.query.session import Candidate, SessionState
+from pathlib import Path
+
+from lsm.query.session import Candidate, SessionState, get_default_chats_dir
 
 
 class TestCandidate:
@@ -356,3 +358,8 @@ class TestSessionState:
         assert state.last_debug["k"] == 12
         assert state.last_debug["best_relevance"] == 0.85
         assert state.last_debug["filters_active"] is True
+
+
+def test_get_default_chats_dir(tmp_path: Path):
+    resolved = get_default_chats_dir(tmp_path / "lsm-home")
+    assert resolved == (tmp_path / "lsm-home" / "Chats").resolve()

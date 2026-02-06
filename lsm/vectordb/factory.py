@@ -4,29 +4,27 @@ Factory for vector database providers.
 
 from __future__ import annotations
 
+from importlib import import_module
 from typing import Dict, Type
 
 from lsm.logging import get_logger
 from lsm.config.models import VectorDBConfig
 from .base import BaseVectorDBProvider
-from .chromadb import ChromaDBProvider
 
 logger = get_logger(__name__)
 
-PostgreSQLProvider = None
-
-try:
-    from .postgresql import PostgreSQLProvider
-except Exception as e:
-    logger.debug(f"PostgreSQL provider not available: {e}")
-
-
-PROVIDER_REGISTRY: Dict[str, Type[BaseVectorDBProvider]] = {
-    "chromadb": ChromaDBProvider,
+PROVIDER_REGISTRY: Dict[str, str | Type[BaseVectorDBProvider]] = {
+    "chromadb": "lsm.vectordb.chromadb:ChromaDBProvider",
+    "postgresql": "lsm.vectordb.postgresql:PostgreSQLProvider",
 }
 
-if PostgreSQLProvider is not None:
-    PROVIDER_REGISTRY["postgresql"] = PostgreSQLProvider
+
+def _load_provider_class(ref: str | Type[BaseVectorDBProvider]) -> Type[BaseVectorDBProvider]:
+    if isinstance(ref, type):
+        return ref
+    module_name, class_name = ref.split(":", 1)
+    module = import_module(module_name)
+    return getattr(module, class_name)
 
 
 def create_vectordb_provider(config: VectorDBConfig) -> BaseVectorDBProvider:
@@ -48,7 +46,13 @@ def create_vectordb_provider(config: VectorDBConfig) -> BaseVectorDBProvider:
             f"Available providers: {available}"
         )
 
-    provider_class = PROVIDER_REGISTRY[provider_name]
+    provider_ref = PROVIDER_REGISTRY[provider_name]
+    try:
+        provider_class = _load_provider_class(provider_ref)
+    except Exception as exc:
+        raise ValueError(
+            f"Vector DB provider '{provider_name}' is configured but unavailable: {exc}"
+        ) from exc
     logger.debug(f"Creating vector DB provider: {provider_name}")
     provider = provider_class(config)
 

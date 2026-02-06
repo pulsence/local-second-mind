@@ -16,8 +16,10 @@ from lsm.query.notes import (
     format_remote_sources,
     generate_note_content,
     write_note,
-    edit_note_in_editor
+    edit_note_in_editor,
+    resolve_notes_dir,
 )
+from lsm.config.loader import build_config_from_raw
 
 
 class TestSlugify:
@@ -130,7 +132,7 @@ class TestSourceFormatting:
 
         assert "Source 1" in result
         assert "doc.txt" in result
-        assert "Relevance: 0.80" in result  # 1.0 - 0.2
+        assert "**Relevance:** 0.80" in result  # 1.0 - 0.2
         assert "Test Document" in result
         assert "Test Author" in result
         assert "This is a test chunk" in result
@@ -443,3 +445,37 @@ class TestNoteEditing:
 
         with pytest.raises(OSError, match="Could not open editor"):
             edit_note_in_editor("test content")
+
+
+class TestResolveNotesDir:
+    """Tests for resolving notes directories from config."""
+
+    def _config(self, tmp_path: Path):
+        raw = {
+            "roots": [str(tmp_path / "docs")],
+            "llms": [
+                {
+                    "provider_name": "openai",
+                    "api_key": "test-key",
+                    "query": {"model": "gpt-5.2"},
+                }
+            ],
+            "vectordb": {
+                "provider": "chromadb",
+                "persist_dir": str(tmp_path / ".chroma"),
+                "collection": "test_collection",
+            },
+            "query": {"mode": "grounded"},
+            "global_folder": str(tmp_path / "global"),
+        }
+        return build_config_from_raw(raw, tmp_path / "config.json")
+
+    def test_default_notes_dir_uses_global_notes_folder(self, tmp_path: Path):
+        config = self._config(tmp_path)
+        resolved = resolve_notes_dir(config, "notes")
+        assert resolved == (config.global_folder / "Notes").resolve()
+
+    def test_custom_relative_notes_dir_uses_config_parent(self, tmp_path: Path):
+        config = self._config(tmp_path)
+        resolved = resolve_notes_dir(config, "custom_notes")
+        assert resolved == (config.config_path.parent / "custom_notes").resolve()

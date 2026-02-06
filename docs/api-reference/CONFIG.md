@@ -12,7 +12,9 @@ Fields:
 - `query: QueryConfig` (required)
 - `llm: LLMRegistryConfig` (required)
 - `modes: list[ModeConfig] | None` (optional, built-ins if None)
+- `notes: NotesConfig` (global notes configuration)
 - `remote_providers: list[RemoteProviderConfig] | None`
+- `global_folder: Path | None` (defaults to `<HOME>/Local Second Mind`)
 - `config_path: Path | None` (used for path resolution)
 
 Methods:
@@ -170,7 +172,6 @@ Fields:
 
 - `synthesis_style: str = grounded` (`grounded` or `insight`)
 - `source_policy: SourcePolicyConfig`
-- `notes: NotesConfig`
 
 Method:
 

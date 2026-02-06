@@ -1,7 +1,7 @@
 ## Note-taking Integrations
 
 Local Second Mind can format query notes for Obsidian and Logseq. Enable
-integration options per mode under a `modes` entry with matching `name`.
+integration options in the global top-level `notes` config.
 
 ### Obsidian
 
@@ -14,19 +14,14 @@ Recommended settings:
 Example:
 ```json
 {
-  "modes": [
-    {
-      "name": "grounded",
-      "notes": {
-        "enabled": true,
-        "dir": "notes",
-        "integration": "obsidian",
-        "wikilinks": true,
-        "backlinks": true,
-        "include_tags": true
-      }
-    }
-  ]
+  "notes": {
+    "enabled": true,
+    "dir": "notes",
+    "integration": "obsidian",
+    "wikilinks": true,
+    "backlinks": true,
+    "include_tags": true
+  }
 }
 ```
 
@@ -41,19 +36,14 @@ Recommended settings:
 Example:
 ```json
 {
-  "modes": [
-    {
-      "name": "grounded",
-      "notes": {
-        "enabled": true,
-        "dir": "notes",
-        "integration": "logseq",
-        "wikilinks": true,
-        "backlinks": true,
-        "include_tags": true
-      }
-    }
-  ]
+  "notes": {
+    "enabled": true,
+    "dir": "notes",
+    "integration": "logseq",
+    "wikilinks": true,
+    "backlinks": true,
+    "include_tags": true
+  }
 }
 ```
 

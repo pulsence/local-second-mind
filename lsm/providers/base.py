@@ -6,7 +6,7 @@ Defines the contract that all LLM providers must implement.
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 import time
 from typing import List, Dict, Any, Optional, Callable, Iterable
 
@@ -24,6 +24,8 @@ class ProviderHealthStats:
     last_success: Optional[datetime] = None
     last_failure: Optional[datetime] = None
     last_error: Optional[str] = None
+    last_error_category: Optional[str] = None
+    circuit_open_until: Optional[datetime] = None
 
     def as_dict(self) -> Dict[str, Any]:
         return {
@@ -33,6 +35,10 @@ class ProviderHealthStats:
             "last_success": self.last_success.isoformat() if self.last_success else None,
             "last_failure": self.last_failure.isoformat() if self.last_failure else None,
             "last_error": self.last_error,
+            "last_error_category": self.last_error_category,
+            "circuit_open_until": (
+                self.circuit_open_until.isoformat() if self.circuit_open_until else None
+            ),
         }
 
 
@@ -44,6 +50,8 @@ class BaseLLMProvider(ABC):
     """
 
     _GLOBAL_HEALTH_STATS: Dict[str, ProviderHealthStats] = {}
+    CIRCUIT_BREAKER_THRESHOLD = 5
+    CIRCUIT_BREAKER_COOLDOWN_SECONDS = 30.0
 
     def __init__(self) -> None:
         key = f"{self.name}:{self.model}"
@@ -232,6 +240,7 @@ class BaseLLMProvider(ABC):
         self._health_stats.success_count += 1
         self._health_stats.consecutive_failures = 0
         self._health_stats.last_success = datetime.utcnow()
+        self._health_stats.circuit_open_until = None
         if context:
             logger.debug(f"{self.name}/{self.model} call succeeded: {context}")
 
@@ -241,10 +250,55 @@ class BaseLLMProvider(ABC):
         self._health_stats.consecutive_failures += 1
         self._health_stats.last_failure = datetime.utcnow()
         self._health_stats.last_error = str(error)
+        self._health_stats.last_error_category = self.categorize_error(error)
+        if self._health_stats.consecutive_failures >= self.CIRCUIT_BREAKER_THRESHOLD:
+            self._health_stats.circuit_open_until = datetime.utcnow() + timedelta(
+                seconds=self.CIRCUIT_BREAKER_COOLDOWN_SECONDS
+            )
         label = f"{self.name}/{self.model}"
         if context:
             label = f"{label} ({context})"
         logger.error(f"Provider error in {label}: {error}")
+
+    def categorize_error(self, error: Exception) -> str:
+        """
+        Categorize provider exceptions as retryable or fatal.
+        """
+        if isinstance(error, (TimeoutError, ConnectionError)):
+            return "retryable"
+        if isinstance(error, (PermissionError, ValueError)):
+            return "fatal"
+
+        message = str(error).lower()
+        retryable_markers = (
+            "timeout",
+            "timed out",
+            "temporar",
+            "unavailable",
+            "rate limit",
+            "429",
+            "503",
+            "connection reset",
+            "connection aborted",
+            "try again",
+        )
+        for marker in retryable_markers:
+            if marker in message:
+                return "retryable"
+        return "fatal"
+
+    def is_retryable_error(self, error: Exception) -> bool:
+        """Return True if an exception should be retried."""
+        return self.categorize_error(error) == "retryable"
+
+    def _is_circuit_open(self) -> bool:
+        until = self._health_stats.circuit_open_until
+        if until is None:
+            return False
+        if datetime.utcnow() >= until:
+            self._health_stats.circuit_open_until = None
+            return False
+        return True
 
     def _with_retry(
         self,
@@ -266,6 +320,12 @@ class BaseLLMProvider(ABC):
             max_delay: Maximum delay in seconds
             retry_on: Optional predicate to decide if error is retryable
         """
+        if self._is_circuit_open():
+            raise RuntimeError(
+                f"Circuit breaker open for {self.name}/{self.model}; "
+                "recent failures exceeded threshold."
+            )
+
         attempt = 0
         while True:
             try:
@@ -273,8 +333,8 @@ class BaseLLMProvider(ABC):
             except Exception as e:
                 attempt += 1
                 should_retry = attempt < max_attempts
-                if retry_on is not None:
-                    should_retry = should_retry and retry_on(e)
+                checker = retry_on or self.is_retryable_error
+                should_retry = should_retry and checker(e)
 
                 if not should_retry:
                     raise

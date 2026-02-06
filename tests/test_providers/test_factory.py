@@ -81,6 +81,9 @@ class TestProviderFactory:
             def synthesize(self, question, context, mode="grounded", **kwargs):
                 return "Custom answer"
 
+            def stream_synthesize(self, question, context, mode="grounded", **kwargs):
+                yield "Custom answer"
+
             def generate_tags(self, text, num_tags=3, existing_tags=None, **kwargs):
                 return ["custom", "tag"]
 
@@ -127,6 +130,9 @@ class TestProviderFactory:
             def synthesize(self, question, context, mode="grounded", **kwargs):
                 return ""
 
+            def stream_synthesize(self, question, context, mode="grounded", **kwargs):
+                yield ""
+
             def generate_tags(self, text, num_tags=3, existing_tags=None, **kwargs):
                 return []
 
@@ -151,6 +157,9 @@ class TestProviderFactory:
 
             def synthesize(self, question, context, mode="grounded", **kwargs):
                 return ""
+
+            def stream_synthesize(self, question, context, mode="grounded", **kwargs):
+                yield ""
 
             def generate_tags(self, text, num_tags=3, existing_tags=None, **kwargs):
                 return []

@@ -269,12 +269,11 @@ LSMConfig
 │
 ├─ ModeConfig (custom modes)
 │  ├─ synthesis_style: str
-│  ├─ source_policy: SourcePolicyConfig
-│  └─ notes: NotesConfig
+│  └─ source_policy: SourcePolicyConfig
 │
 └─ RemoteProviderConfig
    ├─ type: str
-   ├─ enabled: bool
+   ├─ weight: float
    ├─ api_key: str
    └─ max_results: int
 ```

@@ -5,6 +5,8 @@
     "C:\\Users\\User\\Documents",
     "D:\\Writings"
   ],
+  "_comment_global_folder": "Default folder for app-level data (notes/chats). Defaults to <HOME>/Local Second Mind when omitted.",
+  "global_folder": "C:\\Users\\User\\Local Second Mind",
 
   "_comment_storage": "Vector database configuration",
   "vectordb": {
@@ -98,6 +100,18 @@
     "ext_allow": null,
     "ext_deny": null
   },
+  
+  "_comment_notes": "Global notes configuration (applies across all modes)",
+  "notes": {
+    "enabled": true,
+    "dir": "notes",
+    "template": "default",
+    "filename_format": "timestamp",
+    "integration": "none",
+    "wikilinks": false,
+    "backlinks": false,
+    "include_tags": false
+  },
 
   "_comment_modes": "Query mode definitions (grounded/insight/hybrid built-in, add custom modes here)",
   "modes": [
@@ -125,16 +139,6 @@
           "enabled": true,
           "require_label": true
         }
-      },
-      "notes": {
-        "enabled": true,
-        "dir": "research_notes",
-        "template": "default",
-        "filename_format": "timestamp",
-        "integration": "none",
-        "wikilinks": false,
-        "backlinks": false,
-        "include_tags": false
       }
     },
     {
@@ -162,12 +166,6 @@
           "enabled": true,
           "require_label": true
         }
-      },
-      "notes": {
-        "enabled": true,
-        "dir": "stem_notes",
-        "template": "default",
-        "filename_format": "timestamp"
       }
     },
     {
@@ -196,12 +194,6 @@
           "enabled": true,
           "require_label": true
         }
-      },
-      "notes": {
-        "enabled": true,
-        "dir": "humanities_notes",
-        "template": "default",
-        "filename_format": "timestamp"
       }
     }
   ],

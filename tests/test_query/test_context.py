@@ -3,13 +3,26 @@ Tests for query context module.
 """
 
 import pytest
+import time
+from pathlib import Path
 
 from lsm.query.context import (
     build_context_block,
     fallback_answer,
+    fetch_remote_sources,
 )
 from lsm.ui.utils import format_source_list
 from lsm.query.session import Candidate
+from lsm.config.models import (
+    LSMConfig,
+    IngestConfig,
+    QueryConfig,
+    LLMRegistryConfig,
+    LLMProviderConfig,
+    FeatureLLMConfig,
+    VectorDBConfig,
+    RemoteProviderConfig,
+)
 
 
 class TestBuildContextBlock:
@@ -347,3 +360,42 @@ class TestFormatSourceList:
 
         assert "[S1]" in formatted
         assert "unknown" in formatted.lower()
+
+
+def test_fetch_remote_sources_timeout_is_handled(monkeypatch):
+    """Slow remote provider should time out and return no results."""
+
+    class SlowProvider:
+        def search(self, question, max_results=5):
+            time.sleep(1.2)
+            return []
+
+    def fake_create_remote_provider(_type, _cfg):
+        return SlowProvider()
+
+    monkeypatch.setattr("lsm.query.context.create_remote_provider", fake_create_remote_provider)
+
+    config = LSMConfig(
+        ingest=IngestConfig(roots=[Path("/tmp")], manifest=Path("/tmp/manifest.json")),
+        query=QueryConfig(mode="hybrid"),
+        llm=LLMRegistryConfig(
+            llms=[
+                LLMProviderConfig(
+                    provider_name="openai",
+                    api_key="test",
+                    query=FeatureLLMConfig(model="gpt-5.2"),
+                )
+            ]
+        ),
+        vectordb=VectorDBConfig(persist_dir=Path("/tmp/.chroma"), collection="test"),
+        remote_providers=[
+            RemoteProviderConfig(name="slow", type="fake", timeout=1),
+        ],
+        config_path=Path("/tmp/config.json"),
+    )
+    mode_config = config.get_mode_config("hybrid")
+    mode_config.source_policy.remote.enabled = True
+    mode_config.source_policy.remote.remote_providers = ["slow"]
+
+    results = fetch_remote_sources("test", config, mode_config)
+    assert results == []

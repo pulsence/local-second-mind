@@ -9,7 +9,6 @@ A mode is represented by `ModeConfig`:
 
 - `synthesis_style`: `grounded` or `insight`
 - `source_policy`: `SourcePolicyConfig`
-- `notes`: `NotesConfig`
 
 `SourcePolicyConfig` groups three sub-policies:
 
@@ -41,7 +40,7 @@ These are defined in `LSMConfig._get_builtin_modes()`.
 
 ## Notes Integration
 
-`notes` is applied per mode and determines:
+`notes` is configured globally on `LSMConfig` and determines:
 
 - whether `/note` is allowed
 - where the note is written

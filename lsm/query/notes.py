@@ -11,12 +11,16 @@ import re
 import json
 from datetime import datetime
 from pathlib import Path
-from typing import List, Optional, Dict, Any
+from typing import TYPE_CHECKING, List, Optional, Dict, Any
 
 from lsm.logging import get_logger
+from lsm.paths import get_notes_folder
 import tempfile
 import subprocess
 import os
+
+if TYPE_CHECKING:
+    from lsm.config.models import LSMConfig
 
 logger = get_logger(__name__)
 
@@ -399,3 +403,21 @@ def write_note(
     except Exception as e:
         logger.error(f"Failed to write note: {e}")
         raise OSError(f"Could not write note to {note_path}: {e}")
+
+
+def resolve_notes_dir(config: "LSMConfig", notes_dir_value: str) -> Path:
+    """
+    Resolve notes directory with global-folder defaults.
+
+    If notes.dir is left at the default "notes", write into:
+    <global_folder>/Notes
+    """
+    if notes_dir_value.strip().lower() == "notes":
+        return get_notes_folder(config.global_folder)
+
+    candidate = Path(notes_dir_value).expanduser()
+    if candidate.is_absolute():
+        return candidate.resolve()
+    if config.config_path:
+        return (config.config_path.parent / candidate).resolve()
+    return candidate.resolve()

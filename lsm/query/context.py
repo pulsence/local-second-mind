@@ -10,6 +10,7 @@ Provides helper functions for building query context from various sources:
 from __future__ import annotations
 
 from dataclasses import dataclass
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
 from typing import Callable, List, Dict, Any, Optional, Tuple
 
 from lsm.config.models import LSMConfig
@@ -280,7 +281,16 @@ def fetch_remote_sources(
 
             max_results = provider_config.max_results or remote_policy.max_results
 
-            results = provider.search(question, max_results=max_results)
+            timeout_seconds = provider_config.timeout if provider_config.timeout is not None else 30
+            with ThreadPoolExecutor(max_workers=1) as pool:
+                future = pool.submit(provider.search, question, max_results=max_results)
+                try:
+                    results = future.result(timeout=max(1, int(timeout_seconds)))
+                except FuturesTimeoutError:
+                    future.cancel()
+                    raise TimeoutError(
+                        f"remote provider timed out after {timeout_seconds}s"
+                    )
 
             for result in results:
                 base_score = result.score if result.score is not None else 0.5

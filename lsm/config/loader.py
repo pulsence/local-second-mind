@@ -232,6 +232,7 @@ def build_config_from_raw(raw: Dict[str, Any], path: Path | str) -> LSMConfig:
     query_config = build_query_config(raw)
     vectordb_config = build_vectordb_config(raw)
     modes = build_modes_registry(raw)
+    notes_config = build_notes_config(raw.get("notes", {}))
     remote_providers = build_remote_providers_registry(raw)
 
     config = LSMConfig(
@@ -240,7 +241,9 @@ def build_config_from_raw(raw: Dict[str, Any], path: Path | str) -> LSMConfig:
         llm=llm_config,
         vectordb=vectordb_config,
         modes=modes,
+        notes=notes_config,
         remote_providers=remote_providers,
+        global_folder=raw.get("global_folder"),
         config_path=path,
     )
     config.validate()
@@ -404,12 +407,10 @@ def build_mode_config(raw: Dict[str, Any]) -> ModeConfig:
         ModeConfig instance
     """
     source_policy = build_source_policy_config(raw.get("source_policy", {}))
-    notes = build_notes_config(raw.get("notes", {}))
 
     return ModeConfig(
         synthesis_style=raw.get("synthesis_style", "grounded"),
         source_policy=source_policy,
-        notes=notes,
     )
 
 
@@ -666,16 +667,6 @@ def config_to_raw(config: LSMConfig) -> Dict[str, Any]:
                         "require_label": mode.source_policy.model_knowledge.require_label,
                     },
                 },
-                "notes": {
-                    "enabled": mode.notes.enabled,
-                    "dir": mode.notes.dir,
-                    "template": mode.notes.template,
-                    "filename_format": mode.notes.filename_format,
-                    "integration": mode.notes.integration,
-                    "wikilinks": mode.notes.wikilinks,
-                    "backlinks": mode.notes.backlinks,
-                    "include_tags": mode.notes.include_tags,
-                },
             }
             modes.append(mode_entry)
 
@@ -702,6 +693,7 @@ def config_to_raw(config: LSMConfig) -> Dict[str, Any]:
             )
 
     return {
+        "global_folder": str(config.global_folder) if config.global_folder else None,
         "roots": [str(root) for root in config.ingest.roots],
         "chroma_flush_interval": config.ingest.chroma_flush_interval,
         "embed_model": config.ingest.embed_model,
@@ -736,6 +728,16 @@ def config_to_raw(config: LSMConfig) -> Dict[str, Any]:
             "ext_deny": config.query.ext_deny,
         },
         "modes": modes or None,
+        "notes": {
+            "enabled": config.notes.enabled,
+            "dir": config.notes.dir,
+            "template": config.notes.template,
+            "filename_format": config.notes.filename_format,
+            "integration": config.notes.integration,
+            "wikilinks": config.notes.wikilinks,
+            "backlinks": config.notes.backlinks,
+            "include_tags": config.notes.include_tags,
+        },
         "remote_providers": remote_providers,
         "vectordb": {
             "provider": config.vectordb.provider,

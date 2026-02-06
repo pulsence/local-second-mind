@@ -105,3 +105,45 @@ def test_config_to_raw_omits_legacy_top_level_vectordb_fields(tmp_path: Path) ->
     assert "collection" not in serialized
     assert serialized["vectordb"]["persist_dir"].endswith(".chroma")
     assert serialized["vectordb"]["collection"] == "test_collection"
+
+
+def test_build_config_supports_global_folder(tmp_path: Path) -> None:
+    raw = _base_raw(tmp_path)
+    raw["global_folder"] = str(tmp_path / "lsm-global")
+    config = build_config_from_raw(raw, tmp_path / "config.json")
+
+    assert config.global_folder == (tmp_path / "lsm-global").resolve()
+    assert config.global_folder.exists()
+    assert (config.global_folder / "Notes").exists()
+    assert (config.global_folder / "Chats").exists()
+
+
+def test_config_to_raw_includes_global_folder(tmp_path: Path) -> None:
+    raw = _base_raw(tmp_path)
+    raw["global_folder"] = str(tmp_path / "lsm-global")
+    config = build_config_from_raw(raw, tmp_path / "config.json")
+    serialized = config_to_raw(config)
+
+    assert serialized["global_folder"] == str((tmp_path / "lsm-global").resolve())
+
+
+def test_notes_config_is_global_not_mode_scoped(tmp_path: Path) -> None:
+    raw = _base_raw(tmp_path)
+    raw["notes"] = {"enabled": False, "dir": "research_notes"}
+    raw["modes"] = [
+        {
+            "name": "research",
+            "synthesis_style": "grounded",
+            "source_policy": {},
+            "notes": {"enabled": True, "dir": "ignored_notes"},
+        }
+    ]
+
+    config = build_config_from_raw(raw, tmp_path / "config.json")
+    serialized = config_to_raw(config)
+
+    assert config.notes.enabled is False
+    assert config.notes.dir == "research_notes"
+    assert "notes" in serialized
+    assert serialized["notes"]["dir"] == "research_notes"
+    assert "notes" not in serialized["modes"][0]

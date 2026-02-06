@@ -218,11 +218,18 @@ async def query(
     context_block, sources = build_context_block(combined_candidates)
 
     emit("synthesis", 0, 1, "Generating answer...")
-    answer, synthesis_cost = await _synthesize_answer(
-        question, context_block, config, state, mode_config
-    )
-    emit("synthesis", 1, 1, "Answer generation complete")
-    total_cost += synthesis_cost
+    synthesis_failed = False
+    try:
+        answer, synthesis_cost = await _synthesize_answer(
+            question, context_block, config, state, mode_config
+        )
+        total_cost += synthesis_cost
+        emit("synthesis", 1, 1, "Answer generation complete")
+    except Exception as exc:
+        synthesis_failed = True
+        logger.error(f"Synthesis failed, returning fallback answer: {exc}")
+        answer = fallback_answer(question, combined_candidates)
+        emit("synthesis", 1, 1, f"Synthesis failed, returned fallback: {exc}")
 
     if "[S" not in answer:
         answer += (
@@ -240,6 +247,8 @@ async def query(
     _update_state(state, question, answer, chosen, remote_sources)
 
     source_list = format_source_list(sources)
+    if synthesis_failed:
+        state.last_debug["synthesis_fallback"] = True
 
     return QueryResult(
         answer=answer,

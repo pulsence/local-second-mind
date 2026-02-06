@@ -6,57 +6,34 @@ Handles provider instantiation based on configuration.
 
 from __future__ import annotations
 
+from importlib import import_module
 from typing import Dict, Type
 
 from lsm.config.models import LLMConfig
 from lsm.logging import get_logger
 from .base import BaseLLMProvider
-from .openai import OpenAIProvider
-
-AnthropicProvider = None
-LocalProvider = None
-GeminiProvider = None
-AzureOpenAIProvider = None
-
-try:
-    from .anthropic import AnthropicProvider
-except Exception as e:
-    logger.debug(f"Anthropic provider not available: {e}")
-
-try:
-    from .local import LocalProvider
-except Exception as e:
-    logger.debug(f"Local provider not available: {e}")
-
-try:
-    from .gemini import GeminiProvider
-except Exception as e:
-    logger.debug(f"Gemini provider not available: {e}")
-
-try:
-    from .azure_openai import AzureOpenAIProvider
-except Exception as e:
-    logger.debug(f"Azure OpenAI provider not available: {e}")
 
 logger = get_logger(__name__)
 
-# Registry of available providers
-PROVIDER_REGISTRY: Dict[str, Type[BaseLLMProvider]] = {
-    "openai": OpenAIProvider,
+# Registry maps provider name -> "module:ClassName"
+PROVIDER_REGISTRY: Dict[str, str | Type[BaseLLMProvider]] = {
+    "openai": "lsm.providers.openai:OpenAIProvider",
+    "anthropic": "lsm.providers.anthropic:AnthropicProvider",
+    "claude": "lsm.providers.anthropic:AnthropicProvider",
+    "local": "lsm.providers.local:LocalProvider",
+    "gemini": "lsm.providers.gemini:GeminiProvider",
+    "azure_openai": "lsm.providers.azure_openai:AzureOpenAIProvider",
 }
 
-if AnthropicProvider is not None:
-    PROVIDER_REGISTRY["anthropic"] = AnthropicProvider
-    PROVIDER_REGISTRY["claude"] = AnthropicProvider
 
-if LocalProvider is not None:
-    PROVIDER_REGISTRY["local"] = LocalProvider
-
-if GeminiProvider is not None:
-    PROVIDER_REGISTRY["gemini"] = GeminiProvider
-
-if AzureOpenAIProvider is not None:
-    PROVIDER_REGISTRY["azure_openai"] = AzureOpenAIProvider
+def _load_provider_class(ref: str | Type[BaseLLMProvider]) -> Type[BaseLLMProvider]:
+    """Load a provider class from a module reference string."""
+    if isinstance(ref, type):
+        return ref
+    module_name, class_name = ref.split(":", 1)
+    module = import_module(module_name)
+    provider_class = getattr(module, class_name)
+    return provider_class
 
 
 def create_provider(config: LLMConfig) -> BaseLLMProvider:
@@ -88,7 +65,13 @@ def create_provider(config: LLMConfig) -> BaseLLMProvider:
             f"Available providers: {available}"
         )
 
-    provider_class = PROVIDER_REGISTRY[provider_name]
+    provider_ref = PROVIDER_REGISTRY[provider_name]
+    try:
+        provider_class = _load_provider_class(provider_ref)
+    except Exception as exc:
+        raise ValueError(
+            f"Provider '{provider_name}' is configured but unavailable: {exc}"
+        ) from exc
 
     logger.debug(f"Creating provider: {provider_name}")
     provider = provider_class(config)

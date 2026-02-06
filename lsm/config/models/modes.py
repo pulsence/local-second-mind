@@ -145,9 +145,7 @@ class SourcePolicyConfig:
 @dataclass
 class NotesConfig:
     """
-    Configuration for automatic notes writing.
-
-    Controls whether and how query sessions are saved as Markdown notes.
+    Global configuration for automatic notes writing.
     """
 
     enabled: bool = True
@@ -180,7 +178,7 @@ class ModeConfig:
     """
     Complete configuration for a query mode.
 
-    Defines synthesis style, source policies, and notes behavior for a named mode.
+    Defines synthesis style and source policies for a named mode.
     """
 
     synthesis_style: str = "grounded"
@@ -188,9 +186,6 @@ class ModeConfig:
 
     source_policy: SourcePolicyConfig = field(default_factory=SourcePolicyConfig)
     """Source policy configuration."""
-
-    notes: NotesConfig = field(default_factory=NotesConfig)
-    """Notes configuration."""
 
     def validate(self) -> None:
         """Validate mode configuration."""

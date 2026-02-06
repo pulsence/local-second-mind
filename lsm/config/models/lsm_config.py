@@ -5,9 +5,11 @@ Top-level configuration model for Local Second Mind.
 from __future__ import annotations
 
 import warnings
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional, Set
+
+from lsm.paths import ensure_global_folders, get_global_folder
 
 from .ingest import IngestConfig
 from .llm import LLMRegistryConfig
@@ -50,11 +52,30 @@ class LSMConfig:
     remote_providers: Optional[list[RemoteProviderConfig]] = None
     """List of remote source providers (web search, APIs, etc)."""
 
+    notes: NotesConfig = field(default_factory=NotesConfig)
+    """Global notes configuration applied across modes."""
+
+    global_folder: Optional[Path] = None
+    """Global Local Second Mind folder for default notes/chats paths."""
+
     config_path: Optional[Path] = None
     """Path to the config file (for resolving relative paths)."""
 
     def __post_init__(self):
         """Resolve relative paths and initialize defaults."""
+        if isinstance(self.global_folder, str):
+            self.global_folder = Path(self.global_folder)
+        if self.global_folder is None:
+            self.global_folder = get_global_folder()
+        elif not self.global_folder.is_absolute():
+            if self.config_path:
+                self.global_folder = (self.config_path.parent / self.global_folder).resolve()
+            else:
+                self.global_folder = get_global_folder(self.global_folder)
+        else:
+            self.global_folder = self.global_folder.expanduser().resolve()
+        ensure_global_folders(self.global_folder)
+
         if self.config_path:
             base_dir = self.config_path.parent
 
@@ -133,11 +154,6 @@ class LSMConfig:
                     remote=RemoteSourcePolicy(enabled=False),
                     model_knowledge=ModelKnowledgePolicy(enabled=False),
                 ),
-                notes=NotesConfig(
-                    enabled=True,
-                    dir="notes",
-                    template="default",
-                ),
             ),
             "insight": ModeConfig(
                 synthesis_style="insight",
@@ -152,11 +168,6 @@ class LSMConfig:
                         enabled=True,
                         require_label=True,
                     ),
-                ),
-                notes=NotesConfig(
-                    enabled=True,
-                    dir="notes",
-                    template="default",
                 ),
             ),
             "hybrid": ModeConfig(
@@ -176,11 +187,6 @@ class LSMConfig:
                         enabled=True,
                         require_label=True,
                     ),
-                ),
-                notes=NotesConfig(
-                    enabled=True,
-                    dir="notes",
-                    template="default",
                 ),
             ),
         }

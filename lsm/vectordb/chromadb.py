@@ -6,9 +6,6 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Optional
 
-import chromadb
-from chromadb.config import Settings
-
 from lsm.logging import get_logger
 from lsm.config.models import VectorDBConfig
 from .base import BaseVectorDBProvider, VectorDBQueryResult
@@ -31,6 +28,13 @@ class ChromaDBProvider(BaseVectorDBProvider):
     def _ensure_collection(self):
         if self._collection is not None:
             return self._collection
+        try:
+            import chromadb
+            from chromadb.config import Settings
+        except Exception as exc:
+            raise RuntimeError(
+                "ChromaDB dependency is not available. Install 'chromadb' to use this provider."
+            ) from exc
 
         self._client = chromadb.PersistentClient(
             path=str(self.config.persist_dir),

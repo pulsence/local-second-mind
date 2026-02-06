@@ -39,7 +39,7 @@ from lsm.vectordb import create_vectordb_provider, list_available_providers
 from lsm.remote import get_registered_providers
 from lsm.vectordb.utils import require_chroma_collection
 from lsm.query.citations import export_citations_from_note, export_citations_from_sources
-from lsm.query.notes import get_note_filename, generate_note_content
+from lsm.query.notes import get_note_filename, generate_note_content, resolve_notes_dir
 from lsm.ui.tui.widgets.status import StatusBar
 
 if TYPE_CHECKING:
@@ -787,7 +787,7 @@ class QueryScreen(Widget):
                         f"  Remote sources: {'enabled' if mode_config.source_policy.remote.enabled else 'disabled'}",
                         f"  Model knowledge: "
                         f"{'enabled' if mode_config.source_policy.model_knowledge.enabled else 'disabled'}",
-                        f"  Notes: {'enabled' if mode_config.notes.enabled else 'disabled'}",
+                        f"  Notes: {'enabled' if self.app.config.notes.enabled else 'disabled'}",
                         f"\nAvailable modes: {', '.join(self.app.config.modes.keys())}\n",
                     ]
                     return CommandResult(output="\n".join(lines))
@@ -796,7 +796,7 @@ class QueryScreen(Widget):
                         return CommandResult(
                             output=(
                                 "Usage:\n  /mode set <setting> <on|off>\n"
-                                "Settings: model_knowledge, remote, notes\n"
+                                "Settings: model_knowledge, remote, notes (global)\n"
                             )
                         )
                     setting = parts[2].strip().lower()
@@ -808,12 +808,12 @@ class QueryScreen(Widget):
                     elif setting in {"remote", "remote_sources", "remote-sources"}:
                         mode_config.source_policy.remote.enabled = enabled
                     elif setting in {"notes"}:
-                        mode_config.notes.enabled = enabled
+                        self.app.config.notes.enabled = enabled
                     else:
                         return CommandResult(
                             output=(
                                 f"Unknown setting: {setting}\n"
-                                "Settings: model_knowledge, remote, notes\n"
+                                "Settings: model_knowledge, remote, notes (global)\n"
                             )
                         )
                     return CommandResult(
@@ -850,14 +850,9 @@ class QueryScreen(Widget):
                 if not self.app.query_state.last_question:
                     return CommandResult(output="No query to save. Run a query first.\n")
                 try:
-                    mode_config = self.app.config.get_mode_config()
-                    notes_config = mode_config.notes
+                    notes_config = self.app.config.notes
 
-                    if self.app.config.config_path:
-                        base_dir = self.app.config.config_path.parent
-                        notes_dir = base_dir / notes_config.dir
-                    else:
-                        notes_dir = Path(notes_config.dir)
+                    notes_dir = resolve_notes_dir(self.app.config, notes_config.dir)
 
                     notes_dir.mkdir(parents=True, exist_ok=True)
 

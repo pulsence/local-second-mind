@@ -433,3 +433,74 @@ class TestErrorHandling:
         answer = provider.synthesize("Question?", "Context", mode="grounded")
         assert "Offline mode" in answer
 
+    @patch("lsm.query.api.create_provider")
+    @patch("lsm.query.context.prepare_local_candidates")
+    def test_query_returns_fallback_when_synthesis_fails(
+        self,
+        mock_prepare_local,
+        mock_create_provider,
+    ):
+        """Test query returns fallback excerpts if synthesis raises."""
+        import asyncio
+        from lsm.query.api import query
+        from lsm.query.session import SessionState
+        from lsm.query.planning import LocalQueryPlan
+
+        config = LSMConfig(
+            ingest=IngestConfig(
+                roots=[Path("/test/root")],
+                manifest=Path("/test/manifest.json"),
+            ),
+            llm=LLMRegistryConfig(
+                llms=[
+                    LLMProviderConfig(
+                        provider_name="openai",
+                        api_key="test",
+                        query=FeatureLLMConfig(model="gpt-5.2"),
+                        ranking=FeatureLLMConfig(model="gpt-5.2"),
+                    ),
+                ]
+            ),
+            query=QueryConfig(mode="grounded"),
+            vectordb=VectorDBConfig(
+                persist_dir=Path("/test/.chroma"),
+                collection="test_kb",
+            ),
+            config_path=Path("/test/config.json"),
+        )
+
+        candidate = Candidate(
+            cid="1",
+            text="Python is a programming language",
+            meta={"source_path": "/docs/python.md", "chunk_index": 0},
+            distance=0.1,
+        )
+        mock_prepare_local.return_value = LocalQueryPlan(
+            local_enabled=True,
+            candidates=[candidate],
+            filtered=[candidate],
+            relevance=0.9,
+            filters_active=False,
+            retrieve_k=12,
+            rerank_strategy="none",
+            should_llm_rerank=False,
+            k=12,
+            k_rerank=6,
+            min_relevance=0.3,
+            max_per_file=2,
+            local_pool=36,
+            no_rerank=True,
+        )
+
+        provider = Mock()
+        provider.synthesize.side_effect = RuntimeError("llm unavailable")
+        provider.estimate_cost.return_value = 0.0
+        provider.name = "openai"
+        provider.model = "gpt-5.2"
+        mock_create_provider.return_value = provider
+
+        result = asyncio.run(query("What is Python?", config, SessionState(), Mock(), Mock()))
+
+        assert "Top excerpts:" in result.answer
+        assert result.debug_info.get("synthesis_fallback") is True
+

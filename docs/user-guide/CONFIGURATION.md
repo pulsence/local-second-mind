@@ -222,7 +222,7 @@ The `query` section controls retrieval and reranking behavior.
 
 ## Modes Configuration
 
-Modes define per-mode behavior for sources and notes.
+Modes define per-mode behavior for synthesis and source blending.
 
 ```json
 "modes": [
@@ -238,18 +238,29 @@ Modes define per-mode behavior for sources and notes.
         "remote_providers": ["brave", "wikipedia", "arxiv"]
       },
       "model_knowledge": { "enabled": true, "require_label": true }
-    },
-    "notes": {
-      "enabled": true,
-      "dir": "research_notes",
-      "template": "default",
-      "filename_format": "timestamp"
     }
   }
 ]
 ```
 
 If `modes` is not defined, LSM uses built-in `grounded`, `insight`, and `hybrid`.
+
+## Global Notes Configuration
+
+Notes are configured once at the top level and apply to all modes.
+
+```json
+"notes": {
+  "enabled": true,
+  "dir": "notes",
+  "template": "default",
+  "filename_format": "timestamp",
+  "integration": "none",
+  "wikilinks": false,
+  "backlinks": false,
+  "include_tags": false
+}
+```
 
 ## Remote Providers
 
@@ -301,8 +312,8 @@ an API key.
 
 - `vectordb.persist_dir` and `manifest` are resolved relative to the config
   file.
-- Notes directories are resolved relative to the config file when notes are
-  written from query mode.
+- If `notes.dir` is `"notes"`, notes are written to `<global_folder>/Notes`.
+- For any other relative `notes.dir`, paths are resolved relative to the config file.
 - `roots` can be absolute or relative to the working directory.
 
 ## Common Configuration Scenarios
@@ -377,10 +388,14 @@ an API key.
           "remote_providers": ["wikipedia", "arxiv"]
         },
         "model_knowledge": { "enabled": true, "require_label": true }
-      },
-      "notes": { "enabled": true, "dir": "notes", "template": "default", "filename_format": "timestamp" }
     }
   ],
+  "notes": {
+    "enabled": true,
+    "dir": "notes",
+    "template": "default",
+    "filename_format": "timestamp"
+  },
   "remote_providers": [
     {
       "name": "brave",

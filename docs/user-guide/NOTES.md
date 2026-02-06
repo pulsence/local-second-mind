@@ -11,7 +11,7 @@ and source excerpts to make results easy to revisit later.
 
 ## Notes Configuration
 
-Notes are configured per mode via a `modes` entry with matching `name`:
+Notes are configured globally via top-level `notes`:
 
 ```json
 "notes": {
@@ -24,10 +24,15 @@ Notes are configured per mode via a `modes` entry with matching `name`:
 
 ### Fields
 
-- `enabled`: enable or disable note saving for this mode
-- `dir`: directory to store notes (relative to config file)
+- `enabled`: enable or disable note saving
+- `dir`: directory to store notes
 - `template`: template name (currently only `default` is implemented)
 - `filename_format`: `timestamp` or `query_slug`
+
+Path behavior:
+- If `dir` is `"notes"`, notes are written to `<global_folder>/Notes`.
+- If `dir` is another relative path, it resolves relative to the config file.
+- Absolute paths are used as-is.
 
 The `incremental` format is not implemented yet; unknown values fall back to
 `timestamp`.
@@ -82,7 +87,7 @@ If there was no previous query, `/note` will warn and do nothing.
 
 Recommended strategies:
 
-- Use per-mode directories (e.g., `research_notes`, `analysis_notes`).
+- Use project directories (e.g., `research_notes`, `analysis_notes`) if needed.
 - Use `query_slug` when you want human-readable filenames.
 - Keep notes next to your project or knowledge base for easy search.
 

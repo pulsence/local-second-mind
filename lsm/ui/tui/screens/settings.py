@@ -13,6 +13,7 @@ from textual.binding import Binding
 from textual.containers import Container, Vertical, ScrollableContainer, Horizontal
 from textual.widgets import Static, Input, Switch, Button, Select, TabbedContent, TabPane
 from textual.widget import Widget
+from textual.reactive import reactive
 
 from lsm.logging import get_logger
 
@@ -25,6 +26,7 @@ class SettingsScreen(Widget):
 
     Shows the current configuration loaded into the app.
     """
+    current_mode: reactive[str] = reactive("grounded")
 
     BINDINGS = [
         Binding("ctrl+o", "settings_tab_1", "Config", show=True),
@@ -116,14 +118,14 @@ class SettingsScreen(Widget):
                             yield self._field("Remote providers", "settings-mode-remote-providers", disabled=True)
                             yield self._field("Model knowledge enabled", "settings-mode-knowledge-enabled", field_type="switch", disabled=True)
                             yield self._field("Model knowledge label", "settings-mode-knowledge-require-label", field_type="switch", disabled=True)
-                            yield self._field("Notes enabled", "settings-mode-notes-enabled", field_type="switch", disabled=True)
-                            yield self._field("Notes dir", "settings-mode-notes-dir", disabled=True)
-                            yield self._field("Notes template", "settings-mode-notes-template", disabled=True)
-                            yield self._field("Notes filename format", "settings-mode-notes-filename-format", disabled=True)
-                            yield self._field("Notes integration", "settings-mode-notes-integration", disabled=True)
-                            yield self._field("Notes wikilinks", "settings-mode-notes-wikilinks", field_type="switch", disabled=True)
-                            yield self._field("Notes backlinks", "settings-mode-notes-backlinks", field_type="switch", disabled=True)
-                            yield self._field("Notes include tags", "settings-mode-notes-include-tags", field_type="switch", disabled=True)
+                            yield self._field("Notes enabled", "settings-notes-enabled", field_type="switch", disabled=True)
+                            yield self._field("Notes dir", "settings-notes-dir", disabled=True)
+                            yield self._field("Notes template", "settings-notes-template", disabled=True)
+                            yield self._field("Notes filename format", "settings-notes-filename-format", disabled=True)
+                            yield self._field("Notes integration", "settings-notes-integration", disabled=True)
+                            yield self._field("Notes wikilinks", "settings-notes-wikilinks", field_type="switch", disabled=True)
+                            yield self._field("Notes backlinks", "settings-notes-backlinks", field_type="switch", disabled=True)
+                            yield self._field("Notes include tags", "settings-notes-include-tags", field_type="switch", disabled=True)
 
                 with TabPane("Vector DB (^B)", id="settings-vdb"):
                     with ScrollableContainer(classes="settings-scroll"):
@@ -355,6 +357,7 @@ class SettingsScreen(Widget):
             mode = app.config.get_mode_config(mode_name)
         except Exception:
             return
+        self.current_mode = str(mode_name)
 
         self._set_input("settings-mode-synthesis-style", mode.synthesis_style)
         self._set_switch("settings-mode-local-enabled", mode.source_policy.local.enabled)
@@ -370,14 +373,15 @@ class SettingsScreen(Widget):
         )
         self._set_switch("settings-mode-knowledge-enabled", mode.source_policy.model_knowledge.enabled)
         self._set_switch("settings-mode-knowledge-require-label", mode.source_policy.model_knowledge.require_label)
-        self._set_switch("settings-mode-notes-enabled", mode.notes.enabled)
-        self._set_input("settings-mode-notes-dir", mode.notes.dir)
-        self._set_input("settings-mode-notes-template", mode.notes.template)
-        self._set_input("settings-mode-notes-filename-format", mode.notes.filename_format)
-        self._set_input("settings-mode-notes-integration", mode.notes.integration)
-        self._set_switch("settings-mode-notes-wikilinks", mode.notes.wikilinks)
-        self._set_switch("settings-mode-notes-backlinks", mode.notes.backlinks)
-        self._set_switch("settings-mode-notes-include-tags", mode.notes.include_tags)
+        notes = app.config.notes
+        self._set_switch("settings-notes-enabled", notes.enabled)
+        self._set_input("settings-notes-dir", notes.dir)
+        self._set_input("settings-notes-template", notes.template)
+        self._set_input("settings-notes-filename-format", notes.filename_format)
+        self._set_input("settings-notes-integration", notes.integration)
+        self._set_switch("settings-notes-wikilinks", notes.wikilinks)
+        self._set_switch("settings-notes-backlinks", notes.backlinks)
+        self._set_switch("settings-notes-include-tags", notes.include_tags)
 
     def _field(
         self,

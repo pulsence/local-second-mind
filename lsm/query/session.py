@@ -10,6 +10,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import List, Dict, Any, Optional, TYPE_CHECKING
 
+from lsm.paths import get_chats_folder
+
 if TYPE_CHECKING:
     from .cost_tracking import CostTracker
 
@@ -263,3 +265,8 @@ class SessionState:
         if not tracker.entries:
             return "No costs recorded for this session.\n"
         return f"\n{tracker.format_summary()}\n"
+
+
+def get_default_chats_dir(global_folder: Optional[str | Path] = None) -> Path:
+    """Get default chat-save directory."""
+    return get_chats_folder(global_folder)

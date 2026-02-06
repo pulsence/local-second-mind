@@ -17,21 +17,39 @@ logger = get_logger(__name__)
 
 PSYCOPG2_AVAILABLE = False
 PGVECTOR_AVAILABLE = False
+pool = None
+sql = None
+execute_values = None
+register_vector = None
 
-try:
-    import psycopg2  # noqa: F401
-    from psycopg2 import pool  # noqa: F401
-    from psycopg2 import sql  # noqa: F401
-    from psycopg2.extras import execute_values  # noqa: F401
-    PSYCOPG2_AVAILABLE = True
-except Exception as e:
-    logger.debug(f"psycopg2 not available: {e}")
 
-try:
-    from pgvector.psycopg2 import register_vector  # noqa: F401
-    PGVECTOR_AVAILABLE = True
-except Exception as e:
-    logger.debug(f"pgvector not available: {e}")
+def _ensure_postgres_dependencies() -> None:
+    """Import PostgreSQL dependencies lazily."""
+    global PSYCOPG2_AVAILABLE, PGVECTOR_AVAILABLE
+    global pool, sql, execute_values, register_vector
+
+    if pool is not None and sql is not None and execute_values is not None and register_vector is not None:
+        return
+
+    try:
+        from psycopg2 import pool as psycopg2_pool
+        from psycopg2 import sql as psycopg2_sql
+        from psycopg2.extras import execute_values as psycopg2_execute_values
+        pool = psycopg2_pool
+        sql = psycopg2_sql
+        execute_values = psycopg2_execute_values
+        PSYCOPG2_AVAILABLE = True
+    except Exception as e:
+        PSYCOPG2_AVAILABLE = False
+        raise RuntimeError("psycopg2 dependency is not available") from e
+
+    try:
+        from pgvector.psycopg2 import register_vector as pgvector_register_vector
+        register_vector = pgvector_register_vector
+        PGVECTOR_AVAILABLE = True
+    except Exception as e:
+        PGVECTOR_AVAILABLE = False
+        raise RuntimeError("pgvector dependency is not available") from e
 
 
 class PostgreSQLProvider(BaseVectorDBProvider):
@@ -57,6 +75,7 @@ class PostgreSQLProvider(BaseVectorDBProvider):
     def _ensure_pool(self) -> None:
         if self._pool is not None:
             return
+        _ensure_postgres_dependencies()
 
         if self.config.connection_string:
             self._pool = pool.ThreadedConnectionPool(
@@ -164,9 +183,8 @@ class PostgreSQLProvider(BaseVectorDBProvider):
             return cur.fetchone()[0] is not None
 
     def is_available(self) -> bool:
-        if not (PSYCOPG2_AVAILABLE and PGVECTOR_AVAILABLE):
-            return False
         try:
+            _ensure_postgres_dependencies()
             self._ensure_pool()
             return True
         except Exception as e:
