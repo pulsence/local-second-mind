@@ -1,306 +1,180 @@
 # Local Second Mind (LSM)
 
-Local Second Mind is a **local-first retrieval-augmented reasoning system** designed to help you search, analyze, and synthesize your own writing, research, and notes using modern embedding and LLM tooling — without surrendering control of your corpus.
-
-It is optimized for **heterogeneous, evolving document collections** (PDFs, Word documents, Markdown, HTML, plain text, etc.) stored on a local machine, with incremental updates and strong provenance.
-
----
+Local Second Mind is a local-first RAG system for personal knowledge management.
+It ingests local documents, retrieves relevant context, and generates cited answers
+with configurable LLM providers.
 
 ## Caveat Emptor
 
-This project was primarily created for my personal use. I will not be responding to pull requests or issues unless they directly impact my use cases.
-
-I generated this tool primarily using an AI code assistant and so all the code branches are not explored or tested, but they should be fairly correct.
-
----
+This project is primarily for personal use. Pull requests or issues may not be
+reviewed unless they overlap with the maintainer's active use cases.
 
 ## Core Goals
 
-* Maintain a **living knowledge base** from local files
-* Support **incremental ingest** as documents change
-* Enable **high-quality semantic + lexical retrieval**
-* Produce **LLM-generated answers with citations** back to source files
-* Keep embeddings local while optionally using LLM APIs for reranking and synthesis
+- Build and maintain a living local knowledge base.
+- Support incremental ingest as files change.
+- Provide semantic retrieval with optional reranking.
+- Generate grounded answers with source citations.
+- Keep corpus data local while using external LLM APIs only when configured.
 
----
+## Current Architecture
 
-## High-Level Architecture
-
-```
+```text
 Local Files
-   ↓
-Parse → Chunk → Embed (SentenceTransformers)
-   ↓
-ChromaDB (persistent vector store)
-   ↓
-Query
-   ├─ Semantic retrieval
-   ├─ Lexical rerank (optional)
-   ├─ LLM rerank (optional, OpenAI)
-   └─ Answer synthesis with citations
+  -> Parse -> Chunk -> Embed
+  -> Vector Store (ChromaDB or PostgreSQL/pgvector)
+  -> Retrieval + Optional Rerank + Synthesis
+  -> Answer + Citations
 ```
-
----
 
 ## Features
 
-### Ingest Pipeline
+### Ingest
 
-* Recursive crawl of one or more root directories
-* File-type aware parsing (PDF, DOCX, HTML, TXT, MD)
-* Stable, deterministic chunking
-* Local embeddings using **sentence-transformers**
-* Persistent vector storage via **ChromaDB**
-* Incremental ingest using file hashes + modification times
-* Threaded parsing for performance
+- Recursive ingest from configured roots
+- Parsers for PDF, DOCX, Markdown, HTML, and text
+- Deterministic chunking and local embeddings
+- Incremental ingest via manifest and file metadata
+- Optional AI tagging for chunks
+- Progress callback support in ingest APIs and UI
 
-### Query Pipeline
+### Query
 
-* Semantic search using the same embedding model as ingest
-* Configurable `k` retrieval depth
-* Optional lexical reranking
-* Optional LLM reranking (OpenAI Responses API)
-* Deduplication and per-file diversity controls
-* Grounded answers with inline citations
+- Semantic retrieval from local vector store
+- Configurable relevance thresholds and retrieval depth
+- Optional lexical/LLM/hybrid rerank strategies
+- Source-policy modes (`grounded`, `insight`, `hybrid`, custom modes)
+- Optional remote source blending via provider framework
+- Cited synthesis with fallback behavior when provider calls fail
 
-### Operational Design
+### Interfaces
 
-* Single unified configuration file (`config.json` or `config.yaml`)
-* CLI-first interface suitable for scripting
-* Windows-friendly paths and filesystem behavior
-* Clear separation between ingest, query, and orchestration layers
-
----
+- Textual TUI for interactive query/ingest/settings workflows
+- Single-shot CLI commands for ingest automation
+- Structured config loading and validation (`config.json` or `config.yaml`)
 
 ## Installation
 
-### Python Version
+### Requirements
 
-Python **3.10+** is recommended.
+- Python 3.10+
 
-### Dependencies
-
-Install dependencies using the package:
+### Install
 
 ```bash
 pip install -e .
 ```
 
-Or install directly from pyproject.toml:
+## Environment Setup
 
-```bash
-pip install chromadb sentence-transformers PyMuPDF python-docx beautifulsoup4 lxml pyyaml openai python-dotenv
-```
+Store secrets in `.env` (not in config files):
 
-Key libraries include:
-
-* sentence-transformers (local embeddings)
-* chromadb (vector database)
-* PyMuPDF (PDF parsing)
-* python-docx (Word document parsing)
-* beautifulsoup4 (HTML parsing)
-* openai (LLM API)
-* python-dotenv (environment variable management)
-
----
-
-### OCR Support (Optional)
-
-If you enable OCR for image-based PDFs, you must install the **Tesseract OCR executable** and ensure it is on your PATH. The `pip install tesseract` package is only a Python wrapper and does not include the OCR engine.
-
-Windows install:
-
-1. Download and install Tesseract OCR from: https://github.com/UB-Mannheim/tesseract/wiki
-2. Add the install directory to your PATH (for example: `C:\Program Files\Tesseract-OCR`)
-3. Restart your terminal and verify with:
-```bash
-tesseract --version
-```
-
----
-
-### Environment Setup
-
-**IMPORTANT:** For security, API keys should be stored in environment variables, not in configuration files.
-
-1. Copy the example environment file:
 ```bash
 cp .env.example .env
 ```
 
-2. Edit `.env` and add your OpenAI API key:
+Common variables:
+
+- `OPENAI_API_KEY`
+- `ANTHROPIC_API_KEY`
+- `GOOGLE_API_KEY`
+- `AZURE_OPENAI_API_KEY`
+- `AZURE_OPENAI_ENDPOINT`
+- `BRAVE_API_KEY`
+
+See `.env.example` for the full list.
+
+## CLI Usage
+
+Default entrypoint:
+
 ```bash
-OPENAI_API_KEY=your_actual_api_key_here
+lsm
 ```
 
-3. The `.env` file is automatically loaded when you run LSM commands. **Never commit `.env` to version control.**
-
-You can get your OpenAI API key from: https://platform.openai.com/api-keys
-
----
-
-## Command-Line Interface
-
-The project exposes a single CLI entrypoint:
+Equivalent module form:
 
 ```bash
 python -m lsm
 ```
 
-### Ingest Command
+### TUI (interactive)
+
+Run `lsm` with no subcommand. Querying is done in the TUI Query tab.
+
+### Single-shot ingest commands
 
 ```bash
-python -m lsm ingest --config config.json
+lsm ingest build [--dry-run] [--force] [--skip-errors]
+lsm ingest tag [--max N]
+lsm ingest wipe --confirm
 ```
 
-**Purpose:**
-Indexes or updates your local knowledge base.
-
-**Behavior:**
-
-* Walks configured directories
-* Parses supported file types
-* Chunks and embeds content
-* Skips unchanged files automatically
-
----
-
-### Query Command
+Global options:
 
 ```bash
-python -m lsm query --config config.json
+lsm --config path/to/config.json
+lsm --verbose
+lsm --log-level DEBUG
+lsm --log-file logs/lsm.log
 ```
-
-**Purpose:**
-Interactively query your local knowledge base.
-
-**Behavior:**
-
-* Prompts for a natural-language question
-* Retrieves semantically relevant chunks
-* Optionally reranks results
-* Produces a synthesized answer with citations
-
----
 
 ## Configuration
 
-All behavior is controlled via a **single unified config file**.
+Configuration is loaded from `config.json` or `config.yaml`.
 
-Supported formats:
-
-* `config.json`
-* `config.yaml`
-
-### Example Configuration
+Minimal working example:
 
 ```json
 {
-  "roots": [
-    "C:/Users/User/Documents/Research",
-    "C:/Users/User/Documents/Writing"
-  ],
-
-  "persist_dir": ".chroma",
-  "chroma_flush_interval": 2000,
-
-  "collection": "local_kb",
-  "embed_model": "sentence-transformers/all-MiniLM-L6-v2",
-  "device": "cpu",
-  "batch_size": 32,
-
-  "manifest": ".ingest/manifest.json",
-
-  "extensions": [".txt", ".md", ".pdf", ".docx", ".html"],
-  "override_extensions": false,
-
-  "exclude_dirs": [".cache"],
-  "override_excludes": false,
-
-  "dry_run": false,
-
-  "openai": {
-    "api_key": null
+  "roots": ["C:/Users/You/Documents"],
+  "vectordb": {
+    "provider": "chromadb",
+    "persist_dir": ".chroma",
+    "collection": "local_kb"
   },
-
-  "query": {
-    "k": 12,
-    "k_rerank": 6,
-    "no_rerank": false,
-    "max_per_file": 2,
-    "local_pool": 36,
-
-    "model": "gpt-5.2",
-
-    "min_relevance": 0.25,
-
-    "path_contains": ["\\Research\\"],
-    "ext_allow": [".md", ".pdf"],
-    "ext_deny": [".docx"],
-
-    "retrieve_k": 36
-  }
+  "llms": [
+    {
+      "provider_name": "openai",
+      "query": { "model": "gpt-5.2" }
+    }
+  ]
 }
 ```
 
-**Note on API Keys:**
-- The `openai.api_key` field should be set to `null` in your config file
-- Your actual API key should be stored in the `.env` file as `OPENAI_API_KEY`
-- The application will automatically load the key from the environment variable
+Important schema notes:
 
-**Configuration Notes:**
-- `device`: Use `"cuda:0"` for GPU acceleration, `"cpu"` for CPU-only
-- `model`: Current recommended model: `"gpt-5.2"` (OpenAI's latest GPT-5 family model)
-- `k`: Number of chunks to retrieve from vector database
-- `k_rerank`: Number of chunks to keep after LLM reranking
-- `max_per_file`: Maximum chunks from any single file in final results
+- Vector DB settings live under `vectordb` (`persist_dir`, `collection`, `provider`).
+- LLM config is an ordered `llms` list with feature-level settings (`query`, `tagging`, `ranking`).
+- Query behavior is configured under `query`.
+- Mode/source-policy behavior is configured under `modes`.
+- Remote integrations are configured under `remote_providers`.
+- Notes are configured globally under top-level `notes`.
+- Optional top-level `global_folder` controls default app data location.
 
----
-
-## Metadata & Citations
-
-Each chunk stored in Chroma includes:
-
-* `source_path`
-* `source_name`
-* `ext`
-* `mtime_ns`
-* `file_hash`
-* `chunk_index`
-* `ingested_at`
-
-Citations in answers are derived from this metadata, allowing you to trace claims backto exact source files.
+For full configuration reference, see `docs/user-guide/CONFIGURATION.md`.
 
 ## Typical Workflow
 
-1. **Setup:**
-   - Copy `.env.example` to `.env` and add your OpenAI API key
-   - Configure paths and models in `config.json`
+1. Copy `example_config.json` to `config.json` and adjust paths/models.
+2. Add API keys to `.env` as needed.
+3. Build your collection: `lsm ingest build`.
+4. Launch TUI: `lsm`.
+5. Query from the Query tab and save notes if desired.
 
-2. **Ingest:**
-   - Run `python -m lsm ingest --config config.json` to build or update the knowledge base
-   - The system automatically skips unchanged files
+## OCR (Optional)
 
-3. **Query:**
-   - Run `python -m lsm query --config config.json` to explore your corpus interactively
-   - Ask questions and get answers with citations
+If enabling OCR for image-based PDFs, install the Tesseract executable and add
+it to `PATH`. `pytesseract` is only a Python wrapper.
 
-4. **Maintain:**
-   - Re-run ingest whenever files change to keep your knowledge base up to date
+## Documentation
 
-## Design Philosophy
-
-Local Second Mind intentionally:
-
-- Keeps embeddings local
-- Treats LLMs as reasoning layers, not memory
-- Optimizes for long‑term personal knowledge growth
-- Prioritizes transparency and debuggability
-
-## Roadmap
-
-TBD
+- `docs/user-guide/GETTING_STARTED.md`
+- `docs/user-guide/CLI_USAGE.md`
+- `docs/user-guide/CONFIGURATION.md`
+- `docs/architecture/OVERVIEW.md`
+- `docs/development/CHANGELOG.md`
 
 ## License
 
-See LICENSE
+See `LICENSE`.
