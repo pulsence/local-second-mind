@@ -6,9 +6,13 @@
     "D:\\Writings"
   ],
 
-  "_comment_storage": "ChromaDB storage configuration",
-  "persist_dir": ".chroma",
-  "collection": "local_kb",
+  "_comment_storage": "Vector database configuration",
+  "vectordb": {
+    "provider": "chromadb",
+    "persist_dir": ".chroma",
+    "collection": "local_kb",
+    "chroma_hnsw_space": "cosine"
+  },
   "chroma_flush_interval": 2000,
 
   "_comment_embedding": "Embedding model configuration",
@@ -207,7 +211,6 @@
     {
       "name": "brave",
       "type": "web_search",
-      "enabled": true,
       "weight": 1.0,
       "api_key": "INSERT_YOUR_BRAVE_API_KEY",
       "max_results": 5
@@ -215,7 +218,6 @@
     {
       "name": "wikipedia",
       "type": "wikipedia",
-      "enabled": true,
       "weight": 0.7,
       "language": "en",
       "user_agent": "LocalSecondMind/1.0 (contact: you@example.com)",
@@ -228,7 +230,6 @@
     {
       "name": "arxiv",
       "type": "arxiv",
-      "enabled": true,
       "weight": 0.9,
       "user_agent": "LocalSecondMind/1.0 (contact: you@example.com)",
       "max_results": 5,
@@ -243,7 +244,6 @@
     {
       "name": "semantic_scholar",
       "type": "semantic_scholar",
-      "enabled": false,
       "weight": 0.9,
       "api_key": "INSERT_YOUR_SEMANTIC_SCHOLAR_API_KEY",
       "max_results": 5,
@@ -256,7 +256,6 @@
     {
       "name": "core",
       "type": "core",
-      "enabled": false,
       "weight": 0.8,
       "api_key": "INSERT_YOUR_CORE_API_KEY",
       "max_results": 5,
@@ -272,7 +271,6 @@
       "_comment": "PhilPapers - philosophy papers and research",
       "name": "philpapers",
       "type": "philpapers",
-      "enabled": false,
       "weight": 0.9,
       "api_id": "INSERT_YOUR_PHILPAPERS_API_ID",
       "api_key": "INSERT_YOUR_PHILPAPERS_API_KEY",
@@ -287,7 +285,6 @@
       "_comment": "IxTheo - theology and religious studies",
       "name": "ixtheo",
       "type": "ixtheo",
-      "enabled": false,
       "weight": 0.9,
       "max_results": 5,
       "min_interval_seconds": 1.0,
@@ -303,7 +300,6 @@
       "_comment": "OpenAlex - comprehensive academic database (free, no API key required)",
       "name": "openalex",
       "type": "openalex",
-      "enabled": false,
       "weight": 1.0,
       "email": "you@example.com",
       "max_results": 5,
@@ -319,7 +315,6 @@
       "_comment": "Crossref - DOI metadata and bibliographic search (free, no API key required)",
       "name": "crossref",
       "type": "crossref",
-      "enabled": false,
       "weight": 0.9,
       "email": "you@example.com",
       "max_results": 5,
@@ -336,7 +331,6 @@
       "_comment": "OAI-PMH - Generic harvester for institutional repositories (free, no API key required)",
       "name": "oai_pmh",
       "type": "oai_pmh",
-      "enabled": false,
       "weight": 0.8,
       "_comment_repository": "Use a known repository key (arxiv, zenodo, pubmed, doaj, hal, repec, europeana, philpapers) or a custom URL",
       "repository": "zenodo",
@@ -351,7 +345,6 @@
       "_comment": "OAI-PMH Multi-Repository - Search across multiple OAI-PMH repositories",
       "name": "oai_pmh_multi",
       "type": "oai_pmh",
-      "enabled": false,
       "weight": 0.8,
       "repositories": ["zenodo", "doaj", "hal"],
       "max_results": 5,

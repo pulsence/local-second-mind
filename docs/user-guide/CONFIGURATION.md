@@ -41,8 +41,6 @@ These settings live at the top level of the config file and map to
 | `embed_model` | string | `sentence-transformers/all-MiniLM-L6-v2` | Embedding model for ingest/query. |
 | `device` | string | `cpu` | Embedding device, e.g. `cpu`, `cuda`, `cuda:0`. |
 | `batch_size` | int | `32` | Embedding batch size. |
-| `persist_dir` | path | `.chroma` | ChromaDB storage directory. |
-| `collection` | string | `local_kb` | ChromaDB collection name. |
 | `chroma_flush_interval` | int | `2000` | Flush interval for Chroma writes. |
 | `manifest` | path | `.ingest/manifest.json` | Incremental ingest manifest. |
 | `extensions` | list[string] | default set | File extensions to include. |
@@ -62,6 +60,19 @@ Default extensions include: `.txt`, `.md`, `.rst`, `.pdf`, `.docx`, `.html`, `.h
 
 Default excluded directory names include: `.git`, `.hg`, `.svn`, `__pycache__`,
 `.venv`, `venv`, `node_modules`.
+
+## Vector DB Configuration
+
+Vector DB settings live under `vectordb`.
+
+```json
+"vectordb": {
+  "provider": "chromadb",
+  "persist_dir": ".chroma",
+  "collection": "local_kb",
+  "chroma_hnsw_space": "cosine"
+}
+```
 
 ## LLM Configuration
 
@@ -118,9 +129,10 @@ Notes:
 - For each feature, the last provider in the list that defines it is selected.
 - `query` is required. `tagging` and `ranking` are optional and only needed if
   you use those features.
-- Provider-level fields (`api_key`, `model`, `temperature`, `max_tokens`,
-  `base_url`, `endpoint`, `api_version`, `deployment_name`) apply to feature
-  configs unless overridden.
+- Provider-level fields are limited to connection/auth settings:
+  `api_key`, `base_url`, `endpoint`, `api_version`, `deployment_name`.
+- `model`, `temperature`, and `max_tokens` must be set per feature under
+  `query`, `tagging`, and/or `ranking`.
 - Supported providers: `openai`, `anthropic`, `gemini`, `local`, `azure_openai`.
 
 Provider-specific fields:
@@ -250,7 +262,6 @@ to specific providers.
   {
     "name": "brave",
     "type": "web_search",
-    "enabled": true,
     "weight": 1.0,
     "api_key": "...",
     "max_results": 5
@@ -288,7 +299,8 @@ an API key.
 
 ## Path Resolution Rules
 
-- `persist_dir` and `manifest` are resolved relative to the config file.
+- `vectordb.persist_dir` and `manifest` are resolved relative to the config
+  file.
 - Notes directories are resolved relative to the config file when notes are
   written from query mode.
 - `roots` can be absolute or relative to the working directory.
@@ -347,6 +359,11 @@ an API key.
 ```json
 {
   "roots": ["C:/Users/You/Documents"],
+  "vectordb": {
+    "provider": "chromadb",
+    "persist_dir": ".chroma",
+    "collection": "local_kb"
+  },
   "modes": [
     {
       "name": "hybrid",
@@ -368,14 +385,12 @@ an API key.
     {
       "name": "brave",
       "type": "web_search",
-      "enabled": true,
       "api_key": "${BRAVE_API_KEY}",
       "max_results": 5
     },
     {
       "name": "wikipedia",
       "type": "wikipedia",
-      "enabled": true,
       "language": "en",
       "user_agent": "${LSM_WIKIPEDIA_USER_AGENT}",
       "max_results": 5
@@ -383,7 +398,6 @@ an API key.
     {
       "name": "arxiv",
       "type": "arxiv",
-      "enabled": true,
       "user_agent": "${LSM_ARXIV_USER_AGENT}",
       "max_results": 5
     }

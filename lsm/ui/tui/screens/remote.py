@@ -70,8 +70,6 @@ class RemoteScreen(Widget):
                 )
                 yield Button("Search", id="remote-search-button", variant="primary")
                 yield Button("Refresh", id="remote-refresh-button")
-                yield Button("Enable", id="remote-enable-button")
-                yield Button("Disable", id="remote-disable-button")
                 yield Static("Weight", classes="remote-label")
                 yield Input(
                     placeholder="1.0",
@@ -98,12 +96,6 @@ class RemoteScreen(Widget):
             return
         if button_id == "remote-refresh-button":
             self._refresh_provider_list()
-            return
-        if button_id == "remote-enable-button":
-            self._toggle_provider(True)
-            return
-        if button_id == "remote-disable-button":
-            self._toggle_provider(False)
             return
         if button_id == "remote-weight-button":
             self._set_provider_weight()
@@ -179,13 +171,12 @@ class RemoteScreen(Widget):
             lines.append("No remote providers configured.")
             lines.append("Add to config.json: remote_providers")
         else:
-            lines.append(f"{'NAME':<18s} {'TYPE':<16s} {'STATUS':<9s} {'WEIGHT':<6s}")
+            lines.append(f"{'NAME':<18s} {'TYPE':<16s} {'WEIGHT':<6s}")
             lines.append("-" * 60)
             for provider in providers:
-                status = "enabled" if provider.enabled else "disabled"
                 weight = f"{provider.weight:.2f}"
                 lines.append(
-                    f"{provider.name:<18s} {provider.type:<16s} {status:<9s} {weight:<6s}"
+                    f"{provider.name:<18s} {provider.type:<16s} {weight:<6s}"
                 )
 
         lines.append("")
@@ -199,7 +190,7 @@ class RemoteScreen(Widget):
             names = ", ".join(str(p) for p in remote_policy.remote_providers)
             lines.append(f"Mode providers: {names}")
         else:
-            lines.append("Mode providers: (all enabled)")
+            lines.append("Mode providers: (all configured)")
 
         lines.append("")
         lines.append("Registered Types")
@@ -236,19 +227,6 @@ class RemoteScreen(Widget):
             weight_input.value = ""
             return
         weight_input.value = f"{provider_config.weight:.2f}"
-
-    def _toggle_provider(self, enabled: bool) -> None:
-        """Enable or disable a remote provider."""
-        provider_name = self._get_selected_provider_name()
-        if not provider_name:
-            self._show_message("Select a specific provider to enable or disable.")
-            return
-        if self.app.config.toggle_remote_provider(provider_name, enabled):
-            state = "enabled" if enabled else "disabled"
-            self._show_message(f"Provider '{provider_name}' {state}.")
-            self._refresh_provider_list()
-        else:
-            self._show_message(f"Provider not found: {provider_name}")
 
     def _set_provider_weight(self) -> None:
         """Update the weight for a remote provider."""

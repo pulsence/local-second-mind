@@ -176,15 +176,6 @@ class LLMProviderConfig:
     api_key: Optional[str] = None
     """Default API key for this provider."""
 
-    model: Optional[str] = None
-    """Default model for this provider (used if feature config omits model)."""
-
-    temperature: Optional[float] = None
-    """Default temperature for this provider."""
-
-    max_tokens: Optional[int] = None
-    """Default max tokens for this provider."""
-
     base_url: Optional[str] = None
     """Base URL for local or hosted providers (e.g., Ollama)."""
 
@@ -207,23 +198,17 @@ class LLMProviderConfig:
     """Optional LLM config override for AI-powered reranking."""
 
     def _resolve_feature(self, feature: FeatureLLMConfig) -> LLMConfig:
-        model = feature.model or self.model
+        model = feature.model
         if not model:
             raise ValueError(
                 f"Model required for provider '{self.provider_name}'. "
-                "Set a provider-level model or feature-level model."
+                "Set a feature-level model under query/tagging/ranking."
             )
 
         temperature = (
-            feature.temperature
-            if feature.temperature is not None
-            else (self.temperature if self.temperature is not None else DEFAULT_LLM_TEMPERATURE)
+            feature.temperature if feature.temperature is not None else DEFAULT_LLM_TEMPERATURE
         )
-        max_tokens = (
-            feature.max_tokens
-            if feature.max_tokens is not None
-            else (self.max_tokens if self.max_tokens is not None else DEFAULT_LLM_MAX_TOKENS)
-        )
+        max_tokens = feature.max_tokens if feature.max_tokens is not None else DEFAULT_LLM_MAX_TOKENS
 
         return LLMConfig(
             provider=self.provider_name,
@@ -277,10 +262,10 @@ class LLMProviderConfig:
             ("tagging", self.tagging),
             ("ranking", self.ranking),
         ):
-            if feature and not (feature.model or self.model):
+            if feature and not feature.model:
                 raise ValueError(
                     f"Model required for {label} on provider '{self.provider_name}'. "
-                    "Set a provider-level model or feature-level model."
+                    "Set a feature-level model."
                 )
 
 

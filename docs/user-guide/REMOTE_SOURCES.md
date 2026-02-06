@@ -64,7 +64,6 @@ LSM ships with eleven built-in remote providers covering STEM, humanities, and c
   {
     "name": "brave",
     "type": "web_search",
-    "enabled": true,
     "weight": 1.0,
     "api_key": "${BRAVE_API_KEY}",
     "max_results": 5,
@@ -86,7 +85,6 @@ Notes:
   {
     "name": "wikipedia",
     "type": "wikipedia",
-    "enabled": true,
     "weight": 0.7,
     "language": "en",
     "user_agent": "LocalSecondMind/1.0 (contact: you@example.com)",
@@ -112,7 +110,6 @@ Notes:
   {
     "name": "arxiv",
     "type": "arxiv",
-    "enabled": true,
     "weight": 0.9,
     "user_agent": "LocalSecondMind/1.0 (contact: you@example.com)",
     "max_results": 5,
@@ -154,7 +151,6 @@ Examples:
   {
     "name": "semantic_scholar",
     "type": "semantic_scholar",
-    "enabled": true,
     "weight": 0.9,
     "api_key": "${SEMANTIC_SCHOLAR_API_KEY}",
     "max_results": 5,
@@ -187,7 +183,6 @@ Notes:
   {
     "name": "core",
     "type": "core",
-    "enabled": true,
     "weight": 0.8,
     "api_key": "${CORE_API_KEY}",
     "max_results": 5,
@@ -341,8 +336,8 @@ LSM provides several commands for managing remote providers during a session:
 /remote-providers
 ```
 
-Shows all registered provider types, configured providers with their status,
-weight, and API key availability.
+Shows all registered provider types and configured providers with weights and
+API key availability.
 
 ### Test a Provider
 
@@ -365,30 +360,18 @@ Example:
 /remote-search-all <query>
 ```
 
-Search all enabled providers simultaneously. Results are deduplicated and sorted
+Search all configured providers simultaneously. Results are deduplicated and sorted
 by weighted score.
-
-### Enable/Disable Providers
-
-```
-/remote-provider enable <name>
-/remote-provider disable <name>
-```
-
-Toggle a provider on or off for the current session.
 
 ### Adjust Provider Weight
 
-```
-/remote-provider weight <name> <value>
-```
+Set provider weights in `config.json` under `remote_providers`:
 
-Set a provider's weight (0.0-1.0) for the current session.
-
-Example:
-```
-/remote-provider weight arxiv 0.95
-/remote-provider weight wikipedia 0.5
+```json
+"remote_providers": [
+  {"name": "arxiv", "type": "arxiv", "weight": 0.95},
+  {"name": "wikipedia", "type": "wikipedia", "weight": 0.5}
+]
 ```
 
 ## Adding Custom Remote Providers

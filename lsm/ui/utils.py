@@ -284,7 +284,6 @@ def run_remote_search(
             provider_config.type,
             {
                 "type": provider_config.type,
-                "enabled": provider_config.enabled,
                 "weight": provider_config.weight,
                 "api_key": provider_config.api_key,
                 "endpoint": provider_config.endpoint,
@@ -339,7 +338,7 @@ def run_remote_search_all(
     state: SessionState,
 ) -> str:
     """
-    Run a search across all enabled remote providers.
+    Run a search across configured remote providers.
 
     Args:
         query: Search query
@@ -354,7 +353,7 @@ def run_remote_search_all(
     active_providers = config.get_active_remote_providers()
 
     if not active_providers:
-        return "No enabled remote providers configured.\nUse /remote-providers to see available providers.\n"
+        return "No remote providers configured.\nUse /remote-providers to see available providers.\n"
 
     lines = [
         "",
@@ -374,7 +373,6 @@ def run_remote_search_all(
                 provider_config.type,
                 {
                     "type": provider_config.type,
-                    "enabled": provider_config.enabled,
                     "weight": provider_config.weight,
                     "api_key": provider_config.api_key,
                     "endpoint": provider_config.endpoint,

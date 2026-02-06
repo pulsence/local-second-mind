@@ -213,34 +213,21 @@ class LSMConfig:
         allowed_names: Optional[Set[str]] = None,
     ) -> list[RemoteProviderConfig]:
         """
-        Get all enabled remote providers.
+        Get configured remote providers, optionally filtered by name.
 
         Returns:
-            Dictionary of enabled remote providers
+            List of matching remote provider configurations.
         """
         if not self.remote_providers:
             return []
 
-        enabled = [config for config in self.remote_providers if config.enabled]
         if not allowed_names:
-            return enabled
+            return list(self.remote_providers)
 
         normalized = {name.lower() for name in allowed_names if name}
-        return [config for config in enabled if config.name.lower() in normalized]
-
-    def toggle_remote_provider(
-        self,
-        provider_name: str,
-        enabled: bool,
-    ) -> bool:
-        """
-        Enable or disable a remote provider.
-        """
-        for provider_config in self.remote_providers or []:
-            if provider_config.name.lower() == provider_name.lower():
-                provider_config.enabled = enabled
-                return True
-        return False
+        return [
+            config for config in self.remote_providers if config.name.lower() in normalized
+        ]
 
     def set_remote_provider_weight(
         self,

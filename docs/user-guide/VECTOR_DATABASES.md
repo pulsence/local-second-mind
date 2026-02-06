@@ -7,9 +7,7 @@ ChromaDB, with a PostgreSQL + pgvector provider scaffold in progress.
 Configuration Overview
 ----------------------
 
-Vector DB settings live under the `vectordb` section. For backward
-compatibility, top-level `persist_dir` and `collection` still work and are
-used as defaults when `vectordb` is missing.
+Vector DB settings live under the `vectordb` section.
 
 Example (ChromaDB)
 ------------------

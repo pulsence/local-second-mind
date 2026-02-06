@@ -119,9 +119,7 @@ Side effects:
 - `/remote-search <provider> <query>`:
   - test a remote provider
 - `/remote-search-all <query>`:
-  - search all enabled providers
-- `/remote-provider enable|disable|weight <name> [value]`:
-  - configure remote providers
+  - search all configured providers
 - `/mode`:
   - show current mode
 - `/mode <name>`:

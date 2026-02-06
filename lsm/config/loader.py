@@ -28,6 +28,7 @@ from .models import (
     ModelKnowledgePolicy,
     NotesConfig,
     RemoteProviderConfig,
+    RemoteProviderRef,
     VectorDBConfig,
     DEFAULT_EXTENSIONS,
     DEFAULT_EXCLUDE_DIRS,
@@ -109,13 +110,15 @@ def build_llm_provider_config(raw: Dict[str, Any]) -> LLMProviderConfig:
     provider_name = raw.get("provider_name")
     if not provider_name:
         raise ValueError("Each llms[] entry must include 'provider_name'")
+    if any(key in raw for key in ("model", "temperature", "max_tokens")):
+        raise ValueError(
+            "Legacy llms[] fields 'model', 'temperature', and 'max_tokens' are no longer supported. "
+            "Move them under llms[].query/tagging/ranking."
+        )
 
     return LLMProviderConfig(
         provider_name=provider_name,
         api_key=raw.get("api_key"),
-        model=raw.get("model"),
-        temperature=raw.get("temperature"),
-        max_tokens=raw.get("max_tokens"),
         base_url=raw.get("base_url"),
         endpoint=raw.get("endpoint"),
         api_version=raw.get("api_version"),
@@ -164,8 +167,8 @@ def build_ingest_config(raw: Dict[str, Any], config_path: Path) -> IngestConfig:
         raise ValueError("Config must include 'roots' as a non-empty list of directory paths")
 
     vectordb_raw = raw.get("vectordb", {})
-    persist_dir = vectordb_raw.get("persist_dir", raw.get("persist_dir", ".chroma"))
-    collection = vectordb_raw.get("collection", raw.get("collection", IngestConfig.collection))
+    persist_dir = vectordb_raw.get("persist_dir", IngestConfig.persist_dir)
+    collection = vectordb_raw.get("collection", IngestConfig.collection)
 
     # Build config
     config = IngestConfig(
@@ -252,8 +255,8 @@ def build_vectordb_config(raw: Dict[str, Any]) -> VectorDBConfig:
 
     return VectorDBConfig(
         provider=vectordb_raw.get("provider", VectorDBConfig.provider),
-        collection=vectordb_raw.get("collection", raw.get("collection", VectorDBConfig.collection)),
-        persist_dir=vectordb_raw.get("persist_dir", raw.get("persist_dir", VectorDBConfig.persist_dir)),
+        collection=vectordb_raw.get("collection", VectorDBConfig.collection),
+        persist_dir=vectordb_raw.get("persist_dir", VectorDBConfig.persist_dir),
         chroma_hnsw_space=vectordb_raw.get("chroma_hnsw_space", VectorDBConfig.chroma_hnsw_space),
         connection_string=vectordb_raw.get("connection_string"),
         host=vectordb_raw.get("host"),
@@ -333,24 +336,41 @@ def build_source_policy_config(raw: Dict[str, Any]) -> SourcePolicyConfig:
     model_raw = raw.get("model_knowledge", {})
 
     remote_providers = remote_raw.get("remote_providers")
-    if remote_providers is None and "remote_provides" in remote_raw:
-        remote_providers = remote_raw.get("remote_provides")
-        warnings.warn(
-            "Mode config uses 'remote_provides'; please rename to 'remote_providers'."
-        )
     if remote_providers is not None and not isinstance(remote_providers, list):
-        warnings.warn("Mode remote.remote_providers must be a list of provider names.")
+        warnings.warn("Mode remote.remote_providers must be a list of names or {source, weight} objects.")
         remote_providers = None
     if isinstance(remote_providers, list):
-        cleaned = []
+        cleaned: list[str | RemoteProviderRef] = []
         for idx, value in enumerate(remote_providers):
-            if not isinstance(value, str):
-                warnings.warn(
-                    f"Skipping remote.remote_providers[{idx}] because it is not a string."
-                )
+            if isinstance(value, str):
+                if value.strip():
+                    cleaned.append(value.strip())
                 continue
-            if value.strip():
-                cleaned.append(value.strip())
+            if isinstance(value, dict):
+                source = str(value.get("source", "")).strip()
+                if not source:
+                    warnings.warn(
+                        f"Skipping remote.remote_providers[{idx}] because it is missing 'source'."
+                    )
+                    continue
+                weight = value.get("weight")
+                if weight is None:
+                    cleaned.append(RemoteProviderRef(source=source))
+                    continue
+                try:
+                    cleaned.append(RemoteProviderRef(source=source, weight=float(weight)))
+                except (TypeError, ValueError):
+                    warnings.warn(
+                        f"Skipping remote.remote_providers[{idx}] because weight is invalid."
+                    )
+                continue
+            if isinstance(value, RemoteProviderRef):
+                cleaned.append(value)
+                continue
+            warnings.warn(
+                f"Skipping remote.remote_providers[{idx}] because it is not a string or object."
+            )
+            continue
         remote_providers = cleaned or None
 
     return SourcePolicyConfig(
@@ -450,7 +470,6 @@ def build_remote_provider_config(raw: Dict[str, Any]) -> RemoteProviderConfig:
     return RemoteProviderConfig(
         name=raw["name"],  # Required field
         type=raw["type"],  # Required field
-        enabled=bool(raw.get("enabled", True)),
         weight=float(raw.get("weight", 1.0)),
         api_key=raw.get("api_key"),
         endpoint=raw.get("endpoint"),
@@ -572,9 +591,6 @@ def config_to_raw(config: LSMConfig) -> Dict[str, Any]:
         entry: Dict[str, Any] = {
             "provider_name": provider.provider_name,
             "api_key": provider.api_key,
-            "model": provider.model,
-            "temperature": provider.temperature,
-            "max_tokens": provider.max_tokens,
             "base_url": provider.base_url,
             "endpoint": provider.endpoint,
             "api_version": provider.api_version,
@@ -618,6 +634,17 @@ def config_to_raw(config: LSMConfig) -> Dict[str, Any]:
     modes = []
     if config.modes:
         for name, mode in config.modes.items():
+            serialized_remote_providers = None
+            if mode.source_policy.remote.remote_providers:
+                serialized_remote_providers = []
+                for item in mode.source_policy.remote.remote_providers:
+                    if isinstance(item, RemoteProviderRef):
+                        value: Dict[str, Any] = {"source": item.source}
+                        if item.weight is not None:
+                            value["weight"] = item.weight
+                        serialized_remote_providers.append(value)
+                    else:
+                        serialized_remote_providers.append(item)
             mode_entry = {
                 "name": name,
                 "synthesis_style": mode.synthesis_style,
@@ -632,7 +659,7 @@ def config_to_raw(config: LSMConfig) -> Dict[str, Any]:
                         "enabled": mode.source_policy.remote.enabled,
                         "rank_strategy": mode.source_policy.remote.rank_strategy,
                         "max_results": mode.source_policy.remote.max_results,
-                        "remote_providers": mode.source_policy.remote.remote_providers,
+                        "remote_providers": serialized_remote_providers,
                     },
                     "model_knowledge": {
                         "enabled": mode.source_policy.model_knowledge.enabled,
@@ -660,7 +687,6 @@ def config_to_raw(config: LSMConfig) -> Dict[str, Any]:
                 {
                     "name": provider.name,
                     "type": provider.type,
-                    "enabled": provider.enabled,
                     "weight": provider.weight,
                     "api_key": provider.api_key,
                     "endpoint": provider.endpoint,
@@ -677,8 +703,6 @@ def config_to_raw(config: LSMConfig) -> Dict[str, Any]:
 
     return {
         "roots": [str(root) for root in config.ingest.roots],
-        "persist_dir": str(config.ingest.persist_dir),
-        "collection": config.ingest.collection,
         "chroma_flush_interval": config.ingest.chroma_flush_interval,
         "embed_model": config.ingest.embed_model,
         "device": config.ingest.device,

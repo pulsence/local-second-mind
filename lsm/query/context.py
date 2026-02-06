@@ -264,7 +264,6 @@ def fetch_remote_sources(
                 provider_config.type,
                 {
                     "type": provider_config.type,
-                    "enabled": provider_config.enabled,
                     "weight": effective_weight,
                     "api_key": provider_config.api_key,
                     "endpoint": provider_config.endpoint,

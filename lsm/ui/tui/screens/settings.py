@@ -230,9 +230,6 @@ class SettingsScreen(Widget):
                     classes="settings-subsection-title",
                 ),
                 self._field("Provider name", f"settings-llm-{index}-provider-name"),
-                self._field("Model", f"settings-llm-{index}-model"),
-                self._field("Temperature", f"settings-llm-{index}-temperature"),
-                self._field("Max tokens", f"settings-llm-{index}-max-tokens"),
                 self._field("Base URL", f"settings-llm-{index}-base-url"),
                 self._field("Endpoint", f"settings-llm-{index}-endpoint"),
                 self._field("API version", f"settings-llm-{index}-api-version"),
@@ -252,9 +249,6 @@ class SettingsScreen(Widget):
             container.mount(section)
 
             self._set_input(f"settings-llm-{index}-provider-name", provider.provider_name)
-            self._set_input(f"settings-llm-{index}-model", self._format_optional(provider.model))
-            self._set_input(f"settings-llm-{index}-temperature", self._format_optional(provider.temperature))
-            self._set_input(f"settings-llm-{index}-max-tokens", self._format_optional(provider.max_tokens))
             self._set_input(f"settings-llm-{index}-base-url", self._format_optional(provider.base_url))
             self._set_input(f"settings-llm-{index}-endpoint", self._format_optional(provider.endpoint))
             self._set_input(f"settings-llm-{index}-api-version", self._format_optional(provider.api_version))

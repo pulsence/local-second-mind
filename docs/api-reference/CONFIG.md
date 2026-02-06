@@ -104,9 +104,6 @@ Fields:
 
 - `provider_name: str`
 - `api_key: str | None = None`
-- `model: str | None = None`
-- `temperature: float | None = None`
-- `max_tokens: int | None = None`
 - `base_url: str | None = None` (local/hosted providers)
 - `endpoint: str | None = None` (Azure OpenAI)
 - `api_version: str | None = None` (Azure OpenAI)
@@ -114,6 +111,11 @@ Fields:
 - `query: FeatureLLMConfig | None`
 - `tagging: FeatureLLMConfig | None`
 - `ranking: FeatureLLMConfig | None`
+
+Notes:
+
+- `model`, `temperature`, and `max_tokens` are feature-level only.
+- Configure them under `query`, `tagging`, and/or `ranking`.
 
 ## LLMConfig
 
@@ -143,7 +145,7 @@ Environment resolution:
 ## FeatureLLMConfig
 
 
-Per-feature override that merges with a provider base config.
+Per-feature override used to build effective runtime `LLMConfig`.
 
 Fields:
 
@@ -166,7 +168,6 @@ Defines a single mode.
 
 Fields:
 
-- `name: str` (required)
 - `synthesis_style: str = grounded` (`grounded` or `insight`)
 - `source_policy: SourcePolicyConfig`
 - `notes: NotesConfig`
@@ -199,7 +200,7 @@ Fields:
 - `enabled: bool = false`
 - `rank_strategy: str = weighted`
 - `max_results: int = 5`
-- `remote_providers: list[str] | None = None`
+- `remote_providers: list[str | RemoteProviderRef] | None = None`
 
 ## ModelKnowledgePolicy
 
@@ -223,7 +224,6 @@ Fields:
 
 - `name: str` (required)
 - `type: str` (required)
-- `enabled: bool = true`
 - `weight: float = 1.0`
 - `api_key: str | None = None`
 - `endpoint: str | None = None`

@@ -54,7 +54,6 @@ QUERY_COMMANDS: Dict[str, str] = {
     "/remote-providers": "List remote source providers",
     "/remote-search": "Test remote provider (requires: provider query)",
     "/remote-search-all": "Search all providers (requires: query)",
-    "/remote-provider": "Configure remote provider (requires: action name)",
     "/mode": "Show or switch query mode",
     "/note": "Save last query as note (optional: name)",
     "/notes": "Alias for /note",
@@ -74,9 +73,6 @@ MODE_SETTINGS = ["model_knowledge", "remote", "notes"]
 BUILD_OPTIONS = ["--force"]
 TAG_OPTIONS = ["--max"]
 EXPORT_FORMATS = ["bibtex", "zotero"]
-REMOTE_ACTIONS = ["enable", "disable", "weight"]
-
-
 def get_commands(context: ContextType) -> Dict[str, str]:
     """
     Get available commands for a context.
@@ -210,11 +206,6 @@ def _get_argument_completions(
         matches = [f for f in EXPORT_FORMATS if f.startswith(arg)]
         return matches
 
-    # Remote provider actions
-    if cmd == "/remote-provider":
-        matches = [a for a in REMOTE_ACTIONS if a.startswith(arg)]
-        return matches
-
     # Costs subcommands
     if cmd == "/costs":
         if "export".startswith(arg):
@@ -256,7 +247,6 @@ def format_command_help(context: ContextType) -> str:
             "/providers", "/provider-status", "/model", "/models",
             "/vectordb-providers", "/vectordb-status",
             "/remote-providers", "/remote-search", "/remote-search-all",
-            "/remote-provider",
         ],
         "Export": ["/export-citations", "/budget", "/cost-estimate"],
         "Filters": ["/set", "/clear"],

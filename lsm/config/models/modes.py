@@ -215,9 +215,6 @@ class RemoteProviderConfig:
     type: str
     """Provider type: 'web_search', 'api', etc."""
 
-    enabled: bool = True
-    """Whether this provider is active."""
-
     weight: float = 1.0
     """Weight for ranking/ordering this provider's results."""
 

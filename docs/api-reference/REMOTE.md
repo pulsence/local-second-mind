@@ -241,7 +241,6 @@ Single known repository:
 {
   "name": "oai_pmh",
   "type": "oai_pmh",
-  "enabled": true,
   "repository": "zenodo"
 }
 ```
@@ -251,7 +250,6 @@ Multiple repositories:
 {
   "name": "oai_pmh_multi",
   "type": "oai_pmh",
-  "enabled": true,
   "repositories": ["arxiv", "zenodo", "pubmed"]
 }
 ```
@@ -261,7 +259,6 @@ Custom repository:
 {
   "name": "institutional_repo",
   "type": "oai_pmh",
-  "enabled": true,
   "custom_repositories": {
     "my_university": {
       "name": "My University Repository",
@@ -300,7 +297,7 @@ based on repository configuration.
 Remote providers are used when:
 
 - a mode enables `source_policy.remote.enabled`
-- `LSMConfig.get_active_remote_providers()` returns providers with `enabled = true`
+- `LSMConfig.get_active_remote_providers()` returns configured providers
   (filtered by `source_policy.remote.remote_providers` when present)
 
 Results are included in the LLM context and displayed after the answer.
