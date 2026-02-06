@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import asyncio
+import importlib
 import pytest
 from unittest.mock import Mock, MagicMock, patch
-from dataclasses import dataclass
+from pathlib import Path
+from types import SimpleNamespace
 
 # Skip tests if textual is not available
 pytest.importorskip("textual")
@@ -233,3 +236,188 @@ class TestLSMAppStatusBarIntegration:
         app.watch_current_mode("insight")
         app.watch_chunk_count(100)
         app.watch_total_cost(1.50)
+
+
+def _build_config(tmp_path: Path, provider: str = "chromadb"):
+    cfg = SimpleNamespace()
+    cfg.vectordb = SimpleNamespace(provider=provider)
+    cfg.embed_model = "mini-model"
+    cfg.device = "cpu"
+    cfg.collection = "kb"
+    cfg.persist_dir = str(tmp_path / "chroma")
+    cfg.query = SimpleNamespace(mode="grounded")
+    cfg.llm = SimpleNamespace(get_query_config=lambda: SimpleNamespace(model="gpt-test"))
+    return cfg
+
+
+class TestLSMAppBehavior:
+    def test_switch_actions_and_tab_activation(self, tmp_path: Path):
+        from lsm.ui.tui.app import LSMApp
+
+        app = LSMApp(_build_config(tmp_path))
+        tabs = SimpleNamespace(active="")
+        app.query_one = lambda selector, _cls=None: tabs if selector else tabs  # type: ignore[assignment]
+
+        app.action_switch_ingest()
+        assert app.current_context == "ingest"
+        app.action_switch_query()
+        assert app.current_context == "query"
+        app.action_switch_remote()
+        assert app.current_context == "remote"
+        app.action_switch_settings()
+        assert app.current_context == "settings"
+
+        event = SimpleNamespace(tab=SimpleNamespace(id="query-tab"))
+        app.on_tabbed_content_tab_activated(event)
+        assert app.current_context == "query"
+
+        event_bad = SimpleNamespace(tab=SimpleNamespace(id="unknown-tab"))
+        app.on_tabbed_content_tab_activated(event_bad)
+        assert app.current_context == "query"
+
+    def test_activate_settings_subtabs_and_actions(self, tmp_path: Path):
+        from lsm.ui.tui.app import LSMApp
+
+        app = LSMApp(_build_config(tmp_path))
+        tabs = SimpleNamespace(active="")
+        settings_screen = SimpleNamespace(query_one=lambda *_args, **_kwargs: tabs)
+
+        app.query_one = lambda selector, _cls=None: settings_screen  # type: ignore[assignment]
+        app.current_context = "settings"
+
+        app.action_settings_tab_1()
+        assert tabs.active == "settings-config"
+        app.action_settings_tab_6()
+        assert tabs.active == "settings-llm"
+
+        app.current_context = "query"
+        tabs.active = ""
+        app.action_settings_tab_2()
+        assert tabs.active == ""
+
+    def test_show_help_and_quit(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+        from lsm.ui.tui.app import LSMApp
+
+        app = LSMApp(_build_config(tmp_path))
+        pushed = {}
+        monkeypatch.setattr(app, "push_screen", lambda screen: pushed.setdefault("screen", screen))
+        monkeypatch.setattr(app, "exit", lambda: pushed.setdefault("quit", True))
+
+        app.action_show_help()
+        assert pushed["screen"] is not None
+        app.action_quit()
+        assert pushed["quit"] is True
+
+    def test_watch_methods_update_status_bar(self, tmp_path: Path):
+        from lsm.ui.tui.app import LSMApp
+
+        app = LSMApp(_build_config(tmp_path))
+        status = SimpleNamespace(mode="", chunk_count=0, total_cost=0.0)
+        app.query_one = lambda *_args, **_kwargs: status  # type: ignore[assignment]
+
+        app.watch_current_mode("insight")
+        app.watch_chunk_count(42)
+        app.watch_total_cost(1.25)
+
+        assert status.mode == "insight"
+        assert status.chunk_count == 42
+        assert status.total_cost == 1.25
+
+    def test_on_mount_success_and_failure(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+        from lsm.ui.tui.app import LSMApp
+
+        app = LSMApp(_build_config(tmp_path))
+        tabs = SimpleNamespace(active="")
+        app.query_one = lambda *_args, **_kwargs: tabs  # type: ignore[assignment]
+        monkeypatch.setattr(app, "_setup_tui_logging", lambda: None)
+        monkeypatch.setattr(app, "_async_init_query_context", lambda: asyncio.sleep(0))
+
+        asyncio.run(app.on_mount())
+        assert app.current_context == "query"
+        assert tabs.active == "query"
+
+        app2 = LSMApp(_build_config(tmp_path))
+        app2.query_one = lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("no tabs"))  # type: ignore[assignment]
+        monkeypatch.setattr(app2, "_setup_tui_logging", lambda: None)
+
+        async def _fail():
+            raise RuntimeError("broken")
+
+        monkeypatch.setattr(app2, "_async_init_query_context", _fail)
+        notices = []
+        monkeypatch.setattr(app2, "notify", lambda msg, **kwargs: notices.append((msg, kwargs)))
+        asyncio.run(app2.on_mount())
+        assert notices and "Query context unavailable" in notices[0][0]
+
+    def test_async_init_ingest_context(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+        from lsm.ui.tui.app import LSMApp
+
+        app = LSMApp(_build_config(tmp_path))
+
+        async def _to_thread(fn, *args, **kwargs):
+            return fn(*args, **kwargs)
+
+        monkeypatch.setattr("asyncio.to_thread", _to_thread)
+        monkeypatch.setattr("lsm.vectordb.create_vectordb_provider", lambda cfg: "provider")
+        asyncio.run(app._async_init_ingest_context())
+        assert app.ingest_provider == "provider"
+
+        # Already initialized is a no-op.
+        asyncio.run(app._async_init_ingest_context())
+        assert app.ingest_provider == "provider"
+
+    def test_async_init_query_context_missing_chroma_dir(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+        from lsm.ui.tui.app import LSMApp
+
+        app = LSMApp(_build_config(tmp_path, provider="chromadb"))
+
+        async def _to_thread(fn, *args, **kwargs):
+            return fn(*args, **kwargs)
+
+        monkeypatch.setattr("asyncio.to_thread", _to_thread)
+        retrieval_mod = importlib.import_module("lsm.query.retrieval")
+        monkeypatch.setattr(retrieval_mod, "init_embedder", lambda *_args, **_kwargs: "embed")
+
+        with pytest.raises(FileNotFoundError):
+            asyncio.run(app._async_init_query_context())
+
+    def test_async_init_query_context_success_and_empty_warning(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+        from lsm.ui.tui.app import LSMApp
+
+        persist_dir = tmp_path / "chroma"
+        persist_dir.mkdir(parents=True)
+        cfg = _build_config(tmp_path, provider="chromadb")
+        cfg.persist_dir = str(persist_dir)
+        app = LSMApp(cfg)
+
+        class _Provider:
+            def count(self):
+                return 0
+
+        async def _to_thread(fn, *args, **kwargs):
+            return fn(*args, **kwargs)
+
+        monkeypatch.setattr("asyncio.to_thread", _to_thread)
+        retrieval_mod = importlib.import_module("lsm.query.retrieval")
+        cost_mod = importlib.import_module("lsm.query.cost_tracking")
+        session_mod = importlib.import_module("lsm.query.session")
+        monkeypatch.setattr(retrieval_mod, "init_embedder", lambda *_args, **_kwargs: "embedder")
+        monkeypatch.setattr("lsm.vectordb.create_vectordb_provider", lambda *_args, **_kwargs: _Provider())
+        monkeypatch.setattr(cost_mod, "CostTracker", lambda: "costs")
+        monkeypatch.setattr(session_mod, "SessionState", lambda model, cost_tracker: SimpleNamespace(model=model, cost_tracker=cost_tracker))
+        notices = []
+        monkeypatch.setattr(app, "notify", lambda msg, **kwargs: notices.append((msg, kwargs)))
+
+        asyncio.run(app._async_init_query_context())
+        assert app.query_embedder == "embedder"
+        assert app.query_provider is not None
+        assert app.query_state.model == "gpt-test"
+        assert app.current_mode == "grounded"
+        assert app.chunk_count == 0
+        assert notices and "is empty" in notices[0][0]
+
+    def test_run_tui_returns_zero(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+        from lsm.ui.tui.app import run_tui, LSMApp
+
+        monkeypatch.setattr(LSMApp, "run", lambda self: None)
+        assert run_tui(_build_config(tmp_path)) == 0

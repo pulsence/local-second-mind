@@ -1,3 +1,4 @@
+import os
 from pathlib import Path
 
 import pytest
@@ -8,8 +9,22 @@ from lsm.config.loader import (
     build_llm_provider_config,
     build_source_policy_config,
     config_to_raw,
+    build_remote_providers_registry,
+    build_modes_registry,
+    build_llm_config,
+    save_config_to_file,
+    load_config_from_file,
+    load_raw_config,
 )
 from lsm.config.models import RemoteProviderRef
+
+
+@pytest.fixture(autouse=True)
+def _restore_env_after_test():
+    original = dict(os.environ)
+    yield
+    os.environ.clear()
+    os.environ.update(original)
 
 
 def _base_raw(tmp_path: Path) -> dict:
@@ -147,3 +162,85 @@ def test_notes_config_is_global_not_mode_scoped(tmp_path: Path) -> None:
     assert "notes" in serialized
     assert serialized["notes"]["dir"] == "research_notes"
     assert "notes" not in serialized["modes"][0]
+
+
+def test_parse_config_text_rejects_unknown_suffix() -> None:
+    with pytest.raises(ValueError, match="Unsupported config format"):
+        parse_config_text("a: 1", "config.txt")
+
+
+def test_build_llm_config_requires_non_empty_list() -> None:
+    with pytest.raises(ValueError, match="must include 'llms'"):
+        build_llm_config({})
+
+
+def test_build_modes_registry_invalid_type_returns_none() -> None:
+    assert build_modes_registry({"modes": {"name": "bad"}}) is None
+
+
+def test_build_modes_registry_skips_invalid_entries() -> None:
+    modes = build_modes_registry(
+        {
+            "modes": [
+                {"name": "good", "synthesis_style": "grounded", "source_policy": {}},
+                {"name": "good", "synthesis_style": "grounded", "source_policy": {}},
+                {"bad": "entry"},
+                "not-a-dict",
+            ]
+        }
+    )
+    assert modes is not None
+    assert list(modes.keys()) == ["good"]
+
+
+def test_build_remote_providers_registry_handles_invalid_entries() -> None:
+    providers = build_remote_providers_registry(
+        {
+            "remote_providers": [
+                {"name": "ok", "type": "wikipedia"},
+                {"name": "", "type": "wikipedia"},
+                {"name": "missing-type"},
+                "nope",
+            ]
+        }
+    )
+    assert providers is not None
+    assert len(providers) == 1
+    assert providers[0].name == "ok"
+
+
+def test_build_remote_providers_registry_invalid_section_type() -> None:
+    assert build_remote_providers_registry({"remote_providers": "bad"}) is None
+
+
+def test_save_and_load_config_json_roundtrip(tmp_path: Path) -> None:
+    raw = _base_raw(tmp_path)
+    config = build_config_from_raw(raw, tmp_path / "config.json")
+    out_path = tmp_path / "saved.json"
+
+    save_config_to_file(config, out_path)
+    loaded = load_config_from_file(out_path)
+    assert loaded.vectordb.collection == "test_collection"
+    assert loaded.ingest.embed_model == config.ingest.embed_model
+
+
+def test_save_and_load_config_yaml_roundtrip(tmp_path: Path) -> None:
+    raw = _base_raw(tmp_path)
+    config = build_config_from_raw(raw, tmp_path / "config.yaml")
+    out_path = tmp_path / "saved.yaml"
+
+    save_config_to_file(config, out_path)
+    loaded = load_config_from_file(out_path)
+    assert loaded.vectordb.collection == "test_collection"
+
+
+def test_save_config_rejects_unknown_suffix(tmp_path: Path) -> None:
+    raw = _base_raw(tmp_path)
+    config = build_config_from_raw(raw, tmp_path / "config.json")
+    with pytest.raises(ValueError, match="Unsupported config format"):
+        save_config_to_file(config, tmp_path / "saved.ini")
+
+
+def test_load_raw_config_missing_file_raises(tmp_path: Path) -> None:
+    with pytest.raises(FileNotFoundError):
+        load_raw_config(tmp_path / "missing.json")

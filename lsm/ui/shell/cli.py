@@ -12,7 +12,7 @@ from typing import Optional
 from lsm.config import load_config_from_file
 from lsm.config.models import LSMConfig
 from lsm.logging import get_logger
-from lsm.ingest.api import run_ingest, wipe_collection
+from lsm.ingest.api import run_ingest as api_run_ingest, wipe_collection as api_wipe_collection
 from lsm.ingest.tagging import tag_chunks
 from lsm.vectordb import create_vectordb_provider
 
@@ -83,7 +83,7 @@ def run_build_cli(
         else:
             print(f"[{event}] {message}")
 
-    run_ingest(
+    api_run_ingest(
         config,
         force=force,
         progress_callback=progress,
@@ -153,7 +153,7 @@ def run_wipe_cli(
 
     config = _load_config(config_path)
     try:
-        deleted = wipe_collection(config)
+        deleted = api_wipe_collection(config)
     except Exception as exc:
         print(f"Error: {exc}")
         return 1
