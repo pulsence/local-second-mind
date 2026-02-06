@@ -2,7 +2,32 @@
 
 All notable changes to Local Second Mind are documented here.
 
-## Unreleased
+## 0.3.2
+
+### Added
+
+- Clean ingest API in `lsm/ingest/api.py` with typed results for ingest, stats, info, and wipe operations.
+- Progress callback support across ingest and query flows, including TUI progress integration.
+- Shared LLM provider helpers in `lsm/providers/helpers.py` to centralize prompts, parsing, and fallback behavior.
+- Global path management in `lsm/paths.py` with default user folder support for chats and notes.
+- Expanded test coverage with new vector DB, ingest API, config, logging, and path test suites.
+- New integration test fixtures and suites for ingest pipeline and query progress callbacks.
+
+### Changed
+
+- Refactored `lsm.ingest` toward a cleaner architecture that separates business logic from UI command handling.
+- Consolidated duplicated provider logic across OpenAI, Anthropic, Gemini, Azure OpenAI, and Local providers.
+- Removed legacy configuration fallbacks and typo-tolerant compatibility paths from config loading.
+- Simplified remote provider activation semantics by mode-driven selection.
+- Improved lazy loading for package/provider/vector DB components to reduce startup overhead.
+
+### Fixed
+
+- Improved ingest and query fault tolerance with better error handling and partial-result resilience.
+- Added graceful handling for provider failures and remote timeout scenarios.
+- Removed deprecated/legacy ingest code paths that conflicted with current architecture guidance.
+
+## 0.3.1
 
 ### Added
 

@@ -1,64 +1,6 @@
 # Todo
 
-## Testing 
-- The test module structure should match the code module structure
-- Test code coverage needs to be improved (target 80% test coverage)
-- Run full pytest suite and verify all tests pass
-- Create synthetic test data to run integration tests
-- Move to a Test-Driven-Design process where for every feature non-ui that is
-  created a test is first created for the feature. And then the development of
-  that feature is not completed until the test is passing.
-
 ## Architecture
-- General code clean up:
-    - Check to make sure there is not unnecessary duplicated code
-    - Check for files that are quite large and how they can be intelligently split into sub-modules
-    - Remove ALL legacy and depracted code paths
-    - Check the implimentations of the ai providers and see if the base
-      BaseLLMProvider could encapsulate some of the common functionality
-      or if it should be moved into some kind of helper.
-- Refactor lsm.ingest module:
-    - This module should be structure in a similiar way to lsm.query
-    - It should have be entirely agnostic to who is calling
-    - All output formating should be removed from the module in moved to a proper
-      place in the lsm.ui module
-    - lsm.ingest.display.py needs to be removed and properly split into either lsm.ui.utils
-      or into lsm.ui.tui or into lsm.ui.shell
-    - lsm.ingest.commands.py needs to be removed and its functionality split a part.
-    - All string command parsing in lsm.ingest.commands.py needs to be handled either in lsm.ui.util or
-      lsm.ui.tui or lsm.ui.shell
-    - All business logic in lsm.ingest.commands.py should be moved to the proper ui modules if it is
-      ui logic or refactored into helper methods in the lsm.ingest modules. These methods should take
-      proper parameters (e.g., int, dict, obj, etc.) and return proper values (e.g., int, list, etc.).
-      All formatting should be handled by the called of these methods.
-    - lsm.ingest.config.py should be compared with the lsm.config module and either merged into that module
-      or deleted it that lsm.ingest.config.py is redundant.
-- Check for places to improve error handling and fault resilience
-- Look for places to lazy load modules to improve start time
-- Create a global default folder when one is not specified
-    - The global default folder for this project when one is not specified should be
-      in the local system user folder: `<USER_FOLDER>/Local Second Mind/`.
-      Whenever relative folder paths for data files (e.g., notes, chats, etc.) are
-      used, it should be assumed to be relative to the global folder.
-    - The user should be able to set this global folder in the config.
-- The configuration needs to be updated:
-    - The "remote_providers" should not have an "enabled" field. A provider is enabled
-      by the query mode specifying which remote_providers to use.
-    - Legacies llm config fields like "model", "temperature", and "max_tokens" need to be
-      removed since these fields are to be configured in the feature config of the llm provider.
-    - The model classes in the lsm.config model need to be analyzed for any duplicate or redundant code.
-- Congfiguration needs to be entirely reconsidered.
-    - Outline the current configurations needed
-    - Provide a clear class base structure to model these configurations. Start by designing the
-      configuration needs in the python code first.
-    - Once the python configuration models are designed, then design an intelligent json/yaml
-      structure to match the python models.
-    - At each step along the way consulte with the user to make sure the design is done according to
-      his designs.
-    - NO LEGACY OR BACKWARDS COMPATABILITY CODE SHOULD BE GENERATED! This is a clean break from the
-      the past.
-    - Before any code is changed to update the configuration pipeline, test code must be written to
-      handle the config settings and this change is not finished until all tests are passing
 
 ## TUI
 - Settings screen needs to be entirely restructured to implement the new configurations
@@ -116,9 +58,7 @@
 - Query chat modes: Chat or Single-shot
 - There should be a global setting for chats that sets chat saving parameters. The default save
   location should be `<GLOBAL_FOLDER/Chats/`
-- Query modes can then adjust this save location, or if automatic saves happen.
-- Notes settings should be set global in the config not per mode. 
-- Notes should default to `<GLOBAL_FOLDER/Notes/` when none is set.
+- Query modes can adjust if automatic saves happen.
 - Query modes can then set subfolder locations in the global notes folder and other parameters
 
 ## Modes and Agents
