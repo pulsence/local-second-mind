@@ -40,6 +40,7 @@ from lsm.remote import get_registered_providers
 from lsm.vectordb.utils import require_chroma_collection
 from lsm.query.citations import export_citations_from_note, export_citations_from_sources
 from lsm.query.notes import get_note_filename, generate_note_content
+from lsm.ui.tui.widgets.status import StatusBar
 
 if TYPE_CHECKING:
     from lsm.query.session import Candidate
@@ -1081,7 +1082,19 @@ class QueryScreen(Widget):
         candidates: List["Candidate"] = []
 
         try:
-            from lsm.query.api import query as run_query
+            from lsm.query.api import QueryProgress, query as run_query
+
+            def on_progress(progress: QueryProgress) -> None:
+                message = f"{progress.stage}: {progress.message}"
+
+                def update() -> None:
+                    try:
+                        status_bar = self.app.query_one("#main-status-bar", StatusBar)
+                        status_bar.provider_status = message
+                    except Exception:
+                        pass
+
+                self.app.call_from_thread(update)
 
             result = await run_query(
                 query,
@@ -1089,6 +1102,7 @@ class QueryScreen(Widget):
                 app.query_state,
                 app.query_embedder,
                 app.query_provider,
+                progress_callback=on_progress,
             )
 
             response_text = f"{result.answer}\n{result.sources_display}"
@@ -1112,12 +1126,23 @@ class QueryScreen(Widget):
             if result.cost and hasattr(app, 'update_cost'):
                 app.update_cost(result.cost)
 
+            try:
+                status_bar = self.app.query_one("#main-status-bar", StatusBar)
+                status_bar.provider_status = "ready"
+            except Exception:
+                pass
+
             return response_text, candidates
 
         except ImportError as e:
             logger.warning(f"Query module not available: {e}, using fallback")
         except Exception as e:
             logger.error(f"Query execution error: {e}", exc_info=True)
+            try:
+                status_bar = self.app.query_one("#main-status-bar", StatusBar)
+                status_bar.provider_status = "error"
+            except Exception:
+                pass
             return f"Query error: {e}", []
 
         return self._sync_query(query), []

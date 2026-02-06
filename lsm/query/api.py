@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass, replace
-from typing import Dict, Any, List, Optional
+from typing import Callable, Dict, Any, List, Optional
 
 from lsm.config.models import LSMConfig
 from lsm.providers import create_provider
@@ -55,12 +55,23 @@ class QueryResult:
     """Debug information from retrieval."""
 
 
+@dataclass
+class QueryProgress:
+    """Progress update from query operation."""
+
+    stage: str
+    current: int
+    total: int
+    message: str
+
+
 async def query(
     question: str,
     config: LSMConfig,
     state: SessionState,
     embedder,
     collection,
+    progress_callback: Optional[Callable[[QueryProgress], None]] = None,
 ) -> QueryResult:
     """
     Execute a query and return results.
@@ -86,6 +97,10 @@ async def query(
 
     logger.info(f"Running query: {question[:50]}...")
 
+    def emit(stage: str, current: int, total: int, message: str) -> None:
+        if progress_callback:
+            progress_callback(QueryProgress(stage=stage, current=current, total=total, message=message))
+
     mode_config = config.get_mode_config()
     local_policy = mode_config.source_policy.local
     remote_policy = mode_config.source_policy.remote
@@ -95,7 +110,14 @@ async def query(
     total_cost = 0.0
 
     context_result = await build_combined_context_async(
-        question, config, state, embedder, collection
+        question,
+        config,
+        state,
+        embedder,
+        collection,
+        progress_callback=lambda stage, current, total, message: emit(
+            stage, current, total, message
+        ),
     )
 
     plan = context_result.plan
@@ -167,7 +189,11 @@ async def query(
             )
 
         chosen = await _apply_reranking(
-            question, plan, config, state
+            question,
+            plan,
+            config,
+            state,
+            progress_callback=emit,
         )
     else:
         state.last_all_candidates = []
@@ -191,9 +217,11 @@ async def query(
     }
     context_block, sources = build_context_block(combined_candidates)
 
+    emit("synthesis", 0, 1, "Generating answer...")
     answer, synthesis_cost = await _synthesize_answer(
         question, context_block, config, state, mode_config
     )
+    emit("synthesis", 1, 1, "Answer generation complete")
     total_cost += synthesis_cost
 
     if "[S" not in answer:
@@ -229,6 +257,7 @@ def query_sync(
     state: SessionState,
     embedder,
     collection,
+    progress_callback: Optional[Callable[[QueryProgress], None]] = None,
 ) -> QueryResult:
     """
     Synchronous wrapper for query().
@@ -245,7 +274,16 @@ def query_sync(
     Returns:
         QueryResult with answer, candidates, and metadata
     """
-    return asyncio.run(query(question, config, state, embedder, collection))
+    return asyncio.run(
+        query(
+            question,
+            config,
+            state,
+            embedder,
+            collection,
+            progress_callback=progress_callback,
+        )
+    )
 
 
 async def _apply_reranking(
@@ -253,6 +291,7 @@ async def _apply_reranking(
     plan,
     config: LSMConfig,
     state: SessionState,
+    progress_callback: Optional[Callable[[str, int, int, str], None]] = None,
 ) -> List[Candidate]:
     """
     Apply reranking to candidates based on plan settings.
@@ -268,6 +307,8 @@ async def _apply_reranking(
     """
     if not plan.should_llm_rerank:
         return plan.filtered[: min(plan.k_rerank, len(plan.filtered))]
+    if progress_callback:
+        progress_callback("rerank", 0, 1, "Reranking candidates...")
 
     ranking_config = config.llm.get_ranking_config()
     provider = create_provider(ranking_config)
@@ -319,6 +360,9 @@ async def _apply_reranking(
             cost=cost,
             kind="rerank",
         )
+
+    if progress_callback:
+        progress_callback("rerank", 1, 1, "Reranking complete")
 
     return chosen
 

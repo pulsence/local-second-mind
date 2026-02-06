@@ -12,10 +12,9 @@ from typing import Optional
 from lsm.config import load_config_from_file
 from lsm.config.models import LSMConfig
 from lsm.logging import get_logger
-from lsm.ingest.pipeline import ingest
+from lsm.ingest.api import run_ingest, wipe_collection
 from lsm.ingest.tagging import tag_chunks
 from lsm.vectordb import create_vectordb_provider
-from lsm.vectordb.utils import require_chroma_collection
 
 logger = get_logger(__name__)
 
@@ -78,27 +77,16 @@ def run_build_cli(
     if dry_run is not None:
         config.ingest.dry_run = dry_run
 
-    if force:
-        manifest_path = config.ingest.manifest
-        if manifest_path.exists():
-            logger.warning("Force enabled: clearing ingest manifest")
-            manifest_path.unlink()
+    def progress(event: str, current: int, total: int, message: str) -> None:
+        if total > 0:
+            print(f"[{event}] {current}/{total} {message}")
+        else:
+            print(f"[{event}] {message}")
 
-    ingest(
-        roots=config.ingest.roots,
-        chroma_flush_interval=config.ingest.chroma_flush_interval,
-        embed_model_name=config.embed_model,
-        device=config.device,
-        batch_size=config.batch_size,
-        manifest_path=config.ingest.manifest,
-        exts=config.ingest.exts,
-        exclude_dirs=config.ingest.exclude_set,
-        vectordb_config=config.vectordb,
-        dry_run=config.ingest.dry_run,
-        enable_ocr=config.ingest.enable_ocr,
-        skip_errors=config.ingest.skip_errors,
-        chunk_size=config.ingest.chunk_size,
-        chunk_overlap=config.ingest.chunk_overlap,
+    run_ingest(
+        config,
+        force=force,
+        progress_callback=progress,
     )
 
     logger.info("Ingest completed successfully")
@@ -164,20 +152,11 @@ def run_wipe_cli(
         return 2
 
     config = _load_config(config_path)
-    provider = create_vectordb_provider(config.vectordb)
     try:
-        chroma = require_chroma_collection(provider, "wipe")
+        deleted = wipe_collection(config)
     except Exception as exc:
         print(f"Error: {exc}")
         return 1
-
-    count = chroma.count()
-    print(f"\nDeleting {count:,} chunks from collection '{config.collection}'...")
-
-    results = chroma.get(include=[])
-    ids = results.get("ids", []) if results else []
-    if ids:
-        chroma.delete(ids=ids)
-
+    print(f"\nDeleted {deleted:,} chunks from collection '{config.collection}'.")
     print("Collection cleared successfully.")
     return 0

@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-import sys
 import time
 from dataclasses import dataclass, field
-from typing import Optional
+from typing import Callable, Optional
+
 
 @dataclass
 class Progress:
@@ -20,12 +20,17 @@ class Progress:
     t0: float = field(default_factory=time.time)
     last_report: float = field(default_factory=time.time)
     report_every_s: float = 1.0
+    on_update: Optional[Callable[[str, int, int, str], None]] = None
+
+    def _emit(self, event: str, message: str = "") -> None:
+        if self.on_update:
+            self.on_update(event, self.seen, self.total_files, message)
 
     def start(self, total_files: int) -> None:
         self.total_files = total_files
         self.t0 = time.time()
         self.last_report = self.t0
-        self._print(f"Found {total_files} files to consider.")
+        self._emit("start", f"Found {total_files} files to consider.")
 
     def file_done(self) -> None:
         self.seen += 1
@@ -46,11 +51,10 @@ class Progress:
 
     def write_done(self, n_chunks: int) -> None:
         self.writes += 1
-        # You may want to count chunks written separately; we track chunks at file_updated time.
 
     def error(self, msg: str) -> None:
         self.errors += 1
-        self._print(f"[ERROR] {msg}")
+        self._emit("error", msg)
 
     def maybe_report(self, force: bool = False) -> None:
         now = time.time()
@@ -61,24 +65,14 @@ class Progress:
         elapsed = now - self.t0
         rate = (self.seen / elapsed) if elapsed > 0 else 0.0
 
-        # single-line “status bar” style update
         line = (
             f"Progress: {self.seen}/{self.total_files} files | "
             f"updated={self.updated} skipped={self.skipped} empty={self.empty} errors={self.errors} | "
             f"chunks={self.chunks} writes={self.writes} | "
             f"{rate:.1f} files/s | {elapsed:.1f}s elapsed"
         )
-        self._print(line, overwrite=True)
+        self._emit("progress", line)
 
     def finish(self) -> None:
         self.maybe_report(force=True)
-        self._print("\nIngest complete.")
-
-    def _print(self, s: str, overwrite: bool = False) -> None:
-        if overwrite:
-            # carriage return + clear-to-eol (works in most terminals)
-            sys.stdout.write("\r" + s + " " * max(0, 4))
-            sys.stdout.flush()
-        else:
-            sys.stdout.write(s + "\n")
-            sys.stdout.flush()
+        self._emit("finish", "Ingest complete.")

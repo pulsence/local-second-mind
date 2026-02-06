@@ -6,10 +6,8 @@ import threading
 import queue
 import json
 from concurrent.futures import ThreadPoolExecutor
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
 from pathlib import Path
-
-from sentence_transformers import SentenceTransformer
 
 from lsm.ingest.chunking import chunk_text
 from lsm.ingest.fs import iter_files
@@ -171,18 +169,31 @@ def ingest(
     stop_event: Optional[threading.Event] = None,
     chunk_size: int = 1800,
     chunk_overlap: int = 200,
-) -> None:
+    progress_callback: Optional[Callable[[str, int, int, str], None]] = None,
+) -> Dict[str, Any]:
+    """
+    Run ingest pipeline.
+
+    Returns:
+        Summary dictionary with ingest metrics.
+    """
+    def emit(event: str, current: int, total: int, message: str) -> None:
+        if progress_callback:
+            progress_callback(event, current, total, message)
+
     stop_signal = stop_event or threading.Event()
     provider = create_vectordb_provider(vectordb_config)
 
-    print(f"[INGEST] model device = {device}")
+    emit("init", 0, 0, f"Model device: {device}")
+    from sentence_transformers import SentenceTransformer
+
     model = SentenceTransformer(embed_model_name, device=device)
 
     manifest = load_manifest(manifest_path)
 
     files = list(iter_files(roots, exts, exclude_dirs))
     total_files = len(files)
-    print(f"[INGEST] Discovered {total_files:,} files to consider")
+    emit("discovery", 0, total_files, f"Discovered {total_files:,} files to consider")
 
     # ---- Queues (bounded for backpressure) ----
     parse_out_q: "queue.Queue[Optional[ParseResult]]" = queue.Queue(maxsize=128)
@@ -431,16 +442,16 @@ def ingest(
             chunk_rate = (added_chunks / embed_seconds) if embed_seconds > 0 else 0.0
             wc = written_chunks
 
-        print(
-            f"[INGEST] completed={completed:,}/{total_files:,}  "
-            f"queued={processed:,}  "
-            f"skipped={skipped:,}  "
-            f"embedded files={embedded_files:,}  "
-            f"chunks added={added_chunks:,}  "
-            f"chunks written={wc:,}  "
-            f"file rate={rate:0.2f} files/sec  "
-            f"embed={chunk_rate:0.1f} chunks/sec  "
-            f"elapsed={format_time(elapsed)}  ETA={format_time(eta)}"
+        emit(
+            "progress",
+            completed,
+            total_files,
+            (
+                f"queued={processed:,} skipped={skipped:,} embedded_files={embedded_files:,} "
+                f"chunks_added={added_chunks:,} chunks_written={wc:,} "
+                f"file_rate={rate:0.2f}/s embed_rate={chunk_rate:0.1f}/s "
+                f"elapsed={format_time(elapsed)} eta={format_time(eta)}"
+            ),
         )
         last_report = now
 
@@ -592,7 +603,7 @@ def ingest(
     wt.join()
 
     if interrupted:
-        print("\nStopping ingest (received interrupt)...")
+        emit("interrupt", completed, total_files, "Stopping ingest (received interrupt)")
 
     if not dry_run:
         save_manifest(manifest_path, manifest)
@@ -607,18 +618,27 @@ def ingest(
         error_report_path.write_text(json.dumps(report, indent=2), encoding="utf-8")
 
     elapsed = time.time() - start_time
-    print(
-        f"Done.\n"
-        f"  total files:     {total_files}\n"
-        f"  completed files: {completed}\n"
-        f"  skipped files:   {skipped}\n"
-        f"  embedded files:  {embedded_files}\n"
-        f"  chunks added:    {added_chunks}\n"
-        f"  chunks written:  {written_chunks}\n"
-        f"  elapsed:         {format_time(elapsed)}\n"
-        f"  vectordb:        {vectordb_config.provider}\n"
-        f"  collection:      {vectordb_config.collection}\n"
-        f"  persist dir:     {vectordb_config.persist_dir}\n"
-        f"  manifest:        {manifest_path}\n"
-        f"  dry_run:         {dry_run}"
+    emit(
+        "complete",
+        completed,
+        total_files,
+        (
+            f"completed={completed} skipped={skipped} embedded_files={embedded_files} "
+            f"chunks_added={added_chunks} chunks_written={written_chunks} "
+            f"elapsed={format_time(elapsed)} vectordb={vectordb_config.provider} "
+            f"collection={vectordb_config.collection} dry_run={dry_run}"
+        ),
     )
+
+    return {
+        "total_files": total_files,
+        "completed_files": completed,
+        "skipped_files": skipped,
+        "embedded_files": embedded_files,
+        "chunks_added": added_chunks,
+        "chunks_written": written_chunks,
+        "elapsed_seconds": elapsed,
+        "errors": error_records["failed_documents"],
+        "page_errors": error_records["page_errors"],
+        "interrupted": interrupted,
+    }

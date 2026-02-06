@@ -10,7 +10,7 @@ Provides helper functions for building query context from various sources:
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import List, Dict, Any, Optional, Tuple
+from typing import Callable, List, Dict, Any, Optional, Tuple
 
 from lsm.config.models import LSMConfig
 from lsm.query.session import Candidate, SessionState
@@ -207,6 +207,7 @@ def fetch_remote_sources(
     question: str,
     config: LSMConfig,
     mode_config: Any,
+    progress_callback: Optional[Callable[[str, int, int, str], None]] = None,
 ) -> List[Dict[str, Any]]:
     """
     Fetch remote sources if enabled in mode configuration.
@@ -241,10 +242,19 @@ def fetch_remote_sources(
         return []
 
     all_remote_results = []
+    total_providers = len(active_providers)
+    completed_providers = 0
 
     for provider_config in active_providers:
         provider_name = provider_config.name
         try:
+            if progress_callback:
+                progress_callback(
+                    "remote",
+                    completed_providers,
+                    total_providers,
+                    f"Fetching from {provider_name}...",
+                )
             logger.info(f"Fetching from remote provider: {provider_name}")
 
             mode_weight = remote_policy.get_provider_weight(provider_name)
@@ -286,15 +296,31 @@ def fetch_remote_sources(
                     "provider": provider_name,
                     "metadata": result.metadata,
                 })
+            completed_providers += 1
 
         except Exception as e:
             logger.error(f"Failed to fetch from {provider_name}: {e}")
+            completed_providers += 1
+            if progress_callback:
+                progress_callback(
+                    "remote",
+                    completed_providers,
+                    total_providers,
+                    f"{provider_name} failed: {e}",
+                )
 
     if remote_policy.rank_strategy == "weighted" and all_remote_results:
         all_remote_results.sort(key=lambda x: x.get("weighted_score", 0), reverse=True)
         logger.info(f"Applied weighted ranking to {len(all_remote_results)} results")
 
     logger.info(f"Fetched {len(all_remote_results)} remote results")
+    if progress_callback:
+        progress_callback(
+            "remote",
+            total_providers,
+            total_providers,
+            f"Fetched {len(all_remote_results)} remote results",
+        )
     return all_remote_results
 
 
@@ -371,6 +397,7 @@ def build_remote_context(
     question: str,
     config: LSMConfig,
     mode_config: Any,
+    progress_callback: Optional[Callable[[str, int, int, str], None]] = None,
 ) -> Tuple[List[Candidate], List[Dict[str, Any]]]:
     """
     Build context from remote sources.
@@ -383,7 +410,12 @@ def build_remote_context(
     Returns:
         Tuple of (candidates, raw_remote_sources)
     """
-    remote_sources = fetch_remote_sources(question, config, mode_config)
+    remote_sources = fetch_remote_sources(
+        question,
+        config,
+        mode_config,
+        progress_callback=progress_callback,
+    )
     candidates = build_remote_candidates(remote_sources)
     return candidates, remote_sources
 
@@ -441,6 +473,7 @@ async def build_combined_context_async(
     state: SessionState,
     embedder,
     collection,
+    progress_callback: Optional[Callable[[str, int, int, str], None]] = None,
 ) -> ContextResult:
     """
     Async version of build_combined_context.
@@ -462,14 +495,23 @@ async def build_combined_context_async(
     loop = asyncio.get_event_loop()
     mode_config = config.get_mode_config()
 
+    if progress_callback:
+        progress_callback("retrieval", 0, 1, "Searching local knowledge base...")
     local_candidates, plan = await loop.run_in_executor(
         None,
         lambda: build_local_context(question, config, state, embedder, collection)
     )
+    if progress_callback:
+        progress_callback("retrieval", 1, 1, "Local retrieval complete")
 
     remote_candidates, remote_sources = await loop.run_in_executor(
         None,
-        lambda: build_remote_context(question, config, mode_config)
+        lambda: build_remote_context(
+            question,
+            config,
+            mode_config,
+            progress_callback=progress_callback,
+        )
     )
 
     combined = local_candidates + remote_candidates

@@ -203,11 +203,11 @@ class TestIngestScreenIntegration:
         screen = IngestScreen()
         assert hasattr(screen, '_process_command')
 
-    def test_has_run_build_method(self):
-        """IngestScreen should have _run_build method."""
+    def test_has_run_ingest_command_method(self):
+        """IngestScreen should have _run_ingest_command method."""
         from lsm.ui.tui.screens.ingest import IngestScreen
         screen = IngestScreen()
-        assert hasattr(screen, '_run_build')
+        assert hasattr(screen, '_run_ingest_command')
 
     def test_has_refresh_stats_method(self):
         """IngestScreen should have _refresh_stats method."""

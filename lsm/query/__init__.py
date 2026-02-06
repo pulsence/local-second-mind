@@ -1,50 +1,14 @@
-"""
-Query subpackage.
+"""Query subpackage with lazy exports to avoid heavy import-time dependencies."""
 
-Provides modular query system with provider abstraction.
+from __future__ import annotations
 
-Public API:
-    query() - Async query execution
-    query_sync() - Synchronous query execution
-    QueryResult - Structured query result
-
-Context Building:
-    build_combined_context() - Build context from all sources
-    build_combined_context_async() - Async version
-    build_local_context() - Build context from local KB
-    build_remote_context() - Build context from remote sources
-    build_context_block() - Format candidates into LLM context
-    fallback_answer() - Generate fallback when LLM unavailable
-    ContextResult - Structured context result
-
-Session Management:
-    SessionState - Query session state
-    Candidate - Retrieved chunk candidate
-
-Planning:
-    prepare_local_candidates() - Prepare local candidates
-    LocalQueryPlan - Local query execution plan
-"""
-
-from lsm.query.api import query, query_sync, QueryResult
-from lsm.query.context import (
-    build_combined_context,
-    build_combined_context_async,
-    build_local_context,
-    build_remote_context,
-    build_context_block,
-    fallback_answer,
-    ContextResult,
-)
-from lsm.query.session import SessionState, Candidate
-from lsm.query.planning import prepare_local_candidates, LocalQueryPlan
+from typing import Any
 
 __all__ = [
-    # Main API
     "query",
     "query_sync",
     "QueryResult",
-    # Context building
+    "QueryProgress",
     "build_combined_context",
     "build_combined_context_async",
     "build_local_context",
@@ -52,10 +16,45 @@ __all__ = [
     "build_context_block",
     "fallback_answer",
     "ContextResult",
-    # Session
     "SessionState",
     "Candidate",
-    # Planning
     "prepare_local_candidates",
     "LocalQueryPlan",
+    "remote",
 ]
+
+
+def __getattr__(name: str) -> Any:
+    if name in {"query", "query_sync", "QueryResult", "QueryProgress"}:
+        from lsm.query import api as _api
+
+        return getattr(_api, name)
+    if name in {
+        "build_combined_context",
+        "build_combined_context_async",
+        "build_local_context",
+        "build_remote_context",
+        "build_context_block",
+        "fallback_answer",
+        "ContextResult",
+    }:
+        from lsm.query import context as _context
+
+        return getattr(_context, name)
+    if name in {"SessionState", "Candidate"}:
+        from lsm.query import session as _session
+
+        return getattr(_session, name)
+    if name in {"prepare_local_candidates", "LocalQueryPlan"}:
+        from lsm.query import planning as _planning
+
+        return getattr(_planning, name)
+    if name == "remote":
+        import lsm.remote as _remote
+        if not hasattr(_remote, "wikipedia"):
+            from lsm.remote.providers import wikipedia as _wikipedia
+
+            setattr(_remote, "wikipedia", _wikipedia)
+
+        return _remote
+    raise AttributeError(f"module 'lsm.query' has no attribute '{name}'")

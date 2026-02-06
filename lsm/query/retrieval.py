@@ -11,11 +11,16 @@ from typing import List, Optional, Any
 
 import chromadb
 from chromadb.config import Settings
-from sentence_transformers import SentenceTransformer
 
 from lsm.logging import get_logger
 from lsm.vectordb.base import BaseVectorDBProvider
 from .session import Candidate
+
+try:
+    from sentence_transformers import SentenceTransformer
+except Exception:  # pragma: no cover - compatibility fallback for test/runtime environments
+    class SentenceTransformer:  # type: ignore[no-redef]
+        pass
 
 logger = get_logger(__name__)
 
@@ -60,7 +65,7 @@ def init_collection(persist_dir: Path, collection_name: str):
 # -----------------------------
 # Embeddings
 # -----------------------------
-def init_embedder(model_name: str, device: str = "cpu") -> SentenceTransformer:
+def init_embedder(model_name: str, device: str = "cpu") -> "SentenceTransformer":
     """
     Initialize the sentence transformer model for embeddings.
 
@@ -81,7 +86,7 @@ def init_embedder(model_name: str, device: str = "cpu") -> SentenceTransformer:
 
 
 def embed_text(
-    model: SentenceTransformer,
+    model: "SentenceTransformer",
     text: str,
     batch_size: int = 32,
 ) -> List[float]:
@@ -115,7 +120,10 @@ def embed_text(
         normalize_embeddings=True,
     )
 
-    return vec[0].tolist()
+    first = vec[0]
+    if hasattr(first, "tolist"):
+        return first.tolist()
+    return list(first)
 
 
 # -----------------------------
