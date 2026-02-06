@@ -4,14 +4,7 @@ Tests for provider health monitoring and retry behavior.
 
 from unittest.mock import Mock
 
-import pytest
-
 from lsm.providers.base import BaseLLMProvider
-
-
-@pytest.fixture(autouse=True)
-def reset_health_stats():
-    BaseLLMProvider._GLOBAL_HEALTH_STATS = {}
 
 
 class DummyProvider(BaseLLMProvider):
@@ -36,6 +29,9 @@ class DummyProvider(BaseLLMProvider):
 
     def synthesize(self, question, context, mode="grounded", **kwargs):
         return "answer"
+
+    def stream_synthesize(self, question, context, mode="grounded", **kwargs):
+        yield "answer"
 
     def generate_tags(self, text, num_tags=3, existing_tags=None, **kwargs):
         return ["tag1"]
@@ -64,7 +60,7 @@ def test_retry_helper_retries():
     def _flaky():
         counter.value += 1
         if counter.value < 3:
-            raise ValueError("fail")
+            raise TimeoutError("fail")
         return "ok"
 
     result = provider._with_retry(_flaky, "flaky", max_attempts=3, base_delay=0.0)

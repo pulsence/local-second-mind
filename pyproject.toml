@@ -52,6 +52,10 @@ testpaths = ["tests"]
 python_files = ["test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
+markers = [
+    "integration: integration-level tests that exercise multi-module flows",
+    "performance: performance and stress tests",
+]
 addopts = [
     "--verbose",
     "--cov=lsm",

@@ -286,9 +286,7 @@ class TestDocxParsing:
 class TestEndToEndPipeline:
     """Test end-to-end pipeline integration."""
 
-    @patch("lsm.ingest.pipeline.SentenceTransformer")
-    @patch("lsm.ingest.pipeline.get_chroma_collection")
-    def test_pipeline_preserves_metadata(self, mock_get_collection, mock_transformer):
+    def test_pipeline_preserves_metadata(self):
         """Test that metadata flows through entire pipeline."""
         # This is a simplified test - full pipeline testing requires more setup
         # Just verify the data structures support metadata

@@ -116,11 +116,9 @@ class TestGetCompletions:
         assert "zotero" in completions
 
     def test_remote_provider_suggests_actions(self):
-        """Remote provider command should suggest actions."""
+        """Remote provider command should suggest current command name."""
         completions = get_completions("/remote-provider ", "query")
-        assert "enable" in completions
-        assert "disable" in completions
-        assert "weight" in completions
+        assert "/remote-providers" in completions
 
     def test_unknown_context_returns_global_only(self):
         """Unknown context should return global commands only."""

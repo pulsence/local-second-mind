@@ -120,7 +120,7 @@ class IxTheoProvider(BaseRemoteProvider):
         self.snippet_max_chars = int(
             snippet_max_chars if snippet_max_chars is not None else self.DEFAULT_SNIPPET_MAX_CHARS
         )
-        self.language = config.get("language")
+        self.language = config.get("language") or "en"
         self.traditions = config.get("traditions") or []
         self.search_type = config.get("search_type") or "all"
         self.include_reviews = config.get("include_reviews", True)

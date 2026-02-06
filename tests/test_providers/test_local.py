@@ -9,13 +9,7 @@ import pytest
 import requests
 
 from lsm.config.models import LLMConfig
-from lsm.providers.base import BaseLLMProvider
 from lsm.providers.local import LocalProvider
-
-
-@pytest.fixture(autouse=True)
-def reset_health_stats():
-    BaseLLMProvider._GLOBAL_HEALTH_STATS = {}
 
 
 @pytest.fixture

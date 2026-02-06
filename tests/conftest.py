@@ -6,6 +6,7 @@ including mock configurations, sample documents, and temporary directories.
 """
 
 import json
+import shutil
 import pytest
 from pathlib import Path
 from typing import Dict, Any
@@ -83,14 +84,9 @@ def sample_txt_file(tmp_path: Path) -> Path:
     """
     Create a sample .txt file for testing parsers.
     """
-    content = """This is a sample text file for testing.
-
-It contains multiple paragraphs to test chunking and parsing functionality.
-
-The content is simple but sufficient for unit tests."""
-
     file_path = tmp_path / "sample.txt"
-    file_path.write_text(content, encoding="utf-8")
+    source = Path(__file__).parent / "fixtures" / "synthetic_data" / "sample.txt"
+    file_path.write_text(source.read_text(encoding="utf-8"), encoding="utf-8")
     return file_path
 
 
@@ -99,27 +95,9 @@ def sample_md_file(tmp_path: Path) -> Path:
     """
     Create a sample Markdown file for testing parsers.
     """
-    content = """# Test Document
-
-This is a **sample** Markdown file.
-
-## Section 1
-
-Some content in section 1.
-
-## Section 2
-
-Some content in section 2 with a [link](https://example.com).
-
-### Subsection 2.1
-
-- Item 1
-- Item 2
-- Item 3
-"""
-
     file_path = tmp_path / "sample.md"
-    file_path.write_text(content, encoding="utf-8")
+    source = Path(__file__).parent / "fixtures" / "synthetic_data" / "sample.md"
+    file_path.write_text(source.read_text(encoding="utf-8"), encoding="utf-8")
     return file_path
 
 
@@ -128,25 +106,9 @@ def sample_html_file(tmp_path: Path) -> Path:
     """
     Create a sample HTML file for testing parsers.
     """
-    content = """<!DOCTYPE html>
-<html>
-<head>
-    <title>Test Page</title>
-</head>
-<body>
-    <h1>Test Document</h1>
-    <p>This is a sample HTML file for testing.</p>
-    <p>It contains <strong>formatted</strong> text.</p>
-    <ul>
-        <li>Item 1</li>
-        <li>Item 2</li>
-    </ul>
-</body>
-</html>
-"""
-
     file_path = tmp_path / "sample.html"
-    file_path.write_text(content, encoding="utf-8")
+    source = Path(__file__).parent / "fixtures" / "synthetic_data" / "sample.html"
+    file_path.write_text(source.read_text(encoding="utf-8"), encoding="utf-8")
     return file_path
 
 
@@ -399,3 +361,14 @@ def progress_callback_mock(mocker):
     Provide a reusable progress callback mock.
     """
     return mocker.MagicMock()
+
+
+@pytest.fixture
+def synthetic_data_root(tmp_path: Path) -> Path:
+    """
+    Copy static synthetic integration fixtures into a temp directory.
+    """
+    source = Path(__file__).parent / "fixtures" / "synthetic_data"
+    dest = tmp_path / "synthetic_data"
+    shutil.copytree(source, dest)
+    return dest

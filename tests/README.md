@@ -51,9 +51,24 @@ pytest tests/test_vectordb -v
 # Run Phase 6 ingest tests
 pytest tests/test_ingest/test_api.py tests/test_ingest/test_manifest.py tests/test_ingest/test_fs.py -v
 
-# Skip integration/performance markers (if used)
+# Run integration tests (Phase 7)
+pytest tests/ -v -m integration
+
+# Skip integration/performance suites
 pytest tests/ -v -m "not integration and not performance"
 ```
+
+## Synthetic Fixtures
+
+Synthetic integration fixtures live in `tests/fixtures/synthetic_data/`:
+- `sample.txt`
+- `sample.md`
+- `sample.html`
+- `nested/nested_note.txt`
+
+Integration suites using these fixtures:
+- `tests/test_ingest/test_integration.py`
+- `tests/test_query/test_integration_progress.py`
 
 ## Notes
 

@@ -8,13 +8,7 @@ from unittest.mock import Mock, patch
 import pytest
 
 from lsm.config.models import LLMConfig
-from lsm.providers.base import BaseLLMProvider
 from lsm.providers.gemini import GeminiProvider
-
-
-@pytest.fixture(autouse=True)
-def reset_health_stats():
-    BaseLLMProvider._GLOBAL_HEALTH_STATS = {}
 
 
 @pytest.fixture

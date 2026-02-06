@@ -27,7 +27,7 @@ _STOPWORDS = {
     "we", "they", "me", "him", "her", "us", "them", "my", "your", "his", "their",
     "our", "this", "that", "these", "those", "there", "here", "not", "no", "yes",
     "so", "than", "too", "very", "can", "could", "should", "would", "may", "might",
-    "must", "will", "just"
+    "must", "will", "just", "what", "how"
 }
 
 
@@ -47,8 +47,11 @@ def tokenize(text: str) -> List[str]:
         >>> tokenize("What is Python programming?")
         ['python', 'programming']
     """
+    raw = (text or "").lower()
+    # Normalize numeric separators so "3.9" and "3-9" become "39".
+    raw = re.sub(r"(?<=\d)[\.\-](?=\d)", "", raw)
     # Extract words and numbers
-    tokens = re.findall(r"[a-zA-Z0-9']+", (text or "").lower())
+    tokens = re.findall(r"[a-zA-Z0-9']+", raw)
 
     # Filter out short tokens and stopwords
     return [t for t in tokens if len(t) >= 2 and t not in _STOPWORDS]
@@ -98,7 +101,7 @@ def compute_lexical_score(question: str, passage: str) -> float:
     p_norm = " ".join(p_tokens)
 
     bonus = 0.0
-    for n in (4, 3):  # Try 4-grams, then 3-grams
+    for n in (4, 3, 2):  # Try longer phrases first, then bigrams
         if len(q_tokens) >= n:
             # Sliding window, but cap to avoid expensive scans
             max_windows = min(10, len(q_tokens) - n + 1)

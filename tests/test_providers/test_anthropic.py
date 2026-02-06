@@ -9,12 +9,6 @@ import pytest
 
 from lsm.config.models import LLMConfig
 from lsm.providers.anthropic import AnthropicProvider
-from lsm.providers.base import BaseLLMProvider
-
-
-@pytest.fixture(autouse=True)
-def reset_health_stats():
-    BaseLLMProvider._GLOBAL_HEALTH_STATS = {}
 
 
 @pytest.fixture

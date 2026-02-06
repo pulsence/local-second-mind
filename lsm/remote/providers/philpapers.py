@@ -176,9 +176,16 @@ class PhilPapersProvider(BaseRemoteProvider):
             # Try OAI-PMH search for open access content
             results = self._search_oai(parsed_query, max_results)
 
-            # Fallback to HTML search if OAI results are sparse
+            # Fallback to HTML search if OAI results are sparse.
+            # Keep OAI results and append unique HTML results instead of replacing.
             if len(results) < max_results:
-                results = self._search_html(query, max_results)
+                html_results = self._search_html(query, max_results - len(results))
+                if html_results:
+                    existing_urls = {r.url for r in results}
+                    for item in html_results:
+                        if item.url not in existing_urls:
+                            results.append(item)
+                            existing_urls.add(item.url)
 
             # If we didn't get enough results and have API credentials,
             # we could try the JSON API (for future extension)

@@ -1,0 +1,5 @@
+This is a sample text file for testing.
+
+It contains multiple paragraphs to test chunking and parsing functionality.
+
+The content is simple but sufficient for unit tests.

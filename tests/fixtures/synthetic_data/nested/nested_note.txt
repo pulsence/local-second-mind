@@ -1,0 +1,2 @@
+Nested synthetic fixture file.
+Used to confirm recursive file discovery in integration tests.
