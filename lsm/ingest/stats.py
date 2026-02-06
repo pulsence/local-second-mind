@@ -7,16 +7,17 @@ and generate reports about the ingested knowledge base.
 
 from __future__ import annotations
 
-import os
 import json
 from pathlib import Path
 from typing import Dict, List, Any, Optional, Set, Iterator, Callable
 from collections import Counter, defaultdict
-from datetime import datetime
 
 import chromadb
 from chromadb.api.models.Collection import Collection
+from lsm.logging import get_logger
 from lsm.vectordb.utils import require_chroma_collection
+
+logger = get_logger(__name__)
 
 
 def get_collection_info(collection: Collection) -> Dict[str, Any]:
@@ -493,7 +494,7 @@ def search_metadata(
         return metadatas
 
     except Exception as e:
-        print(f"Search error: {e}")
+        logger.warning("Search error: %s", e)
         return []
 
 
@@ -531,5 +532,5 @@ def get_file_chunks(collection: Collection, file_path: str) -> List[Dict[str, An
         return chunks
 
     except Exception as e:
-        print(f"Error getting file chunks: {e}")
+        logger.warning("Error getting file chunks: %s", e)
         return []

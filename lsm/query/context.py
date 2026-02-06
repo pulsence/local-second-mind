@@ -43,12 +43,8 @@ def build_context_block(candidates: List[Candidate]) -> Tuple[str, List[Dict[str
 
     Example:
         >>> context, sources = build_context_block(candidates)
-        >>> print(context)
-        [S1] /path/to/doc.md (name=doc.md, chunk_index=0)
-        This is the first chunk text...
-
-        [S2] /path/to/doc.md (name=doc.md, chunk_index=1)
-        This is the second chunk text...
+        >>> context.startswith("[S1]")
+        True
     """
     logger.debug(f"Building context block from {len(candidates)} candidates")
 

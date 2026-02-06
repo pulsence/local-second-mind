@@ -305,8 +305,8 @@ def compute_relevance(candidates: List[Candidate]) -> float:
 
     Example:
         >>> relevance = compute_relevance(candidates)
-        >>> if relevance < 0.25:
-        ...     print("Low relevance, may not answer question")
+        >>> relevance <= 1.0
+        True
     """
     if not candidates:
         return -1.0

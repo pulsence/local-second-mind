@@ -230,7 +230,8 @@ def tag_chunks(
         >>> collection = create_vectordb_provider(config.vectordb).get_collection()
         >>> tagging_config = config.llm.get_tagging_config()
         >>> tagged, failed = tag_chunks(collection, tagging_config, num_tags=3)
-        >>> print(f"Tagged {tagged} chunks, {failed} failed")
+        >>> tagged >= 0 and failed >= 0
+        True
     """
     collection = require_chroma_collection(collection, "tag_chunks")
     logger.info("Starting AI chunk tagging...")
