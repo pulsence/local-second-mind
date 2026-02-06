@@ -2,6 +2,7 @@
 .claude_files/
 research_notes/
 CLAUDE.md
+AGENTS.md
 
 # Python bytecode
 __pycache__/

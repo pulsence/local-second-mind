@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from typing import List, Dict, Any, Tuple
 
+from lsm.config.models.constants import DEFAULT_CHUNK_OVERLAP, DEFAULT_CHUNK_SIZE
 from lsm.ingest.utils import normalize_whitespace
-from lsm.ingest.config import CHUNK_SIZE_CHARS, CHUNK_OVERLAP_CHARS
 
 
 # -----------------------------
@@ -11,8 +11,8 @@ from lsm.ingest.config import CHUNK_SIZE_CHARS, CHUNK_OVERLAP_CHARS
 # -----------------------------
 def chunk_text(
     text: str,
-    chunk_size: int = CHUNK_SIZE_CHARS,
-    overlap: int = CHUNK_OVERLAP_CHARS,
+    chunk_size: int = DEFAULT_CHUNK_SIZE,
+    overlap: int = DEFAULT_CHUNK_OVERLAP,
     track_positions: bool = True,
 ) -> Tuple[List[str], List[Dict[str, Any]]]:
     """

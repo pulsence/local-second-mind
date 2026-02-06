@@ -6,7 +6,7 @@ Tests text chunking functionality with different sizes and overlap settings.
 
 import pytest
 from lsm.ingest.chunking import chunk_text
-from lsm.ingest.config import CHUNK_SIZE_CHARS, CHUNK_OVERLAP_CHARS
+from lsm.config.models.constants import DEFAULT_CHUNK_SIZE
 
 
 class TestChunkText:
@@ -95,12 +95,12 @@ class TestChunkText:
 
         chunks, _ = chunk_text(text)
 
-        # Should use default CHUNK_SIZE_CHARS and CHUNK_OVERLAP_CHARS
+        # Should use default chunk configuration constants
         assert len(chunks) > 0
 
         # Verify chunks respect default size
         for chunk in chunks:
-            assert len(chunk) <= CHUNK_SIZE_CHARS
+            assert len(chunk) <= DEFAULT_CHUNK_SIZE
 
     def test_chunk_text_zero_overlap(self):
         """Test chunking with zero overlap."""

@@ -26,7 +26,6 @@ from lsm.ingest.stats import (
 )
 from lsm.vectordb import create_vectordb_provider, list_available_providers
 from lsm.vectordb.utils import require_chroma_collection
-from lsm.ingest.pipeline import ingest
 from lsm.ingest.tagging import (
     tag_chunks,
     get_all_tags,
@@ -416,6 +415,8 @@ def run_build(config: LSMConfig, force: bool = False) -> str:
     ]
 
     try:
+        from lsm.ingest.pipeline import ingest
+
         ingest(
             roots=config.ingest.roots,
             chroma_flush_interval=config.ingest.chroma_flush_interval,
@@ -824,165 +825,3 @@ def handle_command(
     return CommandResult(output=f"Unknown command: {cmd}\nType /help for available commands.")
 
 
-# -----------------------------
-# Backwards Compatibility
-# -----------------------------
-def handle_info_command(collection: Collection) -> None:
-    """Handle /info command. DEPRECATED: Use format_info() instead."""
-    print(format_info(collection))
-
-
-def handle_stats_command(
-    collection: Collection,
-    config: LSMConfig,
-    progress_callback=None,
-) -> None:
-    """Handle /stats command. DEPRECATED: Use format_stats() instead."""
-    print(format_stats(collection, config, progress_callback))
-
-
-def handle_explore_command(
-    collection: Collection,
-    query: Optional[str] = None,
-    progress_callback=None,
-    emit_tree=None,
-) -> None:
-    """Handle /explore command. DEPRECATED: Use format_explore() instead."""
-    if emit_tree:
-        # Old callback pattern - do the work manually
-        path_filter, ext_filter, pattern, display_root, full_path = parse_explore_query(query)
-        where = {"ext": {"$eq": ext_filter}} if ext_filter else None
-
-        file_stats: Dict[str, Dict[str, Any]] = {}
-        scanned = 0
-        last_report = time.time()
-        report_every = 2.0
-
-        total = None
-        try:
-            total = collection.count()
-        except Exception:
-            total = None
-
-        print("\nExploring collection...")
-        print("Scanning metadata... (this may take a moment)")
-
-        for meta in iter_collection_metadatas(collection, where=where, batch_size=5000):
-            scanned += 1
-            if time.time() - last_report >= report_every:
-                if total:
-                    pct = (scanned / total) * 100 if total > 0 else 0.0
-                    print(f"  scanned chunks: {scanned:,} / {total:,} ({pct:.1f}%)")
-                else:
-                    print(f"  scanned chunks: {scanned:,}")
-                if progress_callback:
-                    progress_callback(scanned, total)
-                last_report = time.time()
-            source_path = meta.get("source_path", "")
-            if not source_path:
-                continue
-
-            source_norm = source_path.lower()
-            if path_filter and path_filter not in source_norm:
-                continue
-            if pattern and not _source_matches_pattern(source_path, pattern):
-                continue
-
-            entry = file_stats.setdefault(
-                source_path,
-                {"ext": meta.get("ext", ""), "chunk_count": 0},
-            )
-            entry["chunk_count"] += 1
-
-        if progress_callback:
-            progress_callback(scanned, total)
-
-        if not file_stats:
-            print("No files found.")
-            return
-
-        common_parts = ()
-        if not path_filter and not full_path:
-            common_parts = compute_common_parts(file_stats)
-
-        tree = build_tree(file_stats, path_filter, common_parts)
-        emit_tree(tree, display_root)
-        print()
-    else:
-        print(format_explore(collection, query, progress_callback))
-
-
-def handle_show_command(collection: Collection, file_path: str) -> None:
-    """Handle /show command. DEPRECATED: Use format_show() instead."""
-    print(format_show(collection, file_path))
-
-
-def handle_search_command(collection: Collection, query: str) -> None:
-    """Handle /search command. DEPRECATED: Use format_search() instead."""
-    print(format_search(collection, query))
-
-
-def handle_build_command(config: LSMConfig, force: bool = False) -> None:
-    """Handle /build command. DEPRECATED: Use run_build() instead."""
-    print()
-    if force:
-        print("WARNING: --force will re-process ALL files")
-        confirm = input("Continue? (yes/no): ").strip().lower()
-        if confirm != "yes":
-            print("Cancelled.")
-            return
-    print(run_build(config, force))
-
-
-def handle_wipe_command(collection: Collection) -> None:
-    """Handle /wipe command. DEPRECATED: Use run_wipe() with UI confirmation."""
-    print(get_wipe_warning(collection))
-
-    try:
-        require_chroma_collection(collection, "/wipe")
-    except Exception:
-        return
-
-    confirm1 = input("Type 'DELETE' to confirm: ").strip()
-    if confirm1 != "DELETE":
-        print("Cancelled.")
-        return
-
-    confirm2 = input("Are you absolutely sure? (yes/no): ").strip().lower()
-    if confirm2 != "yes":
-        print("Cancelled.")
-        return
-
-    print(run_wipe(collection))
-
-
-def handle_tag_command(collection: Collection, config: LSMConfig, args: str) -> None:
-    """Handle /tag command. DEPRECATED: Use run_tag() with UI confirmation."""
-    max_chunks, error = parse_tag_args(args)
-    if error:
-        print(error)
-        return
-
-    print(get_tag_confirmation_prompt(config, max_chunks))
-
-    confirm = input("Proceed with tagging? (yes/no): ").strip().lower()
-    if confirm != "yes":
-        print("Cancelled.")
-        return
-
-    print(run_tag(collection, config, max_chunks))
-
-
-def handle_tags_command(collection: Collection) -> None:
-    """Handle /tags command. DEPRECATED: Use format_tags() instead."""
-    print(format_tags(collection))
-
-
-def handle_vectordb_providers_command(config: LSMConfig) -> None:
-    """Handle /vectordb-providers command. DEPRECATED: Use format_vectordb_providers() instead."""
-    print(format_vectordb_providers(config))
-
-
-def handle_vectordb_status_command(config: LSMConfig) -> None:
-    """Handle /vectordb-status command. DEPRECATED: Use format_vectordb_status() instead."""
-    print(format_vectordb_status(config))

@@ -14,9 +14,14 @@ Public API:
 
 from __future__ import annotations
 
-# Public entrypoint (stable)
-from lsm.ingest.pipeline import ingest
+from typing import Any
 
-__all__ = [
-    "ingest",
-]
+
+def ingest(*args: Any, **kwargs: Any):
+    """Run the ingest pipeline with lazy import to avoid heavy import-time dependencies."""
+    from lsm.ingest.pipeline import ingest as _ingest
+
+    return _ingest(*args, **kwargs)
+
+
+__all__ = ["ingest"]

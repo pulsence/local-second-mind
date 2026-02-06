@@ -193,20 +193,3 @@ def format_tree(root: Dict[str, Any], label: str, max_entries: int = 200) -> str
 
     return "\n".join(lines)
 
-
-# -----------------------------
-# Backwards compatibility aliases
-# -----------------------------
-def print_banner() -> None:
-    """Print welcome banner. DEPRECATED: Use get_banner() instead."""
-    print(get_banner())
-
-
-def print_help() -> None:
-    """Print help text. DEPRECATED: Use get_help() instead."""
-    print(get_help())
-
-
-def print_tree(root: Dict[str, Any], label: str, max_entries: int = 200) -> None:
-    """Print a file tree. DEPRECATED: Use format_tree() instead."""
-    print(format_tree(root, label, max_entries))
