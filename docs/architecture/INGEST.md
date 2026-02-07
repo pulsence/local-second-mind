@@ -43,10 +43,39 @@ roots -> scan -> parse -> normalize -> chunk -> embed -> write -> manifest
 
 ### Chunking
 
+Two chunking strategies are available, controlled by `chunking_strategy` in
+`IngestConfig`:
+
+#### Structure-Aware Chunking (default, `"structure"`)
+
+- Implemented in `lsm/ingest/structure_chunking.py`.
+- Respects document structure: headings, paragraphs, and sentence boundaries.
+- **Never splits a sentence** across two chunks.
+- **Never mixes paragraphs** — each chunk contains complete paragraphs or
+  whole-sentence groups from a single paragraph.
+- **Never mixes headings** — heading boundaries start new chunks and the heading
+  text is stored in chunk metadata.
+- Overlap is achieved by repeating trailing sentences from the previous chunk
+  (configurable via `chunk_overlap` as a proportion of `chunk_size`).
+- Detects headings: Markdown `#` headings and bold-only lines (`**Heading**`).
+
+#### Fixed-Size Chunking (`"fixed"`)
+
 - Implemented in `lsm/ingest/chunking.py`.
+- Simple character-based sliding window with overlap.
 - Default `chunk_size`: 1800 characters.
 - Default `chunk_overlap`: 200 characters.
 - Tracks start and end character offsets per chunk.
+
+### Page Number Tracking
+
+- PDF and DOCX parsers return `PageSegment` objects preserving page boundaries.
+- PDF pages are tracked via PyMuPDF's page-by-page extraction.
+- DOCX page breaks are detected via `<w:lastRenderedPageBreak/>` and
+  `<w:br w:type="page"/>` elements in the document XML.
+- When a chunk spans multiple pages, metadata stores the range as
+  `"START-END"` (e.g., `"3-4"`).
+- Non-paginated formats (MD, HTML, TXT) omit page number metadata.
 
 ### Embedding
 
@@ -101,6 +130,9 @@ Each chunk includes:
 - `chunk_index`
 - `ingested_at`
 - `start_char` / `end_char` / `chunk_length`
+- `heading` — most recent heading above the chunk (structure chunking only)
+- `paragraph_index` — index of the first paragraph in the chunk (structure chunking only)
+- `page_number` — page number or range e.g. `"3"` or `"3-4"` (PDF/DOCX only)
 - Optional metadata (title, author, tags)
 
 ## Incremental Updates

@@ -140,10 +140,14 @@ def test_parse_pdf_success(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> N
         metadata={"author": "A", "title": "T"},
     )
     monkeypatch.setattr(parsers, "_open_pdf_with_repair", lambda _p: doc)
-    text, metadata = parsers.parse_pdf(tmp_path / "x.pdf")
+    text, metadata, page_segs = parsers.parse_pdf(tmp_path / "x.pdf")
     assert "page1" in text and "page2" in text
     assert metadata["author"] == "A"
     assert metadata["title"] == "T"
+    assert page_segs is not None
+    assert len(page_segs) == 2
+    assert page_segs[0].page_number == 1
+    assert page_segs[1].page_number == 2
 
 
 def test_parse_pdf_page_errors_collected(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
@@ -152,7 +156,7 @@ def test_parse_pdf_page_errors_collected(monkeypatch: pytest.MonkeyPatch, tmp_pa
     )
     monkeypatch.setattr(parsers, "_open_pdf_with_repair", lambda _p: doc)
     monkeypatch.setattr(parsers, "is_page_image_based", lambda _p: False)
-    text, metadata = parsers.parse_pdf(tmp_path / "x.pdf", skip_errors=True)
+    text, metadata, _ = parsers.parse_pdf(tmp_path / "x.pdf", skip_errors=True)
     assert "ok" in text
     assert "_parse_errors" in metadata
 
@@ -161,9 +165,11 @@ def test_parse_pdf_ocr_path(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> 
     doc = _FakeDoc(pages=[_FakePage("")])
     monkeypatch.setattr(parsers, "_open_pdf_with_repair", lambda _p: doc)
     monkeypatch.setattr(parsers, "ocr_page", lambda _p: "ocr result")
-    text, metadata = parsers.parse_pdf(tmp_path / "x.pdf", enable_ocr=True)
+    text, metadata, page_segs = parsers.parse_pdf(tmp_path / "x.pdf", enable_ocr=True)
     assert text == "ocr result"
     assert metadata.get("_parse_errors") is None
+    assert page_segs is not None
+    assert page_segs[0].page_number == 1
 
 
 def test_parse_pdf_fail_and_skip_errors_false(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
@@ -175,9 +181,10 @@ def test_parse_pdf_fail_and_skip_errors_false(monkeypatch: pytest.MonkeyPatch, t
 
 def test_parse_pdf_open_exception_returns_error_metadata(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     monkeypatch.setattr(parsers, "_open_pdf_with_repair", lambda _p: (_ for _ in ()).throw(RuntimeError("open fail")))
-    text, metadata = parsers.parse_pdf(tmp_path / "x.pdf", skip_errors=True)
+    text, metadata, page_segs = parsers.parse_pdf(tmp_path / "x.pdf", skip_errors=True)
     assert text == ""
     assert "open fail" in metadata["error"]
+    assert page_segs is None
 
 
 def test_parse_docx_success_and_error(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
@@ -186,14 +193,18 @@ def test_parse_docx_success_and_error(monkeypatch: pytest.MonkeyPatch, tmp_path:
         paragraphs=[SimpleNamespace(text="p1"), SimpleNamespace(text=""), SimpleNamespace(text="p2")],
     )
     monkeypatch.setattr(parsers, "Document", lambda _p: fake_doc)
-    text, metadata = parsers.parse_docx(tmp_path / "x.docx")
+    monkeypatch.setattr(parsers, "_docx_has_page_break_before", lambda _para: False)
+    text, metadata, page_segs = parsers.parse_docx(tmp_path / "x.docx")
     assert text == "p1\np2"
     assert metadata["author"] == "A"
+    # No page breaks detected → page_segs is None
+    assert page_segs is None
 
     monkeypatch.setattr(parsers, "Document", lambda _p: (_ for _ in ()).throw(RuntimeError("bad docx")))
-    text2, metadata2 = parsers.parse_docx(tmp_path / "x.docx")
+    text2, metadata2, page_segs2 = parsers.parse_docx(tmp_path / "x.docx")
     assert text2 == ""
     assert metadata2 == {}
+    assert page_segs2 is None
 
 
 def test_parse_html_extracts_metadata(tmp_path: Path) -> None:
@@ -213,8 +224,8 @@ def test_parse_html_extracts_metadata(tmp_path: Path) -> None:
 def test_parse_file_dispatch(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     monkeypatch.setattr(parsers, "parse_txt", lambda _p: ("txt", {}))
     monkeypatch.setattr(parsers, "parse_md", lambda _p: ("md", {}))
-    monkeypatch.setattr(parsers, "parse_pdf", lambda _p, enable_ocr=False, skip_errors=True: ("pdf", {}))
-    monkeypatch.setattr(parsers, "parse_docx", lambda _p: ("docx", {}))
+    monkeypatch.setattr(parsers, "parse_pdf", lambda _p, enable_ocr=False, skip_errors=True: ("pdf", {}, None))
+    monkeypatch.setattr(parsers, "parse_docx", lambda _p: ("docx", {}, None))
     monkeypatch.setattr(parsers, "parse_html", lambda _p: ("html", {}))
 
     assert parsers.parse_file(tmp_path / "a.txt")[0] == "txt"

@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import List, Optional, Dict, Any, Tuple
 import logging
 
+from lsm.ingest.models import PageSegment
 from lsm.ingest.utils import normalize_whitespace
 
 import fitz  # PyMuPDF
@@ -229,19 +230,25 @@ def _open_pdf_with_repair(path: Path) -> fitz.Document:
         return fitz.open(stream=data, filetype="pdf")
 
 
-def parse_pdf(path: Path, enable_ocr: bool = False, skip_errors: bool = True) -> Tuple[str, Dict[str, Any]]:
+def parse_pdf(
+    path: Path,
+    enable_ocr: bool = False,
+    skip_errors: bool = True,
+) -> Tuple[str, Dict[str, Any], Optional[List[PageSegment]]]:
     """
     Parse PDF file with optional OCR for image-based PDFs.
 
     Args:
         path: Path to PDF file
         enable_ocr: If True, use OCR for pages with little text
+        skip_errors: If True, continue on per-page failures
 
     Returns:
-        Tuple of (text content, metadata dict)
+        Tuple of (text content, metadata dict, page segments).
+        Page segments are 1-based PageSegment objects for each page with text.
     """
-    parts: List[str] = []
-    metadata = {}
+    page_segments: List[PageSegment] = []
+    metadata: Dict[str, Any] = {}
 
     parse_errors: List[Dict[str, Any]] = []
 
@@ -308,7 +315,10 @@ def parse_pdf(path: Path, enable_ocr: bool = False, skip_errors: bool = True) ->
                         })
 
                 if text and text.strip():
-                    parts.append(text)
+                    page_segments.append(PageSegment(
+                        text=text,
+                        page_number=page_num + 1,
+                    ))
 
     except Exception as e:
         logger.error(f"Failed to parse PDF {path}: {e}")
@@ -318,20 +328,52 @@ def parse_pdf(path: Path, enable_ocr: bool = False, skip_errors: bool = True) ->
             metadata["error"] = str(e)
         if parse_errors:
             metadata["_parse_errors"] = parse_errors
-        return "", metadata
+        return "", metadata, None
 
     if parse_errors:
         metadata["_parse_errors"] = parse_errors
 
-    return "\n\n".join(parts), metadata
+    combined = "\n\n".join(seg.text for seg in page_segments)
+    return combined, metadata, page_segments if page_segments else None
 
 
-def parse_docx(path: Path) -> Tuple[str, Dict[str, Any]]:
+def _docx_has_page_break_before(paragraph) -> bool:
+    """Check if a DOCX paragraph has a page break before it.
+
+    Detects both explicit page breaks (``<w:br w:type="page"/>``) in runs and
+    rendered page breaks (``<w:lastRenderedPageBreak/>``) in the paragraph XML.
     """
-    Parse DOCX file and extract metadata.
+    from lxml import etree
+
+    ns = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
+
+    xml = paragraph._element
+
+    # Check for <w:lastRenderedPageBreak/> anywhere in the paragraph
+    if xml.findall(f".//{ns}lastRenderedPageBreak"):
+        return True
+
+    # Check for explicit <w:br w:type="page"/> in runs
+    for br in xml.findall(f".//{ns}br"):
+        if br.get(f"{ns}type") == "page" or br.get("type") == "page":
+            return True
+
+    return False
+
+
+def parse_docx(
+    path: Path,
+) -> Tuple[str, Dict[str, Any], Optional[List[PageSegment]]]:
+    """
+    Parse DOCX file, extract metadata, and track page boundaries.
+
+    Detects page breaks via ``<w:lastRenderedPageBreak/>`` and
+    ``<w:br w:type="page"/>`` elements in the document XML.
 
     Returns:
-        Tuple of (text content, metadata dict)
+        Tuple of (text content, metadata dict, page segments).
+        Page segments are 1-based PageSegment objects when page breaks are
+        detected; ``None`` when no page break information is available.
     """
     try:
         doc = Document(str(path))
@@ -339,16 +381,41 @@ def parse_docx(path: Path) -> Tuple[str, Dict[str, Any]]:
         # Extract metadata
         metadata = extract_docx_metadata(doc)
 
-        # Extract text
-        parts: List[str] = []
-        for para in doc.paragraphs:
-            if para.text:
-                parts.append(para.text)
+        # Build page segments by detecting page breaks
+        current_page = 1
+        page_parts: Dict[int, List[str]] = {1: []}
 
-        return "\n".join(parts), metadata
+        for para in doc.paragraphs:
+            if _docx_has_page_break_before(para):
+                current_page += 1
+                page_parts[current_page] = []
+
+            if para.text:
+                page_parts[current_page].append(para.text)
+
+        # Build page segments
+        page_segments: List[PageSegment] = []
+        all_parts: List[str] = []
+
+        for page_num in sorted(page_parts.keys()):
+            parts = page_parts[page_num]
+            if parts:
+                page_text = "\n".join(parts)
+                page_segments.append(PageSegment(
+                    text=page_text,
+                    page_number=page_num,
+                ))
+                all_parts.extend(parts)
+
+        combined = "\n".join(all_parts)
+
+        # Only return page segments if we actually detected page breaks
+        has_page_breaks = current_page > 1
+        return combined, metadata, page_segments if has_page_breaks else None
+
     except Exception as e:
         logger.error(f"Failed to parse DOCX {path}: {e}")
-        return "", {}
+        return "", {}, None
 
 
 def parse_html(path: Path) -> Tuple[str, Dict[str, Any]]:
@@ -391,29 +458,40 @@ def parse_html(path: Path) -> Tuple[str, Dict[str, Any]]:
     return text, metadata
 
 
-def parse_file(path: Path, enable_ocr: bool = False, skip_errors: bool = True) -> Tuple[str, Dict[str, Any]]:
+def parse_file(
+    path: Path,
+    enable_ocr: bool = False,
+    skip_errors: bool = True,
+) -> Tuple[str, Dict[str, Any], Optional[List[PageSegment]]]:
     """
     Parse a file based on its extension.
 
     Args:
         path: Path to file
         enable_ocr: Enable OCR for image-based PDFs
+        skip_errors: If True, continue on per-page failures
 
     Returns:
-        Tuple of (text content, metadata dict)
+        Tuple of (text content, metadata dict, page segments).
+        Page segments are provided for formats that support page tracking
+        (PDF, DOCX); ``None`` for other formats.
     """
     ext = path.suffix.lower()
 
     if ext in {".txt", ".rst"}:
-        return parse_txt(path)
+        text, meta = parse_txt(path)
+        return text, meta, None
     if ext == ".md":
-        return parse_md(path)
+        text, meta = parse_md(path)
+        return text, meta, None
     if ext == ".pdf":
         return parse_pdf(path, enable_ocr=enable_ocr, skip_errors=skip_errors)
     if ext == ".docx":
         return parse_docx(path)
     if ext in {".html", ".htm"}:
-        return parse_html(path)
+        text, meta = parse_html(path)
+        return text, meta, None
 
     # Fallback best-effort (treat as text)
-    return parse_txt(path)
+    text, meta = parse_txt(path)
+    return text, meta, None

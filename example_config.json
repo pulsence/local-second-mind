@@ -21,6 +21,7 @@
     "manifest": ".ingest/manifest.json",
     "chunk_size": 1800,
     "chunk_overlap": 200,
+    "chunking_strategy": "structure",
     "enable_ocr": false,
     "enable_ai_tagging": false,
     "tags_per_chunk": 3,

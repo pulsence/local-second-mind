@@ -2,6 +2,25 @@
 
 All notable changes to Local Second Mind are documented here.
 
+## Unreleased
+
+### Added
+
+- Structure-aware chunking in `lsm/ingest/structure_chunking.py` that respects headings, paragraphs, and sentence boundaries.
+- Heading detection for Markdown (`#`-style) and bold-only lines (common in PDF extractions).
+- Page number tracking for PDF and DOCX documents via `PageSegment` dataclass.
+- DOCX page break detection using `<w:lastRenderedPageBreak/>` and `<w:br w:type="page"/>` XML elements.
+- `chunking_strategy` config option (`"structure"` or `"fixed"`) on `IngestConfig`.
+- Chunk metadata now includes `heading`, `paragraph_index`, and `page_number` fields when using structure chunking.
+- 53 new tests in `tests/test_ingest/test_structure_chunking.py` covering heading detection, paragraph splitting, sentence preservation, page mapping, pipeline integration, and config validation.
+
+### Changed
+
+- `parse_pdf()` and `parse_docx()` now return 3-tuples `(text, metadata, page_segments)` to preserve page boundary information.
+- `parse_file()` updated to return 3-tuples consistently across all formats (page_segments is `None` for non-paginated formats).
+- Pipeline writer thread now writes `heading`, `paragraph_index`, and `page_number` into vector DB chunk metadata.
+- Default chunking strategy is `"structure"`; legacy fixed-size chunking available via `"fixed"`.
+
 ## 0.3.2
 
 ### Added

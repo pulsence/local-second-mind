@@ -277,10 +277,11 @@ class TestDocxParsing:
         invalid_docx = tmp_path / "invalid.docx"
         invalid_docx.write_text("not a docx file", encoding="utf-8")
 
-        text, metadata = parse_docx(invalid_docx)
+        text, metadata, page_segs = parse_docx(invalid_docx)
 
         assert text == ""
         assert metadata == {}
+        assert page_segs is None
 
 
 class TestEndToEndPipeline:

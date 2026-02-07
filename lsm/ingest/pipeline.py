@@ -12,8 +12,9 @@ from pathlib import Path
 from lsm.ingest.chunking import chunk_text
 from lsm.ingest.fs import iter_files
 from lsm.ingest.manifest import load_manifest, save_manifest
-from lsm.ingest.models import ParseResult, WriteJob
+from lsm.ingest.models import PageSegment, ParseResult, WriteJob
 from lsm.ingest.parsers import parse_file
+from lsm.ingest.structure_chunking import structure_chunk_text, structured_chunks_to_positions
 from lsm.ingest.utils import (
     canonical_path,
     file_sha256,
@@ -40,6 +41,7 @@ def parse_and_chunk_job(
     stop_event: Optional[threading.Event] = None,
     chunk_size: int = 1800,
     chunk_overlap: int = 200,
+    chunking_strategy: str = "structure",
 ) -> ParseResult:
     """
     Parse a file, extract metadata, chunk the text, and track positions.
@@ -52,8 +54,12 @@ def parse_and_chunk_job(
         fhash: SHA-256 hash of file
         had_prev: Whether file was previously ingested
         enable_ocr: Enable OCR for image-based PDFs
+        skip_errors: If True, continue on per-file failures
+        stop_event: Threading event for graceful shutdown
         chunk_size: Chunk size in characters
         chunk_overlap: Chunk overlap in characters
+        chunking_strategy: 'structure' for heading/paragraph/sentence-aware
+            chunking, 'fixed' for simple sliding-window chunking.
 
     Returns:
         ParseResult with text chunks, metadata, and positions
@@ -72,10 +78,12 @@ def parse_and_chunk_job(
                 ok=False,
                 err="stopped",
             )
-        # Parse file and extract metadata
-        raw_text, doc_metadata = parse_file(fp, enable_ocr=enable_ocr, skip_errors=skip_errors)
+        # Parse file and extract metadata + page segments
+        raw_text, doc_metadata, page_segments = parse_file(
+            fp, enable_ocr=enable_ocr, skip_errors=skip_errors,
+        )
 
-        parse_errors = []
+        parse_errors: List[Dict[str, Any]] = []
         if doc_metadata and "_parse_errors" in doc_metadata:
             parse_errors = doc_metadata.pop("_parse_errors") or []
 
@@ -98,13 +106,26 @@ def parse_and_chunk_job(
                 parse_errors=parse_errors,
             )
 
-        # Chunk text and track positions
-        chunks, positions = chunk_text(
-            raw_text,
-            chunk_size=chunk_size,
-            overlap=chunk_overlap,
-            track_positions=True
-        )
+        # Chunk text using the configured strategy
+        if chunking_strategy == "structure":
+            # Convert overlap from absolute chars to a ratio for structure chunking
+            overlap_ratio = chunk_overlap / chunk_size if chunk_size > 0 else 0.0
+            structured = structure_chunk_text(
+                raw_text,
+                chunk_size=chunk_size,
+                overlap=overlap_ratio,
+                page_segments=page_segments,
+                track_positions=True,
+            )
+            chunks, positions = structured_chunks_to_positions(structured)
+        else:
+            # Fixed (legacy) chunking
+            chunks, positions = chunk_text(
+                raw_text,
+                chunk_size=chunk_size,
+                overlap=chunk_overlap,
+                track_positions=True,
+            )
 
         if not chunks:
             return ParseResult(
@@ -135,6 +156,7 @@ def parse_and_chunk_job(
             metadata=doc_metadata,
             chunk_positions=positions,
             parse_errors=parse_errors,
+            page_segments=page_segments,
         )
 
     except Exception as e:
@@ -169,6 +191,7 @@ def ingest(
     stop_event: Optional[threading.Event] = None,
     chunk_size: int = 1800,
     chunk_overlap: int = 200,
+    chunking_strategy: str = "structure",
     progress_callback: Optional[Callable[[str, int, int, str], None]] = None,
 ) -> Dict[str, Any]:
     """
@@ -304,6 +327,17 @@ def ingest(
                     meta["start_char"] = pos.get("start_char")
                     meta["end_char"] = pos.get("end_char")
                     meta["chunk_length"] = pos.get("length")
+                    # Structure chunking metadata
+                    if pos.get("heading") is not None:
+                        meta["heading"] = pos["heading"]
+                    if pos.get("paragraph_index") is not None:
+                        meta["paragraph_index"] = pos["paragraph_index"]
+                    # Page number tracking
+                    if pos.get("page_start") is not None and pos.get("page_end") is not None:
+                        if pos["page_start"] == pos["page_end"]:
+                            meta["page_number"] = str(pos["page_start"])
+                        else:
+                            meta["page_number"] = f"{pos['page_start']}-{pos['page_end']}"
 
                 to_add_ids.append(chunk_id)
                 to_add_docs.append(chunk)
@@ -523,6 +557,7 @@ def ingest(
                         stop_signal,
                         chunk_size,
                         chunk_overlap,
+                        chunking_strategy,
                     )
                 )
                 processed += 1

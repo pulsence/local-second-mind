@@ -6,6 +6,24 @@ from typing import List, Optional, Dict, Any
 
 
 # -----------------------------
+# Page-Level Data
+# -----------------------------
+@dataclass
+class PageSegment:
+    """A segment of text from a single page of a document.
+
+    Used by parsers that support page-level extraction (PDF, DOCX) to preserve
+    page boundary information through the chunking pipeline.
+    """
+
+    text: str
+    """Text content of this page segment."""
+
+    page_number: int
+    """1-based page number this segment belongs to."""
+
+
+# -----------------------------
 # Threading Classes
 # -----------------------------
 @dataclass
@@ -50,6 +68,9 @@ class ParseResult:
 
     parse_errors: Optional[List[Dict[str, Any]]] = None
     """Per-page parse errors captured during extraction."""
+
+    page_segments: Optional[List[PageSegment]] = None
+    """Page-level text segments for page number tracking (PDF, DOCX)."""
 
 
 @dataclass

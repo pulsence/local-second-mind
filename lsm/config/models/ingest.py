@@ -59,6 +59,10 @@ class IngestConfig:
     chunk_overlap: int = DEFAULT_CHUNK_OVERLAP
     """Character overlap between consecutive chunks."""
 
+    chunking_strategy: str = "structure"
+    """Chunking strategy: 'structure' (heading/paragraph/sentence-aware) or
+    'fixed' (simple character-based sliding window)."""
+
     enable_ocr: bool = False
     """Enable OCR for image-based PDFs."""
 
@@ -136,4 +140,11 @@ class IngestConfig:
             raise ValueError(
                 f"chunk_overlap ({self.chunk_overlap}) must be less than "
                 f"chunk_size ({self.chunk_size})"
+            )
+
+        valid_strategies = {"structure", "fixed"}
+        if self.chunking_strategy not in valid_strategies:
+            raise ValueError(
+                f"chunking_strategy must be one of {valid_strategies}, "
+                f"got '{self.chunking_strategy}'"
             )
