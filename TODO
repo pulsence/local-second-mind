@@ -247,6 +247,11 @@
 
 # Future Items (INGORE ALL THE FOLLOWING FOR NOW)
 
+## Ingest
+- Need to consider when a heading has sub headings, they can be included and explore what if
+  heading groups are particular small and so produce the situation where overlaps include whole
+  other chunks.
+
 ## Future Source Providers
 - Create OpenAlex - Crossref - Unpaywall - CORE pipeline to find, download, and ingest documents
 - Archive.org

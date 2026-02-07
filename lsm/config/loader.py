@@ -18,6 +18,7 @@ from .models import (
     LSMConfig,
     GlobalConfig,
     IngestConfig,
+    RootConfig,
     QueryConfig,
     LLMRegistryConfig,
     LLMProviderConfig,
@@ -233,9 +234,23 @@ def build_ingest_config(raw: Dict[str, Any], config_path: Path) -> IngestConfig:
     persist_dir = ingest_raw.get("persist_dir", IngestConfig.persist_dir)
     collection = ingest_raw.get("collection", IngestConfig.collection)
 
+    # Build root configs (supports both strings and dicts)
+    root_configs = []
+    for r in roots:
+        if isinstance(r, dict):
+            root_configs.append(
+                RootConfig(
+                    path=Path(r["path"]),
+                    tags=r.get("tags"),
+                    content_type=r.get("content_type"),
+                )
+            )
+        else:
+            root_configs.append(RootConfig(path=Path(r)))
+
     # Build config
     config = IngestConfig(
-        roots=[Path(r) for r in roots],
+        roots=root_configs,
         persist_dir=Path(persist_dir),
         collection=collection,
         chroma_flush_interval=int(ingest_raw.get("chroma_flush_interval", IngestConfig.chroma_flush_interval)),
@@ -744,7 +759,14 @@ def config_to_raw(config: LSMConfig) -> Dict[str, Any]:
             "embedding_dimension": gs.embedding_dimension,
         },
         "ingest": {
-            "roots": [str(root) for root in config.ingest.roots],
+            "roots": [
+                (
+                    {"path": str(rc.path), "tags": rc.tags, "content_type": rc.content_type}
+                    if rc.tags or rc.content_type
+                    else str(rc.path)
+                )
+                for rc in config.ingest.roots
+            ],
             "persist_dir": str(config.ingest.persist_dir),
             "collection": config.ingest.collection,
             "chroma_flush_interval": config.ingest.chroma_flush_interval,

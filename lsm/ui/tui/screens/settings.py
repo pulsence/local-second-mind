@@ -177,7 +177,7 @@ class SettingsScreen(Widget):
         config = app.config
         self._set_input("settings-config-path", str(config.config_path or ""))
 
-        self._render_ingest_roots([str(path) for path in config.ingest.roots])
+        self._render_ingest_roots([str(rc.path) for rc in config.ingest.roots])
         self._set_input("settings-ingest-persist-dir", str(config.ingest.persist_dir))
         self._set_input("settings-ingest-collection", config.ingest.collection)
         self._set_input("settings-ingest-embed-model", config.embed_model)

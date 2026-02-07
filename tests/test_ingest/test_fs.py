@@ -1,3 +1,4 @@
+from lsm.config.models.ingest import RootConfig
 from lsm.ingest.fs import iter_files
 
 
@@ -9,7 +10,7 @@ def test_iter_files_filters_by_extension(tmp_path) -> None:
     wanted.write_text("a", encoding="utf-8")
     ignored.write_text("b", encoding="utf-8")
 
-    files = list(iter_files([root], {".txt"}, set()))
+    files = [fp for fp, _ in iter_files([RootConfig(path=root)], {".txt"}, set())]
     assert wanted in files
     assert ignored not in files
 
@@ -24,14 +25,14 @@ def test_iter_files_skips_excluded_directories(tmp_path) -> None:
     allowed_file = root / "ok.txt"
     allowed_file.write_text("ok", encoding="utf-8")
 
-    files = list(iter_files([root], {".txt"}, {".git"}))
+    files = [fp for fp, _ in iter_files([RootConfig(path=root)], {".txt"}, {".git"})]
     assert allowed_file in files
     assert blocked_file not in files
 
 
 def test_iter_files_ignores_missing_roots(tmp_path) -> None:
     missing_root = tmp_path / "missing"
-    files = list(iter_files([missing_root], {".txt"}, set()))
+    files = list(iter_files([RootConfig(path=missing_root)], {".txt"}, set()))
     assert files == []
 
 
@@ -41,5 +42,5 @@ def test_iter_files_handles_case_insensitive_extensions(tmp_path) -> None:
     upper = root / "UPPER.TXT"
     upper.write_text("content", encoding="utf-8")
 
-    files = list(iter_files([root], {".txt"}, set()))
+    files = [fp for fp, _ in iter_files([RootConfig(path=root)], {".txt"}, set())]
     assert upper in files

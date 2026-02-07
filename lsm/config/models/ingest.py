@@ -6,7 +6,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import List, Optional, Set
+from typing import Any, Dict, List, Optional, Set, Union
 
 from .constants import (
     DEFAULT_CHROMA_FLUSH_INTERVAL,
@@ -19,6 +19,30 @@ from .constants import (
 
 
 @dataclass
+class RootConfig:
+    """Configuration for a single ingest root directory.
+
+    Args:
+        path: Root directory path to scan for documents.
+        tags: Optional tags to propagate to all chunks from this root.
+        content_type: Optional content type label for chunks from this root.
+    """
+
+    path: Path
+    """Root directory path."""
+
+    tags: Optional[List[str]] = None
+    """Tags to propagate to all chunks ingested from this root."""
+
+    content_type: Optional[str] = None
+    """Content type label for documents under this root."""
+
+    def __post_init__(self) -> None:
+        if isinstance(self.path, str):
+            self.path = Path(self.path)
+
+
+@dataclass
 class IngestConfig:
     """
     Configuration for the ingestion pipeline.
@@ -26,8 +50,13 @@ class IngestConfig:
     Controls how documents are discovered, parsed, chunked, and embedded.
     """
 
-    roots: List[Path]
-    """Root directories to scan for documents. Required."""
+    roots: List[RootConfig]
+    """Root directories to scan for documents. Required.
+
+    Accepts strings, Path objects, dicts with ``path``/``tags``/``content_type``
+    keys, or ``RootConfig`` instances. All are normalized to ``RootConfig`` in
+    ``__post_init__``.
+    """
 
     persist_dir: Path = Path(".chroma")
     """Directory for ChromaDB persistent storage."""
@@ -87,15 +116,36 @@ class IngestConfig:
     translation_target: str = "en"
     """Target language for translation (ISO 639-1 code)."""
 
-    def __post_init__(self):
-        """Convert string paths to Path objects and validate."""
+    def __post_init__(self) -> None:
+        """Normalize roots to RootConfig and convert string paths."""
         if isinstance(self.roots, list):
-            self.roots = [Path(r) if isinstance(r, str) else r for r in self.roots]
+            normalized: List[RootConfig] = []
+            for r in self.roots:
+                if isinstance(r, RootConfig):
+                    normalized.append(r)
+                elif isinstance(r, dict):
+                    normalized.append(
+                        RootConfig(
+                            path=Path(r["path"]),
+                            tags=r.get("tags"),
+                            content_type=r.get("content_type"),
+                        )
+                    )
+                elif isinstance(r, (str, Path)):
+                    normalized.append(RootConfig(path=Path(r)))
+                else:
+                    normalized.append(RootConfig(path=Path(r)))
+            self.roots = normalized
 
         if isinstance(self.persist_dir, str):
             self.persist_dir = Path(self.persist_dir)
         if isinstance(self.manifest, str):
             self.manifest = Path(self.manifest)
+
+    @property
+    def root_paths(self) -> List[Path]:
+        """Get list of root directory paths (convenience accessor)."""
+        return [rc.path for rc in self.roots]
 
     @property
     def exts(self) -> Set[str]:

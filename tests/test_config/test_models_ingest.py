@@ -2,12 +2,13 @@ from pathlib import Path
 
 import pytest
 
-from lsm.config.models.ingest import IngestConfig
+from lsm.config.models.ingest import IngestConfig, RootConfig
 
 
 def test_ingest_config_converts_string_paths() -> None:
     cfg = IngestConfig(roots=["."], persist_dir=".chroma", manifest=".ingest/manifest.json")
-    assert isinstance(cfg.roots[0], Path)
+    assert isinstance(cfg.roots[0], RootConfig)
+    assert cfg.roots[0].path == Path(".")
     assert isinstance(cfg.persist_dir, Path)
     assert isinstance(cfg.manifest, Path)
 

@@ -14,7 +14,11 @@
   "ingest": {
     "roots": [
       "C:\\Users\\User\\Documents",
-      "D:\\Writings"
+      {
+        "path": "D:\\Writings",
+        "tags": ["creative", "personal"],
+        "content_type": "writing"
+      }
     ],
     "persist_dir": ".chroma",
     "collection": "local_kb",

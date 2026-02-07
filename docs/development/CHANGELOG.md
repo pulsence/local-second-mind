@@ -20,6 +20,13 @@ All notable changes to Local Second Mind are documented here.
 - `WELL_KNOWN_EMBED_MODELS` dictionary in `constants.py` mapping 30+ embedding models to their output dimensions.
 - `embedding_dimension` field on `GlobalConfig` with auto-detection from well-known models. Pipeline validates actual model dimension matches config at startup.
 - 67 new tests across `test_language.py`, `test_translation.py`, `test_embedding_models.py`, and updated existing test files.
+- `RootConfig` dataclass in `lsm/config/models/ingest.py` supporting per-root `tags` and `content_type`.
+- `IngestConfig.roots` now accepts strings, Path objects, dicts with `path`/`tags`/`content_type`, or `RootConfig` instances (all normalized to `List[RootConfig]`).
+- `root_paths` property on `IngestConfig` for convenient `List[Path]` access.
+- `.lsm_tags.json` subfolder tag support via `collect_folder_tags()` in `lsm/ingest/fs.py`.
+- Root tags, content type, and folder tags propagated to chunk metadata as `root_tags`, `content_type`, and `folder_tags`.
+- `iter_files()` now yields `(Path, RootConfig)` tuples to track file-to-root mapping.
+- 30 new tests in `tests/test_ingest/test_root_config.py` covering RootConfig, config loading, folder tag discovery, and iter_files changes.
 
 ### Changed
 

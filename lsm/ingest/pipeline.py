@@ -10,7 +10,7 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 from pathlib import Path
 
 from lsm.ingest.chunking import chunk_text
-from lsm.ingest.fs import iter_files
+from lsm.ingest.fs import iter_files, collect_folder_tags
 from lsm.ingest.manifest import load_manifest, save_manifest
 from lsm.ingest.models import PageSegment, ParseResult, WriteJob
 from lsm.ingest.parsers import parse_file
@@ -24,7 +24,7 @@ from lsm.ingest.utils import (
     make_chunk_id,
 )
 from lsm.vectordb import create_vectordb_provider
-from lsm.config.models import LLMConfig, VectorDBConfig
+from lsm.config.models import LLMConfig, RootConfig, VectorDBConfig
 
 # -----------------------------
 # Main ingest pipeline
@@ -46,6 +46,9 @@ def parse_and_chunk_job(
     enable_translation: bool = False,
     translation_target: str = "en",
     translation_llm_config: Optional[LLMConfig] = None,
+    root_tags: Optional[List[str]] = None,
+    content_type: Optional[str] = None,
+    folder_tags: Optional[List[str]] = None,
 ) -> ParseResult:
     """
     Parse a file, extract metadata, chunk the text, and track positions.
@@ -68,6 +71,9 @@ def parse_and_chunk_job(
         enable_translation: Translate non-target-language chunks via LLM.
         translation_target: Target language code for translation (ISO 639-1).
         translation_llm_config: LLM config for translation service.
+        root_tags: Tags from the root config this file belongs to.
+        content_type: Content type label from the root config.
+        folder_tags: Tags collected from .lsm_tags.json files in parent dirs.
 
     Returns:
         ParseResult with text chunks, metadata, and positions
@@ -107,6 +113,17 @@ def parse_and_chunk_job(
                 if doc_metadata is None:
                     doc_metadata = {}
                 doc_metadata["language"] = detected_lang
+
+        # Inject root/folder tags into document metadata
+        if root_tags or content_type or folder_tags:
+            if doc_metadata is None:
+                doc_metadata = {}
+            if root_tags:
+                doc_metadata["root_tags"] = json.dumps(root_tags)
+            if content_type:
+                doc_metadata["content_type"] = content_type
+            if folder_tags:
+                doc_metadata["folder_tags"] = json.dumps(folder_tags)
 
         if not raw_text:
             return ParseResult(
@@ -214,7 +231,7 @@ def parse_and_chunk_job(
         )
 
 def ingest(
-    roots: List[Path],
+    roots: List[RootConfig],
     chroma_flush_interval: int,
     embed_model_name: str,
     device: str,
@@ -270,8 +287,8 @@ def ingest(
 
     manifest = load_manifest(manifest_path)
 
-    files = list(iter_files(roots, exts, exclude_dirs))
-    total_files = len(files)
+    file_tuples = list(iter_files(roots, exts, exclude_dirs))
+    total_files = len(file_tuples)
     emit("discovery", 0, total_files, f"Discovered {total_files:,} files to consider")
 
     # ---- Queues (bounded for backpressure) ----
@@ -549,7 +566,7 @@ def ingest(
         with ThreadPoolExecutor(max_workers=parse_workers) as pool:
             futures = []
 
-            for fp in files:
+            for fp, root_cfg in file_tuples:
                 if stop_signal.is_set():
                     break
                 scanned += 1
@@ -598,6 +615,9 @@ def ingest(
 
                 had_prev = prev is not None
 
+                # Collect folder tags from .lsm_tags.json files
+                f_tags = collect_folder_tags(fp, root_cfg.path)
+
                 # Submit parse/chunk to pool
                 futures.append(
                     pool.submit(
@@ -618,6 +638,9 @@ def ingest(
                         enable_translation,
                         translation_target,
                         translation_llm_config,
+                        root_cfg.tags,
+                        root_cfg.content_type,
+                        f_tags or None,
                     )
                 )
                 processed += 1

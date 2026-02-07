@@ -76,7 +76,7 @@ class _TestableSettingsScreen(SettingsScreen):
 
 def _config():
     ingest = SimpleNamespace(
-        roots=["/docs", "/notes"],
+        roots=[SimpleNamespace(path="/docs"), SimpleNamespace(path="/notes")],
         persist_dir="/data",
         collection="kb",
         chunk_size=800,

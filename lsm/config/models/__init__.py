@@ -25,7 +25,7 @@ from .constants import (
 )
 from .global_config import GlobalConfig
 from .llm import LLMConfig, LLMProviderConfig, LLMRegistryConfig, LLMServiceConfig
-from .ingest import IngestConfig
+from .ingest import IngestConfig, RootConfig
 from .vectordb import VectorDBConfig
 from .modes import (
     LocalSourcePolicy,
@@ -64,6 +64,7 @@ __all__ = [
     "LLMRegistryConfig",
     "LLMServiceConfig",
     "IngestConfig",
+    "RootConfig",
     "VectorDBConfig",
     "LocalSourcePolicy",
     "RemoteProviderRef",
