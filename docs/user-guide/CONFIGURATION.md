@@ -77,8 +77,7 @@ Ingest settings live under the `"ingest"` key and map to `IngestConfig`.
 | `chunk_size` | int | `1800` | Characters per chunk. |
 | `chunk_overlap` | int | `200` | Overlap between chunks. |
 | `enable_ocr` | bool | `false` | OCR for image-based PDFs. |
-| `enable_ai_tagging` | bool | `false` | Run LLM tagging during ingest. |
-| `tagging_model` | string | `gpt-5.2` | LLM model for tagging. |
+| `enable_ai_tagging` | bool | `false` | Run LLM tagging during ingest. Tagging model is configured via `llms.services.tagging`. |
 | `tags_per_chunk` | int | `3` | Tags to generate per chunk. |
 | `dry_run` | bool | `false` | Simulate ingest without writing. |
 | `skip_errors` | bool | `true` | Continue if a file/page fails to parse. |

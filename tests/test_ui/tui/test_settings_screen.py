@@ -79,12 +79,8 @@ def _config():
         roots=["/docs", "/notes"],
         persist_dir="/data",
         collection="kb",
-        embed_model="mini",
-        device="cpu",
-        batch_size=16,
         chunk_size=800,
         chunk_overlap=120,
-        tagging_model="gpt-test",
         tags_per_chunk=3,
         enable_ocr=True,
         enable_ai_tagging=False,
@@ -140,11 +136,25 @@ def _config():
         endpoint=None,
         api_version=None,
         deployment_name=None,
-        query=SimpleNamespace(model="gpt-q"),
-        tagging=SimpleNamespace(model="gpt-t"),
-        ranking=SimpleNamespace(model="gpt-r"),
     )
-    llm = SimpleNamespace(llms=[llm_provider])
+    tagging_resolved = SimpleNamespace(model="gpt-t")
+
+    def _resolve_service(name):
+        if name == "tagging":
+            return tagging_resolved
+        raise ValueError(f"No service '{name}'")
+
+    llm = SimpleNamespace(
+        providers=[llm_provider],
+        services={
+            "default": SimpleNamespace(provider="openai", model="gpt-q", temperature=None, max_tokens=None),
+            "tagging": SimpleNamespace(provider="openai", model="gpt-t", temperature=0.5, max_tokens=200),
+            "ranking": SimpleNamespace(provider="openai", model="gpt-r", temperature=None, max_tokens=None),
+        },
+        resolve_service=_resolve_service,
+        get_provider_names=lambda: ["openai"],
+        get_feature_provider_map=lambda: {"query": "openai", "tagging": "openai", "ranking": "openai"},
+    )
     return SimpleNamespace(
         config_path="config.json",
         ingest=ingest,
@@ -154,6 +164,9 @@ def _config():
         modes={"grounded": mode_cfg},
         get_mode_config=lambda name: mode_cfg,
         notes=notes,
+        embed_model="mini",
+        device="cpu",
+        batch_size=16,
     )
 
 
@@ -227,7 +240,7 @@ def test_refresh_and_mode_updates() -> None:
     screen._set_select_options = lambda fid, vals: seen["selects"].__setitem__(fid, vals)  # type: ignore[method-assign]
     screen._set_select_value = lambda fid, val: seen["selects"].__setitem__(f"{fid}:value", val)  # type: ignore[method-assign]
     screen._render_ingest_roots = lambda roots: seen["inputs"].__setitem__("roots", roots)  # type: ignore[method-assign]
-    screen._build_llm_sections = lambda providers: seen.__setitem__("built", len(providers))  # type: ignore[method-assign]
+    screen._build_llm_sections = lambda registry: seen.__setitem__("built", len(registry.providers))  # type: ignore[method-assign]
     original_update = screen._update_mode_settings
     screen._update_mode_settings = lambda name: (seen.__setitem__("mode", name), original_update(name))[1]  # type: ignore[method-assign]
 

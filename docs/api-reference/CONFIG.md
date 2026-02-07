@@ -107,7 +107,6 @@ Fields:
 - `chunk_overlap: int = 200`
 - `enable_ocr: bool = false`
 - `enable_ai_tagging: bool = false`
-- `tagging_model: str = gpt-5.2`
 - `tags_per_chunk: int = 3`
 - `dry_run: bool = false`
 - `skip_errors: bool = true`

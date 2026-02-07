@@ -180,12 +180,16 @@ class SettingsScreen(Widget):
         self._render_ingest_roots([str(path) for path in config.ingest.roots])
         self._set_input("settings-ingest-persist-dir", str(config.ingest.persist_dir))
         self._set_input("settings-ingest-collection", config.ingest.collection)
-        self._set_input("settings-ingest-embed-model", config.ingest.embed_model)
-        self._set_input("settings-ingest-device", config.ingest.device)
-        self._set_input("settings-ingest-batch-size", str(config.ingest.batch_size))
+        self._set_input("settings-ingest-embed-model", config.embed_model)
+        self._set_input("settings-ingest-device", config.device)
+        self._set_input("settings-ingest-batch-size", str(config.batch_size))
         self._set_input("settings-ingest-chunk-size", str(config.ingest.chunk_size))
         self._set_input("settings-ingest-chunk-overlap", str(config.ingest.chunk_overlap))
-        self._set_input("settings-ingest-tagging-model", config.ingest.tagging_model)
+        try:
+            tagging_model = config.llm.resolve_service("tagging").model
+        except (ValueError, AttributeError):
+            tagging_model = ""
+        self._set_input("settings-ingest-tagging-model", tagging_model)
         self._set_input("settings-ingest-tags-per-chunk", str(config.ingest.tags_per_chunk))
         self._set_switch("settings-ingest-enable-ocr", config.ingest.enable_ocr)
         self._set_switch("settings-ingest-enable-ai-tagging", config.ingest.enable_ai_tagging)
@@ -218,14 +222,14 @@ class SettingsScreen(Widget):
         self._set_input("settings-vdb-index-type", config.vectordb.index_type)
         self._set_input("settings-vdb-pool-size", str(config.vectordb.pool_size))
 
-        self._build_llm_sections(config.llm.llms)
+        self._build_llm_sections(config.llm)
 
-    def _build_llm_sections(self, providers) -> None:
-        """Create editable sections for each LLM provider."""
+    def _build_llm_sections(self, llm_registry) -> None:
+        """Create editable sections for LLM providers and services."""
         container = self.query_one("#settings-llm-container", Container)
         container.remove_children()
 
-        for index, provider in enumerate(providers, start=1):
+        for index, provider in enumerate(llm_registry.providers, start=1):
             section = Container(
                 Static(
                     f"Provider {index}: {provider.provider_name}",
@@ -241,10 +245,6 @@ class SettingsScreen(Widget):
                     f"settings-llm-{index}-api-key",
                     placeholder="(hidden)",
                 ),
-                Static("Feature overrides", classes="settings-subsection-title"),
-                self._field("Query model", f"settings-llm-{index}-query-model"),
-                self._field("Tagging model", f"settings-llm-{index}-tagging-model"),
-                self._field("Ranking model", f"settings-llm-{index}-ranking-model"),
                 classes="settings-subsection",
             )
 
@@ -257,18 +257,29 @@ class SettingsScreen(Widget):
             self._set_input(f"settings-llm-{index}-deployment-name", self._format_optional(provider.deployment_name))
             self._set_input(f"settings-llm-{index}-api-key", "")
 
-            self._set_input(
-                f"settings-llm-{index}-query-model",
-                self._format_optional(provider.query.model if provider.query else None),
+        if llm_registry.services:
+            services_header = Container(
+                Static("Services", classes="settings-subsection-title"),
+                classes="settings-subsection",
             )
-            self._set_input(
-                f"settings-llm-{index}-tagging-model",
-                self._format_optional(provider.tagging.model if provider.tagging else None),
-            )
-            self._set_input(
-                f"settings-llm-{index}-ranking-model",
-                self._format_optional(provider.ranking.model if provider.ranking else None),
-            )
+            container.mount(services_header)
+
+            for name, service in llm_registry.services.items():
+                svc_section = Container(
+                    self._field("Service", f"settings-llm-svc-{name}-name", disabled=True),
+                    self._field("Provider", f"settings-llm-svc-{name}-provider"),
+                    self._field("Model", f"settings-llm-svc-{name}-model"),
+                    self._field("Temperature", f"settings-llm-svc-{name}-temperature"),
+                    self._field("Max tokens", f"settings-llm-svc-{name}-max-tokens"),
+                    classes="settings-subsection",
+                )
+                container.mount(svc_section)
+
+                self._set_input(f"settings-llm-svc-{name}-name", name)
+                self._set_input(f"settings-llm-svc-{name}-provider", service.provider)
+                self._set_input(f"settings-llm-svc-{name}-model", service.model)
+                self._set_input(f"settings-llm-svc-{name}-temperature", self._format_optional(service.temperature))
+                self._set_input(f"settings-llm-svc-{name}-max-tokens", self._format_optional(service.max_tokens))
 
     def _render_ingest_roots(self, roots: list[str]) -> None:
         """Render editable ingest root paths."""
@@ -452,48 +463,3 @@ class SettingsScreen(Widget):
         if value is None:
             return ""
         return str(value)
-        ingest = config.ingest
-        query = config.query
-        vectordb = config.vectordb
-        llm = config.llm
-
-        provider_map = llm.get_feature_provider_map()
-        mode_names = sorted(config.modes.keys()) if config.modes else []
-        remote_providers = config.remote_providers or []
-
-        lines = [
-            "CONFIGURATION",
-            "=" * 40,
-            f"Config file: {config.config_path or 'unknown'}",
-            "",
-            "INGEST",
-            f"Roots: {', '.join(str(p) for p in ingest.roots)}",
-            f"Persist dir: {ingest.persist_dir}",
-            f"Collection: {ingest.collection}",
-            f"Embed model: {ingest.embed_model}",
-            f"Device: {ingest.device}",
-            f"Batch size: {ingest.batch_size}",
-            "",
-            "QUERY",
-            f"Mode: {query.mode}",
-            f"k: {query.k}  k_rerank: {query.k_rerank}",
-            f"Min relevance: {query.min_relevance}",
-            f"Rerank strategy: {query.rerank_strategy}",
-            "",
-            "VECTOR DB",
-            f"Provider: {vectordb.provider}",
-            f"Persist dir: {vectordb.persist_dir}",
-            f"Collection: {vectordb.collection}",
-            "",
-            "LLM",
-            f"Providers: {', '.join(llm.get_provider_names()) or 'none'}",
-            f"Feature map: {provider_map or 'none'}",
-            "",
-            "MODES",
-            f"Available: {', '.join(mode_names) or 'none'}",
-            "",
-            "REMOTE PROVIDERS",
-            f"Configured: {', '.join(p.name for p in remote_providers) or 'none'}",
-        ]
-
-        return "\n".join(lines)

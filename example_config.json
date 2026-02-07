@@ -23,7 +23,6 @@
     "chunk_overlap": 200,
     "enable_ocr": false,
     "enable_ai_tagging": false,
-    "tagging_model": "gpt-5.2",
     "tags_per_chunk": 3,
     "dry_run": false,
     "skip_errors": true,

@@ -65,9 +65,6 @@ class IngestConfig:
     enable_ai_tagging: bool = False
     """Enable AI-powered chunk tagging."""
 
-    tagging_model: str = "gpt-5.2"
-    """Model to use for AI tagging if enabled."""
-
     tags_per_chunk: int = 3
     """Number of tags to generate per chunk if AI tagging enabled."""
 
