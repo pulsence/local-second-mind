@@ -12,11 +12,11 @@ from pathlib import Path
 from typing import Dict, Any
 
 from lsm.config.models import (
-    FeatureLLMConfig,
     GlobalConfig,
     IngestConfig,
     LLMProviderConfig,
     LLMRegistryConfig,
+    LLMServiceConfig,
     LSMConfig,
     QueryConfig,
     VectorDBConfig,
@@ -57,13 +57,14 @@ def sample_config_dict(tmp_path: Path) -> Dict[str, Any]:
             "persist_dir": str(tmp_path / ".chroma"),
             "collection": "test_kb",
         },
-        "llms": [
-            {
-                "provider_name": "openai",
-                "api_key": None,
-                "query": {"model": "gpt-5.2"},
-            }
-        ],
+        "llms": {
+            "providers": [
+                {"provider_name": "openai", "api_key": None}
+            ],
+            "services": {
+                "query": {"provider": "openai", "model": "gpt-5.2"}
+            },
+        },
         "query": {
             "k": 12,
             "k_rerank": 6,
@@ -335,12 +336,8 @@ def ingest_config(tmp_path: Path, global_folder: Path) -> LSMConfig:
     )
     query = QueryConfig()
     llm = LLMRegistryConfig(
-        llms=[
-            LLMProviderConfig(
-                provider_name="local",
-                query=FeatureLLMConfig(model="llama3.1"),
-            )
-        ]
+        providers=[LLMProviderConfig(provider_name="local")],
+        services={"query": LLMServiceConfig(provider="local", model="llama3.1")},
     )
     vectordb = VectorDBConfig(
         provider="chromadb",

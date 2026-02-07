@@ -5,10 +5,10 @@ Tests for query mode and global notes configuration.
 from pathlib import Path
 
 from lsm.config.models import (
-    FeatureLLMConfig,
     IngestConfig,
     LLMProviderConfig,
     LLMRegistryConfig,
+    LLMServiceConfig,
     LSMConfig,
     LocalSourcePolicy,
     ModeConfig,
@@ -29,13 +29,8 @@ def _make_config(mode: str, modes: dict | None = None, notes: NotesConfig | None
         ),
         query=QueryConfig(mode=mode),
         llm=LLMRegistryConfig(
-            llms=[
-                LLMProviderConfig(
-                    provider_name="openai",
-                    api_key="test",
-                    query=FeatureLLMConfig(model="gpt-5.2"),
-                ),
-            ]
+            providers=[LLMProviderConfig(provider_name="openai", api_key="test")],
+            services={"query": LLMServiceConfig(provider="openai", model="gpt-5.2")},
         ),
         vectordb=VectorDBConfig(
             persist_dir=Path("/tmp/.chroma"),

@@ -38,17 +38,19 @@ def _base_raw(tmp_path: Path) -> dict:
             "persist_dir": str(tmp_path / ".chroma"),
             "collection": "test_collection",
         },
-        "llms": [
-            {
-                "provider_name": "openai",
-                "api_key": "test-key",
+        "llms": {
+            "providers": [
+                {"provider_name": "openai", "api_key": "test-key"}
+            ],
+            "services": {
                 "query": {
+                    "provider": "openai",
                     "model": "gpt-5.2",
                     "temperature": 0.3,
                     "max_tokens": 256,
-                },
-            }
-        ],
+                }
+            },
+        },
         "vectordb": {
             "provider": "chromadb",
             "persist_dir": str(tmp_path / ".chroma"),

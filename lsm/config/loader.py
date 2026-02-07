@@ -21,7 +21,7 @@ from .models import (
     QueryConfig,
     LLMRegistryConfig,
     LLMProviderConfig,
-    FeatureLLMConfig,
+    LLMServiceConfig,
     ModeConfig,
     SourcePolicyConfig,
     LocalSourcePolicy,
@@ -76,25 +76,27 @@ def load_raw_config(path: Path) -> Dict[str, Any]:
     return config
 
 
-def build_feature_llm_config(raw: Dict[str, Any]) -> FeatureLLMConfig:
+def build_llm_service_config(raw: Dict[str, Any]) -> LLMServiceConfig:
     """
-    Build FeatureLLMConfig from raw configuration.
+    Build LLMServiceConfig from raw configuration.
 
     Args:
-        raw: Raw config dictionary for a feature override
+        raw: Raw service dictionary
 
     Returns:
-        FeatureLLMConfig instance
+        LLMServiceConfig instance
     """
-    return FeatureLLMConfig(
-        model=raw.get("model"),
-        api_key=raw.get("api_key"),
+    provider = raw.get("provider")
+    model = raw.get("model")
+    if not provider:
+        raise ValueError("Each service must include 'provider'")
+    if not model:
+        raise ValueError("Each service must include 'model'")
+    return LLMServiceConfig(
+        provider=provider,
+        model=model,
         temperature=raw.get("temperature"),
         max_tokens=raw.get("max_tokens"),
-        base_url=raw.get("base_url"),
-        endpoint=raw.get("endpoint"),
-        api_version=raw.get("api_version"),
-        deployment_name=raw.get("deployment_name"),
     )
 
 
@@ -110,11 +112,14 @@ def build_llm_provider_config(raw: Dict[str, Any]) -> LLMProviderConfig:
     """
     provider_name = raw.get("provider_name")
     if not provider_name:
-        raise ValueError("Each llms[] entry must include 'provider_name'")
-    if any(key in raw for key in ("model", "temperature", "max_tokens")):
+        raise ValueError("Each providers[] entry must include 'provider_name'")
+
+    legacy_fields = {"model", "query", "tagging", "ranking"}
+    found = legacy_fields & set(raw.keys())
+    if found:
         raise ValueError(
-            "Legacy llms[] fields 'model', 'temperature', and 'max_tokens' are no longer supported. "
-            "Move them under llms[].query/tagging/ranking."
+            f"Legacy llms[] fields {sorted(found)} found on provider '{provider_name}'. "
+            f"Move model/feature configs to the 'services' section instead."
         )
 
     return LLMProviderConfig(
@@ -124,9 +129,6 @@ def build_llm_provider_config(raw: Dict[str, Any]) -> LLMProviderConfig:
         endpoint=raw.get("endpoint"),
         api_version=raw.get("api_version"),
         deployment_name=raw.get("deployment_name"),
-        query=build_feature_llm_config(raw["query"]) if "query" in raw else None,
-        tagging=build_feature_llm_config(raw["tagging"]) if "tagging" in raw else None,
-        ranking=build_feature_llm_config(raw["ranking"]) if "ranking" in raw else None,
     )
 
 
@@ -141,11 +143,33 @@ def build_llm_config(raw: Dict[str, Any]) -> LLMRegistryConfig:
         LLMRegistryConfig instance
     """
     llms_raw = raw.get("llms")
-    if not llms_raw or not isinstance(llms_raw, list):
-        raise ValueError("Config must include 'llms' as a non-empty list")
+    if not llms_raw:
+        raise ValueError("Config must include 'llms'")
 
-    providers = [build_llm_provider_config(item) for item in llms_raw]
-    return LLMRegistryConfig(llms=providers)
+    if isinstance(llms_raw, dict):
+        providers_raw = llms_raw.get("providers")
+        if not providers_raw or not isinstance(providers_raw, list):
+            raise ValueError("llms.providers must be a non-empty list")
+
+        services_raw = llms_raw.get("services")
+        if not services_raw or not isinstance(services_raw, dict):
+            raise ValueError("llms.services must be a non-empty dict")
+
+        providers = [build_llm_provider_config(item) for item in providers_raw]
+        services = {
+            name: build_llm_service_config(svc)
+            for name, svc in services_raw.items()
+        }
+        return LLMRegistryConfig(providers=providers, services=services)
+
+    if isinstance(llms_raw, list):
+        raise ValueError(
+            "The 'llms' config format has changed. "
+            "Use { 'providers': [...], 'services': {...} } instead of a list. "
+            "See example_config.json for the new format."
+        )
+
+    raise ValueError("Config 'llms' must be an object with 'providers' and 'services' keys")
 
 
 def build_global_config(raw: Dict[str, Any]) -> GlobalConfig:
@@ -616,50 +640,28 @@ def config_to_raw(config: LSMConfig) -> Dict[str, Any]:
     """
     Serialize LSMConfig into a JSON/YAML-friendly dict.
     """
-    llms: list[Dict[str, Any]] = []
-    for provider in config.llm.llms:
-        entry: Dict[str, Any] = {
+    providers_raw: list[Dict[str, Any]] = []
+    for provider in config.llm.providers:
+        providers_raw.append({
             "provider_name": provider.provider_name,
             "api_key": provider.api_key,
             "base_url": provider.base_url,
             "endpoint": provider.endpoint,
             "api_version": provider.api_version,
             "deployment_name": provider.deployment_name,
+        })
+
+    services_raw: Dict[str, Dict[str, Any]] = {}
+    for name, service in config.llm.services.items():
+        entry: Dict[str, Any] = {
+            "provider": service.provider,
+            "model": service.model,
         }
-        if provider.query is not None:
-            entry["query"] = {
-                "model": provider.query.model,
-                "api_key": provider.query.api_key,
-                "temperature": provider.query.temperature,
-                "max_tokens": provider.query.max_tokens,
-                "base_url": provider.query.base_url,
-                "endpoint": provider.query.endpoint,
-                "api_version": provider.query.api_version,
-                "deployment_name": provider.query.deployment_name,
-            }
-        if provider.tagging is not None:
-            entry["tagging"] = {
-                "model": provider.tagging.model,
-                "api_key": provider.tagging.api_key,
-                "temperature": provider.tagging.temperature,
-                "max_tokens": provider.tagging.max_tokens,
-                "base_url": provider.tagging.base_url,
-                "endpoint": provider.tagging.endpoint,
-                "api_version": provider.tagging.api_version,
-                "deployment_name": provider.tagging.deployment_name,
-            }
-        if provider.ranking is not None:
-            entry["ranking"] = {
-                "model": provider.ranking.model,
-                "api_key": provider.ranking.api_key,
-                "temperature": provider.ranking.temperature,
-                "max_tokens": provider.ranking.max_tokens,
-                "base_url": provider.ranking.base_url,
-                "endpoint": provider.ranking.endpoint,
-                "api_version": provider.ranking.api_version,
-                "deployment_name": provider.ranking.deployment_name,
-            }
-        llms.append(entry)
+        if service.temperature is not None:
+            entry["temperature"] = service.temperature
+        if service.max_tokens is not None:
+            entry["max_tokens"] = service.max_tokens
+        services_raw[name] = entry
 
     modes = []
     if config.modes:
@@ -748,7 +750,10 @@ def config_to_raw(config: LSMConfig) -> Dict[str, Any]:
             "exclude_dirs": config.ingest.exclude_dirs,
             "override_excludes": config.ingest.override_excludes,
         },
-        "llms": llms,
+        "llms": {
+            "providers": providers_raw,
+            "services": services_raw,
+        },
         "query": {
             "mode": config.query.mode,
             "k": config.query.k,

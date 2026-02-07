@@ -41,48 +41,22 @@
     "chroma_hnsw_space": "cosine"
   },
 
-  "_comment_llm": "LLM providers list (ordered). API keys can be omitted and provided via .env instead.",
-  "llms": [
-    {
-      "_comment_provider": "Primary provider defines defaults for all features",
-      "provider_name": "openai",
-      "api_key": "INSERT_YOUR_OPENAI_API_KEY",
-      "query": {
-        "model": "gpt-5.2",
-        "temperature": 0.7,
-        "max_tokens": 2000
-      },
-      "tagging": {
-        "model": "gpt-5-nano",
-        "temperature": 0.5,
-        "max_tokens": 200
-      },
-      "ranking": {
-        "model": "gpt-5.2",
-        "temperature": 0.3,
-        "max_tokens": 500
-      }
-    },
-    {
-      "_comment_provider": "Later providers can override a single feature",
-      "provider_name": "gemini",
-      "api_key": "INSERT_YOUR_GEMINI_API_KEY",
-      "tagging": {
-        "model": "gemini-2.5-flash-lite",
-        "temperature": 1,
-        "max_tokens": 200
-      }
-    },
-    {
-      "provider_name": "claude",
-      "api_key": "INSERT_YOUR_CLAUDE_API_KEY",
-      "ranking": {
-        "model": "claude-haiku-4-5",
-        "temperature": 1,
-        "max_tokens": 200
-      }
+  "_comment_llm": "LLM configuration. Providers define connections; services map features to provider+model.",
+  "llms": {
+    "_comment_providers": "Provider connections. API keys can be omitted and provided via .env instead.",
+    "providers": [
+      { "provider_name": "openai", "api_key": "INSERT_YOUR_OPENAI_API_KEY" },
+      { "provider_name": "gemini", "api_key": "INSERT_YOUR_GEMINI_API_KEY" },
+      { "provider_name": "claude", "api_key": "INSERT_YOUR_CLAUDE_API_KEY" }
+    ],
+    "_comment_services": "Named services mapping features to a provider + model. 'default' is the fallback.",
+    "services": {
+      "default": { "provider": "openai", "model": "gpt-5.2" },
+      "query":   { "provider": "openai", "model": "gpt-5.2", "temperature": 0.7, "max_tokens": 2000 },
+      "tagging": { "provider": "gemini", "model": "gemini-2.5-flash-lite", "temperature": 0.5, "max_tokens": 200 },
+      "ranking": { "provider": "claude", "model": "claude-haiku-4-5", "temperature": 0.3, "max_tokens": 500 }
     }
-  ],
+  },
 
   "_comment_query": "Query pipeline configuration",
   "query": {

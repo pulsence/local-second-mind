@@ -32,7 +32,7 @@ fields in the config file. The top-level keys are:
 | `global` | `GlobalConfig` | Shared settings (embedding model, device, batch size, global folder) |
 | `ingest` | `IngestConfig` | Ingestion pipeline settings |
 | `vectordb` | `VectorDBConfig` | Vector database provider settings |
-| `llms` | `LLMRegistryConfig` | Ordered LLM provider list |
+| `llms` | `LLMRegistryConfig` | LLM providers and services |
 | `query` | `QueryConfig` | Retrieval and reranking settings |
 | `modes` | `list[ModeConfig]` | Query mode definitions |
 | `notes` | `NotesConfig` | Notes system settings |
@@ -103,63 +103,34 @@ Vector DB settings live under `vectordb`.
 
 ## LLM Configuration
 
-The `llms` section defines an ordered list of provider entries. Later entries
-override feature selection when they define a feature (`query`, `tagging`,
-`ranking`).
+The `llms` section is an object with two keys: `providers` (connection details)
+and `services` (feature-to-model mappings).
 
 ```json
-"llms": [
-  {
-    "provider_name": "openai",
-    "api_key": null,
-    "query": {
-      "model": "gpt-5.2",
-      "temperature": 0.7,
-      "max_tokens": 2000
-    },
-    "tagging": {
-      "model": "gpt-5-nano",
-      "temperature": 0.5,
-      "max_tokens": 200
-    },
-    "ranking": {
-      "model": "gpt-5-nano",
-      "temperature": 0.3,
-      "max_tokens": 500
-    }
-  },
-  {
-    "provider_name": "gemini",
-    "api_key": null,
-    "tagging": {
-      "model": "gemini-2.5-flash-lite",
-      "temperature": 1,
-      "max_tokens": 200
-    }
-  },
-  {
-    "provider_name": "claude",
-    "api_key": null,
-    "ranking": {
-      "model": "claude-haiku-4-5",
-      "temperature": 1,
-      "max_tokens": 200
-    }
+"llms": {
+  "providers": [
+    { "provider_name": "openai", "api_key": null },
+    { "provider_name": "gemini", "api_key": null },
+    { "provider_name": "claude", "api_key": null }
+  ],
+  "services": {
+    "default": { "provider": "openai", "model": "gpt-5.2" },
+    "query":   { "provider": "openai", "model": "gpt-5.2", "temperature": 0.7, "max_tokens": 2000 },
+    "tagging": { "provider": "gemini", "model": "gemini-2.5-flash-lite", "temperature": 0.5, "max_tokens": 200 },
+    "ranking": { "provider": "claude", "model": "claude-haiku-4-5", "temperature": 0.3, "max_tokens": 500 }
   }
-]
+}
 ```
 
 Notes:
 
-- Each `llms[]` entry must define at least one feature: `query`, `tagging`, or
-  `ranking`.
-- For each feature, the last provider in the list that defines it is selected.
-- `query` is required. `tagging` and `ranking` are optional and only needed if
-  you use those features.
-- Provider-level fields are limited to connection/auth settings:
-  `api_key`, `base_url`, `endpoint`, `api_version`, `deployment_name`.
-- `model`, `temperature`, and `max_tokens` must be set per feature under
-  `query`, `tagging`, and/or `ranking`.
+- `providers[]` entries hold connection/auth settings only:
+  `provider_name`, `api_key`, `base_url`, `endpoint`, `api_version`, `deployment_name`.
+- `services` maps logical names to a provider + model combination with optional
+  `temperature` and `max_tokens` overrides.
+- A `"query"` or `"default"` service is required. `tagging` and `ranking` are
+  optional and fall back to `"default"` if not defined.
+- Each service's `provider` field must reference a name from `providers[]`.
 - Supported providers: `openai`, `anthropic`, `gemini`, `local`, `azure_openai`.
 
 Provider-specific fields:
@@ -172,58 +143,54 @@ Provider-specific fields:
 Anthropic:
 
 ```json
-"llms": [
-  {
-    "provider_name": "anthropic",
-    "query": { "model": "claude-3-5-sonnet-20241022" },
-    "tagging": { "model": "claude-3-5-haiku-20241022" },
-    "ranking": { "model": "claude-3-5-haiku-20241022" }
+"llms": {
+  "providers": [{ "provider_name": "anthropic" }],
+  "services": {
+    "query":   { "provider": "anthropic", "model": "claude-3-5-sonnet-20241022" },
+    "tagging": { "provider": "anthropic", "model": "claude-3-5-haiku-20241022" },
+    "ranking": { "provider": "anthropic", "model": "claude-3-5-haiku-20241022" }
   }
-]
+}
 ```
 
 Local (Ollama):
 
 ```json
-"llms": [
-  {
-    "provider_name": "local",
-    "base_url": "http://localhost:11434",
-    "query": { "model": "llama3" },
-    "tagging": { "model": "llama3" },
-    "ranking": { "model": "llama3" }
+"llms": {
+  "providers": [{ "provider_name": "local", "base_url": "http://localhost:11434" }],
+  "services": {
+    "default": { "provider": "local", "model": "llama3" }
   }
-]
+}
 ```
 
 Gemini:
 
 ```json
-"llms": [
-  {
-    "provider_name": "gemini",
-    "query": { "model": "gemini-1.5-pro" },
-    "tagging": { "model": "gemini-1.5-flash" },
-    "ranking": { "model": "gemini-1.5-pro" }
+"llms": {
+  "providers": [{ "provider_name": "gemini" }],
+  "services": {
+    "query":   { "provider": "gemini", "model": "gemini-1.5-pro" },
+    "tagging": { "provider": "gemini", "model": "gemini-1.5-flash" },
+    "ranking": { "provider": "gemini", "model": "gemini-1.5-pro" }
   }
-]
+}
 ```
 
 Azure OpenAI:
 
 ```json
-"llms": [
-  {
+"llms": {
+  "providers": [{
     "provider_name": "azure_openai",
-    "api_key": "${AZURE_OPENAI_API_KEY}",
     "endpoint": "https://your-resource.openai.azure.com/",
     "api_version": "2023-05-15",
-    "deployment_name": "gpt-35-turbo",
-    "query": { "model": "gpt-35-turbo" },
-    "tagging": { "model": "gpt-35-turbo" },
-    "ranking": { "model": "gpt-35-turbo" }
+    "deployment_name": "gpt-35-turbo"
+  }],
+  "services": {
+    "default": { "provider": "azure_openai", "model": "gpt-35-turbo" }
   }
-]
+}
 ```
 
 ## Query Configuration
@@ -352,12 +319,12 @@ an API key.
   "ingest": {
     "roots": ["C:/Users/You/Documents"]
   },
-  "llms": [
-    {
-      "provider_name": "openai",
-      "query": { "model": "gpt-5.2" }
+  "llms": {
+    "providers": [{ "provider_name": "openai" }],
+    "services": {
+      "query": { "provider": "openai", "model": "gpt-5.2" }
     }
-  ]
+  }
 }
 ```
 
@@ -372,12 +339,12 @@ an API key.
     "rerank_strategy": "lexical",
     "no_rerank": true
   },
-  "llms": [
-    {
-      "provider_name": "openai",
-      "query": { "model": "gpt-5.2" }
+  "llms": {
+    "providers": [{ "provider_name": "openai" }],
+    "services": {
+      "query": { "provider": "openai", "model": "gpt-5.2" }
     }
-  ]
+  }
 }
 ```
 
@@ -389,12 +356,12 @@ an API key.
     "roots": ["C:/Users/You/Scans"],
     "enable_ocr": true
   },
-  "llms": [
-    {
-      "provider_name": "openai",
-      "query": { "model": "gpt-5.2" }
+  "llms": {
+    "providers": [{ "provider_name": "openai" }],
+    "services": {
+      "query": { "provider": "openai", "model": "gpt-5.2" }
     }
-  ]
+  }
 }
 ```
 
@@ -452,12 +419,12 @@ an API key.
       "max_results": 5
     }
   ],
-  "llms": [
-    {
-      "provider_name": "openai",
-      "query": { "model": "gpt-5.2" }
+  "llms": {
+    "providers": [{ "provider_name": "openai" }],
+    "services": {
+      "query": { "provider": "openai", "model": "gpt-5.2" }
     }
-  ]
+  }
 }
 ```
 
@@ -466,6 +433,6 @@ an API key.
 - If LSM says `query.mode` is not found, ensure it matches a `modes` entry name.
 - If Chroma errors occur, verify `persist_dir` is writable and not empty.
 - If no files are found, double-check `ingest.roots`, `ingest.extensions`, and `ingest.exclude_dirs`.
-- If OpenAI is not available, set `OPENAI_API_KEY` in `.env` or `llms[].api_key`.
+- If OpenAI is not available, set `OPENAI_API_KEY` in `.env` or in the provider's `api_key` field.
 - For Brave Search, set `BRAVE_API_KEY` or the `remote_providers` entry `api_key`.
 - For Wikipedia, set `LSM_WIKIPEDIA_USER_AGENT` or the `remote_providers` entry `user_agent`.

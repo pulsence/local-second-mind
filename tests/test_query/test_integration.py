@@ -18,7 +18,7 @@ from lsm.config.models import (
     VectorDBConfig,
     LLMRegistryConfig,
     LLMProviderConfig,
-    FeatureLLMConfig,
+    LLMServiceConfig,
 )
 from lsm.query.session import Candidate
 
@@ -35,14 +35,11 @@ class TestQueryIntegration:
                 manifest=Path("/test/manifest.json"),
             ),
             llm=LLMRegistryConfig(
-                llms=[
-                    LLMProviderConfig(
-                        provider_name="openai",
-                        api_key="test-key",
-                        query=FeatureLLMConfig(model="gpt-5.2"),
-                        ranking=FeatureLLMConfig(model="gpt-5.2"),
-                    ),
-                ]
+                providers=[LLMProviderConfig(provider_name="openai", api_key="test-key")],
+                services={
+                    "query": LLMServiceConfig(provider="openai", model="gpt-5.2"),
+                    "ranking": LLMServiceConfig(provider="openai", model="gpt-5.2"),
+                },
             ),
             query=QueryConfig(
                 k=12,
@@ -350,7 +347,7 @@ class TestErrorHandling:
         from lsm.query.api import query, QueryResult
         from lsm.query.session import SessionState
         from lsm.query.planning import LocalQueryPlan
-        from lsm.config.models import LSMConfig, QueryConfig, LLMRegistryConfig, LLMProviderConfig, FeatureLLMConfig
+        from lsm.config.models import LSMConfig, QueryConfig, LLMRegistryConfig, LLMProviderConfig, LLMServiceConfig
 
         config = LSMConfig(
             ingest=IngestConfig(
@@ -358,14 +355,11 @@ class TestErrorHandling:
                 manifest=Path("/test/manifest.json"),
             ),
             llm=LLMRegistryConfig(
-                llms=[
-                    LLMProviderConfig(
-                        provider_name="openai",
-                        api_key="test",
-                        query=FeatureLLMConfig(model="gpt-5.2"),
-                        ranking=FeatureLLMConfig(model="gpt-5.2"),
-                    ),
-                ]
+                providers=[LLMProviderConfig(provider_name="openai", api_key="test")],
+                services={
+                    "query": LLMServiceConfig(provider="openai", model="gpt-5.2"),
+                    "ranking": LLMServiceConfig(provider="openai", model="gpt-5.2"),
+                },
             ),
             query=QueryConfig(),
             vectordb=VectorDBConfig(
@@ -455,14 +449,11 @@ class TestErrorHandling:
                 manifest=Path("/test/manifest.json"),
             ),
             llm=LLMRegistryConfig(
-                llms=[
-                    LLMProviderConfig(
-                        provider_name="openai",
-                        api_key="test",
-                        query=FeatureLLMConfig(model="gpt-5.2"),
-                        ranking=FeatureLLMConfig(model="gpt-5.2"),
-                    ),
-                ]
+                providers=[LLMProviderConfig(provider_name="openai", api_key="test")],
+                services={
+                    "query": LLMServiceConfig(provider="openai", model="gpt-5.2"),
+                    "ranking": LLMServiceConfig(provider="openai", model="gpt-5.2"),
+                },
             ),
             query=QueryConfig(mode="grounded"),
             vectordb=VectorDBConfig(

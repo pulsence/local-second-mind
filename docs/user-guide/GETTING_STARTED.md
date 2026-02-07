@@ -53,14 +53,14 @@ Edit `config.json` and update:
       "D:\\Research"
     ]
   },
-  "llms": [
-    {
-      "provider_name": "openai",
-      "query": { "model": "gpt-5.2" },
-      "tagging": { "model": "gpt-5-nano" },
-      "ranking": { "model": "gpt-5-nano" }
+  "llms": {
+    "providers": [{ "provider_name": "openai" }],
+    "services": {
+      "default": { "provider": "openai", "model": "gpt-5.2" },
+      "tagging": { "provider": "openai", "model": "gpt-5-nano" },
+      "ranking": { "provider": "openai", "model": "gpt-5-nano" }
     }
-  ]
+  }
 }
 ```
 
@@ -261,18 +261,10 @@ No documents were ingested. Check:
 Set your OpenAI API key:
 
 ```bash
-# In config.json
-"llms": [
-  {
-    "provider_name": "openai",
-    "api_key": "sk-...",
-    "query": { "model": "gpt-5.2" },
-    "tagging": { "model": "gpt-5-nano" },
-    "ranking": { "model": "gpt-5-nano" }
-  }
-]
+# In config.json providers section
+"providers": [{ "provider_name": "openai", "api_key": "sk-..." }]
 
-# Or environment variable
+# Or environment variable (recommended)
 export OPENAI_API_KEY=sk-...
 ```
 

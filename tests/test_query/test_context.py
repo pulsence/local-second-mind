@@ -19,7 +19,7 @@ from lsm.config.models import (
     QueryConfig,
     LLMRegistryConfig,
     LLMProviderConfig,
-    FeatureLLMConfig,
+    LLMServiceConfig,
     VectorDBConfig,
     RemoteProviderConfig,
 )
@@ -379,13 +379,8 @@ def test_fetch_remote_sources_timeout_is_handled(monkeypatch):
         ingest=IngestConfig(roots=[Path("/tmp")], manifest=Path("/tmp/manifest.json")),
         query=QueryConfig(mode="hybrid"),
         llm=LLMRegistryConfig(
-            llms=[
-                LLMProviderConfig(
-                    provider_name="openai",
-                    api_key="test",
-                    query=FeatureLLMConfig(model="gpt-5.2"),
-                )
-            ]
+            providers=[LLMProviderConfig(provider_name="openai", api_key="test")],
+            services={"query": LLMServiceConfig(provider="openai", model="gpt-5.2")},
         ),
         vectordb=VectorDBConfig(persist_dir=Path("/tmp/.chroma"), collection="test"),
         remote_providers=[

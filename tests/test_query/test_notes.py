@@ -458,13 +458,14 @@ class TestResolveNotesDir:
             "ingest": {
                 "roots": [str(tmp_path / "docs")],
             },
-            "llms": [
-                {
-                    "provider_name": "openai",
-                    "api_key": "test-key",
-                    "query": {"model": "gpt-5.2"},
-                }
-            ],
+            "llms": {
+                "providers": [
+                    {"provider_name": "openai", "api_key": "test-key"}
+                ],
+                "services": {
+                    "query": {"provider": "openai", "model": "gpt-5.2"}
+                },
+            },
             "vectordb": {
                 "provider": "chromadb",
                 "persist_dir": str(tmp_path / ".chroma"),

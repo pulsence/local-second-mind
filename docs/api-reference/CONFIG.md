@@ -143,26 +143,31 @@ Derived behavior:
 
 ## LLMRegistryConfig
 
-Ordered list of LLM providers with per-feature selection.
+LLM provider registry with named services. Providers define connection details,
+services map logical names to a specific provider + model combination.
 
 Fields:
 
-- `llms: list[LLMProviderConfig]`
+- `providers: list[LLMProviderConfig]`
+- `services: dict[str, LLMServiceConfig]`
 
 Methods:
 
 - `validate()`
-- `get_query_config()`
-- `get_tagging_config()`
-- `get_ranking_config()`
+- `resolve_service(name)` -- resolve a named service to `LLMConfig`
+- `resolve_any_for_provider(provider_name)` -- find first service using given provider
+- `get_query_config()` -- shortcut for `resolve_service("query")`
+- `get_tagging_config()` -- shortcut for `resolve_service("tagging")`
+- `get_ranking_config()` -- shortcut for `resolve_service("ranking")`
 - `get_feature_provider_map()`
 - `get_provider_names()`
 - `get_provider_by_name(name)`
+- `set_feature_selection(feature_name, provider_name, model)`
 - `override_feature_model(feature_name, model)`
 
 ## LLMProviderConfig
 
-Provider entry inside the registry.
+Provider connection entry inside the registry.
 
 Fields:
 
@@ -172,18 +177,30 @@ Fields:
 - `endpoint: str | None = None` (Azure OpenAI)
 - `api_version: str | None = None` (Azure OpenAI)
 - `deployment_name: str | None = None` (Azure OpenAI)
-- `query: FeatureLLMConfig | None`
-- `tagging: FeatureLLMConfig | None`
-- `ranking: FeatureLLMConfig | None`
 
 Notes:
 
-- `model`, `temperature`, and `max_tokens` are feature-level only.
-- Configure them under `query`, `tagging`, and/or `ranking`.
+- Providers hold connection/auth details only.
+- `model`, `temperature`, and `max_tokens` are configured in services.
+
+## LLMServiceConfig
+
+Maps a logical service name to a specific provider and model.
+
+Fields:
+
+- `provider: str` (must match a `providers[]` entry)
+- `model: str`
+- `temperature: float | None` (override, defaults to 0.7)
+- `max_tokens: int | None` (override, defaults to 2000)
+
+Methods:
+
+- `validate()`
 
 ## LLMConfig
 
-Effective LLM configuration used at runtime.
+Effective LLM configuration used at runtime (resolved from service + provider).
 
 Fields:
 
@@ -205,26 +222,6 @@ Environment resolution:
 
 - If `api_key` is not set, LSM reads `{PROVIDER}_API_KEY`.
 - For `gemini`, `GOOGLE_API_KEY` is supported.
-
-## FeatureLLMConfig
-
-
-Per-feature override used to build effective runtime `LLMConfig`.
-
-Fields:
-
-- `model: str | None`
-- `api_key: str | None`
-- `temperature: float | None`
-- `max_tokens: int | None`
-- `base_url: str | None`
-- `endpoint: str | None`
-- `api_version: str | None`
-- `deployment_name: str | None`
-
-Method:
-
-- `merge_with_base(base: LLMConfig) -> LLMConfig`
 
 ## ModeConfig
 

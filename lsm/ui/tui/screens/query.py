@@ -304,11 +304,10 @@ class QueryScreen(Widget):
             if label in seen_labels:
                 continue
             seen_labels.add(label)
-            provider_config = self.app.config.llm.get_provider_by_name(provider_name)
-            if not provider_config:
+            if not self.app.config.llm.get_provider_by_name(provider_name):
                 continue
             try:
-                test_config = provider_config.resolve_first_available()
+                test_config = self.app.config.llm.resolve_any_for_provider(provider_name)
                 lines.append(f"{label}:")
                 if not test_config:
                     lines.append("  (not configured for any feature)\n")
@@ -360,13 +359,13 @@ class QueryScreen(Widget):
         for provider_name in providers:
             try:
                 provider_config = self.app.config.llm.get_provider_by_name(provider_name)
-                test_config = provider_config.resolve_first_available() if provider_config else None
+                test_config = self.app.config.llm.resolve_any_for_provider(provider_name) if provider_config else None
 
                 if test_config:
                     provider = create_provider(test_config)
                     is_available = "ok" if provider.is_available() else "- (API key not configured)"
                 elif provider_config:
-                    is_available = "- (no feature config)"
+                    is_available = "- (no service config)"
                 else:
                     is_available = "- (not configured)"
 
@@ -412,7 +411,7 @@ class QueryScreen(Widget):
         for provider_name in providers:
             try:
                 provider_config = self.app.config.llm.get_provider_by_name(provider_name)
-                test_config = provider_config.resolve_first_available() if provider_config else None
+                test_config = self.app.config.llm.resolve_any_for_provider(provider_name) if provider_config else None
                 if not test_config:
                     status = "not_configured" if not provider_config else "missing_config"
                     label = display_provider_name(provider_name)
@@ -536,7 +535,7 @@ class QueryScreen(Widget):
         for provider_name in providers:
             try:
                 provider_config = self.app.config.llm.get_provider_by_name(provider_name)
-                test_config = provider_config.resolve_first_available() if provider_config else None
+                test_config = self.app.config.llm.resolve_any_for_provider(provider_name) if provider_config else None
                 if not test_config:
                     status = "not_configured" if not provider_config else "missing_config"
                     label = display_provider_name(provider_name)

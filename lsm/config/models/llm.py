@@ -5,67 +5,43 @@ LLM provider configuration models.
 from __future__ import annotations
 
 import os
-from dataclasses import dataclass
-from typing import List, Optional
+from dataclasses import dataclass, field
+from typing import Dict, List, Optional
 
 from .constants import DEFAULT_LLM_MAX_TOKENS, DEFAULT_LLM_TEMPERATURE
 
 
 @dataclass
-class FeatureLLMConfig:
+class LLMServiceConfig:
     """
-    Optional LLM configuration override for a specific feature.
+    Configuration for a named LLM service.
 
-    Allows per-feature model selection while inheriting from provider config.
+    Maps a logical service name (e.g., 'query', 'tagging', 'ranking')
+    to a specific provider and model with optional parameter overrides.
     """
 
-    model: Optional[str] = None
-    """Override model for this feature. If None, inherits from provider config."""
+    provider: str
+    """Provider name this service uses (must match a providers[] entry)."""
 
-    api_key: Optional[str] = None
-    """Override API key for this feature. If None, inherits from provider config."""
+    model: str
+    """Model name to use for this service."""
 
     temperature: Optional[float] = None
-    """Override temperature for this feature. If None, inherits from provider config."""
+    """Temperature override. If None, uses DEFAULT_LLM_TEMPERATURE."""
 
     max_tokens: Optional[int] = None
-    """Override max_tokens for this feature. If None, inherits from provider config."""
+    """Max tokens override. If None, uses DEFAULT_LLM_MAX_TOKENS."""
 
-    base_url: Optional[str] = None
-    """Override base URL (for local/hosted providers)."""
-
-    endpoint: Optional[str] = None
-    """Override endpoint URL (e.g., Azure OpenAI)."""
-
-    api_version: Optional[str] = None
-    """Override API version (e.g., Azure OpenAI)."""
-
-    deployment_name: Optional[str] = None
-    """Override deployment name (e.g., Azure OpenAI)."""
-
-    def merge_with_base(self, base: "LLMConfig") -> "LLMConfig":
-        """
-        Create a merged LLM config using this override and base config.
-
-        Args:
-            base: Base LLM configuration to inherit from
-
-        Returns:
-            New LLMConfig with overrides applied
-        """
-        return LLMConfig(
-            provider=base.provider,
-            model=self.model if self.model is not None else base.model,
-            api_key=self.api_key if self.api_key is not None else base.api_key,
-            temperature=self.temperature if self.temperature is not None else base.temperature,
-            max_tokens=self.max_tokens if self.max_tokens is not None else base.max_tokens,
-            base_url=self.base_url if self.base_url is not None else base.base_url,
-            endpoint=self.endpoint if self.endpoint is not None else base.endpoint,
-            api_version=self.api_version if self.api_version is not None else base.api_version,
-            deployment_name=(
-                self.deployment_name if self.deployment_name is not None else base.deployment_name
-            ),
-        )
+    def validate(self) -> None:
+        """Validate service configuration."""
+        if not self.provider:
+            raise ValueError("Service 'provider' is required")
+        if not self.model:
+            raise ValueError("Service 'model' is required")
+        if self.temperature is not None and (self.temperature < 0.0 or self.temperature > 2.0):
+            raise ValueError(f"Temperature must be between 0.0 and 2.0, got {self.temperature}")
+        if self.max_tokens is not None and self.max_tokens < 1:
+            raise ValueError(f"max_tokens must be positive, got {self.max_tokens}")
 
 
 @dataclass
@@ -107,7 +83,6 @@ class LLMConfig:
     def __post_init__(self):
         """Load API key from environment if not provided."""
         if not self.api_key:
-            # Try provider-specific environment variable
             if self.provider == "gemini":
                 self.api_key = os.getenv("GOOGLE_API_KEY")
             elif self.provider in {"anthropic", "claude"}:
@@ -117,7 +92,6 @@ class LLMConfig:
                 self.api_key = os.getenv(env_var)
 
         if not self.base_url:
-            # Local provider defaults
             if self.provider in {"local", "ollama"}:
                 self.base_url = os.getenv("OLLAMA_BASE_URL") or "http://localhost:11434"
             else:
@@ -167,7 +141,7 @@ class LLMConfig:
 @dataclass
 class LLMProviderConfig:
     """
-    Provider configuration entry within ordered LLM registry.
+    Provider connection configuration within the LLM registry.
     """
 
     provider_name: str
@@ -188,201 +162,202 @@ class LLMProviderConfig:
     deployment_name: Optional[str] = None
     """Provider deployment name (e.g., Azure OpenAI deployment)."""
 
-    query: Optional[FeatureLLMConfig] = None
-    """Optional LLM config override for query/answer synthesis."""
-
-    tagging: Optional[FeatureLLMConfig] = None
-    """Optional LLM config override for AI tagging."""
-
-    ranking: Optional[FeatureLLMConfig] = None
-    """Optional LLM config override for AI-powered reranking."""
-
-    def _resolve_feature(self, feature: FeatureLLMConfig) -> LLMConfig:
-        model = feature.model
-        if not model:
-            raise ValueError(
-                f"Model required for provider '{self.provider_name}'. "
-                "Set a feature-level model under query/tagging/ranking."
-            )
-
-        temperature = (
-            feature.temperature if feature.temperature is not None else DEFAULT_LLM_TEMPERATURE
-        )
-        max_tokens = feature.max_tokens if feature.max_tokens is not None else DEFAULT_LLM_MAX_TOKENS
-
-        return LLMConfig(
-            provider=self.provider_name,
-            model=model,
-            api_key=feature.api_key if feature.api_key is not None else self.api_key,
-            temperature=temperature,
-            max_tokens=max_tokens,
-            base_url=feature.base_url if feature.base_url is not None else self.base_url,
-            endpoint=feature.endpoint if feature.endpoint is not None else self.endpoint,
-            api_version=feature.api_version if feature.api_version is not None else self.api_version,
-            deployment_name=(
-                feature.deployment_name
-                if feature.deployment_name is not None
-                else self.deployment_name
-            ),
-        )
-
-    def resolve_query(self) -> Optional[LLMConfig]:
-        if not self.query:
-            return None
-        return self._resolve_feature(self.query)
-
-    def resolve_tagging(self) -> Optional[LLMConfig]:
-        if not self.tagging:
-            return None
-        return self._resolve_feature(self.tagging)
-
-    def resolve_ranking(self) -> Optional[LLMConfig]:
-        if not self.ranking:
-            return None
-        return self._resolve_feature(self.ranking)
-
-    def resolve_first_available(self) -> Optional[LLMConfig]:
-        for feature in (self.query, self.tagging, self.ranking):
-            if feature:
-                return self._resolve_feature(feature)
-        return None
-
     def validate(self) -> None:
+        """Validate provider configuration."""
         if not self.provider_name:
-            raise ValueError("llms[].provider_name is required")
-
-        if not any((self.query, self.tagging, self.ranking)):
-            raise ValueError(
-                f"Provider '{self.provider_name}' must define at least one of "
-                "query/tagging/ranking."
-            )
-
-        for label, feature in (
-            ("query", self.query),
-            ("tagging", self.tagging),
-            ("ranking", self.ranking),
-        ):
-            if feature and not feature.model:
-                raise ValueError(
-                    f"Model required for {label} on provider '{self.provider_name}'. "
-                    "Set a feature-level model."
-                )
+            raise ValueError("providers[].provider_name is required")
 
 
 @dataclass
 class LLMRegistryConfig:
     """
-    Ordered list of LLM providers with per-feature selection.
+    LLM provider registry with named services.
+
+    Providers define connection details. Services map logical names
+    to a specific provider + model combination.
     """
 
-    llms: List[LLMProviderConfig]
-    """Ordered list of LLM providers. Later providers override feature selection."""
+    providers: List[LLMProviderConfig]
+    """List of available LLM provider connections."""
 
-    def _select_feature(self, feature_name: str) -> LLMConfig:
-        selected = None
-        for provider in self.llms:
-            feature = getattr(provider, feature_name)
-            if feature is not None:
-                selected = provider._resolve_feature(feature)
-        if not selected:
-            raise ValueError(f"No LLM provider configured for feature '{feature_name}'")
-        return selected
+    services: Dict[str, LLMServiceConfig] = field(default_factory=dict)
+    """Named service configurations mapping to providers."""
+
+    def resolve_service(self, name: str) -> LLMConfig:
+        """
+        Resolve a named service to a fully-hydrated LLMConfig.
+
+        Looks up the service by name, falls back to 'default' if not found,
+        then merges service model parameters with provider connection details.
+
+        Args:
+            name: Service name (e.g., 'query', 'tagging', 'ranking', or user-defined)
+
+        Returns:
+            Fully resolved LLMConfig ready for provider factory.
+
+        Raises:
+            ValueError: If service name not found and no 'default' service exists.
+            ValueError: If service references a provider not in providers list.
+        """
+        service = self.services.get(name)
+        if service is None:
+            service = self.services.get("default")
+        if service is None:
+            raise ValueError(
+                f"No LLM service configured for '{name}' and no 'default' service defined. "
+                f"Available services: {sorted(self.services.keys())}"
+            )
+
+        provider = self._get_provider(service.provider)
+        if provider is None:
+            raise ValueError(
+                f"Service '{name}' references provider '{service.provider}' "
+                f"which is not in the providers list. "
+                f"Available providers: {[p.provider_name for p in self.providers]}"
+            )
+
+        return LLMConfig(
+            provider=provider.provider_name,
+            model=service.model,
+            api_key=provider.api_key,
+            temperature=(
+                service.temperature
+                if service.temperature is not None
+                else DEFAULT_LLM_TEMPERATURE
+            ),
+            max_tokens=(
+                service.max_tokens
+                if service.max_tokens is not None
+                else DEFAULT_LLM_MAX_TOKENS
+            ),
+            base_url=provider.base_url,
+            endpoint=provider.endpoint,
+            api_version=provider.api_version,
+            deployment_name=provider.deployment_name,
+        )
+
+    def resolve_any_for_provider(self, provider_name: str) -> Optional[LLMConfig]:
+        """
+        Resolve the first service that uses the given provider.
+
+        Used for testing provider availability (e.g., health checks).
+
+        Args:
+            provider_name: Provider name to look up.
+
+        Returns:
+            Resolved LLMConfig if any service uses this provider, else None.
+        """
+        for name, service in self.services.items():
+            if service.provider == provider_name:
+                try:
+                    return self.resolve_service(name)
+                except ValueError:
+                    continue
+        return None
+
+    def _get_provider(self, provider_name: str) -> Optional[LLMProviderConfig]:
+        """Find a provider by name."""
+        for p in self.providers:
+            if p.provider_name == provider_name:
+                return p
+        return None
 
     def get_query_config(self) -> LLMConfig:
-        return self._select_feature("query")
+        """Resolve the 'query' service."""
+        return self.resolve_service("query")
 
     def get_tagging_config(self) -> LLMConfig:
-        return self._select_feature("tagging")
+        """Resolve the 'tagging' service."""
+        return self.resolve_service("tagging")
 
     def get_ranking_config(self) -> LLMConfig:
-        return self._select_feature("ranking")
+        """Resolve the 'ranking' service."""
+        return self.resolve_service("ranking")
 
     def get_feature_provider_map(self) -> dict[str, str]:
+        """Build a map of well-known service names to their provider names."""
         mapping: dict[str, str] = {}
-        for provider in self.llms:
-            if provider.query:
-                mapping["query"] = provider.provider_name
-            if provider.tagging:
-                mapping["tagging"] = provider.provider_name
-            if provider.ranking:
-                mapping["ranking"] = provider.provider_name
+        for name in ("query", "tagging", "ranking"):
+            service = self.services.get(name)
+            if service is not None:
+                mapping[name] = service.provider
         return mapping
 
     def get_provider_names(self) -> List[str]:
-        return [provider.provider_name for provider in self.llms]
+        """Get all registered provider names."""
+        return [p.provider_name for p in self.providers]
 
     def get_provider_by_name(self, name: str) -> Optional[LLMProviderConfig]:
-        for provider in self.llms:
-            if provider.provider_name == name:
-                return provider
-        return None
+        """Find a provider by name."""
+        return self._get_provider(name)
+
+    def set_feature_selection(
+        self, feature_name: str, provider_name: str, model: str
+    ) -> None:
+        """
+        Set the provider + model for a service, creating or updating the entry.
+
+        Args:
+            feature_name: Service name (e.g., 'query', 'tagging', 'ranking')
+            provider_name: Provider name to use
+            model: Model name to set
+        """
+        if self._get_provider(provider_name) is None:
+            raise ValueError(f"Provider '{provider_name}' not found in providers list")
+
+        existing = self.services.get(feature_name)
+        if existing is not None:
+            existing.provider = provider_name
+            existing.model = model
+        else:
+            self.services[feature_name] = LLMServiceConfig(
+                provider=provider_name,
+                model=model,
+            )
 
     def override_feature_model(self, feature_name: str, model: str) -> None:
         """
-        Override the model for a specific feature in-place.
+        Override just the model for an existing service.
 
         Args:
-            feature_name: One of 'query', 'tagging', 'ranking'
-            model: Model name to apply
+            feature_name: Service name
+            model: New model name
         """
-        if feature_name not in {"query", "tagging", "ranking"}:
-            raise ValueError(f"Unknown feature '{feature_name}'")
-
-        target = None
-        for provider in self.llms:
-            feature = getattr(provider, feature_name)
-            if feature is not None:
-                target = feature
-        if not target:
-            raise ValueError(f"No LLM provider configured for feature '{feature_name}'")
-
-        target.model = model
-
-    def set_feature_selection(self, feature_name: str, provider_name: str, model: str) -> None:
-        """
-        Set the provider + model used for a feature, clearing other providers' selections.
-
-        Args:
-            feature_name: One of 'query', 'tagging', 'ranking'
-            provider_name: Provider name to select
-            model: Model name to set for the feature
-        """
-        if feature_name not in {"query", "tagging", "ranking"}:
-            raise ValueError(f"Unknown feature '{feature_name}'")
-
-        target = self.get_provider_by_name(provider_name)
-        if not target:
-            raise ValueError(f"Provider '{provider_name}' not found in llms list")
-
-        for provider in self.llms:
-            feature = getattr(provider, feature_name)
-            if provider is target:
-                if feature is None:
-                    setattr(provider, feature_name, FeatureLLMConfig(model=model))
-                else:
-                    feature.model = model
-            else:
-                if feature is not None:
-                    setattr(provider, feature_name, None)
+        service = self.services.get(feature_name)
+        if service is None:
+            service = self.services.get("default")
+        if service is None:
+            raise ValueError(f"No service '{feature_name}' or 'default' to override")
+        service.model = model
 
     def validate(self) -> None:
-        if not self.llms:
-            raise ValueError("llms must be a non-empty list")
+        """Validate registry configuration."""
+        if not self.providers:
+            raise ValueError("llms.providers must be a non-empty list")
 
-        for provider in self.llms:
+        if not self.services:
+            raise ValueError("llms.services must be a non-empty dict")
+
+        for provider in self.providers:
             provider.validate()
 
-        required = {"query"}
-        available = self.get_feature_provider_map().keys()
-        missing = required - set(available)
-        if missing:
+        for service_name, service in self.services.items():
+            service.validate()
+            if self._get_provider(service.provider) is None:
+                raise ValueError(
+                    f"Service '{service_name}' references provider '{service.provider}' "
+                    f"which is not in the providers list"
+                )
+
+        if "query" not in self.services and "default" not in self.services:
             raise ValueError(
-                f"Missing LLM feature configs: {sorted(missing)}. "
-                "Define these under llms[].query/tagging/ranking."
+                "LLM services must define at least a 'query' or 'default' service"
             )
 
         self.get_query_config().validate()
-        if any(provider.tagging for provider in self.llms):
+        if "tagging" in self.services:
             self.get_tagging_config().validate()
-        if any(provider.ranking for provider in self.llms):
+        if "ranking" in self.services:
             self.get_ranking_config().validate()

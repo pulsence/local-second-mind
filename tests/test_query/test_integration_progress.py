@@ -4,11 +4,11 @@ from pathlib import Path
 import pytest
 
 from lsm.config.models import (
-    FeatureLLMConfig,
     GlobalConfig,
     IngestConfig,
     LLMProviderConfig,
     LLMRegistryConfig,
+    LLMServiceConfig,
     LSMConfig,
     LocalSourcePolicy,
     ModeConfig,
@@ -31,14 +31,11 @@ def _build_query_config(tmp_path: Path, remote_enabled: bool) -> LSMConfig:
         ingest=IngestConfig(roots=[tmp_path], manifest=tmp_path / ".ingest" / "manifest.json"),
         query=QueryConfig(mode=mode_name, rerank_strategy="llm", no_rerank=False),
         llm=LLMRegistryConfig(
-            llms=[
-                LLMProviderConfig(
-                    provider_name="openai",
-                    api_key="test-key",
-                    query=FeatureLLMConfig(model="gpt-5.2"),
-                    ranking=FeatureLLMConfig(model="gpt-5.2"),
-                )
-            ]
+            providers=[LLMProviderConfig(provider_name="openai", api_key="test-key")],
+            services={
+                "query": LLMServiceConfig(provider="openai", model="gpt-5.2"),
+                "ranking": LLMServiceConfig(provider="openai", model="gpt-5.2"),
+            },
         ),
         vectordb=VectorDBConfig(
             provider="chromadb",

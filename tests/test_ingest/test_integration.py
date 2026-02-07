@@ -6,11 +6,11 @@ from types import SimpleNamespace
 import pytest
 
 from lsm.config.models import (
-    FeatureLLMConfig,
     GlobalConfig,
     IngestConfig,
     LLMProviderConfig,
     LLMRegistryConfig,
+    LLMServiceConfig,
     LSMConfig,
     QueryConfig,
     VectorDBConfig,
@@ -73,7 +73,8 @@ def _build_config(root: Path, tmp_path: Path) -> LSMConfig:
         ),
         query=QueryConfig(),
         llm=LLMRegistryConfig(
-            llms=[LLMProviderConfig(provider_name="local", query=FeatureLLMConfig(model="llama3.1"))]
+            providers=[LLMProviderConfig(provider_name="local")],
+            services={"query": LLMServiceConfig(provider="local", model="llama3.1")}
         ),
         vectordb=VectorDBConfig(
             provider="chromadb",

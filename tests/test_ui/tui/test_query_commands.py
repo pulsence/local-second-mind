@@ -20,11 +20,8 @@ class _Tracker:
 
 
 class _ProviderCfg:
-    def __init__(self, feature_cfg):
-        self._feature_cfg = feature_cfg
-
-    def resolve_first_available(self):
-        return self._feature_cfg
+    def __init__(self, provider_name):
+        self.provider_name = provider_name
 
 
 class _LLM:
@@ -48,7 +45,10 @@ class _LLM:
         return ["openai"]
 
     def get_provider_by_name(self, _name):
-        return _ProviderCfg(self._feature_cfg)
+        return _ProviderCfg(_name)
+
+    def resolve_any_for_provider(self, _name):
+        return self._feature_cfg
 
     def set_feature_selection(self, feature: str, provider: str, model: str):
         self.last_set = (feature, provider, model)

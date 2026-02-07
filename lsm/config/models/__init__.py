@@ -24,7 +24,7 @@ from .constants import (
     DEFAULT_LLM_MAX_TOKENS,
 )
 from .global_config import GlobalConfig
-from .llm import FeatureLLMConfig, LLMConfig, LLMProviderConfig, LLMRegistryConfig
+from .llm import LLMConfig, LLMProviderConfig, LLMRegistryConfig, LLMServiceConfig
 from .ingest import IngestConfig
 from .vectordb import VectorDBConfig
 from .modes import (
@@ -59,10 +59,10 @@ __all__ = [
     "DEFAULT_LLM_TEMPERATURE",
     "DEFAULT_LLM_MAX_TOKENS",
     "GlobalConfig",
-    "FeatureLLMConfig",
     "LLMConfig",
     "LLMProviderConfig",
     "LLMRegistryConfig",
+    "LLMServiceConfig",
     "IngestConfig",
     "VectorDBConfig",
     "LocalSourcePolicy",

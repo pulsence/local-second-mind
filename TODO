@@ -3,7 +3,38 @@
 ## Architecture
 
 ## TUI
-- Settings screen needs to be entirely restructured to implement the new configurations
+- Settings screen needs to be entirely restructured to implement the new configurations. (PRIORITY)
+
+## Config Adjustments
+- There should be not global fields in the config file. At the global level there should only be
+  JSON/YAML objects. The global settings (those used by both the ingest and query modules for
+  example) should be in a "global" : {} object. The ingest settings should be in an ingest object.
+- Each top level config file object should have a matching python object.
+- The llms config object should have a "providers" array which contains the current llm provider
+  configurations and then a "services" object that maps particular models to particular usages.
+  For example:
+  ```
+  "llms": {
+    "providers": [
+      {
+        "provider_name": "openai",
+        "api_key": "INSERT_YOUR_OPENAI_API_KEY"
+      }
+    ],
+    "services": {
+      "default": {
+        "provider": "openai",
+        "model": "gpt-5.2"
+      },
+      "taggings": {
+        "provider": "openai",
+        "model": "gpt-5-nano",
+        "temperature": 0.5,
+        "max_tokens": 200
+      }
+    }
+  }
+  ```
 
 ## AI providers
 - Figure out how to find out AI Provider pricing through an API call. If not possible, then create
@@ -12,6 +43,9 @@
   are to do the price calculations.
 
 ## Ingest
+- Full Postgres Support
+  - Design schema for pgvector and metadata storage in postgres.
+  - Align migration code from Chroma to Postgres
 - Add embeddings model selection (allow user to choose different embedding models)
 - Add language detection and tagging for multilingual corpora
 - Add option to machine translate chunks (for cross-language search)
@@ -20,16 +54,16 @@
 - Enable tagging by folder of chunks
 - Still getting MuPDF error: library error: zlib error: incorrect header check
 - Improve Document ingesting
-    - Store page number as chunk metadata as best able of chunks and then when a chunk is cited or
-      shown, include the page number. If a chunk spans two pages it should be stored in the metadata
-      as `START_#-END_#`.
-    - Text chunking should be based upon internal document structure. Headings, paragraphs, and
-      sentences should be treated as first class citizens. A chuck should NEVER split a sentence into
-      two. A chunk should either contain a complete paragraph or a paragraph should be split into whole
-      chunks, a chunk should NEVER include two different paragraphs. When headings are present the
-      heading title should be stored in the Chunk metadata. A chunk should NEVER include two different
-      headings.
-    - Once the base chunk amount is settled by the above criteria then there should be a 20-30% overlap.
+  - Store page number as chunk metadata as best able of chunks and then when a chunk is cited or
+    shown, include the page number. If a chunk spans two pages it should be stored in the metadata
+    as `START_#-END_#`.
+  - Text chunking should be based upon internal document structure. Headings, paragraphs, and
+    sentences should be treated as first class citizens. A chuck should NEVER split a sentence into
+    two. A chunk should either contain a complete paragraph or a paragraph should be split into whole
+    chunks, a chunk should NEVER include two different paragraphs. When headings are present the
+    heading title should be stored in the Chunk metadata. A chunk should NEVER include two different
+    headings.
+  - Once the base chunk amount is settled by the above criteria then there should be a 20-30% overlap.
 - Enable partial ingest by time and file count
 - /stats should cache results and be able to be updated incrementally
 
@@ -37,46 +71,185 @@
 - Complete remaining documentation for query modes, notes, remote sources
 - Implement query caching to be efficient in call usage
 - Context building improvements:
-    - User should be able to select a document (or chunk) as part of the base user prompt and then
-      have the context build based upon that starting point.
-    - When building the context of local embedding the metadata of the chunks should
-      be used to select chunks.
-    - Add AI hook to extract suggested tags from base user prompt and then use that in searching the
-      local embeddings.
+  - User should be able to select a document (or chunk) as part of the base user prompt and then
+    have the context build based upon that starting point.
+  - When building the context of local embedding the metadata of the chunks should
+    be used to select chunks first and then vector search to help narrow the candidate search
+    space before the vector search.
+  - Add AI hook to extract suggested tags from base user prompt and then use that in searching the
+    local embeddings.
 - Create a way to turn natural language into properly formatted queries for remote providers.
-    - There should be an "intelligent" deterministic way to extract query fields from a prompt.
-    - There should also be an AI provider way where the provider takes the prompt and then
-      extracts the query fields from the prompt.
-    - Each remote provider should track what fields their search field accepts and be able to
-      properly format a query string based upon those fields. Example fields: title, author,
-      keyword, etc. Then the remote provider would take those fields and turn them into a proper
-      query string for that field. For example: `?q=keywords="origins, universe, singularity"&author="Hawking"`
-    - Example Flow:
-            - User provides Query: How does Thomas Aquinas understand this role of the Eucharist in the spiritual life?
-            - Prompt to query fields: author=Thomas Aquinas, keywords: eucharist, spirituality, sacraments and spiritual life.
-            - Query fields then given to remote provider who then formats the correct query string
+  - There should be an "intelligent" deterministic way to extract query fields from a prompt.
+  - There should also be an AI provider way where the provider takes the prompt and then
+    extracts the query fields from the prompt.
+  - Example Flow:
+    - User provides Query: How does Thomas Aquinas understand this role of the Eucharist
+      in the spiritual life?
+    - The remote provider provides the valid input key for its input dict.
+    - Then the prompt is decomposed into the proper fields:
+      ```
+      input = {
+        "author": "Thomas Aquinas",
+        "keywords": ["eucharist", "spirituality", "sacraments and spiritual life"]
+      }
+      ```
+      This prompt is either created deterministically or by a request to an LLM.
+    - Query input dict then given to remote provider who then formats the correct query string
 - Query chat modes: Chat or Single-shot
 - There should be a global setting for chats that sets chat saving parameters. The default save
-  location should be `<GLOBAL_FOLDER/Chats/`
+  location should be `<GLOBAL_FOLDER>/Chats/`
 - Query modes can adjust if automatic saves happen.
 - Query modes can then set subfolder locations in the global notes folder and other parameters
 
-## Modes and Agents
-- Multi-hop reasoning for research mode
-- Research into creating agents. Right now "modes" are like what other call agents,
-  but really "modes" in LSM are configurations on building particular contexts. An
-  agent will be a "mini-program" or "sub-routine" that can chain multiple modes
-  or act upon responses to the produce further responses. And so a "mode" results
-  in a single response. An agent can result in multiple response and even other
-  results like the production of artifacts (e.g., files) and modifications of
-  the users system itself (in theory).
-- Provide ability to chain providers together in a meta-provider when the sub providers act a inputs
-  to later providers and then the whole meta-provider becomes a source for query. Sources need to
-  be maintained throughout the meta-provider
-- Create OpenAlex - Crossref - Unpaywall - CORE pipeline to find, download, and ingest documents
-- Sentiment analysis tool
+## Agents
+- Add ability to create and run agents:
+  - An agent is a long running interaction with an LLM where the system can alternate between
+    executing commands on the host computer and then communicating with an LLM.
+  - This distinguishes agents from modes which are essentially configurations to automatically
+    build contexts for an LLM query. But the responses do not result in automatic execution
+    of other commands or queries. However, an agent can query using modes.
+- Agents in their first version should be created into a new module: lsm.agents. Whatever
+  configuration an agent may require will go in a config object at the global level called
+  "agents".
+- All first agents will be created and available for the user to run. There will not at first
+  be a way for users code their own agents, but the agent module should be designed with
+  the future ability to load custom agents at a later time.
+- All agents should be run in the "background" and then when they need the user's interaction
+  pause until the user responds.
+- The status and tasks of the agent should be stored in a file in `<GLOBAL_FOLDER>/Agents/`.
+  This way a user can pause, stop, and restart an agent without losing focus.
+- An Agent should be able to manage context length and intelligently compact or start a new
+  series of queries with fresh context.
+- Tools are commands or actions which an LLM can direct the agent harness to call. When the
+  agent harness begin a LLM thread, it will always include the list of available tools and their
+  descriptions and direct the LLM to format it response in such a way that it will respond in a
+  json format something like:
+  ```
+  {
+    "response": "The response",
+    "action": "TOOL NAME",
+    "action_arguments": "ARGS FOR TOOL"
+  }
+  ```
+  Then the agent harness will attempt to run the action if possible and then provide the output
+  of the tool or inform the LLM that it cannot run the action and why. The response should be stored
+  for user viewing at a later time. All interactions are to be logged for later viewing.
+- When a user views the agent log it should be formated like this:
+  ```
+  Initial Context:
+  <INSERT INITIAL INFORMATION WHEN THE AGENT BEGINS>
+  Agent:
+  <ACTIONS BY THE AGENT HARNESS UNTIL IT INTERACTS WITH LLM AND THEN WHAT IS SENT TO AI>
+  LLM (Provider Name: Model Name):
+  <Insert Response>
+  Requested Action: <INSERT TOOL>
+  Arguments: <INSERT ARGUMENTS FOR TOOL>
+  Agent:
+  <ACTIONS TAKEN BY AGENT AND THEN WHAT IS SENT TO LLM>
+  LLM (Provider Name: Model Name):
+  <Insert Response>
+  Requested Action: <INSERT TOOL>
+  Arguments: <INSERT ARGUMENTS FOR TOOL>
+
+  <AND REPEAT UNTIL FINISHED>
+  ```
+- Default tools:
+  - Read file
+  - Read folder
+  - Write file
+  - Create folder
+  - Load from URL
+  - Query Embeddings
+  - Query LLM
+  - Query Remote Provider
+  - Query Remote Provider Chain
+- All callable tools need to have proper sandboxing configuration to allow the user to restrict
+  both which tools are available to an agent and how they can use the tools (e.g., which files can
+  be read or written). These sandbox configs should able to be set globally and per agent, but an
+  agent can NEVER provide greater access than the global sandbox configs allow. The tool must have
+  a setting for when it requires the user's permission to run.
+- The user should be able to set certain LLM models to be used with certain tools.
+- Research Agent:
+  - The purpose of this agent is to do research in the background for a given topic by the user.
+  - The user can specify a starting point and sources to explore.
+  - The Agent will then use LLM to create a series of topics to explore based upon the starting
+    topic.
+  - Then the Agent will ask LLM which remote providers to use to download and save results from
+    those providers for each topic to explore.
+  - The Agent will also use the series of topics to search the local embeddings to find relevant
+    sources.
+  - Then for each topic the Agent will ask the LLM to create a summary of each topic using the
+    information from the remote sources and embeddings. The results of these summaries will be
+    saved as an outline with each topic in the series as the heading.
+  - Then the Agent will send the outline to the LLM for suggestions to correct the outline and
+    then what further topics need to be addressed.
+  - Based upon that feedback the cycle repeats where the Agent search remote providers and
+    embeddings until either the LLM says the outline is sufficient for the topic, a budget for
+    number of tokens (e.g., money) is hit, or the outline is of a certain length.
 
 ## Remote Source Providers
+- Add ability to save results from Remote Source providers to use as cached responses or
+  save results in the `<GLOBAL_FOLDER>/Downloads/<REMOTE_PROVIDER_NAME>`.
+- Add the ability to chain remote source providers together to use as a single "source".
+  - The remote provider design should be changed so that they take a dict with specified fields
+    particular to that providers field. For example:
+    ```
+    input = {
+      "author": "Aquinas",
+      "keywords": ["eucharist", "spritual life"]
+    }
+    ```
+    The provider is then responsible for formatting that dict into a proper query string
+    that would make sense for the particular provider. For example: `?q=keywords="eucharist, spritual life"&author="Aquinas"`
+  - The remote provider design should be changed so that they return an array of dicts with specific
+    fields. For example:
+    ```
+    return [
+      {
+        "url": LINK URL
+        "title": TITLE OF PAGE
+        "description": RESPONSE DESCRIPTION OF THE PAGE
+        "doi": DOI LINK
+      }
+    ]
+    ```
+    The fields should be particular to what the provider will respond with for their query and it is
+    the responsibility of the provider to decompose their response into the array.
+  - The a remote chain flow needs to be created where the user can specify the first remote source, 
+    and then a following source and map the output of the first into the second. For example in the
+    config file the user would do something like this:
+    ```
+    "remote_provider_chains": [
+      {
+        "name": "Research Digest",
+        "agent_description": "Description of chain, when to use, and inputs/outputs for agents."
+        "links": [
+          {
+            "_comment": "First link only states the source name",
+            "source": "openalex"
+          },
+          {
+            "_comment": "All following links provide a map of output from the preceding link (N-1) to the current link (N) as an array X:Y where X comes from N-1 and Y goes to N.",
+            "source": "crossref",
+            "map": [
+              "doi:doi"
+            ]
+          }
+        ]
+      }
+    ]
+    ```
+    Then the last link serves as the output for what ever is calling this source chain (e.g., context
+    for the query request).
+- Remote Providers are to provide a string description of when they are to be used and the kind
+  of arguments they take and return. This string will be given to LLMs by Agents so the LLMs can
+  decide which Provider to use. This also applies for remote_provider_chains.
+
+# Future Items (INGORE ALL THE FOLLOWING FOR NOW)
+
+## Future Source Providers
+- Create OpenAlex - Crossref - Unpaywall - CORE pipeline to find, download, and ingest documents
+- Archive.org
 - Look into AI Providers Web Search API as alts to Brave
 - Perseus CTS API
 - Digital Public Library of America (DPLA) API
@@ -95,8 +268,3 @@
 - Finantial Sources
     - Market data
     - Federal/Government API data
-
-## General
-- Do research on particular models for particular tasks, for example using transformers directly
-- Look into how to run models in app
-- Explore multimodal capabilities (images, audio via Whisper)
