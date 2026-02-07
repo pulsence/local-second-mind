@@ -24,7 +24,7 @@ from lsm.ingest.utils import (
     make_chunk_id,
 )
 from lsm.vectordb import create_vectordb_provider
-from lsm.config.models import VectorDBConfig
+from lsm.config.models import LLMConfig, VectorDBConfig
 
 # -----------------------------
 # Main ingest pipeline
@@ -42,6 +42,10 @@ def parse_and_chunk_job(
     chunk_size: int = 1800,
     chunk_overlap: int = 200,
     chunking_strategy: str = "structure",
+    enable_language_detection: bool = False,
+    enable_translation: bool = False,
+    translation_target: str = "en",
+    translation_llm_config: Optional[LLMConfig] = None,
 ) -> ParseResult:
     """
     Parse a file, extract metadata, chunk the text, and track positions.
@@ -60,6 +64,10 @@ def parse_and_chunk_job(
         chunk_overlap: Chunk overlap in characters
         chunking_strategy: 'structure' for heading/paragraph/sentence-aware
             chunking, 'fixed' for simple sliding-window chunking.
+        enable_language_detection: Detect document language and store in metadata.
+        enable_translation: Translate non-target-language chunks via LLM.
+        translation_target: Target language code for translation (ISO 639-1).
+        translation_llm_config: LLM config for translation service.
 
     Returns:
         ParseResult with text chunks, metadata, and positions
@@ -89,6 +97,16 @@ def parse_and_chunk_job(
 
         # Normalize whitespace
         raw_text = normalize_whitespace(raw_text)
+
+        # Detect language if enabled
+        if enable_language_detection:
+            from lsm.ingest.language import detect_language_for_document
+
+            detected_lang = detect_language_for_document(raw_text)
+            if detected_lang:
+                if doc_metadata is None:
+                    doc_metadata = {}
+                doc_metadata["language"] = detected_lang
 
         if not raw_text:
             return ParseResult(
@@ -143,6 +161,26 @@ def parse_and_chunk_job(
                 parse_errors=parse_errors,
             )
 
+        # Translate chunks if enabled and language differs from target
+        if enable_translation and translation_llm_config is not None:
+            detected_lang = (doc_metadata or {}).get("language")
+            if detected_lang and detected_lang != translation_target:
+                from lsm.ingest.translation import translate_chunk
+
+                translated_chunks = []
+                for chunk in chunks:
+                    translated = translate_chunk(
+                        text=chunk,
+                        target_lang=translation_target,
+                        llm_config=translation_llm_config,
+                        source_lang=detected_lang,
+                    )
+                    translated_chunks.append(translated)
+                if doc_metadata is None:
+                    doc_metadata = {}
+                doc_metadata["translated_from"] = detected_lang
+                chunks = translated_chunks
+
         return ParseResult(
             source_path=source_path,
             fp=fp,
@@ -193,6 +231,11 @@ def ingest(
     chunk_overlap: int = 200,
     chunking_strategy: str = "structure",
     progress_callback: Optional[Callable[[str, int, int, str], None]] = None,
+    enable_language_detection: bool = False,
+    enable_translation: bool = False,
+    translation_target: str = "en",
+    translation_llm_config: Optional[LLMConfig] = None,
+    embedding_dimension: Optional[int] = None,
 ) -> Dict[str, Any]:
     """
     Run ingest pipeline.
@@ -211,6 +254,19 @@ def ingest(
     from sentence_transformers import SentenceTransformer
 
     model = SentenceTransformer(embed_model_name, device=device)
+
+    # Validate embedding dimension
+    actual_dim = model.get_sentence_embedding_dimension()
+    if embedding_dimension is not None:
+        if actual_dim != embedding_dimension:
+            raise ValueError(
+                f"Embedding model '{embed_model_name}' produces "
+                f"{actual_dim}-dimensional vectors, but "
+                f"embedding_dimension is configured as {embedding_dimension}. "
+                f"Update global.embedding_dimension or change the model."
+            )
+    else:
+        emit("init", 0, 0, f"Auto-detected embedding dimension: {actual_dim}")
 
     manifest = load_manifest(manifest_path)
 
@@ -558,6 +614,10 @@ def ingest(
                         chunk_size,
                         chunk_overlap,
                         chunking_strategy,
+                        enable_language_detection,
+                        enable_translation,
+                        translation_target,
+                        translation_llm_config,
                     )
                 )
                 processed += 1

@@ -57,6 +57,9 @@ class FakeSentenceTransformer:
     def encode(self, texts, **_kwargs):
         return FakeEmbeddings(len(texts))
 
+    def get_sentence_embedding_dimension(self) -> int:
+        return 384
+
 
 def _build_config(root: Path, tmp_path: Path) -> LSMConfig:
     return LSMConfig(

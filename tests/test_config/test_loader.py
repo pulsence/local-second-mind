@@ -331,3 +331,67 @@ def test_build_ingest_config_requires_roots_in_ingest_section(tmp_path: Path) ->
     del raw["ingest"]["roots"]
     with pytest.raises(ValueError, match="ingest section must include 'roots'"):
         build_config_from_raw(raw, tmp_path / "config.json")
+
+
+def test_build_config_reads_language_detection_fields(tmp_path: Path) -> None:
+    raw = _base_raw(tmp_path)
+    raw["ingest"]["enable_language_detection"] = True
+    raw["ingest"]["enable_translation"] = True
+    raw["ingest"]["translation_target"] = "fr"
+
+    config = build_config_from_raw(raw, tmp_path / "config.json")
+
+    assert config.ingest.enable_language_detection is True
+    assert config.ingest.enable_translation is True
+    assert config.ingest.translation_target == "fr"
+
+
+def test_build_config_language_detection_defaults_false(tmp_path: Path) -> None:
+    raw = _base_raw(tmp_path)
+
+    config = build_config_from_raw(raw, tmp_path / "config.json")
+
+    assert config.ingest.enable_language_detection is False
+    assert config.ingest.enable_translation is False
+    assert config.ingest.translation_target == "en"
+
+
+def test_config_to_raw_includes_language_translation_fields(tmp_path: Path) -> None:
+    raw = _base_raw(tmp_path)
+    raw["ingest"]["enable_language_detection"] = True
+    raw["ingest"]["enable_translation"] = True
+    raw["ingest"]["translation_target"] = "de"
+
+    config = build_config_from_raw(raw, tmp_path / "config.json")
+    serialized = config_to_raw(config)
+
+    assert serialized["ingest"]["enable_language_detection"] is True
+    assert serialized["ingest"]["enable_translation"] is True
+    assert serialized["ingest"]["translation_target"] == "de"
+
+
+def test_build_global_config_reads_embedding_dimension(tmp_path: Path) -> None:
+    raw = _base_raw(tmp_path)
+    raw["global"]["embedding_dimension"] = 768
+
+    config = build_config_from_raw(raw, tmp_path / "config.json")
+
+    assert config.global_settings.embedding_dimension == 768
+    assert config.embedding_dimension == 768
+
+
+def test_build_global_config_embedding_dimension_null(tmp_path: Path) -> None:
+    raw = _base_raw(tmp_path)
+    # Default model is known, so dimension auto-detected
+
+    config = build_config_from_raw(raw, tmp_path / "config.json")
+
+    assert config.embedding_dimension == 384  # all-MiniLM-L6-v2
+
+
+def test_config_to_raw_includes_embedding_dimension(tmp_path: Path) -> None:
+    raw = _base_raw(tmp_path)
+    config = build_config_from_raw(raw, tmp_path / "config.json")
+    serialized = config_to_raw(config)
+
+    assert "embedding_dimension" in serialized["global"]

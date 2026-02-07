@@ -191,11 +191,19 @@ def build_global_config(raw: Dict[str, Any]) -> GlobalConfig:
     if global_folder is not None:
         global_folder = Path(global_folder)
 
+    embedding_dimension_raw = global_raw.get("embedding_dimension")
+    embedding_dimension = (
+        int(embedding_dimension_raw)
+        if embedding_dimension_raw is not None
+        else None
+    )
+
     return GlobalConfig(
         global_folder=global_folder,
         embed_model=global_raw.get("embed_model", GlobalConfig.embed_model),
         device=global_raw.get("device", GlobalConfig.device),
         batch_size=int(global_raw.get("batch_size", GlobalConfig.batch_size)),
+        embedding_dimension=embedding_dimension,
     )
 
 
@@ -244,6 +252,9 @@ def build_ingest_config(raw: Dict[str, Any], config_path: Path) -> IngestConfig:
         tags_per_chunk=int(ingest_raw.get("tags_per_chunk", 3)),
         dry_run=bool(ingest_raw.get("dry_run", False)),
         skip_errors=bool(ingest_raw.get("skip_errors", True)),
+        enable_language_detection=bool(ingest_raw.get("enable_language_detection", False)),
+        enable_translation=bool(ingest_raw.get("enable_translation", False)),
+        translation_target=str(ingest_raw.get("translation_target", "en")),
     )
 
     return config
@@ -730,6 +741,7 @@ def config_to_raw(config: LSMConfig) -> Dict[str, Any]:
             "embed_model": gs.embed_model,
             "device": gs.device,
             "batch_size": gs.batch_size,
+            "embedding_dimension": gs.embedding_dimension,
         },
         "ingest": {
             "roots": [str(root) for root in config.ingest.roots],
@@ -745,6 +757,9 @@ def config_to_raw(config: LSMConfig) -> Dict[str, Any]:
             "tags_per_chunk": config.ingest.tags_per_chunk,
             "dry_run": config.ingest.dry_run,
             "skip_errors": config.ingest.skip_errors,
+            "enable_language_detection": config.ingest.enable_language_detection,
+            "enable_translation": config.ingest.enable_translation,
+            "translation_target": config.ingest.translation_target,
             "extensions": config.ingest.extensions,
             "override_extensions": config.ingest.override_extensions,
             "exclude_dirs": config.ingest.exclude_dirs,

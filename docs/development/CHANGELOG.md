@@ -13,6 +13,13 @@ All notable changes to Local Second Mind are documented here.
 - `chunking_strategy` config option (`"structure"` or `"fixed"`) on `IngestConfig`.
 - Chunk metadata now includes `heading`, `paragraph_index`, and `page_number` fields when using structure chunking.
 - 53 new tests in `tests/test_ingest/test_structure_chunking.py` covering heading detection, paragraph splitting, sentence preservation, page mapping, pipeline integration, and config validation.
+- Language detection module (`lsm/ingest/language.py`) using `langdetect` for automatic document language identification (ISO 639-1 codes).
+- `enable_language_detection` config option on `IngestConfig` (default `False`). Detected language stored in chunk metadata as `"language"`.
+- LLM-based machine translation module (`lsm/ingest/translation.py`) for cross-language search on multilingual corpora.
+- `enable_translation` and `translation_target` config options on `IngestConfig`. Uses `"translation"` LLM service from `llms.services`.
+- `WELL_KNOWN_EMBED_MODELS` dictionary in `constants.py` mapping 30+ embedding models to their output dimensions.
+- `embedding_dimension` field on `GlobalConfig` with auto-detection from well-known models. Pipeline validates actual model dimension matches config at startup.
+- 67 new tests across `test_language.py`, `test_translation.py`, `test_embedding_models.py`, and updated existing test files.
 
 ### Changed
 

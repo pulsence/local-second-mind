@@ -29,6 +29,7 @@ dependencies = [
   "pytesseract",  # For OCR support
   "Pillow",       # For image handling
   "textual",
+  "langdetect",
 ]
 
 [project.optional-dependencies]

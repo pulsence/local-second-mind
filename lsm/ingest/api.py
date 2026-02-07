@@ -109,6 +109,14 @@ def run_ingest(
     if force and config.ingest.manifest.exists():
         config.ingest.manifest.unlink()
 
+    # Resolve translation LLM config if translation is enabled
+    translation_llm = None
+    if config.ingest.enable_translation:
+        try:
+            translation_llm = config.llm.resolve_service("translation")
+        except Exception:
+            translation_llm = config.llm.resolve_service("default")
+
     result = ingest(
         roots=config.ingest.roots,
         chroma_flush_interval=config.ingest.chroma_flush_interval,
@@ -126,6 +134,11 @@ def run_ingest(
         chunk_overlap=config.ingest.chunk_overlap,
         chunking_strategy=config.ingest.chunking_strategy,
         progress_callback=progress_callback,
+        enable_language_detection=config.ingest.enable_language_detection,
+        enable_translation=config.ingest.enable_translation,
+        translation_target=config.ingest.translation_target,
+        translation_llm_config=translation_llm,
+        embedding_dimension=config.embedding_dimension,
     )
 
     return IngestResult(

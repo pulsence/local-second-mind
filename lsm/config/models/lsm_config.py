@@ -274,3 +274,8 @@ class LSMConfig:
     def batch_size(self) -> int:
         """Shortcut to global_settings.batch_size."""
         return self.global_settings.batch_size
+
+    @property
+    def embedding_dimension(self) -> Optional[int]:
+        """Shortcut to global_settings.embedding_dimension."""
+        return self.global_settings.embedding_dimension

@@ -78,6 +78,15 @@ class IngestConfig:
     skip_errors: bool = True
     """If True, continue ingest when individual files/pages fail to parse."""
 
+    enable_language_detection: bool = False
+    """Enable automatic language detection for ingested documents."""
+
+    enable_translation: bool = False
+    """Enable LLM-based translation of non-target-language chunks."""
+
+    translation_target: str = "en"
+    """Target language for translation (ISO 639-1 code)."""
+
     def __post_init__(self):
         """Convert string paths to Path objects and validate."""
         if isinstance(self.roots, list):
@@ -147,4 +156,15 @@ class IngestConfig:
             raise ValueError(
                 f"chunking_strategy must be one of {valid_strategies}, "
                 f"got '{self.chunking_strategy}'"
+            )
+
+        if self.enable_translation and not self.enable_language_detection:
+            raise ValueError(
+                "enable_language_detection must be True when "
+                "enable_translation is True"
+            )
+
+        if self.enable_translation and not self.translation_target:
+            raise ValueError(
+                "translation_target is required when enable_translation is True"
             )

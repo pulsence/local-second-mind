@@ -17,6 +17,7 @@ from .constants import (
     DEFAULT_BATCH_SIZE,
     DEFAULT_DEVICE,
     DEFAULT_EMBED_MODEL,
+    WELL_KNOWN_EMBED_MODELS,
 )
 
 
@@ -40,6 +41,9 @@ class GlobalConfig:
     batch_size: int = DEFAULT_BATCH_SIZE
     """Batch size for embedding operations."""
 
+    embedding_dimension: Optional[int] = None
+    """Embedding vector dimension. Auto-detected from well-known models if None."""
+
     def __post_init__(self):
         """Normalize paths and load environment variable overrides."""
         if isinstance(self.global_folder, str):
@@ -62,6 +66,10 @@ class GlobalConfig:
         if env_device:
             self.device = env_device
 
+        # Auto-detect embedding dimension from well-known models
+        if self.embedding_dimension is None:
+            self.embedding_dimension = WELL_KNOWN_EMBED_MODELS.get(self.embed_model)
+
     def validate(self) -> None:
         """Validate global configuration.
 
@@ -70,6 +78,11 @@ class GlobalConfig:
         """
         if self.batch_size < 1:
             raise ValueError(f"batch_size must be positive, got {self.batch_size}")
+
+        if self.embedding_dimension is not None and self.embedding_dimension < 1:
+            raise ValueError(
+                f"embedding_dimension must be positive, got {self.embedding_dimension}"
+            )
 
         valid_devices = {"cpu", "cuda", "mps"}
         device_base = self.device.split(":")[0]
