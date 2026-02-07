@@ -9,13 +9,10 @@ from pathlib import Path
 from typing import List, Optional, Set
 
 from .constants import (
-    DEFAULT_BATCH_SIZE,
     DEFAULT_CHROMA_FLUSH_INTERVAL,
     DEFAULT_CHUNK_OVERLAP,
     DEFAULT_CHUNK_SIZE,
     DEFAULT_COLLECTION,
-    DEFAULT_DEVICE,
-    DEFAULT_EMBED_MODEL,
     DEFAULT_EXCLUDE_DIRS,
     DEFAULT_EXTENSIONS,
 )
@@ -31,15 +28,6 @@ class IngestConfig:
 
     roots: List[Path]
     """Root directories to scan for documents. Required."""
-
-    embed_model: str = DEFAULT_EMBED_MODEL
-    """Sentence-transformers model for embeddings."""
-
-    device: str = DEFAULT_DEVICE
-    """Device for embedding: 'cpu', 'cuda', 'cuda:0', etc."""
-
-    batch_size: int = DEFAULT_BATCH_SIZE
-    """Batch size for embedding operations."""
 
     persist_dir: Path = Path(".chroma")
     """Directory for ChromaDB persistent storage."""
@@ -135,9 +123,6 @@ class IngestConfig:
         """Validate ingest configuration."""
         if not self.roots:
             raise ValueError("At least one root directory is required")
-
-        if self.batch_size < 1:
-            raise ValueError(f"batch_size must be positive, got {self.batch_size}")
 
         if self.chroma_flush_interval < 1:
             raise ValueError(

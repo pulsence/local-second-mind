@@ -16,6 +16,7 @@ from dotenv import load_dotenv
 
 from .models import (
     LSMConfig,
+    GlobalConfig,
     IngestConfig,
     QueryConfig,
     LLMRegistryConfig,
@@ -147,9 +148,38 @@ def build_llm_config(raw: Dict[str, Any]) -> LLMRegistryConfig:
     return LLMRegistryConfig(llms=providers)
 
 
+def build_global_config(raw: Dict[str, Any]) -> GlobalConfig:
+    """
+    Build GlobalConfig from raw configuration.
+
+    Reads from the ``"global"`` sub-dict. Fields shared across multiple
+    modules (embed_model, device, batch_size, global_folder) live here.
+
+    Args:
+        raw: Raw config dictionary
+
+    Returns:
+        GlobalConfig instance
+    """
+    global_raw = raw.get("global", {})
+
+    global_folder = global_raw.get("global_folder")
+    if global_folder is not None:
+        global_folder = Path(global_folder)
+
+    return GlobalConfig(
+        global_folder=global_folder,
+        embed_model=global_raw.get("embed_model", GlobalConfig.embed_model),
+        device=global_raw.get("device", GlobalConfig.device),
+        batch_size=int(global_raw.get("batch_size", GlobalConfig.batch_size)),
+    )
+
+
 def build_ingest_config(raw: Dict[str, Any], config_path: Path) -> IngestConfig:
     """
     Build IngestConfig from raw configuration.
+
+    Reads ingest-only fields from the ``"ingest"`` sub-dict.
 
     Args:
         raw: Raw config dictionary
@@ -161,37 +191,35 @@ def build_ingest_config(raw: Dict[str, Any], config_path: Path) -> IngestConfig:
     Raises:
         ValueError: If required fields are missing or invalid
     """
-    # Required field
-    roots = raw.get("roots")
-    if not roots or not isinstance(roots, list):
-        raise ValueError("Config must include 'roots' as a non-empty list of directory paths")
+    ingest_raw = raw.get("ingest", {})
 
-    vectordb_raw = raw.get("vectordb", {})
-    persist_dir = vectordb_raw.get("persist_dir", IngestConfig.persist_dir)
-    collection = vectordb_raw.get("collection", IngestConfig.collection)
+    # Required field
+    roots = ingest_raw.get("roots")
+    if not roots or not isinstance(roots, list):
+        raise ValueError("Config ingest section must include 'roots' as a non-empty list of directory paths")
+
+    persist_dir = ingest_raw.get("persist_dir", IngestConfig.persist_dir)
+    collection = ingest_raw.get("collection", IngestConfig.collection)
 
     # Build config
     config = IngestConfig(
         roots=[Path(r) for r in roots],
-        embed_model=raw.get("embed_model", IngestConfig.embed_model),
-        device=raw.get("device", IngestConfig.device),
-        batch_size=int(raw.get("batch_size", IngestConfig.batch_size)),
         persist_dir=Path(persist_dir),
         collection=collection,
-        chroma_flush_interval=int(raw.get("chroma_flush_interval", IngestConfig.chroma_flush_interval)),
-        manifest=Path(raw.get("manifest", ".ingest/manifest.json")),
-        extensions=raw.get("extensions"),
-        override_extensions=bool(raw.get("override_extensions", False)),
-        exclude_dirs=raw.get("exclude_dirs"),
-        override_excludes=bool(raw.get("override_excludes", False)),
-        chunk_size=int(raw.get("chunk_size", IngestConfig.chunk_size)),
-        chunk_overlap=int(raw.get("chunk_overlap", IngestConfig.chunk_overlap)),
-        enable_ocr=bool(raw.get("enable_ocr", False)),
-        enable_ai_tagging=bool(raw.get("enable_ai_tagging", False)),
-        tagging_model=raw.get("tagging_model", "gpt-5.2"),
-        tags_per_chunk=int(raw.get("tags_per_chunk", 3)),
-        dry_run=bool(raw.get("dry_run", False)),
-        skip_errors=bool(raw.get("skip_errors", True)),
+        chroma_flush_interval=int(ingest_raw.get("chroma_flush_interval", IngestConfig.chroma_flush_interval)),
+        manifest=Path(ingest_raw.get("manifest", ".ingest/manifest.json")),
+        extensions=ingest_raw.get("extensions"),
+        override_extensions=bool(ingest_raw.get("override_extensions", False)),
+        exclude_dirs=ingest_raw.get("exclude_dirs"),
+        override_excludes=bool(ingest_raw.get("override_excludes", False)),
+        chunk_size=int(ingest_raw.get("chunk_size", IngestConfig.chunk_size)),
+        chunk_overlap=int(ingest_raw.get("chunk_overlap", IngestConfig.chunk_overlap)),
+        enable_ocr=bool(ingest_raw.get("enable_ocr", False)),
+        enable_ai_tagging=bool(ingest_raw.get("enable_ai_tagging", False)),
+        tagging_model=ingest_raw.get("tagging_model", "gpt-5.2"),
+        tags_per_chunk=int(ingest_raw.get("tags_per_chunk", 3)),
+        dry_run=bool(ingest_raw.get("dry_run", False)),
+        skip_errors=bool(ingest_raw.get("skip_errors", True)),
     )
 
     return config
@@ -227,6 +255,7 @@ def build_config_from_raw(raw: Dict[str, Any], path: Path | str) -> LSMConfig:
         path = Path(path)
 
     path = path.expanduser().resolve()
+    global_config = build_global_config(raw)
     llm_config = build_llm_config(raw)
     ingest_config = build_ingest_config(raw, path)
     query_config = build_query_config(raw)
@@ -240,10 +269,10 @@ def build_config_from_raw(raw: Dict[str, Any], path: Path | str) -> LSMConfig:
         query=query_config,
         llm=llm_config,
         vectordb=vectordb_config,
+        global_settings=global_config,
         modes=modes,
         notes=notes_config,
         remote_providers=remote_providers,
-        global_folder=raw.get("global_folder"),
         config_path=path,
     )
     config.validate()
@@ -692,26 +721,33 @@ def config_to_raw(config: LSMConfig) -> Dict[str, Any]:
                 }
             )
 
+    gs = config.global_settings
     return {
-        "global_folder": str(config.global_folder) if config.global_folder else None,
-        "roots": [str(root) for root in config.ingest.roots],
-        "chroma_flush_interval": config.ingest.chroma_flush_interval,
-        "embed_model": config.ingest.embed_model,
-        "device": config.ingest.device,
-        "batch_size": config.ingest.batch_size,
-        "manifest": str(config.ingest.manifest),
-        "chunk_size": config.ingest.chunk_size,
-        "chunk_overlap": config.ingest.chunk_overlap,
-        "enable_ocr": config.ingest.enable_ocr,
-        "enable_ai_tagging": config.ingest.enable_ai_tagging,
-        "tagging_model": config.ingest.tagging_model,
-        "tags_per_chunk": config.ingest.tags_per_chunk,
-        "dry_run": config.ingest.dry_run,
-        "skip_errors": config.ingest.skip_errors,
-        "extensions": config.ingest.extensions,
-        "override_extensions": config.ingest.override_extensions,
-        "exclude_dirs": config.ingest.exclude_dirs,
-        "override_excludes": config.ingest.override_excludes,
+        "global": {
+            "global_folder": str(gs.global_folder) if gs.global_folder else None,
+            "embed_model": gs.embed_model,
+            "device": gs.device,
+            "batch_size": gs.batch_size,
+        },
+        "ingest": {
+            "roots": [str(root) for root in config.ingest.roots],
+            "persist_dir": str(config.ingest.persist_dir),
+            "collection": config.ingest.collection,
+            "chroma_flush_interval": config.ingest.chroma_flush_interval,
+            "manifest": str(config.ingest.manifest),
+            "chunk_size": config.ingest.chunk_size,
+            "chunk_overlap": config.ingest.chunk_overlap,
+            "enable_ocr": config.ingest.enable_ocr,
+            "enable_ai_tagging": config.ingest.enable_ai_tagging,
+            "tagging_model": config.ingest.tagging_model,
+            "tags_per_chunk": config.ingest.tags_per_chunk,
+            "dry_run": config.ingest.dry_run,
+            "skip_errors": config.ingest.skip_errors,
+            "extensions": config.ingest.extensions,
+            "override_extensions": config.ingest.override_extensions,
+            "exclude_dirs": config.ingest.exclude_dirs,
+            "override_excludes": config.ingest.override_excludes,
+        },
         "llms": llms,
         "query": {
             "mode": config.query.mode,

@@ -47,10 +47,12 @@ Edit `config.json` and update:
 
 ```json
 {
-  "roots": [
-    "C:\\Users\\YourName\\Documents",
-    "D:\\Research"
-  ],
+  "ingest": {
+    "roots": [
+      "C:\\Users\\YourName\\Documents",
+      "D:\\Research"
+    ]
+  },
   "llms": [
     {
       "provider_name": "openai",
@@ -250,7 +252,7 @@ lsm ingest build
 ### "Collection is empty"
 
 No documents were ingested. Check:
-1. Your `roots` in `config.json` point to existing directories
+1. Your `ingest.roots` in `config.json` point to existing directories
 2. Those directories contain supported file types (.txt, .md, .pdf, .docx, .html)
 3. Files aren't in excluded directories (node_modules, .cache, etc.)
 
@@ -278,8 +280,8 @@ export OPENAI_API_KEY=sk-...
 
 Ingest can be slow for large collections. Tips:
 - Use `lsm ingest build --dry-run` to test without writing
-- Exclude large directories in `exclude_dirs`
-- Use GPU with `"device": "cuda"` in config
+- Exclude large directories in `ingest.exclude_dirs`
+- Use GPU with `"device": "cuda"` in the `"global"` section of config
 
 ### Poor Search Results
 

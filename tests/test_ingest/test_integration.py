@@ -7,6 +7,7 @@ import pytest
 
 from lsm.config.models import (
     FeatureLLMConfig,
+    GlobalConfig,
     IngestConfig,
     LLMProviderConfig,
     LLMRegistryConfig,
@@ -61,9 +62,6 @@ def _build_config(root: Path, tmp_path: Path) -> LSMConfig:
     return LSMConfig(
         ingest=IngestConfig(
             roots=[root],
-            embed_model="fake-model",
-            device="cpu",
-            batch_size=8,
             persist_dir=tmp_path / ".chroma",
             collection="integration_test_collection",
             manifest=tmp_path / ".ingest" / "manifest.json",
@@ -82,7 +80,12 @@ def _build_config(root: Path, tmp_path: Path) -> LSMConfig:
             persist_dir=tmp_path / ".chroma",
             collection="integration_test_collection",
         ),
-        global_folder=tmp_path / "global",
+        global_settings=GlobalConfig(
+            global_folder=tmp_path / "global",
+            embed_model="fake-model",
+            device="cpu",
+            batch_size=8,
+        ),
     )
 
 

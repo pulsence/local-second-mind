@@ -22,25 +22,52 @@ working directory via `python-dotenv`.
 3. Dataclasses are built and validated.
 4. Relative paths are resolved against the config file directory.
 
+## Config Structure
+
+All settings are nested under section objects. There are zero flat top-level
+fields in the config file. The top-level keys are:
+
+| Key | Dataclass | Purpose |
+| --- | --- | --- |
+| `global` | `GlobalConfig` | Shared settings (embedding model, device, batch size, global folder) |
+| `ingest` | `IngestConfig` | Ingestion pipeline settings |
+| `vectordb` | `VectorDBConfig` | Vector database provider settings |
+| `llms` | `LLMRegistryConfig` | Ordered LLM provider list |
+| `query` | `QueryConfig` | Retrieval and reranking settings |
+| `modes` | `list[ModeConfig]` | Query mode definitions |
+| `notes` | `NotesConfig` | Notes system settings |
+| `remote_providers` | `list[RemoteProviderConfig]` | Remote source providers |
+
 ## Required Fields
 
-These fields are required at the top level:
-
-- `roots` (list of directories to scan)
-
+The only required field is `ingest.roots` (list of directories to scan).
 Everything else has defaults.
 
-## Top-Level Ingest Settings
+## Global Settings
 
-These settings live at the top level of the config file and map to
-`IngestConfig`.
+Global settings live under the `"global"` key and map to `GlobalConfig`
+(`lsm/config/models/global_config.py`). These are shared across multiple modules
+(ingest, query, agents, etc.).
+
+| Key | Type | Default | Purpose |
+| --- | --- | --- | --- |
+| `global_folder` | path | `<HOME>/Local Second Mind` | Global folder for notes, chats, agents. |
+| `embed_model` | string | `sentence-transformers/all-MiniLM-L6-v2` | Embedding model for ingest/query. |
+| `device` | string | `cpu` | Embedding device, e.g. `cpu`, `cuda`, `cuda:0`, `mps`. |
+| `batch_size` | int | `32` | Embedding batch size. |
+
+Environment variable overrides: `LSM_GLOBAL_FOLDER`, `LSM_EMBED_MODEL`,
+`LSM_DEVICE`.
+
+## Ingest Settings
+
+Ingest settings live under the `"ingest"` key and map to `IngestConfig`.
 
 | Key | Type | Default | Purpose |
 | --- | --- | --- | --- |
 | `roots` | list[path] | required | Root directories to scan. |
-| `embed_model` | string | `sentence-transformers/all-MiniLM-L6-v2` | Embedding model for ingest/query. |
-| `device` | string | `cpu` | Embedding device, e.g. `cpu`, `cuda`, `cuda:0`. |
-| `batch_size` | int | `32` | Embedding batch size. |
+| `persist_dir` | path | `.chroma` | ChromaDB persistent storage directory. |
+| `collection` | string | `local_kb` | ChromaDB collection name. |
 | `chroma_flush_interval` | int | `2000` | Flush interval for Chroma writes. |
 | `manifest` | path | `.ingest/manifest.json` | Incremental ingest manifest. |
 | `extensions` | list[string] | default set | File extensions to include. |
@@ -310,11 +337,11 @@ an API key.
 
 ## Path Resolution Rules
 
-- `vectordb.persist_dir` and `manifest` are resolved relative to the config
-  file.
+- `vectordb.persist_dir`, `ingest.persist_dir`, and `ingest.manifest` are
+  resolved relative to the config file.
 - If `notes.dir` is `"notes"`, notes are written to `<global_folder>/Notes`.
 - For any other relative `notes.dir`, paths are resolved relative to the config file.
-- `roots` can be absolute or relative to the working directory.
+- `ingest.roots` can be absolute or relative to the working directory.
 
 ## Common Configuration Scenarios
 
@@ -322,7 +349,9 @@ an API key.
 
 ```json
 {
-  "roots": ["C:/Users/You/Documents"],
+  "ingest": {
+    "roots": ["C:/Users/You/Documents"]
+  },
   "llms": [
     {
       "provider_name": "openai",
@@ -336,7 +365,9 @@ an API key.
 
 ```json
 {
-  "roots": ["C:/Users/You/Documents"],
+  "ingest": {
+    "roots": ["C:/Users/You/Documents"]
+  },
   "query": {
     "rerank_strategy": "lexical",
     "no_rerank": true
@@ -354,8 +385,10 @@ an API key.
 
 ```json
 {
-  "roots": ["C:/Users/You/Scans"],
-  "enable_ocr": true,
+  "ingest": {
+    "roots": ["C:/Users/You/Scans"],
+    "enable_ocr": true
+  },
   "llms": [
     {
       "provider_name": "openai",
@@ -369,7 +402,9 @@ an API key.
 
 ```json
 {
-  "roots": ["C:/Users/You/Documents"],
+  "ingest": {
+    "roots": ["C:/Users/You/Documents"]
+  },
   "vectordb": {
     "provider": "chromadb",
     "persist_dir": ".chroma",
@@ -430,7 +465,7 @@ an API key.
 
 - If LSM says `query.mode` is not found, ensure it matches a `modes` entry name.
 - If Chroma errors occur, verify `persist_dir` is writable and not empty.
-- If no files are found, double-check `roots`, `extensions`, and `exclude_dirs`.
+- If no files are found, double-check `ingest.roots`, `ingest.extensions`, and `ingest.exclude_dirs`.
 - If OpenAI is not available, set `OPENAI_API_KEY` in `.env` or `llms[].api_key`.
 - For Brave Search, set `BRAVE_API_KEY` or the `remote_providers` entry `api_key`.
 - For Wikipedia, set `LSM_WIKIPEDIA_USER_AGENT` or the `remote_providers` entry `user_agent`.

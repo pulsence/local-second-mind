@@ -4,18 +4,31 @@ This document describes the configuration dataclasses in `lsm/config/models/`.
 
 ## LSMConfig
 
-Top-level configuration container.
+Top-level configuration container. Defined in `lsm/config/models/lsm_config.py`.
+
+All configuration is nested under section objects -- there are zero flat
+top-level fields in the JSON/YAML config file.
 
 Fields:
 
 - `ingest: IngestConfig` (required)
 - `query: QueryConfig` (required)
 - `llm: LLMRegistryConfig` (required)
-- `modes: list[ModeConfig] | None` (optional, built-ins if None)
+- `vectordb: VectorDBConfig` (required)
+- `global_settings: GlobalConfig` (global shared settings; maps to the `"global"` key in config JSON)
+- `modes: dict[str, ModeConfig] | None` (optional, built-ins if None)
 - `notes: NotesConfig` (global notes configuration)
 - `remote_providers: list[RemoteProviderConfig] | None`
-- `global_folder: Path | None` (defaults to `<HOME>/Local Second Mind`)
 - `config_path: Path | None` (used for path resolution)
+
+Shortcut properties (delegate to nested configs):
+
+- `global_folder` -> `global_settings.global_folder`
+- `embed_model` -> `global_settings.embed_model`
+- `device` -> `global_settings.device`
+- `batch_size` -> `global_settings.batch_size`
+- `persist_dir` -> `vectordb.persist_dir`
+- `collection` -> `vectordb.collection`
 
 Methods:
 
@@ -23,16 +36,65 @@ Methods:
 - `get_mode_config(mode_name=None)`
 - `get_active_remote_providers(allowed_names=None)`
 
+## GlobalConfig
+
+Global settings shared across multiple modules (ingest, query, agents, etc.).
+Defined in `lsm/config/models/global_config.py`.
+
+In config JSON/YAML these fields live under the `"global"` key:
+
+```json
+{
+  "global": {
+    "global_folder": "...",
+    "embed_model": "sentence-transformers/all-MiniLM-L6-v2",
+    "device": "cpu",
+    "batch_size": 32
+  }
+}
+```
+
+Fields:
+
+- `global_folder: Path | None` (defaults to `<HOME>/Local Second Mind`)
+- `embed_model: str = sentence-transformers/all-MiniLM-L6-v2`
+- `device: str = cpu` (`cpu`, `cuda`, `cuda:0`, `mps`)
+- `batch_size: int = 32`
+
+Environment variable overrides:
+
+- `LSM_GLOBAL_FOLDER` overrides `global_folder`
+- `LSM_EMBED_MODEL` overrides `embed_model`
+- `LSM_DEVICE` overrides `device`
+
+Methods:
+
+- `validate()`
+
 ## IngestConfig
 
-Controls ingestion behavior.
+Controls ingestion behavior. Defined in `lsm/config/models/ingest.py`.
+
+In config JSON/YAML these fields live under the `"ingest"` key:
+
+```json
+{
+  "ingest": {
+    "roots": ["..."],
+    "persist_dir": ".chroma",
+    "collection": "local_kb",
+    ...
+  }
+}
+```
+
+Note: `embed_model`, `device`, and `batch_size` are **not** on `IngestConfig`.
+They have moved to `GlobalConfig` (the `"global"` section) since they are shared
+across multiple modules.
 
 Fields:
 
 - `roots: list[Path]` (required)
-- `embed_model: str = sentence-transformers/all-MiniLM-L6-v2`
-- `device: str = cpu`
-- `batch_size: int = 32`
 - `persist_dir: Path = .chroma`
 - `collection: str = local_kb`
 - `chroma_flush_interval: int = 2000`

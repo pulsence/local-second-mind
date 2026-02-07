@@ -23,6 +23,7 @@ from .constants import (
     DEFAULT_LLM_TEMPERATURE,
     DEFAULT_LLM_MAX_TOKENS,
 )
+from .global_config import GlobalConfig
 from .llm import FeatureLLMConfig, LLMConfig, LLMProviderConfig, LLMRegistryConfig
 from .ingest import IngestConfig
 from .vectordb import VectorDBConfig
@@ -57,6 +58,7 @@ __all__ = [
     "DEFAULT_MIN_RELEVANCE",
     "DEFAULT_LLM_TEMPERATURE",
     "DEFAULT_LLM_MAX_TOKENS",
+    "GlobalConfig",
     "FeatureLLMConfig",
     "LLMConfig",
     "LLMProviderConfig",

@@ -6,6 +6,7 @@ import pytest
 from lsm.config.loader import (
     parse_config_text,
     build_config_from_raw,
+    build_global_config,
     build_llm_provider_config,
     build_source_policy_config,
     config_to_raw,
@@ -16,7 +17,7 @@ from lsm.config.loader import (
     load_config_from_file,
     load_raw_config,
 )
-from lsm.config.models import RemoteProviderRef
+from lsm.config.models import GlobalConfig, RemoteProviderRef
 
 
 @pytest.fixture(autouse=True)
@@ -29,7 +30,14 @@ def _restore_env_after_test():
 
 def _base_raw(tmp_path: Path) -> dict:
     return {
-        "roots": [str(tmp_path / "docs")],
+        "global": {
+            "global_folder": str(tmp_path / "lsm-global"),
+        },
+        "ingest": {
+            "roots": [str(tmp_path / "docs")],
+            "persist_dir": str(tmp_path / ".chroma"),
+            "collection": "test_collection",
+        },
         "llms": [
             {
                 "provider_name": "openai",
@@ -61,10 +69,60 @@ def test_parse_config_text_yaml() -> None:
     assert parsed["b"] == 2
 
 
-def test_build_config_uses_vectordb_fields_without_top_level_fallback(tmp_path: Path) -> None:
+def test_build_global_config_defaults() -> None:
+    cfg = build_global_config({})
+    assert cfg.embed_model == "sentence-transformers/all-MiniLM-L6-v2"
+    assert cfg.device == "cpu"
+    assert cfg.batch_size == 32
+
+
+def test_build_global_config_custom_values() -> None:
+    cfg = build_global_config({
+        "global": {
+            "global_folder": "/tmp/lsm",
+            "embed_model": "custom-model",
+            "device": "cuda:0",
+            "batch_size": 64,
+        }
+    })
+    assert cfg.embed_model == "custom-model"
+    assert cfg.device == "cuda:0"
+    assert cfg.batch_size == 64
+    assert isinstance(cfg.global_folder, Path)
+
+
+def test_build_config_reads_ingest_from_nested_section(tmp_path: Path) -> None:
     raw = _base_raw(tmp_path)
-    raw["persist_dir"] = str(tmp_path / "legacy_dir")
-    raw["collection"] = "legacy_collection"
+    raw["ingest"]["chunk_size"] = 500
+    raw["ingest"]["chunk_overlap"] = 50
+    raw["ingest"]["enable_ocr"] = True
+
+    config = build_config_from_raw(raw, tmp_path / "config.json")
+
+    assert config.ingest.chunk_size == 500
+    assert config.ingest.chunk_overlap == 50
+    assert config.ingest.enable_ocr is True
+
+
+def test_build_config_reads_global_settings(tmp_path: Path) -> None:
+    raw = _base_raw(tmp_path)
+    raw["global"]["embed_model"] = "custom-model"
+    raw["global"]["device"] = "cuda:0"
+    raw["global"]["batch_size"] = 128
+
+    config = build_config_from_raw(raw, tmp_path / "config.json")
+
+    assert config.global_settings.embed_model == "custom-model"
+    assert config.global_settings.device == "cuda:0"
+    assert config.global_settings.batch_size == 128
+    # Shortcut properties delegate to global_settings
+    assert config.embed_model == "custom-model"
+    assert config.device == "cuda:0"
+    assert config.batch_size == 128
+
+
+def test_build_config_uses_vectordb_fields(tmp_path: Path) -> None:
+    raw = _base_raw(tmp_path)
 
     config = build_config_from_raw(raw, tmp_path / "config.json")
 
@@ -111,20 +169,40 @@ def test_build_llm_provider_rejects_legacy_provider_fields() -> None:
         )
 
 
-def test_config_to_raw_omits_legacy_top_level_vectordb_fields(tmp_path: Path) -> None:
+def test_config_to_raw_uses_global_and_ingest_sections(tmp_path: Path) -> None:
     raw = _base_raw(tmp_path)
     config = build_config_from_raw(raw, tmp_path / "config.json")
     serialized = config_to_raw(config)
 
-    assert "persist_dir" not in serialized
-    assert "collection" not in serialized
+    # Global section exists with expected fields
+    assert "global" in serialized
+    assert "embed_model" in serialized["global"]
+    assert "device" in serialized["global"]
+    assert "batch_size" in serialized["global"]
+    assert "global_folder" in serialized["global"]
+
+    # Ingest section exists with expected fields
+    assert "ingest" in serialized
+    assert "roots" in serialized["ingest"]
+    assert "chunk_size" in serialized["ingest"]
+    assert "persist_dir" in serialized["ingest"]
+
+    # No flat top-level ingest/global fields
+    assert "roots" not in serialized
+    assert "embed_model" not in serialized
+    assert "device" not in serialized
+    assert "batch_size" not in serialized
+    assert "global_folder" not in serialized
+    assert "chunk_size" not in serialized
+
+    # vectordb still present
     assert serialized["vectordb"]["persist_dir"].endswith(".chroma")
     assert serialized["vectordb"]["collection"] == "test_collection"
 
 
 def test_build_config_supports_global_folder(tmp_path: Path) -> None:
     raw = _base_raw(tmp_path)
-    raw["global_folder"] = str(tmp_path / "lsm-global")
+    raw["global"]["global_folder"] = str(tmp_path / "lsm-global")
     config = build_config_from_raw(raw, tmp_path / "config.json")
 
     assert config.global_folder == (tmp_path / "lsm-global").resolve()
@@ -135,11 +213,11 @@ def test_build_config_supports_global_folder(tmp_path: Path) -> None:
 
 def test_config_to_raw_includes_global_folder(tmp_path: Path) -> None:
     raw = _base_raw(tmp_path)
-    raw["global_folder"] = str(tmp_path / "lsm-global")
+    raw["global"]["global_folder"] = str(tmp_path / "lsm-global")
     config = build_config_from_raw(raw, tmp_path / "config.json")
     serialized = config_to_raw(config)
 
-    assert serialized["global_folder"] == str((tmp_path / "lsm-global").resolve())
+    assert serialized["global"]["global_folder"] == str((tmp_path / "lsm-global").resolve())
 
 
 def test_notes_config_is_global_not_mode_scoped(tmp_path: Path) -> None:
@@ -221,7 +299,7 @@ def test_save_and_load_config_json_roundtrip(tmp_path: Path) -> None:
     save_config_to_file(config, out_path)
     loaded = load_config_from_file(out_path)
     assert loaded.vectordb.collection == "test_collection"
-    assert loaded.ingest.embed_model == config.ingest.embed_model
+    assert loaded.embed_model == config.embed_model
 
 
 def test_save_and_load_config_yaml_roundtrip(tmp_path: Path) -> None:
@@ -244,3 +322,10 @@ def test_save_config_rejects_unknown_suffix(tmp_path: Path) -> None:
 def test_load_raw_config_missing_file_raises(tmp_path: Path) -> None:
     with pytest.raises(FileNotFoundError):
         load_raw_config(tmp_path / "missing.json")
+
+
+def test_build_ingest_config_requires_roots_in_ingest_section(tmp_path: Path) -> None:
+    raw = _base_raw(tmp_path)
+    del raw["ingest"]["roots"]
+    with pytest.raises(ValueError, match="ingest section must include 'roots'"):
+        build_config_from_raw(raw, tmp_path / "config.json")

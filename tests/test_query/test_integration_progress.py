@@ -5,6 +5,7 @@ import pytest
 
 from lsm.config.models import (
     FeatureLLMConfig,
+    GlobalConfig,
     IngestConfig,
     LLMProviderConfig,
     LLMRegistryConfig,
@@ -63,7 +64,7 @@ def _build_query_config(tmp_path: Path, remote_enabled: bool) -> LSMConfig:
             if remote_enabled
             else None
         ),
-        global_folder=tmp_path / "global",
+        global_settings=GlobalConfig(global_folder=tmp_path / "global"),
     )
 
 

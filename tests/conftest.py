@@ -13,6 +13,7 @@ from typing import Dict, Any
 
 from lsm.config.models import (
     FeatureLLMConfig,
+    GlobalConfig,
     IngestConfig,
     LLMProviderConfig,
     LLMRegistryConfig,
@@ -34,32 +35,44 @@ def sample_config_dict(tmp_path: Path) -> Dict[str, Any]:
     Uses tmp_path for all file system paths to ensure isolation.
     """
     return {
-        "roots": [str(tmp_path / "documents")],
-        "persist_dir": str(tmp_path / ".chroma"),
-        "chroma_flush_interval": 2000,
-        "collection": "test_kb",
-        "embed_model": "sentence-transformers/all-MiniLM-L6-v2",
-        "device": "cpu",
-        "batch_size": 32,
-        "manifest": str(tmp_path / ".ingest" / "manifest.json"),
-        "extensions": [".txt", ".md", ".pdf"],
-        "override_extensions": False,
-        "exclude_dirs": [".cache"],
-        "override_excludes": False,
-        "dry_run": False,
-        "openai": {
-            "api_key": None  # Use environment variable
+        "global": {
+            "embed_model": "sentence-transformers/all-MiniLM-L6-v2",
+            "device": "cpu",
+            "batch_size": 32,
         },
+        "ingest": {
+            "roots": [str(tmp_path / "documents")],
+            "persist_dir": str(tmp_path / ".chroma"),
+            "chroma_flush_interval": 2000,
+            "collection": "test_kb",
+            "manifest": str(tmp_path / ".ingest" / "manifest.json"),
+            "extensions": [".txt", ".md", ".pdf"],
+            "override_extensions": False,
+            "exclude_dirs": [".cache"],
+            "override_excludes": False,
+            "dry_run": False,
+        },
+        "vectordb": {
+            "provider": "chromadb",
+            "persist_dir": str(tmp_path / ".chroma"),
+            "collection": "test_kb",
+        },
+        "llms": [
+            {
+                "provider_name": "openai",
+                "api_key": None,
+                "query": {"model": "gpt-5.2"},
+            }
+        ],
         "query": {
             "k": 12,
             "k_rerank": 6,
             "no_rerank": False,
             "max_per_file": 2,
             "local_pool": 36,
-            "model": "gpt-5.2",
             "min_relevance": 0.25,
-            "retrieve_k": 36
-        }
+            "retrieve_k": 36,
+        },
     }
 
 
@@ -339,7 +352,7 @@ def ingest_config(tmp_path: Path, global_folder: Path) -> LSMConfig:
         query=query,
         llm=llm,
         vectordb=vectordb,
-        global_folder=global_folder,
+        global_settings=GlobalConfig(global_folder=global_folder),
     )
 
 

@@ -9,8 +9,9 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional, Set
 
-from lsm.paths import ensure_global_folders, get_global_folder
+from lsm.paths import ensure_global_folders
 
+from .global_config import GlobalConfig
 from .ingest import IngestConfig
 from .llm import LLMRegistryConfig
 from .modes import (
@@ -46,6 +47,9 @@ class LSMConfig:
     vectordb: VectorDBConfig
     """Vector DB provider configuration."""
 
+    global_settings: GlobalConfig = field(default_factory=GlobalConfig)
+    """Global settings shared across multiple modules."""
+
     modes: Optional[dict[str, ModeConfig]] = None
     """Registry of available query modes. If None, uses built-in defaults."""
 
@@ -55,26 +59,17 @@ class LSMConfig:
     notes: NotesConfig = field(default_factory=NotesConfig)
     """Global notes configuration applied across modes."""
 
-    global_folder: Optional[Path] = None
-    """Global Local Second Mind folder for default notes/chats paths."""
-
     config_path: Optional[Path] = None
     """Path to the config file (for resolving relative paths)."""
 
     def __post_init__(self):
         """Resolve relative paths and initialize defaults."""
-        if isinstance(self.global_folder, str):
-            self.global_folder = Path(self.global_folder)
-        if self.global_folder is None:
-            self.global_folder = get_global_folder()
-        elif not self.global_folder.is_absolute():
-            if self.config_path:
-                self.global_folder = (self.config_path.parent / self.global_folder).resolve()
-            else:
-                self.global_folder = get_global_folder(self.global_folder)
-        else:
-            self.global_folder = self.global_folder.expanduser().resolve()
-        ensure_global_folders(self.global_folder)
+        gf = self.global_settings.global_folder
+        if gf is not None and not gf.is_absolute() and self.config_path:
+            self.global_settings.global_folder = (
+                self.config_path.parent / gf
+            ).resolve()
+        ensure_global_folders(self.global_settings.global_folder)
 
         if self.config_path:
             base_dir = self.config_path.parent
@@ -93,6 +88,7 @@ class LSMConfig:
 
     def validate(self) -> None:
         """Validate entire configuration."""
+        self.global_settings.validate()
         self.ingest.validate()
         self.query.validate()
         self.llm.validate()
@@ -260,16 +256,21 @@ class LSMConfig:
         return self.vectordb.collection
 
     @property
+    def global_folder(self) -> Optional[Path]:
+        """Shortcut to global_settings.global_folder."""
+        return self.global_settings.global_folder
+
+    @property
     def embed_model(self) -> str:
-        """Shortcut to ingest embed_model."""
-        return self.ingest.embed_model
+        """Shortcut to global_settings.embed_model."""
+        return self.global_settings.embed_model
 
     @property
     def device(self) -> str:
-        """Shortcut to ingest device."""
-        return self.ingest.device
+        """Shortcut to global_settings.device."""
+        return self.global_settings.device
 
     @property
     def batch_size(self) -> int:
-        """Shortcut to ingest batch_size."""
-        return self.ingest.batch_size
+        """Shortcut to global_settings.batch_size."""
+        return self.global_settings.batch_size

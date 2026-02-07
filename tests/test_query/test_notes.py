@@ -452,7 +452,12 @@ class TestResolveNotesDir:
 
     def _config(self, tmp_path: Path):
         raw = {
-            "roots": [str(tmp_path / "docs")],
+            "global": {
+                "global_folder": str(tmp_path / "global"),
+            },
+            "ingest": {
+                "roots": [str(tmp_path / "docs")],
+            },
             "llms": [
                 {
                     "provider_name": "openai",
@@ -466,7 +471,6 @@ class TestResolveNotesDir:
                 "collection": "test_collection",
             },
             "query": {"mode": "grounded"},
-            "global_folder": str(tmp_path / "global"),
         }
         return build_config_from_raw(raw, tmp_path / "config.json")
 

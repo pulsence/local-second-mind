@@ -1,12 +1,37 @@
 {
   "_comment": "Local Second Mind Configuration",
-  "_comment_roots": "Directory roots to scan for documents",
-  "roots": [
-    "C:\\Users\\User\\Documents",
-    "D:\\Writings"
-  ],
-  "_comment_global_folder": "Default folder for app-level data (notes/chats). Defaults to <HOME>/Local Second Mind when omitted.",
-  "global_folder": "C:\\Users\\User\\Local Second Mind",
+
+  "_comment_global": "Global settings shared across multiple modules",
+  "global": {
+    "global_folder": "C:\\Users\\User\\Local Second Mind",
+    "embed_model": "sentence-transformers/all-MiniLM-L6-v2",
+    "device": "cpu",
+    "batch_size": 32
+  },
+
+  "_comment_ingest": "Ingest pipeline configuration",
+  "ingest": {
+    "roots": [
+      "C:\\Users\\User\\Documents",
+      "D:\\Writings"
+    ],
+    "persist_dir": ".chroma",
+    "collection": "local_kb",
+    "chroma_flush_interval": 2000,
+    "manifest": ".ingest/manifest.json",
+    "chunk_size": 1800,
+    "chunk_overlap": 200,
+    "enable_ocr": false,
+    "enable_ai_tagging": false,
+    "tagging_model": "gpt-5.2",
+    "tags_per_chunk": 3,
+    "dry_run": false,
+    "skip_errors": true,
+    "extensions": [".txt", ".md", ".rst", ".pdf", ".docx", ".html", ".htm"],
+    "override_extensions": false,
+    "exclude_dirs": [".cache", "node_modules", "__pycache__"],
+    "override_excludes": false
+  },
 
   "_comment_storage": "Vector database configuration",
   "vectordb": {
@@ -15,30 +40,6 @@
     "collection": "local_kb",
     "chroma_hnsw_space": "cosine"
   },
-  "chroma_flush_interval": 2000,
-
-  "_comment_embedding": "Embedding model configuration",
-  "embed_model": "sentence-transformers/all-MiniLM-L6-v2",
-  "device": "cpu",
-  "batch_size": 32,
-
-  "_comment_ingest": "Ingest pipeline configuration",
-  "manifest": ".ingest/manifest.json",
-  "chunk_size": 1800,
-  "chunk_overlap": 200,
-  "enable_ocr": false,
-  "enable_ai_tagging": false,
-  "tagging_model": "gpt-5.2",
-  "tags_per_chunk": 3,
-  "dry_run": false,
-
-  "_comment_extensions": "File type filtering",
-  "extensions": [".txt", ".md", ".rst", ".pdf", ".docx", ".html", ".htm"],
-  "override_extensions": false,
-
-  "_comment_excludes": "Directory exclusions",
-  "exclude_dirs": [".cache", "node_modules", "__pycache__"],
-  "override_excludes": false,
 
   "_comment_llm": "LLM providers list (ordered). API keys can be omitted and provided via .env instead.",
   "llms": [
@@ -100,7 +101,7 @@
     "ext_allow": null,
     "ext_deny": null
   },
-  
+
   "_comment_notes": "Global notes configuration (applies across all modes)",
   "notes": {
     "enabled": true,

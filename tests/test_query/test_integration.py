@@ -11,6 +11,7 @@ from pathlib import Path
 
 from lsm.config.models import (
     LSMConfig,
+    GlobalConfig,
     LLMConfig,
     QueryConfig,
     IngestConfig,
@@ -32,9 +33,6 @@ class TestQueryIntegration:
             ingest=IngestConfig(
                 roots=[Path("/test/root")],
                 manifest=Path("/test/manifest.json"),
-                embed_model="test-model",
-                device="cpu",
-                batch_size=32,
             ),
             llm=LLMRegistryConfig(
                 llms=[
@@ -55,6 +53,11 @@ class TestQueryIntegration:
             vectordb=VectorDBConfig(
                 persist_dir=Path("/test/.chroma"),
                 collection="test_kb",
+            ),
+            global_settings=GlobalConfig(
+                embed_model="test-model",
+                device="cpu",
+                batch_size=32,
             ),
             config_path=Path("/test/config.json"),
         )
