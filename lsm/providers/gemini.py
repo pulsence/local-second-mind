@@ -40,9 +40,18 @@ class GeminiProvider(BaseLLMProvider):
         max_tokens: 2000
     """
 
-    PRICING_PER_1M = {
-        "gemini-1.5-pro": {"input": 3.50, "output": 10.50},
-        "gemini-1.5-flash": {"input": 0.35, "output": 1.05},
+    # Per-1M-token pricing in USD (input / output) -- Google AI Studio rates
+    MODEL_PRICING: Dict[str, Dict[str, float]] = {
+        # Gemini 2.5 series
+        "gemini-2.5-pro":        {"input": 1.25,  "output": 10.00},
+        "gemini-2.5-flash":      {"input": 0.30,  "output":  2.50},
+        "gemini-2.5-flash-lite": {"input": 0.10,  "output":  0.40},
+        # Gemini 2.0 series
+        "gemini-2.0-flash":      {"input": 0.10,  "output":  0.40},
+        "gemini-2.0-flash-lite": {"input": 0.075, "output":  0.30},
+        # Gemini 1.5 series (legacy)
+        "gemini-1.5-pro":        {"input": 1.25,  "output":  5.00},
+        "gemini-1.5-flash":      {"input": 0.075, "output":  0.30},
     }
 
     def __init__(self, config: LLMConfig):
@@ -265,13 +274,9 @@ class GeminiProvider(BaseLLMProvider):
             self._record_failure(e, "stream_synthesize")
             raise
 
-    def estimate_cost(self, input_tokens: int, output_tokens: int) -> Optional[float]:
-        rates = self.PRICING_PER_1M.get(self.model)
-        if not rates:
-            return None
-        input_cost = (input_tokens / 1_000_000) * rates["input"]
-        output_cost = (output_tokens / 1_000_000) * rates["output"]
-        return input_cost + output_cost
+    def get_model_pricing(self) -> Optional[Dict[str, float]]:
+        """Get pricing for the current Gemini model."""
+        return self.MODEL_PRICING.get(self.model)
 
     def _fallback_answer(self, question: str, context: str, max_chars: int = 1200) -> str:
         return generate_fallback_answer(question, context, "Gemini API", max_chars=max_chars)

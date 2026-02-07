@@ -251,5 +251,9 @@ class LocalProvider(BaseLLMProvider):
             self._record_failure(e, "stream_synthesize")
             raise
 
+    def get_model_pricing(self) -> Optional[Dict[str, float]]:
+        """Local models are free -- always return zero-cost pricing."""
+        return {"input": 0.0, "output": 0.0}
+
     def _fallback_answer(self, question: str, context: str, max_chars: int = 1200) -> str:
         return generate_fallback_answer(question, context, "Local model", max_chars=max_chars)

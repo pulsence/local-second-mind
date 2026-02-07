@@ -191,18 +191,36 @@ class BaseLLMProvider(ABC):
         """
         pass
 
+    def get_model_pricing(self) -> Optional[Dict[str, float]]:
+        """
+        Get pricing for the current model.
+
+        Returns:
+            Dict with 'input' and 'output' prices per 1M tokens in USD,
+            or None if pricing is not available for this model.
+        """
+        return None
+
     def estimate_cost(self, input_tokens: int, output_tokens: int) -> Optional[float]:
         """
-        Estimate the cost for a request (optional).
+        Estimate the cost for a request.
+
+        Uses get_model_pricing() to look up per-1M-token rates for the
+        current model and calculates the cost.
 
         Args:
             input_tokens: Number of input tokens
             output_tokens: Number of output tokens
 
         Returns:
-            Estimated cost in USD, or None if not available
+            Estimated cost in USD, or None if pricing is not available
         """
-        return None  # Default implementation
+        pricing = self.get_model_pricing()
+        if pricing is None:
+            return None
+        input_cost = (input_tokens / 1_000_000) * pricing["input"]
+        output_cost = (output_tokens / 1_000_000) * pricing["output"]
+        return input_cost + output_cost
 
     def health_check(self) -> Dict[str, Any]:
         """

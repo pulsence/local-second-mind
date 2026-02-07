@@ -48,6 +48,33 @@ class AzureOpenAIProvider(BaseLLMProvider):
         deployment_name: gpt-35-turbo
     """
 
+    # Azure OpenAI mirrors standard OpenAI per-1M-token pricing (USD)
+    MODEL_PRICING: Dict[str, Dict[str, float]] = {
+        # GPT-5 series
+        "gpt-5.2":            {"input":  1.75,  "output":  14.00},
+        "gpt-5.1":            {"input":  1.25,  "output":  10.00},
+        "gpt-5":              {"input":  1.25,  "output":  10.00},
+        "gpt-5-mini":         {"input":  0.25,  "output":   2.00},
+        "gpt-5-nano":         {"input":  0.05,  "output":   0.40},
+        # GPT-4.1 series
+        "gpt-4.1":            {"input":  2.00,  "output":   8.00},
+        "gpt-4.1-mini":       {"input":  0.40,  "output":   1.60},
+        "gpt-4.1-nano":       {"input":  0.10,  "output":   0.40},
+        # GPT-4o series
+        "gpt-4o":             {"input":  2.50,  "output":  10.00},
+        "gpt-4o-mini":        {"input":  0.15,  "output":   0.60},
+        # o-series reasoning models
+        "o4-mini":            {"input":  1.10,  "output":   4.40},
+        "o3":                 {"input":  2.00,  "output":   8.00},
+        "o3-mini":            {"input":  1.10,  "output":   4.40},
+        "o1":                 {"input": 15.00,  "output":  60.00},
+        "o1-mini":            {"input":  1.10,  "output":   4.40},
+        # Legacy models
+        "gpt-4-turbo":        {"input": 10.00,  "output":  30.00},
+        "gpt-4":              {"input": 30.00,  "output":  60.00},
+        "gpt-3.5-turbo":      {"input":  0.50,  "output":   1.50},
+    }
+
     def __init__(self, config: LLMConfig):
         self.config = config
         self.endpoint = config.endpoint or os.getenv("AZURE_OPENAI_ENDPOINT")
@@ -375,6 +402,10 @@ class AzureOpenAIProvider(BaseLLMProvider):
             logger.error(f"Azure streaming synthesis failed: {e}")
             self._record_failure(e, "stream_synthesize")
             raise
+
+    def get_model_pricing(self) -> Optional[Dict[str, float]]:
+        """Get pricing for the current Azure OpenAI deployment."""
+        return self.MODEL_PRICING.get(self.deployment_name)
 
     def _fallback_answer(self, question: str, context: str, max_chars: int = 1200) -> str:
         return generate_fallback_answer(question, context, "Azure OpenAI", max_chars=max_chars)

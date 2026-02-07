@@ -39,12 +39,23 @@ class AnthropicProvider(BaseLLMProvider):
         max_tokens: 2000
     """
 
-    PRICING_PER_1M = {
-        "claude-3-opus-20240229": {"input": 15.00, "output": 75.00},
-        "claude-3-sonnet-20240229": {"input": 3.00, "output": 15.00},
-        "claude-3-haiku-20240307": {"input": 0.25, "output": 1.25},
+    # Per-1M-token pricing in USD (input / output)
+    MODEL_PRICING: Dict[str, Dict[str, float]] = {
+        # Claude 4.x series
+        "claude-opus-4.6":          {"input":  5.00, "output": 25.00},
+        "claude-opus-4.5":          {"input":  5.00, "output": 25.00},
+        "claude-opus-4.1":          {"input": 15.00, "output": 75.00},
+        "claude-opus-4":            {"input": 15.00, "output": 75.00},
+        "claude-sonnet-4.5":        {"input":  3.00, "output": 15.00},
+        "claude-sonnet-4":          {"input":  3.00, "output": 15.00},
+        "claude-haiku-4.5":         {"input":  1.00, "output":  5.00},
+        # Claude 3.x series (legacy)
+        "claude-haiku-3.5":         {"input":  0.80, "output":  4.00},
         "claude-3-5-sonnet-20241022": {"input": 3.00, "output": 15.00},
-        "claude-3-5-haiku-20241022": {"input": 1.00, "output": 5.00},
+        "claude-3-5-haiku-20241022":  {"input": 1.00, "output":  5.00},
+        "claude-3-opus-20240229":   {"input": 15.00, "output": 75.00},
+        "claude-3-sonnet-20240229": {"input":  3.00, "output": 15.00},
+        "claude-3-haiku-20240307":  {"input":  0.25, "output":  1.25},
     }
 
     def __init__(self, config: LLMConfig):
@@ -315,13 +326,9 @@ class AnthropicProvider(BaseLLMProvider):
             self._record_failure(e, "stream_synthesize")
             raise
 
-    def estimate_cost(self, input_tokens: int, output_tokens: int) -> Optional[float]:
-        rates = self.PRICING_PER_1M.get(self.model)
-        if not rates:
-            return None
-        input_cost = (input_tokens / 1_000_000) * rates["input"]
-        output_cost = (output_tokens / 1_000_000) * rates["output"]
-        return input_cost + output_cost
+    def get_model_pricing(self) -> Optional[Dict[str, float]]:
+        """Get pricing for the current Anthropic model."""
+        return self.MODEL_PRICING.get(self.model)
 
     def _fallback_answer(self, question: str, context: str, max_chars: int = 1200) -> str:
         return generate_fallback_answer(question, context, "Anthropic API", max_chars=max_chars)
