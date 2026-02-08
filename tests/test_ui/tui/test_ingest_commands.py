@@ -109,7 +109,6 @@ def test_run_wipe_success_empty_and_error(monkeypatch: pytest.MonkeyPatch) -> No
 def test_run_tag_success_and_error(monkeypatch: pytest.MonkeyPatch) -> None:
     cfg = _config()
     provider = _Provider()
-    monkeypatch.setattr(ingest_cmd, "require_chroma_collection", lambda p, c: p)
     monkeypatch.setattr(ingest_cmd, "tag_chunks", lambda **kwargs: (7, 1))
     text = ingest_cmd.run_tag(provider, cfg, 10)
     assert "TAGGING COMPLETE" in text
@@ -123,22 +122,17 @@ def test_run_tag_success_and_error(monkeypatch: pytest.MonkeyPatch) -> None:
     assert "Error during tagging: tag failed" in err
 
 
-def test_format_info_non_chroma_and_chroma(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_format_info(monkeypatch: pytest.MonkeyPatch) -> None:
     cfg = _config()
-    non_chroma = _Provider(name="postgres", count_value=3)
-    text = ingest_cmd.format_info(non_chroma, cfg)
-    assert "VECTOR DB INFO" in text
-    assert "postgres" in text
-
+    provider = _Provider(name="chromadb")
     monkeypatch.setattr(
         ingest_cmd,
         "api_get_collection_info",
         lambda _cfg: SimpleNamespace(name="kb", chunk_count=4, provider="chromadb"),
     )
-    chroma = _Provider(name="chromadb")
-    text2 = ingest_cmd.format_info(chroma, cfg)
-    assert "COLLECTION INFO" in text2
-    assert "Chunks:   4" in text2
+    text = ingest_cmd.format_info(provider, cfg)
+    assert "COLLECTION INFO" in text
+    assert "Chunks:   4" in text
 
 
 def test_format_stats_success_and_error(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -169,8 +163,6 @@ def test_format_stats_success_and_error(monkeypatch: pytest.MonkeyPatch) -> None
 
 def test_format_explore_no_files_and_with_files(monkeypatch: pytest.MonkeyPatch) -> None:
     provider = _Provider(count_value=3)
-    fake_collection = SimpleNamespace(count=lambda: 3)
-    monkeypatch.setattr(ingest_cmd, "require_chroma_collection", lambda p, c: fake_collection)
     monkeypatch.setattr(
         ingest_cmd,
         "parse_explore_query",
@@ -198,7 +190,6 @@ def test_format_explore_no_files_and_with_files(monkeypatch: pytest.MonkeyPatch)
 
 def test_format_show_and_search_and_tags(monkeypatch: pytest.MonkeyPatch) -> None:
     provider = _Provider()
-    monkeypatch.setattr(ingest_cmd, "require_chroma_collection", lambda p, c: p)
 
     assert ingest_cmd.format_show(provider, "") == "Usage: /show <file_path>"
     monkeypatch.setattr(ingest_cmd, "get_file_chunks", lambda c, p: [])

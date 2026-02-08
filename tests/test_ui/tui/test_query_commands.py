@@ -3,11 +3,13 @@ from __future__ import annotations
 import asyncio
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import Mock
 
 import pytest
 
 from lsm.query.session import Candidate
 from lsm.ui.tui.screens.query import QueryScreen
+from lsm.vectordb.base import VectorDBGetResult
 
 
 class _Tracker:
@@ -95,7 +97,8 @@ class _FakeApp:
             ext_deny=None,
             model="gpt-test",
         )
-        self.query_provider = object()
+        # query_provider is a mock that supports .get() returning VectorDBGetResult
+        self.query_provider = Mock()
         self.query_embedder = object()
         self.current_mode = "grounded"
         self.notified = []
@@ -224,12 +227,12 @@ def test_execute_export_and_load(monkeypatch: pytest.MonkeyPatch) -> None:
     assert "Usage: /load <file_path>" in screen._execute_query_command("/load").output
     assert "Cleared all pinned chunks" in screen._execute_query_command("/load clear").output
 
-    fake_chroma_empty = SimpleNamespace(get=lambda **kwargs: {"ids": []})
-    monkeypatch.setattr("lsm.ui.tui.screens.query.require_chroma_collection", lambda provider, why: fake_chroma_empty)
+    # Empty result — no chunks found
+    screen.app.query_provider.get.return_value = VectorDBGetResult(ids=[])
     assert "No chunks found for path" in screen._execute_query_command("/load /missing.md").output
 
-    fake_chroma = SimpleNamespace(get=lambda **kwargs: {"ids": ["c1", "c2"]})
-    monkeypatch.setattr("lsm.ui.tui.screens.query.require_chroma_collection", lambda provider, why: fake_chroma)
+    # Result with chunks — pins them
+    screen.app.query_provider.get.return_value = VectorDBGetResult(ids=["c1", "c2"])
     out = screen._execute_query_command("/load /ok.md").output
     assert "Pinned 2 chunks" in out
     assert len(screen.app.query_state.pinned_chunks) == 2

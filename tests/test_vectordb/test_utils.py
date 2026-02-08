@@ -1,15 +1,15 @@
-import pytest
+"""Tests verifying the BaseVectorDBProvider ABC contract."""
 
 from lsm.config.models import VectorDBConfig
-from lsm.vectordb.base import BaseVectorDBProvider, VectorDBQueryResult
-from lsm.vectordb.utils import require_chroma_collection
+from lsm.vectordb.base import BaseVectorDBProvider, VectorDBGetResult, VectorDBQueryResult
 
 
 class DummyProvider(BaseVectorDBProvider):
+    """Minimal concrete implementation for testing the ABC contract."""
+
     def __init__(self, config: VectorDBConfig, provider_name: str = "dummy") -> None:
         super().__init__(config)
         self._provider_name = provider_name
-        self._collection = object()
 
     @property
     def name(self) -> str:
@@ -21,6 +21,9 @@ class DummyProvider(BaseVectorDBProvider):
     def add_chunks(self, ids, documents, metadatas, embeddings) -> None:
         return None
 
+    def get(self, ids=None, filters=None, limit=None, offset=0, include=None) -> VectorDBGetResult:
+        return VectorDBGetResult()
+
     def query(self, embedding, top_k, filters=None) -> VectorDBQueryResult:
         return VectorDBQueryResult(ids=[], documents=[], metadatas=[], distances=[])
 
@@ -29,6 +32,9 @@ class DummyProvider(BaseVectorDBProvider):
 
     def delete_by_filter(self, filters) -> None:
         return None
+
+    def delete_all(self) -> int:
+        return 0
 
     def count(self) -> int:
         return 0
@@ -42,27 +48,31 @@ class DummyProvider(BaseVectorDBProvider):
     def health_check(self) -> dict:
         return {}
 
-    def get_collection(self):
-        return self._collection
+    def update_metadatas(self, ids, metadatas) -> None:
+        return None
 
 
-def test_require_chroma_collection_passthrough_object() -> None:
-    obj = object()
-    assert require_chroma_collection(obj, "/test") is obj
+def test_dummy_provider_instantiates(tmp_path) -> None:
+    cfg = VectorDBConfig(provider="dummy", persist_dir=tmp_path / ".db", collection="kb")
+    provider = DummyProvider(cfg)
+    assert provider.name == "dummy"
+    assert provider.is_available() is True
+    assert provider.count() == 0
+    assert provider.delete_all() == 0
 
 
-def test_require_chroma_collection_with_chroma_provider(tmp_path) -> None:
-    provider = DummyProvider(
-        VectorDBConfig(provider="chromadb", persist_dir=tmp_path / ".db", collection="kb"),
-        provider_name="chromadb",
-    )
-    assert require_chroma_collection(provider, "/test") is provider.get_collection()
+def test_dummy_provider_get_returns_empty(tmp_path) -> None:
+    cfg = VectorDBConfig(provider="dummy", persist_dir=tmp_path / ".db", collection="kb")
+    provider = DummyProvider(cfg)
+    result = provider.get()
+    assert result.ids == []
+    assert result.documents is None
+    assert result.metadatas is None
 
 
-def test_require_chroma_collection_rejects_non_chroma_provider(tmp_path) -> None:
-    provider = DummyProvider(
-        VectorDBConfig(provider="postgresql", persist_dir=tmp_path / ".db", collection="kb"),
-        provider_name="postgresql",
-    )
-    with pytest.raises(ValueError, match="requires ChromaDB provider"):
-        require_chroma_collection(provider, "/test")
+def test_dummy_provider_query_returns_empty(tmp_path) -> None:
+    cfg = VectorDBConfig(provider="dummy", persist_dir=tmp_path / ".db", collection="kb")
+    provider = DummyProvider(cfg)
+    result = provider.query([0.1, 0.2], top_k=5)
+    assert result.ids == []
+    assert result.documents == []

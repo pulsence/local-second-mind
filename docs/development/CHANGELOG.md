@@ -31,9 +31,18 @@ All notable changes to Local Second Mind are documented here.
 - Stats caching via `StatsCache` class in `lsm/ingest/stats_cache.py`. Cache stored at `<persist_dir>/stats_cache.json` with staleness detection (count mismatch or age expiry). Automatically invalidated after ingest.
 - Enhanced MuPDF PDF repair with multi-stage strategy: direct open, garbage-collection rebuild (`garbage=4, deflate=True, clean=True`), and plain stream fallback. Expanded repairable error markers to include `"trailer"`, `"startxref"`, `"corrupt"`, and `"malformed"`.
 - Chunk version control via `enable_versioning` on `IngestConfig`. Old chunks marked `is_current=False` instead of deleted. Version number tracked in chunk metadata and manifest. Query retrieval filters to `is_current=True` when versioning is active.
-- `update_metadatas()` and `get_by_filter()` methods on `BaseVectorDBProvider` (concrete, raises `NotImplementedError` by default) and `ChromaDBProvider` (implemented).
 - `where_filter` parameter on `retrieve_candidates()` for metadata-level filtering at query time.
 - 14 new tests in `test_versioning.py`, 14 in `test_partial_ingest.py`, 15 in `test_stats_cache.py`, and 6 new MuPDF repair tests in `test_parsers_extended.py`.
+- Full PostgreSQL + pgvector support as an alternative vector database backend via `VectorDBConfig(provider="postgresql")`.
+- `VectorDBGetResult` dataclass in `lsm/vectordb/base.py` for typed non-similarity retrieval results (ids, documents, metadatas, embeddings).
+- `get()` abstract method on `BaseVectorDBProvider` supporting retrieval by IDs, filters, with pagination (`limit`/`offset`) and field selection (`include`).
+- `update_metadatas()` and `delete_all()` abstract methods on `BaseVectorDBProvider`, implemented on both ChromaDB and PostgreSQL providers.
+- `PostgreSQLProvider` with full implementation: `add_chunks()`, `query()`, `get()`, `update_metadatas()`, `delete_by_filter()`, `delete_all()`, `count()`, `get_stats()`, and `_normalize_filters()` for JSONB containment queries.
+- ChromaDB-to-PostgreSQL migration tool in `lsm/vectordb/migrations/chromadb_to_postgres.py` with batched reads/writes and progress callback.
+- `migrate-vectordb` CLI subcommand and `/migrate` TUI command for running migrations.
+- PostgreSQL connection variables in `.env.example` (`LSM_POSTGRES_CONNECTION_STRING`, `LSM_POSTGRES_TABLE`).
+- PostgreSQL vectordb example in `example_config.json`.
+- 4 new migration tests, PostgreSQL provider tests, and updated consumer tests (1221 total tests passing).
 
 ### Changed
 
@@ -41,6 +50,12 @@ All notable changes to Local Second Mind are documented here.
 - `parse_file()` updated to return 3-tuples consistently across all formats (page_segments is `None` for non-paginated formats).
 - Pipeline writer thread now writes `heading`, `paragraph_index`, and `page_number` into vector DB chunk metadata.
 - Default chunking strategy is `"structure"`; legacy fixed-size chunking available via `"fixed"`.
+- All consumer modules (`stats.py`, `tagging.py`, `api.py`, `planning.py`, `retrieval.py`, `pipeline.py`, TUI screens/commands) now use `BaseVectorDBProvider` interface exclusively — no raw ChromaDB imports outside `lsm/vectordb/chromadb.py`.
+- `init_collection()` removed from `retrieval.py` — consumers use `create_vectordb_provider()` factory.
+- `get_by_filter()` removed from `BaseVectorDBProvider` — replaced by `get(filters=...)`.
+- `require_chroma_collection()` utility removed — no longer needed with provider abstraction.
+- `lsm/vectordb/utils.py` deleted entirely.
+- Filter format normalized: simple `{"key": "value"}` instead of `{"key": {"$eq": "value"}}` at the provider interface level.
 
 ## 0.3.2
 

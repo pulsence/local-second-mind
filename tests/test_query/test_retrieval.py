@@ -7,7 +7,6 @@ from pathlib import Path
 from unittest.mock import Mock, patch, MagicMock
 
 from lsm.query.retrieval import (
-    init_collection,
     init_embedder,
     embed_text,
     retrieve_candidates,
@@ -16,25 +15,7 @@ from lsm.query.retrieval import (
     _normalize_ext,
 )
 from lsm.query.session import Candidate
-
-
-class TestCollectionInit:
-    """Tests for ChromaDB collection initialization."""
-
-    @patch("lsm.query.retrieval.chromadb.PersistentClient")
-    def test_init_collection(self, mock_client_class):
-        """Test initializing a ChromaDB collection."""
-        mock_client = Mock()
-        mock_collection = Mock()
-        mock_client.get_or_create_collection.return_value = mock_collection
-        mock_client_class.return_value = mock_client
-
-        persist_dir = Path("/test/.chroma")
-        collection = init_collection(persist_dir, "test_kb")
-
-        mock_client_class.assert_called_once()
-        mock_client.get_or_create_collection.assert_called_once_with(name="test_kb")
-        assert collection == mock_collection
+from lsm.vectordb.base import VectorDBQueryResult
 
 
 class TestEmbedderInit:
@@ -124,30 +105,27 @@ class TestEmbedText:
 
 
 class TestRetrieveCandidates:
-    """Tests for candidate retrieval."""
+    """Tests for candidate retrieval via provider interface."""
 
     def test_retrieve_candidates(self):
-        """Test retrieving candidates from ChromaDB."""
-        mock_collection = Mock()
-        mock_collection.query.return_value = {
-            "ids": [["id1", "id2", "id3"]],
-            "documents": [["Text 1", "Text 2", "Text 3"]],
-            "metadatas": [[
+        """Test retrieving candidates from vector DB provider."""
+        mock_provider = Mock()
+        mock_provider.query.return_value = VectorDBQueryResult(
+            ids=["id1", "id2", "id3"],
+            documents=["Text 1", "Text 2", "Text 3"],
+            metadatas=[
                 {"source_path": "/docs/a.md", "chunk_index": 0},
                 {"source_path": "/docs/b.md", "chunk_index": 0},
                 {"source_path": "/docs/a.md", "chunk_index": 1},
-            ]],
-            "distances": [[0.1, 0.2, 0.3]],
-        }
+            ],
+            distances=[0.1, 0.2, 0.3],
+        )
 
         query_vector = [0.1, 0.2, 0.3]
-        candidates = retrieve_candidates(mock_collection, query_vector, k=3)
+        candidates = retrieve_candidates(mock_provider, query_vector, k=3)
 
-        mock_collection.query.assert_called_once_with(
-            query_embeddings=[query_vector],
-            n_results=3,
-            where=None,
-            include=["documents", "metadatas", "distances"],
+        mock_provider.query.assert_called_once_with(
+            query_vector, top_k=3, filters=None,
         )
 
         assert len(candidates) == 3
@@ -158,18 +136,30 @@ class TestRetrieveCandidates:
 
     def test_retrieve_candidates_empty_results(self):
         """Test retrieving when no results found."""
-        mock_collection = Mock()
-        mock_collection.query.return_value = {
-            "ids": [[]],
-            "documents": [[]],
-            "metadatas": [[]],
-            "distances": [[]],
-        }
+        mock_provider = Mock()
+        mock_provider.query.return_value = VectorDBQueryResult(
+            ids=[], documents=[], metadatas=[], distances=[],
+        )
 
         query_vector = [0.1, 0.2]
-        candidates = retrieve_candidates(mock_collection, query_vector, k=5)
+        candidates = retrieve_candidates(mock_provider, query_vector, k=5)
 
         assert candidates == []
+
+    def test_retrieve_candidates_with_where_filter(self):
+        """Test that where_filter is passed through."""
+        mock_provider = Mock()
+        mock_provider.query.return_value = VectorDBQueryResult(
+            ids=["id1"], documents=["Text"], metadatas=[{}], distances=[0.1],
+        )
+
+        retrieve_candidates(
+            mock_provider, [0.1], k=5, where_filter={"is_current": True},
+        )
+
+        mock_provider.query.assert_called_once_with(
+            [0.1], top_k=5, filters={"is_current": True},
+        )
 
 
 class TestNormalizeExt:

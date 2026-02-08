@@ -151,45 +151,48 @@ class TestStatsCacheIntegration:
     def test_cache_hit_avoids_full_scan(self, tmp_path: Path) -> None:
         """When cache is fresh, get_collection_stats returns cached stats."""
         from lsm.ingest.stats import get_collection_stats
+        from lsm.vectordb.base import VectorDBGetResult
 
         # Create a pre-populated cache
         cache_path = tmp_path / "stats_cache.json"
         cache = StatsCache(cache_path)
         cache.save(_SAMPLE_STATS, chunk_count=1000)
 
-        # Mock collection that should NOT be scanned
-        mock_collection = MagicMock()
-        mock_collection.count.return_value = 1000
-        mock_collection.name = "test_collection"
+        # Mock provider that should NOT be scanned
+        mock_provider = MagicMock()
+        mock_provider.count.return_value = 1000
 
-        stats = get_collection_stats(mock_collection, cache_path=cache_path)
+        stats = get_collection_stats(mock_provider, cache_path=cache_path)
         assert stats["total_chunks"] == 1000
         assert stats["unique_files"] == 50
         # iter_collection_metadatas should not have been called
-        mock_collection.get.assert_not_called()
+        mock_provider.get.assert_not_called()
 
     def test_recomputes_on_stale_cache(self, tmp_path: Path) -> None:
         """When cache is stale, get_collection_stats recomputes stats."""
         from lsm.ingest.stats import get_collection_stats
+        from lsm.vectordb.base import VectorDBGetResult
 
         # Create a cache with different count
         cache_path = tmp_path / "stats_cache.json"
         cache = StatsCache(cache_path)
         cache.save(_SAMPLE_STATS, chunk_count=500)  # different from actual count
 
-        # Mock collection with actual data
-        mock_collection = MagicMock()
-        mock_collection.count.return_value = 2
-        mock_collection.name = "test_collection"
-        mock_collection.get.return_value = {
-            "ids": ["a", "b"],
-            "metadatas": [
-                {"source_path": "/a.pdf", "ext": ".pdf", "ingested_at": "2026-01-01"},
-                {"source_path": "/b.md", "ext": ".md", "ingested_at": "2026-01-02"},
-            ],
-        }
+        # Mock provider with actual data — first call returns data, second returns empty (end of iteration)
+        mock_provider = MagicMock()
+        mock_provider.count.return_value = 2
+        mock_provider.get.side_effect = [
+            VectorDBGetResult(
+                ids=["a", "b"],
+                metadatas=[
+                    {"source_path": "/a.pdf", "ext": ".pdf", "ingested_at": "2026-01-01"},
+                    {"source_path": "/b.md", "ext": ".md", "ingested_at": "2026-01-02"},
+                ],
+            ),
+            VectorDBGetResult(ids=[], metadatas=[]),
+        ]
 
-        stats = get_collection_stats(mock_collection, cache_path=cache_path)
+        stats = get_collection_stats(mock_provider, cache_path=cache_path)
         assert stats["total_chunks"] == 2
         # Cache should have been updated
         new_cache = StatsCache(cache_path)

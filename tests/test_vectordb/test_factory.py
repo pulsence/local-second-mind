@@ -1,7 +1,7 @@
 import pytest
 
 from lsm.config.models import VectorDBConfig
-from lsm.vectordb.base import BaseVectorDBProvider, VectorDBQueryResult
+from lsm.vectordb.base import BaseVectorDBProvider, VectorDBGetResult, VectorDBQueryResult
 from lsm.vectordb.factory import (
     PROVIDER_REGISTRY,
     create_vectordb_provider,
@@ -21,6 +21,9 @@ class DummyProvider(BaseVectorDBProvider):
     def add_chunks(self, ids, documents, metadatas, embeddings) -> None:
         return None
 
+    def get(self, ids=None, filters=None, limit=None, offset=0, include=None) -> VectorDBGetResult:
+        return VectorDBGetResult()
+
     def query(self, embedding, top_k, filters=None) -> VectorDBQueryResult:
         return VectorDBQueryResult(ids=[], documents=[], metadatas=[], distances=[])
 
@@ -29,6 +32,9 @@ class DummyProvider(BaseVectorDBProvider):
 
     def delete_by_filter(self, filters) -> None:
         return None
+
+    def delete_all(self) -> int:
+        return 0
 
     def count(self) -> int:
         return 0
@@ -41,6 +47,9 @@ class DummyProvider(BaseVectorDBProvider):
 
     def health_check(self) -> dict:
         return {"ok": True}
+
+    def update_metadatas(self, ids, metadatas) -> None:
+        return None
 
 
 def test_list_available_providers_contains_chromadb() -> None:

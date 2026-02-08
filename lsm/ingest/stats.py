@@ -1,7 +1,7 @@
 """
 Collection statistics and introspection utilities for ingest pipeline.
 
-Provides functions to inspect ChromaDB collections, analyze metadata,
+Provides functions to inspect vector DB collections, analyze metadata,
 and generate reports about the ingested knowledge base.
 """
 
@@ -12,46 +12,29 @@ from pathlib import Path
 from typing import Dict, List, Any, Optional, Set, Iterator, Callable
 from collections import Counter, defaultdict
 
-import chromadb
-from chromadb.api.models.Collection import Collection
 from lsm.logging import get_logger
-from lsm.vectordb.utils import require_chroma_collection
+from lsm.vectordb.base import BaseVectorDBProvider
 
 logger = get_logger(__name__)
 
 
-def get_collection_info(collection: Collection) -> Dict[str, Any]:
+def get_collection_info(provider: BaseVectorDBProvider) -> Dict[str, Any]:
     """
     Get basic information about a collection.
 
     Args:
-        collection: ChromaDB collection
+        provider: Vector DB provider instance.
 
     Returns:
-        Dictionary with collection information
+        Dictionary with collection information.
     """
-    collection = require_chroma_collection(collection, "get_collection_info")
-    count = collection.count()
-
-    info = {
-        "name": collection.name,
-        "count": count,
-        "id": collection.id,
-    }
-
-    # Try to get metadata if available
-    try:
-        metadata = collection.metadata
-        if metadata:
-            info["metadata"] = metadata
-    except Exception:
-        pass
-
-    return info
+    stats = provider.get_stats()
+    stats.setdefault("count", provider.count())
+    return stats
 
 
 def iter_collection_metadatas(
-    collection: Collection,
+    provider: BaseVectorDBProvider,
     where: Optional[Dict[str, Any]] = None,
     batch_size: int = 5000,
 ) -> Iterator[Dict[str, Any]]:
@@ -59,19 +42,18 @@ def iter_collection_metadatas(
     Iterate over collection metadata in batches.
 
     Args:
-        collection: ChromaDB collection
-        where: Optional filter clause
-        batch_size: Number of records per batch
+        provider: Vector DB provider instance.
+        where: Optional filter clause.
+        batch_size: Number of records per batch.
 
     Yields:
-        Metadata dictionaries
+        Metadata dictionaries.
     """
-    collection = require_chroma_collection(collection, "iter_collection_metadatas")
     offset = 0
     while True:
         try:
-            results = collection.get(
-                where=where if where else None,
+            result = provider.get(
+                filters=where if where else None,
                 limit=batch_size,
                 offset=offset,
                 include=["metadatas"],
@@ -79,12 +61,12 @@ def iter_collection_metadatas(
         except TypeError:
             if offset != 0:
                 break
-            results = collection.get(
-                where=where if where else None,
+            result = provider.get(
+                filters=where if where else None,
                 limit=batch_size,
                 include=["metadatas"],
             )
-        metadatas = results.get("metadatas", [])
+        metadatas = result.metadatas or []
         if not metadatas:
             break
         for meta in metadatas:
@@ -156,7 +138,7 @@ def _finalize_metadata_stats(
 
 
 def get_collection_stats(
-    collection: Collection,
+    provider: BaseVectorDBProvider,
     limit: Optional[int] = None,
     batch_size: int = 5000,
     error_report_path: Optional[Path] = None,
@@ -167,16 +149,15 @@ def get_collection_stats(
     Get detailed statistics about a collection.
 
     Args:
-        collection: ChromaDB collection
-        limit: Maximum number of chunks to analyze (for performance)
-        cache_path: Optional path to stats cache file.  When provided, cached
+        provider: Vector DB provider instance.
+        limit: Maximum number of chunks to analyze (for performance).
+        cache_path: Optional path to stats cache file. When provided, cached
             results are returned if the cache is fresh.
 
     Returns:
-        Dictionary with detailed statistics
+        Dictionary with detailed statistics.
     """
-    collection = require_chroma_collection(collection, "get_collection_stats")
-    count = collection.count()
+    count = provider.count()
 
     if count == 0:
         return {
@@ -205,7 +186,7 @@ def get_collection_stats(
             chunks_per_file: Dict[str, int] = defaultdict(int)
             analyzed = 0
 
-            for meta in iter_collection_metadatas(collection, batch_size=batch_size):
+            for meta in iter_collection_metadatas(provider, batch_size=batch_size):
                 _update_metadata_counters(
                     meta,
                     ext_counter,
@@ -240,12 +221,12 @@ def get_collection_stats(
             stats["analysis_mode"] = "full"
         else:
             sample_size = min(count, limit)
-            results = collection.get(
+            result = provider.get(
                 limit=sample_size,
-                include=["metadatas"]
+                include=["metadatas"],
             )
 
-            metadatas = results.get("metadatas", [])
+            metadatas = result.metadatas or []
 
             if not metadatas:
                 return {
@@ -290,25 +271,12 @@ def analyze_metadata(metadatas: List[Dict[str, Any]], total_count: int) -> Dict[
     Returns:
         Dictionary with analyzed statistics
     """
-    # Count by file extension
     ext_counter = Counter()
-
-    # Count by source file
     file_counter = Counter()
-
-    # Track unique files
     unique_files: Set[str] = set()
-
-    # Track authors if available
     authors: Set[str] = set()
-
-    # Track titles if available
     titles: Set[str] = set()
-
-    # Track ingestion dates
     ingestion_dates: List[str] = []
-
-    # Track chunks per file
     chunks_per_file: Dict[str, int] = defaultdict(int)
 
     for meta in metadatas:
@@ -412,7 +380,6 @@ def format_stats_report(stats: Dict[str, Any]) -> str:
         lines.append("TOP 10 FILES (by chunk count)")
         lines.append("-" * 60)
         for file_path, count in list(stats["top_files"].items())[:10]:
-            # Shorten path for display
             display_path = Path(file_path).name
             if len(file_path) > 50:
                 display_path = "..." + file_path[-47:]
@@ -463,7 +430,7 @@ def format_stats_report(stats: Dict[str, Any]) -> str:
 
 
 def search_metadata(
-    collection: Collection,
+    provider: BaseVectorDBProvider,
     query: Optional[str] = None,
     author: Optional[str] = None,
     ext: Optional[str] = None,
@@ -473,34 +440,31 @@ def search_metadata(
     Search collection metadata by various criteria.
 
     Args:
-        collection: ChromaDB collection
-        query: Text query for file paths
-        author: Filter by author
-        ext: Filter by extension
-        limit: Maximum results to return
+        provider: Vector DB provider instance.
+        query: Text query for file paths.
+        author: Filter by author.
+        ext: Filter by extension.
+        limit: Maximum results to return.
 
     Returns:
-        List of matching metadata dictionaries
+        List of matching metadata dictionaries.
     """
-    collection = require_chroma_collection(collection, "search_metadata")
-    # Build where clause
     where = {}
 
     if author:
-        where["author"] = {"$eq": author}
+        where["author"] = author
 
     if ext:
-        where["ext"] = {"$eq": ext}
+        where["ext"] = ext
 
     try:
-        # Get results with filters
-        results = collection.get(
-            where=where if where else None,
+        result = provider.get(
+            filters=where if where else None,
             limit=limit,
-            include=["metadatas"]
+            include=["metadatas"],
         )
 
-        metadatas = results.get("metadatas", [])
+        metadatas = result.metadatas or []
 
         # If query provided, filter by path substring
         if query and metadatas:
@@ -518,26 +482,25 @@ def search_metadata(
         return []
 
 
-def get_file_chunks(collection: Collection, file_path: str) -> List[Dict[str, Any]]:
+def get_file_chunks(provider: BaseVectorDBProvider, file_path: str) -> List[Dict[str, Any]]:
     """
     Get all chunks for a specific file.
 
     Args:
-        collection: ChromaDB collection
-        file_path: Path to file
+        provider: Vector DB provider instance.
+        file_path: Path to file.
 
     Returns:
-        List of chunk metadata for the file
+        List of chunk metadata for the file.
     """
-    collection = require_chroma_collection(collection, "get_file_chunks")
     try:
-        results = collection.get(
-            where={"source_path": {"$eq": file_path}},
-            include=["documents", "metadatas"]
+        result = provider.get(
+            filters={"source_path": file_path},
+            include=["documents", "metadatas"],
         )
 
-        documents = results.get("documents", [])
-        metadatas = results.get("metadatas", [])
+        documents = result.documents or []
+        metadatas = result.metadatas or []
 
         # Combine documents with metadata
         chunks = []

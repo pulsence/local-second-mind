@@ -37,7 +37,6 @@ from lsm.query.cost_tracking import CostTracker
 from lsm.providers import create_provider
 from lsm.vectordb import create_vectordb_provider, list_available_providers
 from lsm.remote import get_registered_providers
-from lsm.vectordb.utils import require_chroma_collection
 from lsm.query.citations import export_citations_from_note, export_citations_from_sources
 from lsm.query.notes import get_note_filename, generate_note_content, resolve_notes_dir
 from lsm.ui.tui.widgets.status import StatusBar
@@ -904,17 +903,16 @@ class QueryScreen(Widget):
                 file_path = arg
                 lines = [f"Loading chunks from: {file_path}", "Searching collection..."]
                 try:
-                    chroma = require_chroma_collection(self.app.query_provider, "/load")
-                    results = chroma.get(
-                        where={"source_path": {"$eq": file_path}},
+                    result = self.app.query_provider.get(
+                        filters={"source_path": file_path},
                         include=["metadatas"],
                     )
-                    if not results or not results.get("ids"):
+                    if not result.ids:
                         lines.append(f"\nNo chunks found for path: {file_path}")
                         lines.append("Tip: Path must match exactly. Use /explore to find exact paths.\n")
                         return CommandResult(output="\n".join(lines))
 
-                    chunk_ids = results["ids"]
+                    chunk_ids = result.ids
                     for chunk_id in chunk_ids:
                         if chunk_id not in self.app.query_state.pinned_chunks:
                             self.app.query_state.pinned_chunks.append(chunk_id)

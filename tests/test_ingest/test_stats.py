@@ -5,6 +5,7 @@ Tests for ingest statistics module.
 import pytest
 from unittest.mock import Mock, MagicMock
 
+from lsm.vectordb.base import VectorDBGetResult
 from lsm.ingest.stats import (
     get_collection_info,
     get_collection_stats,
@@ -18,18 +19,32 @@ from lsm.ingest.stats import (
 )
 
 
+def _mock_provider(**overrides):
+    """Create a mock BaseVectorDBProvider with sensible defaults."""
+    provider = Mock()
+    provider.count.return_value = overrides.get("count", 0)
+    provider.get_stats.return_value = overrides.get("stats", {})
+    provider.get.return_value = overrides.get(
+        "get_result", VectorDBGetResult()
+    )
+    return provider
+
+
 class TestCollectionInfo:
     """Test collection info retrieval."""
 
     def test_get_collection_info(self):
         """Test getting basic collection info."""
-        mock_collection = Mock()
-        mock_collection.name = "test_kb"
-        mock_collection.id = "abc-123"
-        mock_collection.count.return_value = 1000
-        mock_collection.metadata = {"version": "1.0"}
+        provider = _mock_provider(
+            count=1000,
+            stats={
+                "name": "test_kb",
+                "id": "abc-123",
+                "metadata": {"version": "1.0"},
+            },
+        )
 
-        info = get_collection_info(mock_collection)
+        info = get_collection_info(provider)
 
         assert info["name"] == "test_kb"
         assert info["id"] == "abc-123"
@@ -37,17 +52,13 @@ class TestCollectionInfo:
         assert "metadata" in info
         assert info["metadata"]["version"] == "1.0"
 
-    def test_get_collection_info_without_metadata(self):
-        """Metadata access failures should not fail info retrieval."""
-        mock_collection = Mock()
-        mock_collection.name = "test_kb"
-        mock_collection.id = "abc-123"
-        mock_collection.count.return_value = 10
-        type(mock_collection).metadata = property(lambda _self: (_ for _ in ()).throw(RuntimeError("no metadata")))
+    def test_get_collection_info_minimal(self):
+        """get_stats returning sparse data still includes count."""
+        provider = _mock_provider(count=10, stats={"collection": "kb"})
 
-        info = get_collection_info(mock_collection)
+        info = get_collection_info(provider)
         assert info["count"] == 10
-        assert "metadata" not in info
+        assert info["collection"] == "kb"
 
 
 class TestMetadataAnalysis:
@@ -198,52 +209,56 @@ class TestSearch:
 
     def test_search_metadata_by_query(self):
         """Test searching by query string."""
-        mock_collection = Mock()
-        mock_collection.get.return_value = {
-            "metadatas": [
-                {"source_path": "/docs/python_tutorial.md"},
-                {"source_path": "/docs/python_guide.md"},
-                {"source_path": "/guides/java_basics.md"},
-            ]
-        }
+        provider = _mock_provider(
+            get_result=VectorDBGetResult(
+                ids=["1", "2", "3"],
+                metadatas=[
+                    {"source_path": "/docs/python_tutorial.md"},
+                    {"source_path": "/docs/python_guide.md"},
+                    {"source_path": "/guides/java_basics.md"},
+                ],
+            ),
+        )
 
-        results = search_metadata(mock_collection, query="python")
+        results = search_metadata(provider, query="python")
 
         assert len(results) == 2
         assert all("python" in r["source_path"] for r in results)
 
     def test_search_metadata_by_extension(self):
         """Test searching by file extension."""
-        mock_collection = Mock()
-        mock_collection.get.return_value = {
-            "metadatas": [
-                {"source_path": "/docs/file1.pdf", "ext": ".pdf"},
-                {"source_path": "/docs/file2.pdf", "ext": ".pdf"},
-            ]
-        }
+        provider = _mock_provider(
+            get_result=VectorDBGetResult(
+                ids=["1", "2"],
+                metadatas=[
+                    {"source_path": "/docs/file1.pdf", "ext": ".pdf"},
+                    {"source_path": "/docs/file2.pdf", "ext": ".pdf"},
+                ],
+            ),
+        )
 
-        results = search_metadata(mock_collection, ext=".pdf", limit=20)
+        results = search_metadata(provider, ext=".pdf", limit=20)
 
-        # Verify where clause was passed correctly
-        mock_collection.get.assert_called_once()
-        call_args = mock_collection.get.call_args
-        assert "where" in call_args[1]
-        assert call_args[1]["where"]["ext"]["$eq"] == ".pdf"
+        # Verify filters were passed correctly (simple dict, not $eq style)
+        provider.get.assert_called_once()
+        call_kwargs = provider.get.call_args[1]
+        assert call_kwargs["filters"]["ext"] == ".pdf"
 
     def test_search_metadata_empty_results(self):
         """Test search with no results."""
-        mock_collection = Mock()
-        mock_collection.get.return_value = {"metadatas": []}
+        provider = _mock_provider(
+            get_result=VectorDBGetResult(ids=[], metadatas=[]),
+        )
 
-        results = search_metadata(mock_collection, query="nonexistent")
+        results = search_metadata(provider, query="nonexistent")
 
         assert results == []
 
     def test_search_metadata_error_returns_empty(self):
         """Exceptions should return an empty result list."""
-        mock_collection = Mock()
-        mock_collection.get.side_effect = RuntimeError("boom")
-        assert search_metadata(mock_collection, query="x") == []
+        provider = _mock_provider()
+        provider.get.side_effect = RuntimeError("boom")
+        assert search_metadata(provider, query="x") == []
 
 
 class TestErrorReports:
@@ -283,27 +298,28 @@ class TestGetCollectionStats:
 
     def test_get_collection_stats_empty(self):
         """Test stats for empty collection."""
-        mock_collection = Mock()
-        mock_collection.count.return_value = 0
+        provider = _mock_provider(count=0)
 
-        stats = get_collection_stats(mock_collection)
+        stats = get_collection_stats(provider)
 
         assert stats["total_chunks"] == 0
         assert "message" in stats
         assert "empty" in stats["message"].lower()
 
     def test_get_collection_stats_with_data(self):
-        """Test stats for populated collection."""
-        mock_collection = Mock()
-        mock_collection.count.return_value = 100
-        mock_collection.get.return_value = {
-            "metadatas": [
-                {"source_path": "/docs/file1.md", "ext": ".md", "chunk_index": 0},
-                {"source_path": "/docs/file2.md", "ext": ".md", "chunk_index": 0},
-            ]
-        }
+        """Test stats for populated collection (sample path with limit)."""
+        provider = _mock_provider(
+            count=100,
+            get_result=VectorDBGetResult(
+                ids=["1", "2"],
+                metadatas=[
+                    {"source_path": "/docs/file1.md", "ext": ".md", "chunk_index": 0},
+                    {"source_path": "/docs/file2.md", "ext": ".md", "chunk_index": 0},
+                ],
+            ),
+        )
 
-        stats = get_collection_stats(mock_collection, limit=100)
+        stats = get_collection_stats(provider, limit=100)
 
         assert stats["total_chunks"] == 100
         assert stats["analyzed_chunks"] == 2
@@ -312,22 +328,24 @@ class TestGetCollectionStats:
 
     def test_get_collection_stats_progress_callback(self):
         """Test progress callback is invoked during full scans."""
-        mock_collection = Mock()
-        mock_collection.count.return_value = 5
-        mock_collection.get.side_effect = [
-            {
-                "metadatas": [
+        provider = Mock()
+        provider.count.return_value = 5
+        provider.get.side_effect = [
+            VectorDBGetResult(
+                ids=["1", "2", "3"],
+                metadatas=[
                     {"source_path": "/docs/file1.md", "ext": ".md", "chunk_index": 0},
                     {"source_path": "/docs/file2.md", "ext": ".md", "chunk_index": 0},
                     {"source_path": "/docs/file3.md", "ext": ".md", "chunk_index": 0},
-                ]
-            },
-            {
-                "metadatas": [
+                ],
+            ),
+            VectorDBGetResult(
+                ids=["4", "5"],
+                metadatas=[
                     {"source_path": "/docs/file4.md", "ext": ".md", "chunk_index": 0},
                     {"source_path": "/docs/file5.md", "ext": ".md", "chunk_index": 0},
-                ]
-            },
+                ],
+            ),
         ]
 
         calls = []
@@ -335,7 +353,7 @@ class TestGetCollectionStats:
         def progress(analyzed: int) -> None:
             calls.append(analyzed)
 
-        stats = get_collection_stats(mock_collection, limit=None, batch_size=3, progress_callback=progress)
+        stats = get_collection_stats(provider, limit=None, batch_size=3, progress_callback=progress)
 
         assert stats["total_chunks"] == 5
         assert calls == [3]
@@ -347,20 +365,21 @@ class TestGetCollectionStats:
             '{"generated_at":"2026-02-06","failed_documents":[{"source_path":"x"}],"page_errors":[]}',
             encoding="utf-8",
         )
-        mock_collection = Mock()
-        mock_collection.count.return_value = 5
-        mock_collection.get.return_value = {"metadatas": []}
+        provider = _mock_provider(
+            count=5,
+            get_result=VectorDBGetResult(ids=[], metadatas=[]),
+        )
 
-        stats = get_collection_stats(mock_collection, limit=2, error_report_path=report_path)
+        stats = get_collection_stats(provider, limit=2, error_report_path=report_path)
         assert stats["total_chunks"] == 5
         assert "No metadata available" in stats["message"]
 
     def test_get_collection_stats_handles_exception(self):
         """Unexpected failures should surface in error payload."""
-        mock_collection = Mock()
-        mock_collection.count.return_value = 5
-        mock_collection.get.side_effect = RuntimeError("broken")
-        stats = get_collection_stats(mock_collection, limit=1)
+        provider = Mock()
+        provider.count.return_value = 5
+        provider.get.side_effect = RuntimeError("broken")
+        stats = get_collection_stats(provider, limit=1)
         assert stats["total_chunks"] == 5
         assert "broken" in stats["error"]
 
@@ -369,33 +388,38 @@ class TestChunkAccess:
     """Test chunk-level retrieval helpers."""
 
     def test_get_file_chunks_sorts_by_index(self):
-        mock_collection = Mock()
-        mock_collection.get.return_value = {
-            "documents": ["chunk-b", "chunk-a"],
-            "metadatas": [
-                {"source_path": "/x.md", "chunk_index": 2},
-                {"source_path": "/x.md", "chunk_index": 1},
-            ],
-        }
-        chunks = get_file_chunks(mock_collection, "/x.md")
+        provider = _mock_provider(
+            get_result=VectorDBGetResult(
+                ids=["b", "a"],
+                documents=["chunk-b", "chunk-a"],
+                metadatas=[
+                    {"source_path": "/x.md", "chunk_index": 2},
+                    {"source_path": "/x.md", "chunk_index": 1},
+                ],
+            ),
+        )
+        chunks = get_file_chunks(provider, "/x.md")
         assert [c["chunk_index"] for c in chunks] == [1, 2]
         assert chunks[0]["text"] == "chunk-a"
 
     def test_get_file_chunks_error(self):
-        mock_collection = Mock()
-        mock_collection.get.side_effect = RuntimeError("oops")
-        assert get_file_chunks(mock_collection, "/x.md") == []
+        provider = _mock_provider()
+        provider.get.side_effect = RuntimeError("oops")
+        assert get_file_chunks(provider, "/x.md") == []
 
 
 class TestIterMetadata:
     """Test metadata iteration fallback behavior."""
 
     def test_iter_collection_metadatas_typeerror_fallback(self):
-        mock_collection = Mock()
-        mock_collection.get.side_effect = [
+        provider = Mock()
+        provider.get.side_effect = [
             TypeError("offset unsupported"),
-            {"metadatas": [{"source_path": "/a.md", "ext": ".md"}]},
+            VectorDBGetResult(
+                ids=["a"],
+                metadatas=[{"source_path": "/a.md", "ext": ".md"}],
+            ),
         ]
-        items = list(iter_collection_metadatas(mock_collection, batch_size=10))
+        items = list(iter_collection_metadatas(provider, batch_size=10))
         assert len(items) == 1
         assert items[0]["source_path"] == "/a.md"

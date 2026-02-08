@@ -2,7 +2,7 @@
 Tests for AI tagging module.
 
 Tests cover:
-- JSON serialization/deserialization for ChromaDB storage
+- JSON serialization/deserialization for metadata storage
 - Tag generation with retry logic
 - Generic provider pattern usage
 - OpenAI Responses API integration
@@ -16,6 +16,7 @@ import json
 from unittest.mock import Mock, MagicMock, patch, call
 from datetime import datetime
 
+from lsm.vectordb.base import VectorDBGetResult
 from lsm.ingest.tagging import (
     _serialize_tags,
     _deserialize_tags,
@@ -29,8 +30,17 @@ from lsm.ingest.tagging import (
 from lsm.config.models import LLMConfig
 
 
+def _mock_provider(**overrides):
+    """Create a mock BaseVectorDBProvider with sensible defaults."""
+    provider = Mock()
+    provider.get.return_value = overrides.get(
+        "get_result", VectorDBGetResult()
+    )
+    return provider
+
+
 class TestTagSerialization:
-    """Test JSON serialization helpers for ChromaDB compatibility."""
+    """Test JSON serialization helpers for metadata compatibility."""
 
     def test_serialize_tags_basic(self):
         """Test basic tag list serialization to JSON string."""
@@ -257,18 +267,19 @@ class TestUntaggedChunks:
 
     def test_get_untagged_chunks_all_untagged(self):
         """Test getting untagged chunks when none have ai_tags."""
-        mock_collection = Mock()
-        mock_collection.get.return_value = {
-            "ids": ["chunk1", "chunk2", "chunk3"],
-            "metadatas": [
-                {"source_path": "/docs/file1.md"},
-                {"source_path": "/docs/file2.md"},
-                {"source_path": "/docs/file3.md"},
-            ],
-            "documents": ["Text 1", "Text 2", "Text 3"],
-        }
+        provider = _mock_provider(
+            get_result=VectorDBGetResult(
+                ids=["chunk1", "chunk2", "chunk3"],
+                metadatas=[
+                    {"source_path": "/docs/file1.md"},
+                    {"source_path": "/docs/file2.md"},
+                    {"source_path": "/docs/file3.md"},
+                ],
+                documents=["Text 1", "Text 2", "Text 3"],
+            ),
+        )
 
-        untagged = get_untagged_chunks(mock_collection, batch_size=10)
+        untagged = get_untagged_chunks(provider, batch_size=10)
 
         assert len(untagged) == 3
         assert untagged[0]["id"] == "chunk1"
@@ -278,18 +289,19 @@ class TestUntaggedChunks:
 
     def test_get_untagged_chunks_filters_tagged(self):
         """Test that chunks with ai_tags are filtered out."""
-        mock_collection = Mock()
-        mock_collection.get.return_value = {
-            "ids": ["chunk1", "chunk2", "chunk3"],
-            "metadatas": [
-                {"source_path": "/docs/file1.md"},  # No ai_tags
-                {"source_path": "/docs/file2.md", "ai_tags": '["python"]'},  # Has ai_tags
-                {"source_path": "/docs/file3.md"},  # No ai_tags
-            ],
-            "documents": ["Text 1", "Text 2", "Text 3"],
-        }
+        provider = _mock_provider(
+            get_result=VectorDBGetResult(
+                ids=["chunk1", "chunk2", "chunk3"],
+                metadatas=[
+                    {"source_path": "/docs/file1.md"},  # No ai_tags
+                    {"source_path": "/docs/file2.md", "ai_tags": '["python"]'},  # Has ai_tags
+                    {"source_path": "/docs/file3.md"},  # No ai_tags
+                ],
+                documents=["Text 1", "Text 2", "Text 3"],
+            ),
+        )
 
-        untagged = get_untagged_chunks(mock_collection, batch_size=10)
+        untagged = get_untagged_chunks(provider, batch_size=10)
 
         # Should only get chunk1 and chunk3
         assert len(untagged) == 2
@@ -298,17 +310,18 @@ class TestUntaggedChunks:
 
     def test_get_untagged_chunks_filters_empty_tags(self):
         """Test that chunks with empty ai_tags are considered untagged."""
-        mock_collection = Mock()
-        mock_collection.get.return_value = {
-            "ids": ["chunk1", "chunk2"],
-            "metadatas": [
-                {"source_path": "/docs/file1.md", "ai_tags": ""},  # Empty string
-                {"source_path": "/docs/file2.md", "ai_tags": '["python"]'},  # Has tags
-            ],
-            "documents": ["Text 1", "Text 2"],
-        }
+        provider = _mock_provider(
+            get_result=VectorDBGetResult(
+                ids=["chunk1", "chunk2"],
+                metadatas=[
+                    {"source_path": "/docs/file1.md", "ai_tags": ""},  # Empty string
+                    {"source_path": "/docs/file2.md", "ai_tags": '["python"]'},  # Has tags
+                ],
+                documents=["Text 1", "Text 2"],
+            ),
+        )
 
-        untagged = get_untagged_chunks(mock_collection, batch_size=10)
+        untagged = get_untagged_chunks(provider, batch_size=10)
 
         # chunk1 should be considered untagged
         assert len(untagged) == 1
@@ -316,33 +329,35 @@ class TestUntaggedChunks:
 
     def test_get_untagged_chunks_respects_batch_size(self):
         """Test that batch_size limits results."""
-        mock_collection = Mock()
-        mock_collection.get.return_value = {
-            "ids": [f"chunk{i}" for i in range(100)],
-            "metadatas": [{"source_path": f"/docs/file{i}.md"} for i in range(100)],
-            "documents": [f"Text {i}" for i in range(100)],
-        }
+        provider = _mock_provider(
+            get_result=VectorDBGetResult(
+                ids=[f"chunk{i}" for i in range(100)],
+                metadatas=[{"source_path": f"/docs/file{i}.md"} for i in range(100)],
+                documents=[f"Text {i}" for i in range(100)],
+            ),
+        )
 
-        untagged = get_untagged_chunks(mock_collection, batch_size=10)
+        untagged = get_untagged_chunks(provider, batch_size=10)
 
         # Should stop at batch_size
         assert len(untagged) == 10
 
     def test_get_untagged_chunks_with_processed_ids(self):
         """Test that processed_ids are skipped."""
-        mock_collection = Mock()
-        mock_collection.get.return_value = {
-            "ids": ["chunk1", "chunk2", "chunk3"],
-            "metadatas": [
-                {"source_path": "/docs/file1.md"},
-                {"source_path": "/docs/file2.md"},
-                {"source_path": "/docs/file3.md"},
-            ],
-            "documents": ["Text 1", "Text 2", "Text 3"],
-        }
+        provider = _mock_provider(
+            get_result=VectorDBGetResult(
+                ids=["chunk1", "chunk2", "chunk3"],
+                metadatas=[
+                    {"source_path": "/docs/file1.md"},
+                    {"source_path": "/docs/file2.md"},
+                    {"source_path": "/docs/file3.md"},
+                ],
+                documents=["Text 1", "Text 2", "Text 3"],
+            ),
+        )
 
         processed = {"chunk1", "chunk3"}
-        untagged = get_untagged_chunks(mock_collection, batch_size=10, processed_ids=processed)
+        untagged = get_untagged_chunks(provider, batch_size=10, processed_ids=processed)
 
         # Should only get chunk2
         assert len(untagged) == 1
@@ -350,33 +365,30 @@ class TestUntaggedChunks:
 
     def test_get_untagged_chunks_fetches_more_than_batch(self):
         """Test that fetch_limit is larger to find enough untagged chunks."""
-        mock_collection = Mock()
+        provider = _mock_provider()
 
-        untagged = get_untagged_chunks(mock_collection, batch_size=100)
+        untagged = get_untagged_chunks(provider, batch_size=100)
 
         # Should fetch batch_size * 10 or 1000, whichever is larger
-        call_kwargs = mock_collection.get.call_args[1]
+        call_kwargs = provider.get.call_args[1]
         assert call_kwargs["limit"] >= 1000
 
     def test_get_untagged_chunks_empty(self):
         """Test when no untagged chunks exist."""
-        mock_collection = Mock()
-        mock_collection.get.return_value = {
-            "ids": [],
-            "metadatas": [],
-            "documents": [],
-        }
+        provider = _mock_provider(
+            get_result=VectorDBGetResult(ids=[], metadatas=[]),
+        )
 
-        untagged = get_untagged_chunks(mock_collection, batch_size=100)
+        untagged = get_untagged_chunks(provider, batch_size=100)
 
         assert untagged == []
 
     def test_get_untagged_chunks_error_handling(self):
         """Test graceful error handling."""
-        mock_collection = Mock()
-        mock_collection.get.side_effect = Exception("Database error")
+        provider = _mock_provider()
+        provider.get.side_effect = Exception("Database error")
 
-        untagged = get_untagged_chunks(mock_collection, batch_size=100)
+        untagged = get_untagged_chunks(provider, batch_size=100)
 
         # Should return empty list on error
         assert untagged == []
@@ -404,11 +416,10 @@ class TestTagChunks:
         # Mock tag generation
         mock_generate.return_value = ["python", "tutorial"]
 
-        # Mock collection
-        mock_collection = Mock()
-        mock_collection.get.return_value = {
-            "metadatas": []
-        }
+        # Mock provider
+        provider = _mock_provider(
+            get_result=VectorDBGetResult(ids=[], metadatas=[]),
+        )
 
         # LLM config
         llm_config = LLMConfig(
@@ -419,7 +430,7 @@ class TestTagChunks:
 
         # Tag chunks
         tagged, failed = tag_chunks(
-            collection=mock_collection,
+            provider=provider,
             llm_config=llm_config,
             num_tags=3,
             batch_size=10,
@@ -430,9 +441,9 @@ class TestTagChunks:
         assert tagged == 1
         assert failed == 0
 
-        # Verify update was called with serialized tags
-        mock_collection.update.assert_called_once()
-        call_kwargs = mock_collection.update.call_args[1]
+        # Verify update_metadatas was called with serialized tags
+        provider.update_metadatas.assert_called_once()
+        call_kwargs = provider.update_metadatas.call_args[1]
         updated_metadata = call_kwargs["metadatas"][0]
 
         # Tags should be JSON string
@@ -464,8 +475,9 @@ class TestTagChunks:
 
         mock_generate.return_value = ["test"]
 
-        mock_collection = Mock()
-        mock_collection.get.return_value = {"metadatas": []}
+        provider = _mock_provider(
+            get_result=VectorDBGetResult(ids=[], metadatas=[]),
+        )
 
         llm_config = LLMConfig(
             provider="openai",
@@ -474,14 +486,14 @@ class TestTagChunks:
         )
 
         tagged, failed = tag_chunks(
-            collection=mock_collection,
+            provider=provider,
             llm_config=llm_config,
             dry_run=True,
         )
 
         # Should count but not update
         assert tagged == 1
-        mock_collection.update.assert_not_called()
+        provider.update_metadatas.assert_not_called()
 
     @patch("lsm.ingest.tagging.generate_tags_for_chunk")
     @patch("lsm.ingest.tagging.get_untagged_chunks")
@@ -498,8 +510,9 @@ class TestTagChunks:
 
         mock_generate.return_value = ["test"]
 
-        mock_collection = Mock()
-        mock_collection.get.return_value = {"metadatas": []}
+        provider = _mock_provider(
+            get_result=VectorDBGetResult(ids=[], metadatas=[]),
+        )
 
         llm_config = LLMConfig(
             provider="openai",
@@ -508,7 +521,7 @@ class TestTagChunks:
         )
 
         tagged, failed = tag_chunks(
-            collection=mock_collection,
+            provider=provider,
             llm_config=llm_config,
             max_chunks=3,  # Limit to 3
             dry_run=False,
@@ -535,8 +548,9 @@ class TestTagChunks:
             Exception("Generation failed")
         ]
 
-        mock_collection = Mock()
-        mock_collection.get.return_value = {"metadatas": []}
+        provider = _mock_provider(
+            get_result=VectorDBGetResult(ids=[], metadatas=[]),
+        )
 
         llm_config = LLMConfig(
             provider="openai",
@@ -545,7 +559,7 @@ class TestTagChunks:
         )
 
         tagged, failed = tag_chunks(
-            collection=mock_collection,
+            provider=provider,
             llm_config=llm_config,
             dry_run=False,
         )
@@ -566,13 +580,13 @@ class TestTagChunks:
 
         mock_generate.return_value = ["new-tag"]
 
-        mock_collection = Mock()
-        # Mock collection with existing tags
-        mock_collection.get.return_value = {
-            "metadatas": [
-                {"ai_tags": '["existing-tag", "python"]'}
-            ]
-        }
+        # Provider returns existing tags in the sample query
+        provider = _mock_provider(
+            get_result=VectorDBGetResult(
+                ids=["x"],
+                metadatas=[{"ai_tags": '["existing-tag", "python"]'}],
+            ),
+        )
 
         llm_config = LLMConfig(
             provider="openai",
@@ -581,7 +595,7 @@ class TestTagChunks:
         )
 
         tagged, failed = tag_chunks(
-            collection=mock_collection,
+            provider=provider,
             llm_config=llm_config,
             dry_run=False,
         )
@@ -598,16 +612,18 @@ class TestUserTagManagement:
 
     def test_add_user_tags_new(self):
         """Test adding user tags to chunk without existing tags."""
-        mock_collection = Mock()
-        mock_collection.get.return_value = {
-            "metadatas": [{"source_path": "/docs/file.md"}]
-        }
+        provider = _mock_provider(
+            get_result=VectorDBGetResult(
+                ids=["chunk1"],
+                metadatas=[{"source_path": "/docs/file.md"}],
+            ),
+        )
 
-        add_user_tags(mock_collection, "chunk1", ["important", "review"])
+        add_user_tags(provider, "chunk1", ["important", "review"])
 
-        # Verify update called with correct metadata
-        mock_collection.update.assert_called_once()
-        call_args = mock_collection.update.call_args
+        # Verify update_metadatas called with correct metadata
+        provider.update_metadatas.assert_called_once()
+        call_args = provider.update_metadatas.call_args
         metadata = call_args[1]["metadatas"][0]
 
         # Tags should be JSON string
@@ -623,14 +639,16 @@ class TestUserTagManagement:
 
     def test_add_user_tags_existing(self):
         """Test adding tags to chunk with existing user tags."""
-        mock_collection = Mock()
-        mock_collection.get.return_value = {
-            "metadatas": [{"user_tags": '["existing"]'}]
-        }
+        provider = _mock_provider(
+            get_result=VectorDBGetResult(
+                ids=["chunk1"],
+                metadatas=[{"user_tags": '["existing"]'}],
+            ),
+        )
 
-        add_user_tags(mock_collection, "chunk1", ["new"])
+        add_user_tags(provider, "chunk1", ["new"])
 
-        call_args = mock_collection.update.call_args
+        call_args = provider.update_metadatas.call_args
         metadata = call_args[1]["metadatas"][0]
 
         # Deserialize and check both old and new
@@ -640,14 +658,16 @@ class TestUserTagManagement:
 
     def test_add_user_tags_duplicates(self):
         """Test that duplicate tags are avoided."""
-        mock_collection = Mock()
-        mock_collection.get.return_value = {
-            "metadatas": [{"user_tags": '["tag1"]'}]
-        }
+        provider = _mock_provider(
+            get_result=VectorDBGetResult(
+                ids=["chunk1"],
+                metadatas=[{"user_tags": '["tag1"]'}],
+            ),
+        )
 
-        add_user_tags(mock_collection, "chunk1", ["tag1", "tag2"])
+        add_user_tags(provider, "chunk1", ["tag1", "tag2"])
 
-        call_args = mock_collection.update.call_args
+        call_args = provider.update_metadatas.call_args
         metadata = call_args[1]["metadatas"][0]
 
         # Deserialize and verify no duplicates
@@ -657,14 +677,16 @@ class TestUserTagManagement:
 
     def test_add_user_tags_normalizes_case(self):
         """Test that tags are normalized to lowercase."""
-        mock_collection = Mock()
-        mock_collection.get.return_value = {
-            "metadatas": [{}]
-        }
+        provider = _mock_provider(
+            get_result=VectorDBGetResult(
+                ids=["chunk1"],
+                metadatas=[{}],
+            ),
+        )
 
-        add_user_tags(mock_collection, "chunk1", ["Python", "TUTORIAL"])
+        add_user_tags(provider, "chunk1", ["Python", "TUTORIAL"])
 
-        call_args = mock_collection.update.call_args
+        call_args = provider.update_metadatas.call_args
         metadata = call_args[1]["metadatas"][0]
 
         tags = json.loads(metadata["user_tags"])
@@ -673,14 +695,16 @@ class TestUserTagManagement:
 
     def test_remove_user_tags(self):
         """Test removing user tags."""
-        mock_collection = Mock()
-        mock_collection.get.return_value = {
-            "metadatas": [{"user_tags": '["tag1", "tag2", "tag3"]'}]
-        }
+        provider = _mock_provider(
+            get_result=VectorDBGetResult(
+                ids=["chunk1"],
+                metadatas=[{"user_tags": '["tag1", "tag2", "tag3"]'}],
+            ),
+        )
 
-        remove_user_tags(mock_collection, "chunk1", ["tag2"])
+        remove_user_tags(provider, "chunk1", ["tag2"])
 
-        call_args = mock_collection.update.call_args
+        call_args = provider.update_metadatas.call_args
         metadata = call_args[1]["metadatas"][0]
 
         tags = json.loads(metadata["user_tags"])
@@ -690,19 +714,21 @@ class TestUserTagManagement:
 
     def test_add_user_tags_chunk_not_found(self):
         """Test adding tags to non-existent chunk raises error."""
-        mock_collection = Mock()
-        mock_collection.get.return_value = {"metadatas": []}
+        provider = _mock_provider(
+            get_result=VectorDBGetResult(ids=[], metadatas=[]),
+        )
 
         with pytest.raises(ValueError, match="Chunk not found"):
-            add_user_tags(mock_collection, "nonexistent", ["tag"])
+            add_user_tags(provider, "nonexistent", ["tag"])
 
     def test_remove_user_tags_chunk_not_found(self):
         """Test removing tags from non-existent chunk raises error."""
-        mock_collection = Mock()
-        mock_collection.get.return_value = {"metadatas": []}
+        provider = _mock_provider(
+            get_result=VectorDBGetResult(ids=[], metadatas=[]),
+        )
 
         with pytest.raises(ValueError, match="Chunk not found"):
-            remove_user_tags(mock_collection, "nonexistent", ["tag"])
+            remove_user_tags(provider, "nonexistent", ["tag"])
 
 
 class TestGetAllTags:
@@ -710,21 +736,23 @@ class TestGetAllTags:
 
     def test_get_all_tags_both_types(self):
         """Test getting both AI and user tags with JSON deserialization."""
-        mock_collection = Mock()
-        mock_collection.get.return_value = {
-            "metadatas": [
-                {
-                    "ai_tags": '["python", "tutorial"]',
-                    "user_tags": '["important"]',
-                },
-                {
-                    "ai_tags": '["python", "advanced"]',
-                    "user_tags": '["review"]',
-                },
-            ]
-        }
+        provider = _mock_provider(
+            get_result=VectorDBGetResult(
+                ids=["1", "2"],
+                metadatas=[
+                    {
+                        "ai_tags": '["python", "tutorial"]',
+                        "user_tags": '["important"]',
+                    },
+                    {
+                        "ai_tags": '["python", "advanced"]',
+                        "user_tags": '["review"]',
+                    },
+                ],
+            ),
+        )
 
-        all_tags = get_all_tags(mock_collection)
+        all_tags = get_all_tags(provider)
 
         assert "ai_tags" in all_tags
         assert "user_tags" in all_tags
@@ -739,59 +767,63 @@ class TestGetAllTags:
 
     def test_get_all_tags_empty(self):
         """Test when no tags exist."""
-        mock_collection = Mock()
-        mock_collection.get.return_value = {
-            "metadatas": [
-                {"source_path": "/docs/file.md"},
-            ]
-        }
+        provider = _mock_provider(
+            get_result=VectorDBGetResult(
+                ids=["1"],
+                metadatas=[{"source_path": "/docs/file.md"}],
+            ),
+        )
 
-        all_tags = get_all_tags(mock_collection)
+        all_tags = get_all_tags(provider)
 
         assert all_tags["ai_tags"] == []
         assert all_tags["user_tags"] == []
 
     def test_get_all_tags_deduplication(self):
         """Test that duplicate tags are removed."""
-        mock_collection = Mock()
-        mock_collection.get.return_value = {
-            "metadatas": [
-                {"ai_tags": '["python", "tutorial"]'},
-                {"ai_tags": '["python", "advanced"]'},
-                {"ai_tags": '["python"]'},
-            ]
-        }
+        provider = _mock_provider(
+            get_result=VectorDBGetResult(
+                ids=["1", "2", "3"],
+                metadatas=[
+                    {"ai_tags": '["python", "tutorial"]'},
+                    {"ai_tags": '["python", "advanced"]'},
+                    {"ai_tags": '["python"]'},
+                ],
+            ),
+        )
 
-        all_tags = get_all_tags(mock_collection)
+        all_tags = get_all_tags(provider)
 
         # python should only appear once
         assert all_tags["ai_tags"].count("python") == 1
 
     def test_get_all_tags_sorted(self):
         """Test that returned tags are sorted."""
-        mock_collection = Mock()
-        mock_collection.get.return_value = {
-            "metadatas": [
-                {"ai_tags": '["zebra", "apple", "monkey"]'},
-            ]
-        }
+        provider = _mock_provider(
+            get_result=VectorDBGetResult(
+                ids=["1"],
+                metadatas=[{"ai_tags": '["zebra", "apple", "monkey"]'}],
+            ),
+        )
 
-        all_tags = get_all_tags(mock_collection)
+        all_tags = get_all_tags(provider)
 
         # Should be alphabetically sorted
         assert all_tags["ai_tags"] == ["apple", "monkey", "zebra"]
 
     def test_get_all_tags_handles_invalid_json(self):
         """Test that invalid JSON is handled gracefully."""
-        mock_collection = Mock()
-        mock_collection.get.return_value = {
-            "metadatas": [
-                {"ai_tags": "invalid json"},
-                {"ai_tags": '["valid"]'},
-            ]
-        }
+        provider = _mock_provider(
+            get_result=VectorDBGetResult(
+                ids=["1", "2"],
+                metadatas=[
+                    {"ai_tags": "invalid json"},
+                    {"ai_tags": '["valid"]'},
+                ],
+            ),
+        )
 
-        all_tags = get_all_tags(mock_collection)
+        all_tags = get_all_tags(provider)
 
         # Should only get valid tags
         assert "valid" in all_tags["ai_tags"]
@@ -799,15 +831,17 @@ class TestGetAllTags:
 
     def test_get_all_tags_handles_legacy_lists(self):
         """Test backward compatibility with legacy list format."""
-        mock_collection = Mock()
-        mock_collection.get.return_value = {
-            "metadatas": [
-                {"ai_tags": ["legacy", "list"]},  # Old format
-                {"ai_tags": '["new", "json"]'},    # New format
-            ]
-        }
+        provider = _mock_provider(
+            get_result=VectorDBGetResult(
+                ids=["1", "2"],
+                metadatas=[
+                    {"ai_tags": ["legacy", "list"]},  # Old format
+                    {"ai_tags": '["new", "json"]'},    # New format
+                ],
+            ),
+        )
 
-        all_tags = get_all_tags(mock_collection)
+        all_tags = get_all_tags(provider)
 
         # Should handle both formats
         assert "legacy" in all_tags["ai_tags"]

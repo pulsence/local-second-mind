@@ -7,7 +7,7 @@ Defines the contract all vector DB providers must implement.
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
 from lsm.config.models import VectorDBConfig
@@ -30,11 +30,34 @@ class VectorDBQueryResult:
         }
 
 
+@dataclass
+class VectorDBGetResult:
+    """Normalized result from a get (non-similarity) retrieval.
+
+    Fields other than ``ids`` are populated only when requested via
+    the ``include`` parameter of :meth:`BaseVectorDBProvider.get`.
+    """
+    ids: List[str] = field(default_factory=list)
+    documents: Optional[List[str]] = None
+    metadatas: Optional[List[Dict[str, Any]]] = None
+    embeddings: Optional[List[List[float]]] = None
+
+    def as_dict(self) -> Dict[str, Any]:
+        result: Dict[str, Any] = {"ids": self.ids}
+        if self.documents is not None:
+            result["documents"] = self.documents
+        if self.metadatas is not None:
+            result["metadatas"] = self.metadatas
+        if self.embeddings is not None:
+            result["embeddings"] = self.embeddings
+        return result
+
+
 class BaseVectorDBProvider(ABC):
     """
     Abstract base class for vector database providers.
 
-    Providers must implement add/query/delete/count/health operations.
+    Providers must implement add/get/query/update/delete/count/health operations.
     """
 
     def __init__(self, config: VectorDBConfig) -> None:
@@ -68,6 +91,36 @@ class BaseVectorDBProvider(ABC):
         pass
 
     @abstractmethod
+    def get(
+        self,
+        ids: Optional[List[str]] = None,
+        filters: Optional[Dict[str, Any]] = None,
+        limit: Optional[int] = None,
+        offset: int = 0,
+        include: Optional[List[str]] = None,
+    ) -> VectorDBGetResult:
+        """Retrieve vectors by ID and/or metadata filter.
+
+        At least one of ``ids`` or ``filters`` should be provided, or
+        ``limit`` to fetch a paginated batch.
+
+        Args:
+            ids: Specific vector IDs to retrieve.
+            filters: Metadata filter dict. Simple ``{"key": "value"}`` means
+                equality. ChromaDB-style ``{"key": {"$eq": "value"}}`` is also
+                accepted and normalized by providers that need it.
+            limit: Maximum number of results to return.
+            offset: Number of results to skip (for pagination).
+            include: Fields to include in the result. Valid values are
+                ``"documents"``, ``"metadatas"``, and ``"embeddings"``.
+                Defaults to ``["metadatas"]`` if not specified.
+
+        Returns:
+            VectorDBGetResult with requested fields populated.
+        """
+        pass
+
+    @abstractmethod
     def query(
         self,
         embedding: List[float],
@@ -85,6 +138,15 @@ class BaseVectorDBProvider(ABC):
     @abstractmethod
     def delete_by_filter(self, filters: Dict[str, Any]) -> None:
         """Delete vectors that match a metadata filter."""
+        pass
+
+    @abstractmethod
+    def delete_all(self) -> int:
+        """Delete all vectors in the collection.
+
+        Returns:
+            Number of vectors deleted.
+        """
         pass
 
     @abstractmethod
@@ -107,29 +169,13 @@ class BaseVectorDBProvider(ABC):
         """Return connection and health status."""
         pass
 
+    @abstractmethod
     def update_metadatas(self, ids: List[str], metadatas: List[Dict[str, Any]]) -> None:
         """Update metadata for existing vectors by ID.
 
         Args:
             ids: List of vector IDs to update.
-            metadatas: List of metadata dicts (one per ID).
-
-        Raises:
-            NotImplementedError: If the provider does not support metadata updates.
+            metadatas: List of metadata dicts (one per ID). Replaces the
+                existing metadata entirely for each vector.
         """
-        raise NotImplementedError(f"{self.name} does not support update_metadatas")
-
-    def get_by_filter(self, filters: Dict[str, Any], include: Optional[List[str]] = None) -> Dict[str, Any]:
-        """Retrieve vectors matching a metadata filter.
-
-        Args:
-            filters: Metadata filter dict.
-            include: Fields to include (e.g. ``["metadatas"]``).
-
-        Returns:
-            Dict with ``ids``, ``metadatas``, and optionally other fields.
-
-        Raises:
-            NotImplementedError: If the provider does not support filtered retrieval.
-        """
-        raise NotImplementedError(f"{self.name} does not support get_by_filter")
+        pass

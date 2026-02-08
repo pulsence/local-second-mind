@@ -103,10 +103,33 @@ class TestVersioningModels:
 
 
 class TestVectorDBProviderVersioningMethods:
-    def test_base_update_metadatas_raises(self) -> None:
+    def test_update_metadatas_is_abstract(self) -> None:
+        """update_metadatas is now abstract — cannot instantiate without it."""
         from lsm.vectordb.base import BaseVectorDBProvider
 
-        # BaseVectorDBProvider is ABC so can't instantiate; test via subclass
+        class _Stub(BaseVectorDBProvider):
+            name = "stub"
+            def is_available(self): return True
+            def add_chunks(self, *a, **kw): pass
+            def get(self, *a, **kw): pass
+            def query(self, *a, **kw): pass
+            def delete_by_id(self, *a, **kw): pass
+            def delete_by_filter(self, *a, **kw): pass
+            def delete_all(self): return 0
+            def count(self): return 0
+            def get_stats(self): return {}
+            def optimize(self): return {}
+            def health_check(self): return {}
+            # update_metadatas intentionally omitted
+
+        from lsm.config.models.vectordb import VectorDBConfig
+        with pytest.raises(TypeError, match="update_metadatas"):
+            _Stub(VectorDBConfig())
+
+    def test_get_is_abstract(self) -> None:
+        """get() is now abstract — cannot instantiate without it."""
+        from lsm.vectordb.base import BaseVectorDBProvider
+
         class _Stub(BaseVectorDBProvider):
             name = "stub"
             def is_available(self): return True
@@ -114,35 +137,17 @@ class TestVectorDBProviderVersioningMethods:
             def query(self, *a, **kw): pass
             def delete_by_id(self, *a, **kw): pass
             def delete_by_filter(self, *a, **kw): pass
+            def delete_all(self): return 0
             def count(self): return 0
             def get_stats(self): return {}
             def optimize(self): return {}
             def health_check(self): return {}
+            def update_metadatas(self, *a, **kw): pass
+            # get intentionally omitted
 
         from lsm.config.models.vectordb import VectorDBConfig
-        stub = _Stub(VectorDBConfig())
-        with pytest.raises(NotImplementedError):
-            stub.update_metadatas(["id1"], [{"k": "v"}])
-
-    def test_base_get_by_filter_raises(self) -> None:
-        from lsm.vectordb.base import BaseVectorDBProvider
-        from lsm.config.models.vectordb import VectorDBConfig
-
-        class _Stub(BaseVectorDBProvider):
-            name = "stub"
-            def is_available(self): return True
-            def add_chunks(self, *a, **kw): pass
-            def query(self, *a, **kw): pass
-            def delete_by_id(self, *a, **kw): pass
-            def delete_by_filter(self, *a, **kw): pass
-            def count(self): return 0
-            def get_stats(self): return {}
-            def optimize(self): return {}
-            def health_check(self): return {}
-
-        stub = _Stub(VectorDBConfig())
-        with pytest.raises(NotImplementedError):
-            stub.get_by_filter({"source_path": "x"})
+        with pytest.raises(TypeError, match="get"):
+            _Stub(VectorDBConfig())
 
 
 # ------------------------------------------------------------------

@@ -8,7 +8,7 @@ from typing import Any, Dict, List, Optional
 
 from lsm.logging import get_logger
 from lsm.config.models import VectorDBConfig
-from .base import BaseVectorDBProvider, VectorDBQueryResult
+from .base import BaseVectorDBProvider, VectorDBGetResult, VectorDBQueryResult
 
 logger = get_logger(__name__)
 
@@ -123,6 +123,42 @@ class ChromaDBProvider(BaseVectorDBProvider):
                 except Exception:
                     raise e
 
+    def get(
+        self,
+        ids: Optional[List[str]] = None,
+        filters: Optional[Dict[str, Any]] = None,
+        limit: Optional[int] = None,
+        offset: int = 0,
+        include: Optional[List[str]] = None,
+    ) -> VectorDBGetResult:
+        """Retrieve vectors by ID and/or metadata filter."""
+        collection = self._ensure_collection()
+        inc = include or ["metadatas"]
+
+        kwargs: Dict[str, Any] = {"include": inc}
+        if ids is not None:
+            kwargs["ids"] = ids
+        if filters:
+            kwargs["where"] = filters
+        if limit is not None:
+            kwargs["limit"] = limit
+        if offset:
+            kwargs["offset"] = offset
+
+        try:
+            results = collection.get(**kwargs)
+        except TypeError:
+            # Some ChromaDB versions don't support offset
+            kwargs.pop("offset", None)
+            results = collection.get(**kwargs)
+
+        return VectorDBGetResult(
+            ids=results.get("ids", []),
+            documents=results.get("documents") if "documents" in inc else None,
+            metadatas=results.get("metadatas") if "metadatas" in inc else None,
+            embeddings=results.get("embeddings") if "embeddings" in inc else None,
+        )
+
     def query(
         self,
         embedding: List[float],
@@ -161,6 +197,15 @@ class ChromaDBProvider(BaseVectorDBProvider):
         collection = self._ensure_collection()
         collection.delete(where=filters)
 
+    def delete_all(self) -> int:
+        """Delete all vectors in the collection."""
+        collection = self._ensure_collection()
+        results = collection.get(include=[])
+        ids = results.get("ids", [])
+        if ids:
+            collection.delete(ids=ids)
+        return len(ids)
+
     def count(self) -> int:
         collection = self._ensure_collection()
         return int(collection.count())
@@ -196,19 +241,6 @@ class ChromaDBProvider(BaseVectorDBProvider):
         collection = self._ensure_collection()
         collection.update(ids=ids, metadatas=metadatas)
 
-    def get_by_filter(self, filters: Dict[str, Any], include: Optional[List[str]] = None) -> Dict[str, Any]:
-        """Retrieve vectors matching a metadata filter."""
-        if not filters:
-            raise ValueError("filters must be a non-empty dict")
-        collection = self._ensure_collection()
-        inc = include or ["metadatas"]
-        results = collection.get(where=filters, include=inc)
-        return {
-            "ids": results.get("ids", []),
-            "metadatas": results.get("metadatas", []),
-            "documents": results.get("documents", []),
-        }
-
-    def get_collection(self):
-        """Return underlying ChromaDB collection for legacy access."""
+    def _get_raw_collection(self):
+        """Return underlying ChromaDB collection for migration tools only."""
         return self._ensure_collection()

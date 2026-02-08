@@ -13,33 +13,31 @@ from datetime import datetime
 from pathlib import Path
 from typing import List, Dict, Any, Optional, Tuple
 
-from chromadb.api.models.Collection import Collection
-
 from lsm.config.models import LLMConfig
 from lsm.providers import create_provider
 from lsm.logging import get_logger
-from lsm.vectordb.utils import require_chroma_collection
+from lsm.vectordb.base import BaseVectorDBProvider
 
 logger = get_logger(__name__)
 
 
 # -----------------------------------------------------------------------------
-# Helper Functions for ChromaDB Tag Storage
+# Helper Functions for Tag Storage
 # -----------------------------------------------------------------------------
 
 def _serialize_tags(tags: List[str]) -> str:
     """
-    Serialize tags list to JSON string for ChromaDB storage.
+    Serialize tags list to JSON string for metadata storage.
 
-    ChromaDB only supports str, int, float, bool, and None in metadata.
-    Lists must be stored as JSON strings.
+    Vector DBs typically only support str, int, float, bool, and None
+    in metadata. Lists must be stored as JSON strings.
     """
     return json.dumps(tags)
 
 
 def _deserialize_tags(tags_json: Any) -> List[str]:
     """
-    Deserialize tags from ChromaDB metadata.
+    Deserialize tags from metadata.
 
     Handles both JSON strings (new format) and lists (if any legacy data exists).
     Returns empty list if tags are None or invalid.
@@ -135,7 +133,7 @@ def generate_tags_for_chunk(
 # -----------------------------------------------------------------------------
 
 def get_untagged_chunks(
-    collection: Collection,
+    provider: BaseVectorDBProvider,
     batch_size: int = 100,
     processed_ids: Optional[set] = None,
 ) -> List[Dict[str, Any]]:
@@ -143,19 +141,18 @@ def get_untagged_chunks(
     Get chunks that haven't been AI-tagged yet.
 
     Args:
-        collection: ChromaDB collection
+        provider: Vector DB provider instance.
         batch_size: Number of untagged chunks to retrieve
         processed_ids: Set of chunk IDs already processed (to skip)
 
     Returns:
         List of metadata dictionaries for untagged chunks
     """
-    # ChromaDB doesn't support querying for None/null values directly,
+    # Vector DBs don't support querying for None/null values directly,
     # so we get all chunks and filter manually.
     if processed_ids is None:
         processed_ids = set()
 
-    collection = require_chroma_collection(collection, "get_untagged_chunks")
     try:
         logger.debug("Fetching chunks and filtering for untagged ones")
 
@@ -163,17 +160,21 @@ def get_untagged_chunks(
         # We need to fetch more than batch_size since some will be tagged
         fetch_limit = max(batch_size * 10, 1000)  # Fetch enough to find untagged ones
 
-        results = collection.get(
+        result = provider.get(
             limit=fetch_limit,
             include=["metadatas", "documents"],
         )
 
-        if not results or not results.get("metadatas"):
+        metadatas = result.metadatas or []
+        if not metadatas:
             return []
 
+        ids = result.ids
+        documents = result.documents or []
+
         untagged = []
-        for i, meta in enumerate(results["metadatas"]):
-            chunk_id = results["ids"][i]
+        for i, meta in enumerate(metadatas):
+            chunk_id = ids[i]
 
             # Skip if already processed
             if chunk_id in processed_ids:
@@ -184,7 +185,7 @@ def get_untagged_chunks(
                 chunk_data = {
                     "id": chunk_id,
                     "metadata": meta,
-                    "text": results["documents"][i] if results.get("documents") else "",
+                    "text": documents[i] if documents else "",
                 }
                 untagged.append(chunk_data)
 
@@ -192,7 +193,7 @@ def get_untagged_chunks(
                 if len(untagged) >= batch_size:
                     break
 
-        logger.debug(f"Found {len(untagged)} untagged chunks out of {len(results['ids'])} fetched")
+        logger.debug(f"Found {len(untagged)} untagged chunks out of {len(ids)} fetched")
         return untagged
 
     except Exception as e:
@@ -201,7 +202,7 @@ def get_untagged_chunks(
 
 
 def tag_chunks(
-    collection: Collection,
+    provider: BaseVectorDBProvider,
     llm_config: LLMConfig,
     num_tags: int = 3,
     batch_size: int = 100,
@@ -215,7 +216,7 @@ def tag_chunks(
     Updates chunks with ai_tags and ai_tagged_at metadata fields.
 
     Args:
-        collection: ChromaDB collection
+        provider: Vector DB provider instance.
         llm_config: LLM configuration for tagging
         num_tags: Number of tags to generate per chunk (default: 3)
         batch_size: Number of chunks to process per batch (default: 100)
@@ -224,16 +225,7 @@ def tag_chunks(
 
     Returns:
         Tuple of (chunks_tagged, chunks_failed)
-
-    Example:
-        >>> config = LSMConfig.load("config.json")
-        >>> collection = create_vectordb_provider(config.vectordb).get_collection()
-        >>> tagging_config = config.llm.get_tagging_config()
-        >>> tagged, failed = tag_chunks(collection, tagging_config, num_tags=3)
-        >>> tagged >= 0 and failed >= 0
-        True
     """
-    collection = require_chroma_collection(collection, "tag_chunks")
     logger.info("Starting AI chunk tagging...")
     logger.info(f"  Model: {llm_config.model}")
     logger.info(f"  Tags per chunk: {num_tags}")
@@ -249,13 +241,13 @@ def tag_chunks(
     # Get existing tags for context (sample from collection)
     existing_tags: List[str] = []
     try:
-        sample_results = collection.get(limit=100, include=["metadatas"])
-        if sample_results and sample_results.get("metadatas"):
-            for meta in sample_results["metadatas"]:
-                if "ai_tags" in meta and meta["ai_tags"]:
-                    # Deserialize tags from JSON
-                    tags = _deserialize_tags(meta["ai_tags"])
-                    existing_tags.extend(tags)
+        sample_result = provider.get(limit=100, include=["metadatas"])
+        sample_metadatas = sample_result.metadatas or []
+        for meta in sample_metadatas:
+            if "ai_tags" in meta and meta["ai_tags"]:
+                # Deserialize tags from JSON
+                tags = _deserialize_tags(meta["ai_tags"])
+                existing_tags.extend(tags)
         existing_tags = list(set(existing_tags))  # Deduplicate
         logger.info(f"Found {len(existing_tags)} existing unique tags for context")
     except Exception as e:
@@ -273,7 +265,7 @@ def tag_chunks(
         if max_chunks:
             remaining = min(batch_size, max_chunks - total_processed)
 
-        untagged = get_untagged_chunks(collection, batch_size=remaining, processed_ids=processed_ids)
+        untagged = get_untagged_chunks(provider, batch_size=remaining, processed_ids=processed_ids)
 
         if not untagged:
             logger.info("No more untagged chunks found")
@@ -311,7 +303,7 @@ def tag_chunks(
                     tags_str = ", ".join(tags)
                     logger.info(f"  ✓ Chunk #{chunk_index} from '{filename}': {tags_str}")
 
-                    # Update metadata - serialize tags as JSON string for ChromaDB
+                    # Update metadata - serialize tags as JSON string
                     metadata["ai_tags"] = _serialize_tags(tags)
                     metadata["ai_tagged_at"] = datetime.now().isoformat()
 
@@ -321,7 +313,7 @@ def tag_chunks(
 
                     # Update in database
                     if not dry_run:
-                        collection.update(
+                        provider.update_metadatas(
                             ids=[chunk_id],
                             metadatas=[metadata],
                         )
@@ -356,7 +348,7 @@ def tag_chunks(
 # -----------------------------------------------------------------------------
 
 def add_user_tags(
-    collection: Collection,
+    provider: BaseVectorDBProvider,
     chunk_id: str,
     tags: List[str],
 ) -> None:
@@ -366,21 +358,21 @@ def add_user_tags(
     User tags are stored separately from AI tags in the 'user_tags' field.
 
     Args:
-        collection: ChromaDB collection
+        provider: Vector DB provider instance.
         chunk_id: ID of chunk to tag
         tags: List of tags to add
 
     Raises:
         ValueError: If chunk doesn't exist
     """
-    collection = require_chroma_collection(collection, "add_user_tags")
     # Get current metadata
-    results = collection.get(ids=[chunk_id], include=["metadatas"])
+    result = provider.get(ids=[chunk_id], include=["metadatas"])
 
-    if not results or not results.get("metadatas"):
+    metadatas = result.metadatas or []
+    if not metadatas:
         raise ValueError(f"Chunk not found: {chunk_id}")
 
-    metadata = results["metadatas"][0]
+    metadata = metadatas[0]
 
     # Get existing user tags - deserialize from JSON
     existing_tags = _deserialize_tags(metadata.get("user_tags"))
@@ -388,18 +380,18 @@ def add_user_tags(
     # Add new tags (avoid duplicates)
     updated_tags = list(set(existing_tags + [t.lower().strip() for t in tags]))
 
-    # Update metadata - serialize as JSON string for ChromaDB
+    # Update metadata - serialize as JSON string
     metadata["user_tags"] = _serialize_tags(updated_tags)
     metadata["user_tagged_at"] = datetime.now().isoformat()
 
     # Save
-    collection.update(ids=[chunk_id], metadatas=[metadata])
+    provider.update_metadatas(ids=[chunk_id], metadatas=[metadata])
 
     logger.info(f"Added user tags to {chunk_id}: {tags}")
 
 
 def remove_user_tags(
-    collection: Collection,
+    provider: BaseVectorDBProvider,
     chunk_id: str,
     tags: List[str],
 ) -> None:
@@ -407,21 +399,21 @@ def remove_user_tags(
     Remove user-provided tags from a chunk.
 
     Args:
-        collection: ChromaDB collection
+        provider: Vector DB provider instance.
         chunk_id: ID of chunk
         tags: List of tags to remove
 
     Raises:
         ValueError: If chunk doesn't exist
     """
-    collection = require_chroma_collection(collection, "remove_user_tags")
     # Get current metadata
-    results = collection.get(ids=[chunk_id], include=["metadatas"])
+    result = provider.get(ids=[chunk_id], include=["metadatas"])
 
-    if not results or not results.get("metadatas"):
+    metadatas = result.metadatas or []
+    if not metadatas:
         raise ValueError(f"Chunk not found: {chunk_id}")
 
-    metadata = results["metadatas"][0]
+    metadata = metadatas[0]
 
     # Get existing user tags - deserialize from JSON
     existing_tags = _deserialize_tags(metadata.get("user_tags"))
@@ -430,41 +422,43 @@ def remove_user_tags(
     tags_to_remove = {t.lower().strip() for t in tags}
     updated_tags = [t for t in existing_tags if t not in tags_to_remove]
 
-    # Update metadata - serialize as JSON string for ChromaDB
+    # Update metadata - serialize as JSON string
     metadata["user_tags"] = _serialize_tags(updated_tags)
     metadata["user_tagged_at"] = datetime.now().isoformat()
 
     # Save
-    collection.update(ids=[chunk_id], metadatas=[metadata])
+    provider.update_metadatas(ids=[chunk_id], metadatas=[metadata])
 
     logger.info(f"Removed user tags from {chunk_id}: {tags}")
 
 
-def get_all_tags(collection: Collection) -> Dict[str, List[str]]:
+def get_all_tags(provider: BaseVectorDBProvider) -> Dict[str, List[str]]:
     """
     Get all unique tags in the collection.
+
+    Args:
+        provider: Vector DB provider instance.
 
     Returns:
         Dictionary with 'ai_tags' and 'user_tags' lists
     """
-    collection = require_chroma_collection(collection, "get_all_tags")
     ai_tags: set[str] = set()
     user_tags: set[str] = set()
 
     # Sample chunks to get tags (limit to avoid memory issues)
-    results = collection.get(limit=10000, include=["metadatas"])
+    result = provider.get(limit=10000, include=["metadatas"])
 
-    if results and results.get("metadatas"):
-        for meta in results["metadatas"]:
-            # Collect AI tags - deserialize from JSON
-            if "ai_tags" in meta and meta["ai_tags"]:
-                tags = _deserialize_tags(meta["ai_tags"])
-                ai_tags.update(tags)
+    metadatas = result.metadatas or []
+    for meta in metadatas:
+        # Collect AI tags - deserialize from JSON
+        if "ai_tags" in meta and meta["ai_tags"]:
+            tags = _deserialize_tags(meta["ai_tags"])
+            ai_tags.update(tags)
 
-            # Collect user tags - deserialize from JSON
-            if "user_tags" in meta and meta["user_tags"]:
-                tags = _deserialize_tags(meta["user_tags"])
-                user_tags.update(tags)
+        # Collect user tags - deserialize from JSON
+        if "user_tags" in meta and meta["user_tags"]:
+            tags = _deserialize_tags(meta["user_tags"])
+            user_tags.update(tags)
 
     return {
         "ai_tags": sorted(list(ai_tags)),

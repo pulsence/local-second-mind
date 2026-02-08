@@ -6,6 +6,7 @@ import pytest
 
 import lsm.query.planning as planning
 from lsm.query.session import Candidate
+from lsm.vectordb.base import VectorDBGetResult
 
 
 def _config(
@@ -105,15 +106,15 @@ def test_prepare_local_candidates_pinned_chunks_inserted(monkeypatch: pytest.Mon
     monkeypatch.setattr(planning, "apply_local_reranking", lambda question, candidates, **kwargs: candidates)
     monkeypatch.setattr(planning, "compute_relevance", lambda filtered: 0.2)
 
-    fake_chroma = SimpleNamespace(
-        get=lambda **kwargs: {
-            "ids": ["p1"],
-            "documents": ["pinned text"],
-            "metadatas": [{"source_path": "/docs/pinned.md"}],
-            "distances": [0.0],
-        }
+    # The collection must pass isinstance(collection, BaseVectorDBProvider)
+    from unittest.mock import Mock
+    from lsm.vectordb.base import BaseVectorDBProvider
+    mock_collection = Mock(spec=BaseVectorDBProvider)
+    mock_collection.get.return_value = VectorDBGetResult(
+        ids=["p1"],
+        documents=["pinned text"],
+        metadatas=[{"source_path": "/docs/pinned.md"}],
     )
-    monkeypatch.setattr(planning, "require_chroma_collection", lambda collection, why: fake_chroma)
 
-    plan = planning.prepare_local_candidates("q", cfg, state, embedder=object(), collection=object())
+    plan = planning.prepare_local_candidates("q", cfg, state, embedder=object(), collection=mock_collection)
     assert plan.filtered[0].cid == "p1"

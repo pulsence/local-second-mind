@@ -11,7 +11,7 @@ from lsm.config.models import LSMConfig
 from lsm.query.session import SessionState, Candidate
 from lsm.query.retrieval import embed_text, retrieve_candidates, filter_candidates, compute_relevance
 from lsm.query.rerank import apply_local_reranking
-from lsm.vectordb.utils import require_chroma_collection
+from lsm.vectordb.base import BaseVectorDBProvider
 from lsm.logging import get_logger
 
 logger = get_logger(__name__)
@@ -100,21 +100,24 @@ def prepare_local_candidates(
 
     if state.pinned_chunks:
         try:
-            chroma = require_chroma_collection(collection, "pinned chunk retrieval")
-            pinned_results = chroma.get(
-                ids=state.pinned_chunks,
-                include=["documents", "metadatas", "distances"],
-            )
-            if pinned_results and pinned_results.get("ids"):
-                for i, chunk_id in enumerate(pinned_results["ids"]):
-                    pinned_candidate = Candidate(
-                        cid=chunk_id,
-                        text=pinned_results["documents"][i],
-                        meta=pinned_results["metadatas"][i],
-                        distance=0.0,
-                    )
-                    if not any(c.cid == chunk_id for c in filtered):
-                        filtered.insert(0, pinned_candidate)
+            pinned_provider = collection if isinstance(collection, BaseVectorDBProvider) else None
+            if pinned_provider is not None:
+                pinned_result = pinned_provider.get(
+                    ids=state.pinned_chunks,
+                    include=["documents", "metadatas"],
+                )
+                if pinned_result.ids:
+                    pinned_docs = pinned_result.documents or []
+                    pinned_metas = pinned_result.metadatas or []
+                    for i, chunk_id in enumerate(pinned_result.ids):
+                        pinned_candidate = Candidate(
+                            cid=chunk_id,
+                            text=pinned_docs[i] if i < len(pinned_docs) else "",
+                            meta=pinned_metas[i] if i < len(pinned_metas) else {},
+                            distance=0.0,
+                        )
+                        if not any(c.cid == chunk_id for c in filtered):
+                            filtered.insert(0, pinned_candidate)
         except Exception as exc:
             logger.error(f"Failed to load pinned chunks: {exc}")
 

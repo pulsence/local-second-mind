@@ -44,12 +44,20 @@
     "enable_versioning": false
   },
 
-  "_comment_storage": "Vector database configuration",
+  "_comment_storage": "Vector database configuration (chromadb or postgresql)",
   "vectordb": {
     "provider": "chromadb",
     "persist_dir": ".chroma",
     "collection": "local_kb",
     "chroma_hnsw_space": "cosine"
+  },
+
+  "_comment_vectordb_postgresql": "Alternative: PostgreSQL with pgvector. Requires psycopg2-binary and pgvector extension.",
+  "_vectordb_postgresql_example": {
+    "provider": "postgresql",
+    "collection": "local_kb",
+    "connection_string": "postgresql://user:password@localhost:5432/lsm",
+    "embedding_dimension": 384
   },
 
   "_comment_llm": "LLM configuration. Providers define connections; services map features to provider+model.",

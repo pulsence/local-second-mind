@@ -2,7 +2,7 @@ import pytest
 
 from lsm.config.models import VectorDBConfig
 from lsm.vectordb.chromadb import ChromaDBProvider
-from lsm.vectordb.base import VectorDBQueryResult
+from lsm.vectordb.base import VectorDBGetResult, VectorDBQueryResult
 
 
 def _provider(tmp_path) -> ChromaDBProvider:
@@ -107,3 +107,139 @@ def test_health_check_reports_error(tmp_path, mocker) -> None:
     health = provider.health_check()
     assert health["status"] == "error"
     assert "boom" in health["error"]
+
+
+class TestChromaDBGet:
+    """Tests for ChromaDBProvider.get() method."""
+
+    def test_get_by_ids(self, tmp_path, mocker) -> None:
+        provider = _provider(tmp_path)
+        collection = mocker.MagicMock()
+        collection.get.return_value = {
+            "ids": ["a", "b"],
+            "metadatas": [{"k": "v1"}, {"k": "v2"}],
+        }
+        mocker.patch.object(provider, "_ensure_collection", return_value=collection)
+
+        result = provider.get(ids=["a", "b"])
+
+        assert isinstance(result, VectorDBGetResult)
+        assert result.ids == ["a", "b"]
+        assert result.metadatas == [{"k": "v1"}, {"k": "v2"}]
+        assert result.documents is None
+        collection.get.assert_called_once_with(include=["metadatas"], ids=["a", "b"])
+
+    def test_get_by_filter(self, tmp_path, mocker) -> None:
+        provider = _provider(tmp_path)
+        collection = mocker.MagicMock()
+        collection.get.return_value = {
+            "ids": ["x"],
+            "metadatas": [{"source_path": "/test"}],
+        }
+        mocker.patch.object(provider, "_ensure_collection", return_value=collection)
+
+        result = provider.get(filters={"source_path": "/test"})
+
+        assert result.ids == ["x"]
+        collection.get.assert_called_once_with(
+            include=["metadatas"], where={"source_path": "/test"}
+        )
+
+    def test_get_with_limit_and_offset(self, tmp_path, mocker) -> None:
+        provider = _provider(tmp_path)
+        collection = mocker.MagicMock()
+        collection.get.return_value = {"ids": ["a"], "metadatas": [{}]}
+        mocker.patch.object(provider, "_ensure_collection", return_value=collection)
+
+        provider.get(limit=10, offset=5, include=["metadatas"])
+
+        collection.get.assert_called_once_with(
+            include=["metadatas"], limit=10, offset=5
+        )
+
+    def test_get_with_documents_include(self, tmp_path, mocker) -> None:
+        provider = _provider(tmp_path)
+        collection = mocker.MagicMock()
+        collection.get.return_value = {
+            "ids": ["a"],
+            "documents": ["doc text"],
+            "metadatas": [{"k": "v"}],
+        }
+        mocker.patch.object(provider, "_ensure_collection", return_value=collection)
+
+        result = provider.get(ids=["a"], include=["documents", "metadatas"])
+
+        assert result.documents == ["doc text"]
+        assert result.metadatas == [{"k": "v"}]
+
+    def test_get_offset_fallback_on_type_error(self, tmp_path, mocker) -> None:
+        provider = _provider(tmp_path)
+        collection = mocker.MagicMock()
+        # First call with offset raises TypeError, second without succeeds
+        collection.get.side_effect = [
+            TypeError("unexpected keyword argument 'offset'"),
+            {"ids": ["a"], "metadatas": [{}]},
+        ]
+        mocker.patch.object(provider, "_ensure_collection", return_value=collection)
+
+        result = provider.get(limit=10, offset=5)
+
+        assert result.ids == ["a"]
+        assert collection.get.call_count == 2
+
+    def test_get_empty_result(self, tmp_path, mocker) -> None:
+        provider = _provider(tmp_path)
+        collection = mocker.MagicMock()
+        collection.get.return_value = {"ids": [], "metadatas": []}
+        mocker.patch.object(provider, "_ensure_collection", return_value=collection)
+
+        result = provider.get(ids=["nonexistent"])
+
+        assert result.ids == []
+
+
+class TestChromaDBDeleteAll:
+    """Tests for ChromaDBProvider.delete_all() method."""
+
+    def test_delete_all_returns_count(self, tmp_path, mocker) -> None:
+        provider = _provider(tmp_path)
+        collection = mocker.MagicMock()
+        collection.get.return_value = {"ids": ["a", "b", "c"]}
+        mocker.patch.object(provider, "_ensure_collection", return_value=collection)
+
+        count = provider.delete_all()
+
+        assert count == 3
+        collection.delete.assert_called_once_with(ids=["a", "b", "c"])
+
+    def test_delete_all_empty_collection(self, tmp_path, mocker) -> None:
+        provider = _provider(tmp_path)
+        collection = mocker.MagicMock()
+        collection.get.return_value = {"ids": []}
+        mocker.patch.object(provider, "_ensure_collection", return_value=collection)
+
+        count = provider.delete_all()
+
+        assert count == 0
+        collection.delete.assert_not_called()
+
+
+class TestChromaDBUpdateMetadatas:
+    """Tests for ChromaDBProvider.update_metadatas() method."""
+
+    def test_update_metadatas_skips_empty(self, tmp_path, mocker) -> None:
+        provider = _provider(tmp_path)
+        ensure_mock = mocker.patch.object(provider, "_ensure_collection")
+        provider.update_metadatas([], [])
+        ensure_mock.assert_not_called()
+
+    def test_update_metadatas_delegates_to_collection(self, tmp_path, mocker) -> None:
+        provider = _provider(tmp_path)
+        collection = mocker.MagicMock()
+        mocker.patch.object(provider, "_ensure_collection", return_value=collection)
+
+        provider.update_metadatas(["a"], [{"new_key": "val"}])
+
+        collection.update.assert_called_once_with(
+            ids=["a"], metadatas=[{"new_key": "val"}]
+        )

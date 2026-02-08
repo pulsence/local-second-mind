@@ -1,16 +1,12 @@
 """
 Retrieval module for semantic search and filtering.
 
-Handles embedding queries, retrieving candidates from ChromaDB, and applying filters.
+Handles embedding queries, retrieving candidates from vector DB, and applying filters.
 """
 
 from __future__ import annotations
 
-from pathlib import Path
 from typing import Any, Dict, List, Optional
-
-import chromadb
-from chromadb.config import Settings
 
 from lsm.logging import get_logger
 from lsm.vectordb.base import BaseVectorDBProvider
@@ -38,36 +34,6 @@ logger = get_logger(__name__)
 # -----------------------------
 DEFAULT_COLLECTION = "local_kb"
 DEFAULT_EMBED_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
-
-
-# -----------------------------
-# ChromaDB Collection
-# -----------------------------
-def init_collection(persist_dir: Path, collection_name: str):
-    """
-    Initialize or retrieve a ChromaDB collection.
-
-    Args:
-        persist_dir: Directory for ChromaDB persistent storage
-        collection_name: Name of the collection to use
-
-    Returns:
-        ChromaDB collection object
-
-    Example:
-        >>> collection = init_collection(Path(".chroma"), "local_kb")
-    """
-    logger.debug(f"Initializing ChromaDB collection: {collection_name}")
-
-    client = chromadb.PersistentClient(
-        path=str(persist_dir),
-        settings=Settings(anonymized_telemetry=False),
-    )
-
-    collection = client.get_or_create_collection(name=collection_name)
-    logger.info(f"ChromaDB collection ready: {collection_name}")
-
-    return collection
 
 
 # -----------------------------
@@ -161,7 +127,7 @@ def embed_text(
 # Retrieval
 # -----------------------------
 def retrieve_candidates(
-    collection,
+    collection: BaseVectorDBProvider,
     query_embedding: List[float],
     k: int,
     where_filter: Optional[Dict[str, Any]] = None,
@@ -170,39 +136,21 @@ def retrieve_candidates(
     Retrieve candidates from a vector DB using similarity search.
 
     Args:
-        collection: ChromaDB collection or vector DB provider
+        collection: Vector DB provider instance.
         query_embedding: Query vector
         k: Number of candidates to retrieve
         where_filter: Optional metadata filter (e.g. ``{"is_current": True}``)
 
     Returns:
         List of Candidate objects sorted by distance (most similar first)
-
-    Example:
-        >>> collection = init_collection(Path(".chroma"), "local_kb")
-        >>> embedder = init_embedder("sentence-transformers/all-MiniLM-L6-v2")
-        >>> vector = embed_text(embedder, "What is Python?")
-        >>> candidates = retrieve_candidates(collection, vector, k=12)
     """
     logger.debug(f"Retrieving {k} candidates from vector DB")
 
-    if isinstance(collection, BaseVectorDBProvider):
-        res = collection.query(query_embedding, top_k=k, filters=where_filter)
-        ids = res.ids
-        docs = res.documents
-        metas = res.metadatas
-        dists = res.distances
-    else:
-        res = collection.query(
-            query_embeddings=[query_embedding],
-            n_results=k,
-            where=where_filter,
-            include=["documents", "metadatas", "distances"],
-        )
-        ids = (res.get("ids") or [[]])[0]
-        docs = (res.get("documents") or [[]])[0]
-        metas = (res.get("metadatas") or [[]])[0]
-        dists = (res.get("distances") or [[]])[0]
+    res = collection.query(query_embedding, top_k=k, filters=where_filter)
+    ids = res.ids
+    docs = res.documents
+    metas = res.metadatas
+    dists = res.distances
 
     candidates: List[Candidate] = []
     for idx, cid in enumerate(ids):

@@ -11,7 +11,6 @@ from lsm.ingest.stats import (
     get_collection_stats as _get_collection_stats,
 )
 from lsm.vectordb import create_vectordb_provider
-from lsm.vectordb.utils import require_chroma_collection
 
 
 @dataclass
@@ -42,20 +41,11 @@ class CollectionStats:
 def get_collection_info(config: LSMConfig) -> CollectionInfo:
     """Return collection info in structured form."""
     provider = create_vectordb_provider(config.vectordb)
-    if getattr(provider, "name", "") != "chromadb":
-        stats = provider.get_stats()
-        return CollectionInfo(
-            name=config.vectordb.collection,
-            chunk_count=provider.count(),
-            provider=stats.get("provider", provider.name),
-        )
-
-    collection = require_chroma_collection(provider, "get_collection_info")
-    info = _get_collection_info(collection)
+    info = _get_collection_info(provider)
     return CollectionInfo(
         name=info.get("name", config.vectordb.collection),
         chunk_count=int(info.get("count", 0)),
-        provider="chromadb",
+        provider=info.get("provider", provider.name),
     )
 
 
@@ -66,22 +56,14 @@ def get_collection_stats(
     """Return collection stats in structured form."""
     provider = create_vectordb_provider(config.vectordb)
     count = provider.count()
-    if getattr(provider, "name", "") != "chromadb":
-        return CollectionStats(
-            chunk_count=count,
-            unique_files=0,
-            file_types={},
-            top_files=[],
-        )
 
-    collection = require_chroma_collection(provider, "get_collection_stats")
     def report_progress(analyzed: int) -> None:
         if progress_callback:
             progress_callback(analyzed, count)
 
     cache_path = config.ingest.persist_dir / "stats_cache.json"
     stats = _get_collection_stats(
-        collection,
+        provider,
         limit=None,
         error_report_path=config.ingest.manifest.parent / "ingest_error_report.json",
         progress_callback=report_progress,
@@ -163,9 +145,4 @@ def run_ingest(
 def wipe_collection(config: LSMConfig) -> int:
     """Delete all chunks from the configured collection; return deleted count."""
     provider = create_vectordb_provider(config.vectordb)
-    collection = require_chroma_collection(provider, "/wipe")
-    results = collection.get(include=[])
-    ids = results.get("ids", [])
-    if ids:
-        collection.delete(ids=ids)
-    return len(ids)
+    return provider.delete_all()

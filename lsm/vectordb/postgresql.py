@@ -7,11 +7,11 @@ from __future__ import annotations
 import json
 import re
 from contextlib import contextmanager
-from typing import Any, Dict, List, Optional, Iterable, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 from lsm.logging import get_logger
 from lsm.config.models import VectorDBConfig
-from .base import BaseVectorDBProvider, VectorDBQueryResult
+from .base import BaseVectorDBProvider, VectorDBGetResult, VectorDBQueryResult
 
 logger = get_logger(__name__)
 
@@ -71,6 +71,37 @@ class PostgreSQLProvider(BaseVectorDBProvider):
         if not safe:
             safe = "local_kb"
         return f"chunks_{safe}"
+
+    @staticmethod
+    def _normalize_filters(filters: Dict[str, Any]) -> Dict[str, Any]:
+        """Normalize ChromaDB-style operator filters to simple equality.
+
+        Converts ``{"key": {"$eq": "value"}}`` to ``{"key": "value"}`` for
+        JSONB containment queries. Simple ``{"key": "value"}`` passes through
+        unchanged.
+
+        Args:
+            filters: Raw filter dict, possibly with ChromaDB operators.
+
+        Returns:
+            Normalized filter dict suitable for JSONB ``@>`` containment.
+
+        Raises:
+            ValueError: If an unsupported operator is encountered.
+        """
+        normalized: Dict[str, Any] = {}
+        for key, value in filters.items():
+            if isinstance(value, dict) and len(value) == 1:
+                op, val = next(iter(value.items()))
+                if op == "$eq":
+                    normalized[key] = val
+                else:
+                    raise ValueError(
+                        f"PostgreSQL provider only supports $eq operator, got {op}"
+                    )
+            else:
+                normalized[key] = value
+        return normalized
 
     def _ensure_pool(self) -> None:
         if self._pool is not None:
@@ -248,6 +279,97 @@ class PostgreSQLProvider(BaseVectorDBProvider):
                 )
             conn.commit()
 
+    def get(
+        self,
+        ids: Optional[List[str]] = None,
+        filters: Optional[Dict[str, Any]] = None,
+        limit: Optional[int] = None,
+        offset: int = 0,
+        include: Optional[List[str]] = None,
+    ) -> VectorDBGetResult:
+        """Retrieve vectors by ID and/or metadata filter."""
+        inc = include or ["metadatas"]
+
+        with self._get_conn() as conn:
+            if not self._table_exists(conn):
+                return VectorDBGetResult()
+
+            # Build SELECT columns based on include
+            columns = [sql.Identifier("id")]
+            if "documents" in inc:
+                columns.append(sql.Identifier("text"))
+            if "metadatas" in inc:
+                columns.append(sql.Identifier("metadata"))
+            if "embeddings" in inc:
+                columns.append(sql.Identifier("embedding"))
+
+            table_ident = sql.Identifier(self._table_name)
+            select_sql = sql.SQL("SELECT {columns} FROM {table}").format(
+                columns=sql.SQL(", ").join(columns),
+                table=table_ident,
+            )
+
+            # Build WHERE clauses
+            where_parts: List[sql.Composable] = []
+            params: List[Any] = []
+
+            if ids is not None:
+                where_parts.append(sql.SQL("id = ANY(%s)"))
+                params.append(ids)
+
+            if filters:
+                normalized = self._normalize_filters(filters)
+                where_parts.append(sql.SQL("metadata @> %s::jsonb"))
+                params.append(json.dumps(normalized))
+
+            if where_parts:
+                where_sql = sql.SQL(" WHERE ") + sql.SQL(" AND ").join(where_parts)
+            else:
+                where_sql = sql.SQL("")
+
+            full_sql = select_sql + where_sql
+
+            # Add LIMIT and OFFSET
+            if limit is not None:
+                full_sql += sql.SQL(" LIMIT %s")
+                params.append(limit)
+            if offset:
+                full_sql += sql.SQL(" OFFSET %s")
+                params.append(offset)
+
+            with conn.cursor() as cur:
+                cur.execute(full_sql, params)
+                rows = cur.fetchall()
+
+        # Map columns to result fields
+        result_ids: List[str] = []
+        result_documents: Optional[List[str]] = [] if "documents" in inc else None
+        result_metadatas: Optional[List[Dict[str, Any]]] = [] if "metadatas" in inc else None
+        result_embeddings: Optional[List[List[float]]] = [] if "embeddings" in inc else None
+
+        for row in rows:
+            col_idx = 0
+            result_ids.append(row[col_idx])
+            col_idx += 1
+
+            if "documents" in inc:
+                result_documents.append(row[col_idx] or "")
+                col_idx += 1
+            if "metadatas" in inc:
+                result_metadatas.append(row[col_idx] or {})
+                col_idx += 1
+            if "embeddings" in inc:
+                emb = row[col_idx]
+                result_embeddings.append(list(emb) if emb is not None else [])
+                col_idx += 1
+
+        return VectorDBGetResult(
+            ids=result_ids,
+            documents=result_documents,
+            metadatas=result_metadatas,
+            embeddings=result_embeddings,
+        )
+
     def query(
         self,
         embedding: List[float],
@@ -269,8 +391,9 @@ class PostgreSQLProvider(BaseVectorDBProvider):
             params: List[Any] = [embedding, embedding, top_k]
 
             if filters:
+                normalized = self._normalize_filters(filters)
                 where_sql = sql.SQL("WHERE metadata @> %s::jsonb")
-                params = [embedding, json.dumps(filters), embedding, top_k]
+                params = [embedding, json.dumps(normalized), embedding, top_k]
 
             query_sql = sql.SQL(
                 """
@@ -315,6 +438,7 @@ class PostgreSQLProvider(BaseVectorDBProvider):
     def delete_by_filter(self, filters: Dict[str, Any]) -> None:
         if not filters:
             raise ValueError("filters must be a non-empty dict")
+        normalized = self._normalize_filters(filters)
         with self._get_conn() as conn:
             if not self._table_exists(conn):
                 return
@@ -324,9 +448,23 @@ class PostgreSQLProvider(BaseVectorDBProvider):
                     sql.SQL("DELETE FROM {table} WHERE metadata @> %s::jsonb").format(
                         table=table_ident
                     ),
-                    [json.dumps(filters)],
+                    [json.dumps(normalized)],
                 )
             conn.commit()
+
+    def delete_all(self) -> int:
+        """Delete all vectors in the collection."""
+        with self._get_conn() as conn:
+            if not self._table_exists(conn):
+                return 0
+            table_ident = sql.Identifier(self._table_name)
+            with conn.cursor() as cur:
+                cur.execute(
+                    sql.SQL("DELETE FROM {table}").format(table=table_ident)
+                )
+                deleted = cur.rowcount
+            conn.commit()
+        return deleted
 
     def count(self) -> int:
         with self._get_conn() as conn:
@@ -339,7 +477,11 @@ class PostgreSQLProvider(BaseVectorDBProvider):
         return int(value)
 
     def get_stats(self) -> Dict[str, Any]:
-        stats = {"provider": self.name, "table": self._table_name}
+        stats: Dict[str, Any] = {
+            "provider": self.name,
+            "collection": self.config.collection,
+            "table": self._table_name,
+        }
         try:
             stats["count"] = self.count()
         except Exception as e:
@@ -372,3 +514,27 @@ class PostgreSQLProvider(BaseVectorDBProvider):
             return {"provider": self.name, "status": "ok"}
         except Exception as e:
             return {"provider": self.name, "status": "error", "error": str(e)}
+
+    def update_metadatas(self, ids: List[str], metadatas: List[Dict[str, Any]]) -> None:
+        """Update metadata for existing vectors by ID.
+
+        Replaces the entire metadata JSONB for each vector.
+        """
+        if not ids:
+            return
+        if len(ids) != len(metadatas):
+            raise ValueError("ids and metadatas must have the same length")
+
+        with self._get_conn() as conn:
+            if not self._table_exists(conn):
+                return
+            table_ident = sql.Identifier(self._table_name)
+            with conn.cursor() as cur:
+                for vid, meta in zip(ids, metadatas):
+                    cur.execute(
+                        sql.SQL(
+                            "UPDATE {table} SET metadata = %s::jsonb WHERE id = %s"
+                        ).format(table=table_ident),
+                        [json.dumps(meta), vid],
+                    )
+            conn.commit()

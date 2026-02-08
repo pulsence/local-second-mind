@@ -8,8 +8,6 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Dict, Optional
 
-from chromadb.api.models.Collection import Collection
-
 from lsm.config.models import LSMConfig
 from lsm.ingest.api import (
     get_collection_info as api_get_collection_info,
@@ -26,7 +24,6 @@ from lsm.ingest.stats import (
 from lsm.ingest.tagging import get_all_tags, tag_chunks
 from lsm.ui.utils import format_ingest_tree, get_ingest_help
 from lsm.vectordb import create_vectordb_provider, list_available_providers
-from lsm.vectordb.utils import require_chroma_collection
 
 
 @dataclass
@@ -159,10 +156,9 @@ def run_wipe(config: LSMConfig) -> str:
 def run_tag(provider: Any, config: LSMConfig, max_chunks: Optional[int]) -> str:
     lines = ["\nStarting AI tagging...", "-" * 60]
     try:
-        collection = require_chroma_collection(provider, "/tag")
         tagging_config = config.llm.get_tagging_config()
         tagged, failed = tag_chunks(
-            collection=collection,
+            provider=provider,
             llm_config=tagging_config,
             num_tags=3,
             batch_size=100,
@@ -185,21 +181,6 @@ def run_tag(provider: Any, config: LSMConfig, max_chunks: Optional[int]) -> str:
 
 
 def format_info(provider: Any, config: LSMConfig) -> str:
-    if getattr(provider, "name", "") != "chromadb":
-        stats = provider.get_stats()
-        lines = [
-            "",
-            "=" * 60,
-            "VECTOR DB INFO",
-            "=" * 60,
-            f"Provider: {stats.get('provider', 'unknown')}",
-            f"Status:   {stats.get('status', 'unknown')}",
-            f"Count:    {provider.count():,}",
-            "=" * 60,
-            "",
-        ]
-        return "\n".join(lines)
-
     info = api_get_collection_info(config)
     lines = [
         "",
@@ -209,10 +190,9 @@ def format_info(provider: Any, config: LSMConfig) -> str:
         f"Name:     {info.name}",
         f"Chunks:   {info.chunk_count:,}",
         f"Provider: {info.provider}",
+        "=" * 60,
+        "",
     ]
-
-    lines.append("=" * 60)
-    lines.append("")
     return "\n".join(lines)
 
 
@@ -298,10 +278,9 @@ def format_explore(
     progress_callback: Optional[Callable[[int, Optional[int]], None]] = None,
 ) -> str:
     lines = ["\nExploring collection...", "Scanning metadata... (this may take a moment)"]
-    collection = require_chroma_collection(provider, "/explore")
 
     path_filter, ext_filter, pattern, display_root, full_path = parse_explore_query(query)
-    where = {"ext": {"$eq": ext_filter}} if ext_filter else None
+    where = {"ext": ext_filter} if ext_filter else None
 
     file_stats: Dict[str, Dict[str, Any]] = {}
     scanned = 0
@@ -309,11 +288,11 @@ def format_explore(
     report_every = 2.0
 
     try:
-        total = collection.count()
+        total = provider.count()
     except Exception:
         total = None
 
-    for meta in iter_collection_metadatas(collection, where=where, batch_size=5000):
+    for meta in iter_collection_metadatas(provider, where=where, batch_size=5000):
         scanned += 1
         if time.time() - last_report >= report_every:
             if total:
@@ -362,9 +341,8 @@ def format_show(provider: Any, file_path: str) -> str:
     if not file_path:
         return "Usage: /show <file_path>"
 
-    collection = require_chroma_collection(provider, "/show")
     lines = [f"\nFetching chunks for: {file_path}"]
-    chunks = get_file_chunks(collection, file_path)
+    chunks = get_file_chunks(provider, file_path)
 
     if not chunks:
         lines.append("No chunks found for this file.")
@@ -400,10 +378,9 @@ def format_search(provider: Any, query: str) -> str:
     if not query:
         return "Usage: /search <query>"
 
-    collection = require_chroma_collection(provider, "/search")
     lines = [f"\nSearching for: {query}"]
 
-    results = search_metadata(collection, query=query, limit=50)
+    results = search_metadata(provider, query=query, limit=50)
     if not results:
         lines.append("No results found.")
         return "\n".join(lines)
@@ -431,10 +408,9 @@ def format_search(provider: Any, query: str) -> str:
 
 def format_tags(provider: Any) -> str:
     lines = ["\nFetching all tags..."]
-    collection = require_chroma_collection(provider, "/tags")
 
     try:
-        all_tags = get_all_tags(collection)
+        all_tags = get_all_tags(provider)
 
         ai_tags = all_tags.get("ai_tags", [])
         user_tags = all_tags.get("user_tags", [])

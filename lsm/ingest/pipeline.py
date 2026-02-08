@@ -370,10 +370,10 @@ def ingest(
                 if enable_versioning:
                     # Mark old chunks as non-current instead of deleting
                     try:
-                        old = provider.get_by_filter(
-                            {"source_path": job.source_path}, include=["metadatas"],
+                        old = provider.get(
+                            filters={"source_path": job.source_path}, include=["metadatas"],
                         )
-                        old_ids = old.get("ids", [])
+                        old_ids = old.ids
                         if old_ids:
                             updated = [{"is_current": False} for _ in old_ids]
                             provider.update_metadatas(old_ids, updated)
