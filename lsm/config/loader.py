@@ -32,6 +32,8 @@ from .models import (
     NotesConfig,
     ChatsConfig,
     RemoteProviderConfig,
+    RemoteProviderChainConfig,
+    ChainLink,
     RemoteProviderRef,
     VectorDBConfig,
     DEFAULT_EXTENSIONS,
@@ -319,6 +321,7 @@ def build_config_from_raw(raw: Dict[str, Any], path: Path | str) -> LSMConfig:
     notes_config = build_notes_config(raw.get("notes", {}))
     chats_config = build_chats_config(raw.get("chats", {}))
     remote_providers = build_remote_providers_registry(raw)
+    remote_provider_chains = build_remote_provider_chains_registry(raw)
 
     config = LSMConfig(
         ingest=ingest_config,
@@ -330,6 +333,7 @@ def build_config_from_raw(raw: Dict[str, Any], path: Path | str) -> LSMConfig:
         notes=notes_config,
         chats=chats_config,
         remote_providers=remote_providers,
+        remote_provider_chains=remote_provider_chains,
         config_path=path,
     )
     config.validate()
@@ -651,6 +655,75 @@ def build_remote_providers_registry(raw: Dict[str, Any]) -> list[RemoteProviderC
     return providers
 
 
+def build_chain_link(raw: Dict[str, Any]) -> ChainLink:
+    """Build ChainLink from raw configuration."""
+    map_values = raw.get("map")
+    parsed_map = None
+    if map_values is not None:
+        if isinstance(map_values, list):
+            parsed_map = [str(item) for item in map_values if str(item).strip()]
+        else:
+            raise ValueError("chain link 'map' must be a list of 'output:input' strings")
+    return ChainLink(
+        source=str(raw.get("source", "")),
+        map=parsed_map,
+    )
+
+
+def build_remote_provider_chain_config(raw: Dict[str, Any]) -> RemoteProviderChainConfig:
+    """Build RemoteProviderChainConfig from raw configuration."""
+    links_raw = raw.get("links")
+    if not isinstance(links_raw, list):
+        raise ValueError("remote provider chain 'links' must be a list")
+
+    links: list[ChainLink] = []
+    for idx, item in enumerate(links_raw):
+        if not isinstance(item, dict):
+            raise ValueError(f"remote provider chain link[{idx}] must be an object")
+        links.append(build_chain_link(item))
+
+    return RemoteProviderChainConfig(
+        name=str(raw.get("name", "")),
+        agent_description=str(raw.get("agent_description", "")),
+        links=links,
+    )
+
+
+def build_remote_provider_chains_registry(raw: Dict[str, Any]) -> list[RemoteProviderChainConfig] | None:
+    """Build remote provider chains registry from raw configuration."""
+    chains_raw = raw.get("remote_provider_chains", [])
+    if not chains_raw:
+        return None
+    if not isinstance(chains_raw, list):
+        warnings.warn("Config 'remote_provider_chains' must be a list. Ignoring invalid value.")
+        return None
+
+    chains: list[RemoteProviderChainConfig] = []
+    for idx, chain_raw in enumerate(chains_raw):
+        if not isinstance(chain_raw, dict):
+            warnings.warn(
+                f"Skipping remote_provider_chains[{idx}] because it is not an object."
+            )
+            continue
+        if not chain_raw.get("name"):
+            warnings.warn(
+                f"Skipping remote_provider_chains[{idx}] because it is missing 'name'."
+            )
+            continue
+        try:
+            chains.append(build_remote_provider_chain_config(chain_raw))
+        except Exception as exc:
+            warnings.warn(
+                f"Skipping remote provider chain '{chain_raw.get('name')}' due to error: {exc}"
+            )
+
+    if not chains:
+        warnings.warn("No valid remote provider chains found. Ignoring chain configuration.")
+        return None
+
+    return chains
+
+
 def load_config_from_file(path: Path | str) -> LSMConfig:
     """
     Load and validate LSM configuration from file.
@@ -804,6 +877,22 @@ def config_to_raw(config: LSMConfig) -> Dict[str, Any]:
                 }
             )
 
+    remote_provider_chains = None
+    if config.remote_provider_chains:
+        remote_provider_chains = []
+        for chain in config.remote_provider_chains:
+            chain_entry: Dict[str, Any] = {
+                "name": chain.name,
+                "agent_description": chain.agent_description,
+                "links": [],
+            }
+            for link in chain.links:
+                link_entry: Dict[str, Any] = {"source": link.source}
+                if link.map:
+                    link_entry["map"] = list(link.map)
+                chain_entry["links"].append(link_entry)
+            remote_provider_chains.append(chain_entry)
+
     gs = config.global_settings
     return {
         "global": {
@@ -886,6 +975,7 @@ def config_to_raw(config: LSMConfig) -> Dict[str, Any]:
             "format": config.chats.format,
         },
         "remote_providers": remote_providers,
+        "remote_provider_chains": remote_provider_chains,
         "vectordb": {
             "provider": config.vectordb.provider,
             "collection": config.vectordb.collection,

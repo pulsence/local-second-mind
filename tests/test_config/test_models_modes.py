@@ -1,6 +1,11 @@
 import pytest
 
-from lsm.config.models.modes import ModeConfig, RemoteProviderConfig
+from lsm.config.models.modes import (
+    ChainLink,
+    ModeConfig,
+    RemoteProviderChainConfig,
+    RemoteProviderConfig,
+)
 
 
 def test_mode_config_validate_accepts_default_style() -> None:
@@ -29,3 +34,15 @@ def test_remote_provider_config_validate_rejects_invalid_cache_ttl() -> None:
     provider = RemoteProviderConfig(name="wikipedia", type="wikipedia", cache_ttl=0)
     with pytest.raises(ValueError, match="cache_ttl must be positive"):
         provider.validate()
+
+
+def test_chain_link_validate_rejects_bad_map_format() -> None:
+    link = ChainLink(source="openalex", map=["badmap"])
+    with pytest.raises(ValueError, match="must be 'output:input'"):
+        link.validate()
+
+
+def test_remote_provider_chain_config_requires_links() -> None:
+    chain = RemoteProviderChainConfig(name="digest", links=[])
+    with pytest.raises(ValueError, match="must include at least one link"):
+        chain.validate()

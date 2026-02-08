@@ -211,6 +211,27 @@
     }
   ],
 
+  "_comment_remote_provider_chains": "Optional named multi-step remote pipelines. map entries are 'output_field:input_field'.",
+  "remote_provider_chains": [
+    {
+      "name": "Research Digest",
+      "agent_description": "Use OpenAlex to discover candidate works, then enrich DOI metadata using Crossref.",
+      "links": [
+        {
+          "_comment": "First link takes the chain input directly",
+          "source": "openalex"
+        },
+        {
+          "_comment": "Map output from previous link (N-1) into this link (N)",
+          "source": "crossref",
+          "map": [
+            "doi:doi"
+          ]
+        }
+      ]
+    }
+  ],
+
   "_comment_remote_providers": "Remote source providers (web search, APIs, etc.). API keys can be omitted and provided via .env instead.",
   "remote_providers": [
     {

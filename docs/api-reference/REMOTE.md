@@ -66,6 +66,23 @@ Instantiates a provider for a type string.
 
 Returns the registry mapping types to classes.
 
+## RemoteProviderChain
+
+Location: `lsm/remote/chain.py`
+
+### RemoteProviderChain(config, chain_config)
+
+Creates an executable chain from a configured `RemoteProviderChainConfig`.
+
+### execute(input_dict, max_results=5) -> list[dict]
+
+Runs links in order:
+
+- Link 1 receives `input_dict`
+- Link N can map link N-1 output fields to link N input fields using
+  `"output:input"` mapping entries
+- Final link output is returned
+
 ## Built-In Providers
 
 ### Brave Search

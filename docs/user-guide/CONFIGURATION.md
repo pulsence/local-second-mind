@@ -38,6 +38,7 @@ fields in the config file. The top-level keys are:
 | `notes` | `NotesConfig` | Notes system settings |
 | `chats` | `ChatsConfig` | Chat transcript saving settings |
 | `remote_providers` | `list[RemoteProviderConfig]` | Remote source providers |
+| `remote_provider_chains` | `list[RemoteProviderChainConfig]` | Named multi-provider remote pipelines |
 
 ## Required Fields
 
@@ -323,6 +324,27 @@ to specific providers.
 - `cache_results`: When `true`, provider responses are cached on disk under
   `<global_folder>/Downloads/<provider_name>/`.
 - `cache_ttl`: Cache freshness window in seconds before a query is re-fetched.
+
+## Remote Provider Chains
+
+Remote provider chains define multi-step pipelines where each step can map
+fields from the previous step's output into the next step's input.
+
+```json
+"remote_provider_chains": [
+  {
+    "name": "Research Digest",
+    "agent_description": "Use OpenAlex to discover works, then enrich DOI metadata via Crossref.",
+    "links": [
+      { "source": "openalex" },
+      { "source": "crossref", "map": ["doi:doi"] }
+    ]
+  }
+]
+```
+
+- `links[0]` receives the chain input directly.
+- Later links can declare `map` entries as `"output_field:input_field"`.
 
 Provider `type` must be registered by the remote provider factory. Built-ins:
 

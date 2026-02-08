@@ -31,6 +31,12 @@ plain text query search:
 This protocol is intended for tool-calling and agent-style orchestration where
 providers need self-describing schemas instead of free-form prompts.
 
+## Provider Chains
+
+You can define `remote_provider_chains` in config to run providers as a
+pipeline. Each link can map prior output fields into next-link input fields
+using `"output:input"` mappings (for example, `"doi:doi"`).
+
 ## Built-In Providers
 
 LSM ships with ten built-in remote providers covering STEM, humanities, and cross-disciplinary research:

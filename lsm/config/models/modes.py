@@ -283,3 +283,63 @@ class RemoteProviderConfig:
             raise ValueError(f"weight must be non-negative, got {self.weight}")
         if self.cache_ttl < 1:
             raise ValueError(f"cache_ttl must be positive, got {self.cache_ttl}")
+
+
+@dataclass
+class ChainLink:
+    """
+    Link definition for a remote provider chain.
+
+    A link references a configured remote provider by name. For links after the
+    first one, `map` controls how output fields from the previous link map to
+    input fields on the current link using entries like `"doi:query_doi"`.
+    """
+
+    source: str
+    """Remote provider name for this link."""
+
+    map: Optional[List[str]] = None
+    """Optional output->input mappings in `source_field:target_field` format."""
+
+    def validate(self) -> None:
+        """Validate chain link configuration."""
+        if not self.source or not self.source.strip():
+            raise ValueError("chain link source is required")
+        if not self.map:
+            return
+        for idx, mapping in enumerate(self.map):
+            value = str(mapping).strip()
+            if ":" not in value:
+                raise ValueError(
+                    f"chain link map[{idx}] must be 'output:input', got '{mapping}'"
+                )
+            left, right = value.split(":", 1)
+            if not left.strip() or not right.strip():
+                raise ValueError(
+                    f"chain link map[{idx}] must include non-empty output and input fields"
+                )
+
+
+@dataclass
+class RemoteProviderChainConfig:
+    """
+    Configuration for a named remote provider chain.
+    """
+
+    name: str
+    """Chain name used for selection."""
+
+    agent_description: str = ""
+    """Description for LLM/agent routing and expected usage."""
+
+    links: List[ChainLink] = field(default_factory=list)
+    """Ordered links in the chain."""
+
+    def validate(self) -> None:
+        """Validate chain configuration."""
+        if not self.name or not self.name.strip():
+            raise ValueError("remote provider chain name is required")
+        if not self.links:
+            raise ValueError(f"remote provider chain '{self.name}' must include at least one link")
+        for link in self.links:
+            link.validate()

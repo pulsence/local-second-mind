@@ -18,6 +18,7 @@ __all__ = [
     "get_registered_providers",
     "get_remote_provider",
     "RemoteProviderFactory",
+    "RemoteProviderChain",
     # Storage helpers
     "save_results",
     "load_cached_results",
@@ -48,6 +49,7 @@ from lsm.remote.factory import (
     get_remote_provider,
     RemoteProviderFactory,
 )
+from lsm.remote.chain import RemoteProviderChain
 from lsm.remote.storage import save_results, load_cached_results
 
 # Provider implementations

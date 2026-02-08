@@ -21,6 +21,7 @@ from .modes import (
     ModelKnowledgePolicy,
     NotesConfig,
     RemoteProviderConfig,
+    RemoteProviderChainConfig,
     RemoteSourcePolicy,
     SourcePolicyConfig,
 )
@@ -56,6 +57,9 @@ class LSMConfig:
 
     remote_providers: Optional[list[RemoteProviderConfig]] = None
     """List of remote source providers (web search, APIs, etc)."""
+
+    remote_provider_chains: Optional[list[RemoteProviderChainConfig]] = None
+    """Optional named remote provider chains."""
 
     notes: NotesConfig = field(default_factory=NotesConfig)
     """Global notes configuration applied across modes."""
@@ -134,6 +138,36 @@ class LSMConfig:
                 seen_names.add(provider_config.name)
                 valid_providers.append(provider_config)
             self.remote_providers = valid_providers or None
+
+        if self.remote_provider_chains:
+            provider_names = {p.name for p in (self.remote_providers or [])}
+            seen_chain_names = set()
+            valid_chains = []
+            for chain in self.remote_provider_chains:
+                if not chain.name:
+                    warnings.warn("Skipping remote provider chain missing a name.")
+                    continue
+                if chain.name in seen_chain_names:
+                    warnings.warn(f"Skipping duplicate remote provider chain name: {chain.name}")
+                    continue
+                try:
+                    chain.validate()
+                except Exception as exc:
+                    warnings.warn(f"Skipping remote provider chain '{chain.name}': {exc}")
+                    continue
+                missing = [
+                    link.source for link in chain.links
+                    if link.source not in provider_names
+                ]
+                if missing:
+                    warnings.warn(
+                        f"Skipping remote provider chain '{chain.name}' because "
+                        f"providers are not configured: {sorted(set(missing))}"
+                    )
+                    continue
+                seen_chain_names.add(chain.name)
+                valid_chains.append(chain)
+            self.remote_provider_chains = valid_chains or None
 
     @staticmethod
     def _get_builtin_modes() -> dict[str, ModeConfig]:
@@ -249,6 +283,13 @@ class LSMConfig:
                 provider_config.weight = weight
                 return True
         return False
+
+    def get_remote_provider_chain(self, chain_name: str) -> Optional[RemoteProviderChainConfig]:
+        """Get a configured remote provider chain by name."""
+        for chain in self.remote_provider_chains or []:
+            if chain.name.lower() == chain_name.lower():
+                return chain
+        return None
 
     @property
     def persist_dir(self) -> Path:

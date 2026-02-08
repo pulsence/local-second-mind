@@ -60,6 +60,7 @@ All notable changes to Local Second Mind are documented here.
 - Remote provider structured protocol test coverage in `tests/test_providers/remote/test_structured_protocol.py`.
 - Remote result disk caching via `lsm/remote/storage.py` with `save_results()` and `load_cached_results()`, integrated into query remote fetch flow.
 - Remote provider config keys `cache_results` and `cache_ttl` for per-provider cache control.
+- Remote provider chaining with `remote_provider_chains` config, `ChainLink` mapping (`output:input`), and `RemoteProviderChain` execution in `lsm/remote/chain.py`.
 
 ### Changed
 
