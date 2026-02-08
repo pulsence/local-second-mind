@@ -81,6 +81,7 @@
   "_comment_query": "Query pipeline configuration",
   "query": {
     "mode": "grounded",
+    "chat_mode": "single",
     "k": 12,
     "retrieve_k": null,
     "min_relevance": 0.25,
@@ -93,7 +94,10 @@
     "_comment_filters": "Optional query filters (can be overridden per-session in REPL)",
     "path_contains": null,
     "ext_allow": null,
-    "ext_deny": null
+    "ext_deny": null,
+    "enable_query_cache": false,
+    "query_cache_ttl": 3600,
+    "query_cache_size": 100
   },
 
   "_comment_notes": "Global notes configuration (applies across all modes)",
@@ -106,6 +110,14 @@
     "wikilinks": false,
     "backlinks": false,
     "include_tags": false
+  },
+
+  "_comment_chats": "Global chat transcript settings",
+  "chats": {
+    "enabled": true,
+    "dir": "Chats",
+    "auto_save": true,
+    "format": "markdown"
   },
 
   "_comment_modes": "Query mode definitions (grounded/insight/hybrid built-in, add custom modes here)",

@@ -34,6 +34,20 @@ def get_chats_folder(global_folder: Optional[str | Path] = None) -> Path:
     return get_global_folder(global_folder) / "Chats"
 
 
+def get_mode_chats_folder(
+    mode_name: str,
+    global_folder: Optional[str | Path] = None,
+    base_dir: str | Path = "Chats",
+) -> Path:
+    """
+    Return the chat transcript folder path for a specific mode.
+    """
+    base_path = Path(base_dir).expanduser()
+    if base_path.is_absolute():
+        return (base_path / mode_name).resolve()
+    return (get_global_folder(global_folder) / base_path / mode_name).resolve()
+
+
 def get_notes_folder(global_folder: Optional[str | Path] = None) -> Path:
     """Return the global notes folder path."""
     return get_global_folder(global_folder) / "Notes"

@@ -6,7 +6,13 @@ import pytest
 
 from pathlib import Path
 
-from lsm.query.session import Candidate, SessionState, get_default_chats_dir
+from lsm.query.session import (
+    Candidate,
+    SessionState,
+    append_chat_turn,
+    get_default_chats_dir,
+    save_conversation_markdown,
+)
 
 
 class TestCandidate:
@@ -175,6 +181,9 @@ class TestSessionState:
         assert state.available_models == []
         assert state.last_question is None
         assert state.last_all_candidates == []
+        assert state.context_documents == []
+        assert state.context_chunks == []
+        assert state.conversation_history == []
 
     def test_session_state_with_filters(self):
         """Test session state with filters."""
@@ -363,3 +372,14 @@ class TestSessionState:
 def test_get_default_chats_dir(tmp_path: Path):
     resolved = get_default_chats_dir(tmp_path / "lsm-home")
     assert resolved == (tmp_path / "lsm-home" / "Chats").resolve()
+
+
+def test_chat_history_append_and_save(tmp_path: Path):
+    state = SessionState()
+    append_chat_turn(state, "user", "hello")
+    append_chat_turn(state, "assistant", "hi")
+    out = save_conversation_markdown(state, tmp_path, mode_name="grounded")
+    assert out.exists()
+    content = out.read_text(encoding="utf-8")
+    assert "## User" in content
+    assert "## Assistant" in content

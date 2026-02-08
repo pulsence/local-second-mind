@@ -54,8 +54,21 @@ class QueryConfig:
     ext_deny: Optional[List[str]] = None
     """Exclude files with these extensions."""
 
+    enable_query_cache: bool = False
+    """Enable in-memory query result caching."""
+
+    query_cache_ttl: int = 3600
+    """Cache TTL in seconds."""
+
+    query_cache_size: int = 100
+    """Maximum number of cached query entries."""
+
+    chat_mode: str = "single"
+    """Response mode: 'single' (stateless) or 'chat' (maintains conversation)."""
+
     def __post_init__(self):
         """Compute derived values."""
+        self.chat_mode = (self.chat_mode or "single").strip().lower()
         if self.local_pool is None:
             self.local_pool = max(self.k * 3, self.k_rerank * 4)
 
@@ -82,4 +95,16 @@ class QueryConfig:
         if self.rerank_strategy not in valid_strategies:
             raise ValueError(
                 f"rerank_strategy must be one of {valid_strategies}, got '{self.rerank_strategy}'"
+            )
+
+        if self.query_cache_ttl < 1:
+            raise ValueError(f"query_cache_ttl must be positive, got {self.query_cache_ttl}")
+
+        if self.query_cache_size < 1:
+            raise ValueError(f"query_cache_size must be positive, got {self.query_cache_size}")
+
+        valid_chat_modes = {"single", "chat"}
+        if self.chat_mode not in valid_chat_modes:
+            raise ValueError(
+                f"chat_mode must be one of {valid_chat_modes}, got '{self.chat_mode}'"
             )

@@ -10,6 +10,7 @@ from typing import List
 from lsm.config.models import LSMConfig
 from lsm.query.session import SessionState, Candidate
 from lsm.query.retrieval import embed_text, retrieve_candidates, filter_candidates, compute_relevance
+from lsm.query.prefilter import prefilter_by_metadata
 from lsm.query.rerank import apply_local_reranking
 from lsm.vectordb.base import BaseVectorDBProvider
 from lsm.logging import get_logger
@@ -33,6 +34,7 @@ class LocalQueryPlan:
     max_per_file: int
     local_pool: int
     no_rerank: bool
+    metadata_filter: dict | None = None
 
 
 def prepare_local_candidates(
@@ -73,6 +75,7 @@ def prepare_local_candidates(
             max_per_file=max_per_file,
             local_pool=local_pool,
             no_rerank=no_rerank,
+            metadata_filter=None,
         )
 
     batch_size = config.batch_size
@@ -85,9 +88,11 @@ def prepare_local_candidates(
     filters_active = bool(path_contains) or bool(ext_allow) or bool(ext_deny)
     retrieve_k = config.query.retrieve_k or (max(k, k * 3) if filters_active else k)
 
-    where_filter = None
+    where_filter = prefilter_by_metadata(question, available_metadata={})
     if config.ingest.enable_versioning:
-        where_filter = {"is_current": True}
+        where_filter = {**where_filter, "is_current": True}
+    if not where_filter:
+        where_filter = None
 
     candidates = retrieve_candidates(collection, query_vector, retrieve_k, where_filter=where_filter)
 
@@ -98,12 +103,13 @@ def prepare_local_candidates(
         ext_deny=ext_deny,
     )
 
-    if state.pinned_chunks:
+    pinned_chunks = getattr(state, "pinned_chunks", None) or []
+    if pinned_chunks:
         try:
             pinned_provider = collection if isinstance(collection, BaseVectorDBProvider) else None
             if pinned_provider is not None:
                 pinned_result = pinned_provider.get(
-                    ids=state.pinned_chunks,
+                    ids=pinned_chunks,
                     include=["documents", "metadatas"],
                 )
                 if pinned_result.ids:
@@ -120,6 +126,60 @@ def prepare_local_candidates(
                             filtered.insert(0, pinned_candidate)
         except Exception as exc:
             logger.error(f"Failed to load pinned chunks: {exc}")
+
+    anchor_candidates: List[Candidate] = []
+    if isinstance(collection, BaseVectorDBProvider):
+        context_chunks = getattr(state, "context_chunks", None) or []
+        if context_chunks:
+            try:
+                anchored = collection.get(
+                    ids=context_chunks,
+                    include=["documents", "metadatas"],
+                )
+                docs = anchored.documents or []
+                metas = anchored.metadatas or []
+                for i, chunk_id in enumerate(anchored.ids):
+                    anchor_candidates.append(
+                        Candidate(
+                            cid=chunk_id,
+                            text=docs[i] if i < len(docs) else "",
+                            meta=metas[i] if i < len(metas) else {},
+                            distance=0.0,
+                        )
+                    )
+            except Exception as exc:
+                logger.error(f"Failed to load context chunk anchors: {exc}")
+        context_documents = getattr(state, "context_documents", None) or []
+        if context_documents:
+            for doc_path in context_documents:
+                try:
+                    anchored = collection.get(
+                        filters={"source_path": doc_path},
+                        limit=max(1, min(k, k_rerank)),
+                        include=["documents", "metadatas"],
+                    )
+                    docs = anchored.documents or []
+                    metas = anchored.metadatas or []
+                    for i, chunk_id in enumerate(anchored.ids):
+                        anchor_candidates.append(
+                            Candidate(
+                                cid=chunk_id,
+                                text=docs[i] if i < len(docs) else "",
+                                meta=metas[i] if i < len(metas) else {},
+                                distance=0.0,
+                            )
+                        )
+                except Exception as exc:
+                    logger.error(f"Failed to load context document anchor '{doc_path}': {exc}")
+
+    if anchor_candidates:
+        existing_ids = {c.cid for c in filtered}
+        prioritized = []
+        for candidate in anchor_candidates:
+            if candidate.cid not in existing_ids:
+                prioritized.append(candidate)
+                existing_ids.add(candidate.cid)
+        filtered = prioritized + filtered
 
     if filtered:
         if rerank_strategy in ("lexical", "hybrid"):
@@ -153,4 +213,5 @@ def prepare_local_candidates(
         max_per_file=max_per_file,
         local_pool=local_pool,
         no_rerank=no_rerank,
+        metadata_filter=where_filter,
     )

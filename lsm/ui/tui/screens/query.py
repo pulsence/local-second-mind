@@ -780,6 +780,7 @@ class QueryScreen(Widget):
                     mode_config = self.app.config.get_mode_config(current_mode)
                     lines = [
                         f"Current mode: {current_mode}",
+                        f"  Chat mode: {getattr(self.app.config.query, 'chat_mode', 'single')}",
                         f"  Synthesis style: {mode_config.synthesis_style}",
                         f"  Local sources: enabled (k={mode_config.source_policy.local.k})",
                         f"  Remote sources: {'enabled' if mode_config.source_policy.remote.enabled else 'disabled'}",
@@ -821,10 +822,16 @@ class QueryScreen(Widget):
                     return CommandResult(
                         output=(
                             "Usage:\n  /mode           (show current)\n"
-                            "  /mode <name>    (switch to a different mode)\n"
+                            "  /mode <name>    (switch query source mode)\n"
+                            "  /mode chat|single (switch conversation mode)\n"
                         )
                     )
                 mode_name = parts[1].strip()
+                if mode_name in {"chat", "single"}:
+                    self.app.config.query.chat_mode = mode_name
+                    return CommandResult(
+                        output=f"Chat mode set to: {mode_name}\n"
+                    )
                 if mode_name not in self.app.config.modes:
                     return CommandResult(
                         output=(
@@ -843,6 +850,42 @@ class QueryScreen(Widget):
                     f"{'enabled' if mode_config.source_policy.model_knowledge.enabled else 'disabled'}\n",
                 ]
                 return CommandResult(output="\n".join(lines))
+
+            if cmd == "/context":
+                if len(parts) == 1:
+                    docs = self.app.query_state.context_documents or []
+                    chunks = self.app.query_state.context_chunks or []
+                    lines = [
+                        "Context anchors:",
+                        f"  Documents: {', '.join(docs) if docs else '(none)'}",
+                        f"  Chunks: {', '.join(chunks) if chunks else '(none)'}",
+                        "",
+                        "Usage:",
+                        "  /context doc <path> [more paths...]",
+                        "  /context chunk <id> [more ids...]",
+                        "  /context clear",
+                    ]
+                    return CommandResult(output="\n".join(lines))
+                action = parts[1].strip().lower()
+                if action == "clear":
+                    self.app.query_state.context_documents = []
+                    self.app.query_state.context_chunks = []
+                    return CommandResult(output="Cleared context anchors.\n")
+                if action == "doc":
+                    if len(parts) < 3:
+                        return CommandResult(output="Usage: /context doc <path> [more paths...]\n")
+                    self.app.query_state.context_documents = parts[2:]
+                    return CommandResult(
+                        output=f"Context document anchors set ({len(parts[2:])}).\n"
+                    )
+                if action == "chunk":
+                    if len(parts) < 3:
+                        return CommandResult(output="Usage: /context chunk <id> [more ids...]\n")
+                    self.app.query_state.context_chunks = parts[2:]
+                    return CommandResult(
+                        output=f"Context chunk anchors set ({len(parts[2:])}).\n"
+                    )
+                return CommandResult(output="Usage: /context [doc|chunk|clear] ...\n")
 
             if cmd in {"/note", "/notes"}:
                 if not self.app.query_state.last_question:
@@ -1198,6 +1241,7 @@ Navigation
 Modes and sources
 /mode                         Show current query mode
 /mode <name>                  Switch to a different query mode
+/mode chat|single             Switch conversation mode
 /mode set <setting> <on|off>  Toggle model_knowledge, remote, notes
 
 Models and providers
@@ -1223,6 +1267,10 @@ Notes and citations
 Filters and pinned chunks
 /load <file_path>             Pin chunks from a file
 /load clear                   Clear pinned chunks
+/context                      Show context anchors
+/context doc <path...>        Set document anchors
+/context chunk <id...>        Set chunk anchors
+/context clear                Clear context anchors
 /set path_contains <substring> [more...]
 /set ext_allow .md .pdf
 /set ext_deny .txt

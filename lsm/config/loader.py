@@ -29,6 +29,7 @@ from .models import (
     RemoteSourcePolicy,
     ModelKnowledgePolicy,
     NotesConfig,
+    ChatsConfig,
     RemoteProviderConfig,
     RemoteProviderRef,
     VectorDBConfig,
@@ -315,6 +316,7 @@ def build_config_from_raw(raw: Dict[str, Any], path: Path | str) -> LSMConfig:
     vectordb_config = build_vectordb_config(raw)
     modes = build_modes_registry(raw)
     notes_config = build_notes_config(raw.get("notes", {}))
+    chats_config = build_chats_config(raw.get("chats", {}))
     remote_providers = build_remote_providers_registry(raw)
 
     config = LSMConfig(
@@ -325,6 +327,7 @@ def build_config_from_raw(raw: Dict[str, Any], path: Path | str) -> LSMConfig:
         global_settings=global_config,
         modes=modes,
         notes=notes_config,
+        chats=chats_config,
         remote_providers=remote_providers,
         config_path=path,
     )
@@ -379,6 +382,10 @@ def build_query_config(raw: Dict[str, Any]) -> QueryConfig:
         path_contains=query_section.get("path_contains"),
         ext_allow=query_section.get("ext_allow"),
         ext_deny=query_section.get("ext_deny"),
+        enable_query_cache=bool(query_section.get("enable_query_cache", False)),
+        query_cache_ttl=int(query_section.get("query_cache_ttl", 3600)),
+        query_cache_size=int(query_section.get("query_cache_size", 100)),
+        chat_mode=str(query_section.get("chat_mode", "single")),
     )
 
     return config
@@ -403,6 +410,24 @@ def build_notes_config(raw: Dict[str, Any]) -> NotesConfig:
         wikilinks=bool(raw.get("wikilinks", False)),
         backlinks=bool(raw.get("backlinks", False)),
         include_tags=bool(raw.get("include_tags", False)),
+    )
+
+
+def build_chats_config(raw: Dict[str, Any]) -> ChatsConfig:
+    """
+    Build ChatsConfig from raw configuration.
+
+    Args:
+        raw: Raw chats config dictionary
+
+    Returns:
+        ChatsConfig instance
+    """
+    return ChatsConfig(
+        enabled=bool(raw.get("enabled", True)),
+        dir=str(raw.get("dir", "Chats")),
+        auto_save=bool(raw.get("auto_save", True)),
+        format=str(raw.get("format", "markdown")),
     )
 
 
@@ -810,6 +835,10 @@ def config_to_raw(config: LSMConfig) -> Dict[str, Any]:
             "path_contains": config.query.path_contains,
             "ext_allow": config.query.ext_allow,
             "ext_deny": config.query.ext_deny,
+            "enable_query_cache": config.query.enable_query_cache,
+            "query_cache_ttl": config.query.query_cache_ttl,
+            "query_cache_size": config.query.query_cache_size,
+            "chat_mode": config.query.chat_mode,
         },
         "modes": modes or None,
         "notes": {
@@ -821,6 +850,12 @@ def config_to_raw(config: LSMConfig) -> Dict[str, Any]:
             "wikilinks": config.notes.wikilinks,
             "backlinks": config.notes.backlinks,
             "include_tags": config.notes.include_tags,
+        },
+        "chats": {
+            "enabled": config.chats.enabled,
+            "dir": config.chats.dir,
+            "auto_save": config.chats.auto_save,
+            "format": config.chats.format,
         },
         "remote_providers": remote_providers,
         "vectordb": {
@@ -838,5 +873,3 @@ def config_to_raw(config: LSMConfig) -> Dict[str, Any]:
             "pool_size": config.vectordb.pool_size,
         },
     }
-
-

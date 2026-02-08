@@ -7,6 +7,8 @@ Manages user session state, filters, and query artifacts.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime
+import json
 from pathlib import Path
 from typing import List, Dict, Any, Optional, TYPE_CHECKING
 
@@ -165,6 +167,15 @@ class SessionState:
     pinned_chunks: List[str] = None
     """Chunk IDs pinned for forced inclusion in context."""
 
+    context_documents: Optional[List[str]] = None
+    """Source document paths selected as context anchors."""
+
+    context_chunks: Optional[List[str]] = None
+    """Chunk IDs selected as context anchors."""
+
+    conversation_history: List[Dict[str, str]] = None
+    """Chat-mode conversation turns (role/content)."""
+
     cost_tracker: Optional["CostTracker"] = None
     """Session-level cost tracker for API usage."""
 
@@ -184,6 +195,12 @@ class SessionState:
             self.last_debug = {}
         if self.pinned_chunks is None:
             self.pinned_chunks = []
+        if self.context_documents is None:
+            self.context_documents = []
+        if self.context_chunks is None:
+            self.context_chunks = []
+        if self.conversation_history is None:
+            self.conversation_history = []
 
     def clear_artifacts(self) -> None:
         """Clear last query artifacts."""
@@ -270,3 +287,65 @@ class SessionState:
 def get_default_chats_dir(global_folder: Optional[str | Path] = None) -> Path:
     """Get default chat-save directory."""
     return get_chats_folder(global_folder)
+
+
+def append_chat_turn(
+    state: SessionState,
+    role: str,
+    content: str,
+) -> None:
+    """
+    Append a conversation turn to session history.
+    """
+    if not content:
+        return
+    state.conversation_history.append(
+        {"role": str(role).strip().lower(), "content": str(content)}
+    )
+
+
+def format_conversation_markdown(
+    state: SessionState,
+    mode_name: str,
+) -> str:
+    """
+    Format current conversation history as Markdown.
+    """
+    lines = [
+        "# Query Chat Transcript",
+        "",
+        f"- Mode: {mode_name}",
+        f"- Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
+        "",
+    ]
+    for turn in state.conversation_history:
+        role = (turn.get("role") or "user").capitalize()
+        content = turn.get("content") or ""
+        lines.append(f"## {role}")
+        lines.append("")
+        lines.append(content)
+        lines.append("")
+    return "\n".join(lines)
+
+
+def save_conversation_markdown(
+    state: SessionState,
+    chats_dir: Path,
+    mode_name: str,
+) -> Path:
+    """
+    Persist conversation history to a markdown file.
+    """
+    chats_dir.mkdir(parents=True, exist_ok=True)
+    timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    filename = f"chat-{mode_name}-{timestamp}.md"
+    output_path = chats_dir / filename
+    output_path.write_text(format_conversation_markdown(state, mode_name), encoding="utf-8")
+    return output_path
+
+
+def serialize_conversation(state: SessionState) -> str:
+    """
+    Serialize conversation history for caching keys.
+    """
+    return json.dumps(state.conversation_history, sort_keys=True, separators=(",", ":"))

@@ -247,6 +247,24 @@
 
 # Future Items (INGORE ALL THE FOLLOWING FOR NOW)
 
+## Agent
+- Create a simple agent where the user gives a task and the agent processes it via the background.
+- Create the ability to launch agents on a particular time cycle
+- Create the ability for agents to store memories
+
+## Testing
+- Make sure that there are tests which interact with web services have a test that actaully
+  makes web calls. This includes LLM API calls.
+- Make sure that there are tests which read and write from file peform actual filesystem operations.
+- Make sure that there are DB tests and embedding tests that make actual DB and embedding calls.
+- There should be a full intergration test that create an actual DB, embeddes actual files,
+  and queries using actual Remote Providers against a live LLM provider.
+    - The test file fixtures should be improved to ensure that there is enough data to properly
+      run this suite.
+- The test suite should be able to run a series of smoke tests which do not hit live servies
+  and only at specific times should the entery test suite on live services be used.
+- User should be able to set a custom config for the test suite.
+
 ## Ingest
 - Need to consider when a heading has sub headings, they can be included and explore what if
   heading groups are particular small and so produce the situation where overlaps include whole

@@ -38,6 +38,7 @@ from .modes import (
     RemoteProviderConfig,
 )
 from .query import QueryConfig
+from .chats import ChatsConfig
 from .lsm_config import LSMConfig
 
 __all__ = [
@@ -75,5 +76,6 @@ __all__ = [
     "ModeConfig",
     "RemoteProviderConfig",
     "QueryConfig",
+    "ChatsConfig",
     "LSMConfig",
 ]

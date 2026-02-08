@@ -12,6 +12,7 @@ from typing import Optional, Set
 from lsm.paths import ensure_global_folders
 
 from .global_config import GlobalConfig
+from .chats import ChatsConfig
 from .ingest import IngestConfig
 from .llm import LLMRegistryConfig
 from .modes import (
@@ -59,6 +60,9 @@ class LSMConfig:
     notes: NotesConfig = field(default_factory=NotesConfig)
     """Global notes configuration applied across modes."""
 
+    chats: ChatsConfig = field(default_factory=ChatsConfig)
+    """Global chat transcript configuration."""
+
     config_path: Optional[Path] = None
     """Path to the config file (for resolving relative paths)."""
 
@@ -93,6 +97,7 @@ class LSMConfig:
         self.query.validate()
         self.llm.validate()
         self.vectordb.validate()
+        self.chats.validate()
 
         if self.modes:
             for mode_name, mode_config in self.modes.items():

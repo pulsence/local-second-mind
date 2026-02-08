@@ -6,6 +6,7 @@ from lsm.paths import (
     ensure_global_folders,
     get_chats_folder,
     get_global_folder,
+    get_mode_chats_folder,
     get_notes_folder,
     resolve_relative_path,
 )
@@ -21,6 +22,7 @@ def test_notes_and_chats_subfolders(tmp_path: Path) -> None:
     root = tmp_path / "home"
     assert get_notes_folder(root) == root.resolve() / "Notes"
     assert get_chats_folder(root) == root.resolve() / "Chats"
+    assert get_mode_chats_folder("grounded", root) == root.resolve() / "Chats" / "grounded"
 
 
 def test_resolve_relative_path_uses_global_folder(tmp_path: Path) -> None:

@@ -8,12 +8,20 @@ All query operations should go through these functions.
 from __future__ import annotations
 
 import asyncio
+from copy import deepcopy
 from dataclasses import dataclass, replace
 from typing import Callable, Dict, Any, List, Optional
 
 from lsm.config.models import LSMConfig
 from lsm.providers import create_provider
-from lsm.query.session import Candidate, SessionState
+from lsm.query.cache import QueryCache
+from lsm.query.session import (
+    Candidate,
+    SessionState,
+    append_chat_turn,
+    save_conversation_markdown,
+    serialize_conversation,
+)
 from lsm.query.context import (
     build_combined_context_async,
     build_remote_candidates,
@@ -28,8 +36,10 @@ from lsm.query.cost_tracking import (
     estimate_rerank_cost,
 )
 from lsm.logging import get_logger
+from lsm.paths import get_mode_chats_folder
 
 logger = get_logger(__name__)
+_QUERY_CACHES: Dict[int, QueryCache] = {}
 
 
 @dataclass
@@ -105,9 +115,53 @@ async def query(
     local_policy = mode_config.source_policy.local
     remote_policy = mode_config.source_policy.remote
     model_knowledge_policy = mode_config.source_policy.model_knowledge
+    chat_mode = config.query.chat_mode
 
     state.last_question = question
     total_cost = 0.0
+
+    cache = _get_query_cache(config)
+    cache_key = None
+    if cache is not None:
+        cache_filters = {
+            "path_contains": state.path_contains,
+            "ext_allow": state.ext_allow,
+            "ext_deny": state.ext_deny,
+            "context_documents": state.context_documents,
+            "context_chunks": state.context_chunks,
+        }
+        cache_key = cache.build_key(
+            query_text=question,
+            mode=config.query.mode,
+            filters=cache_filters,
+            k=local_policy.k,
+            k_rerank=local_policy.k_rerank,
+            conversation=serialize_conversation(state) if chat_mode == "chat" else None,
+        )
+        cached = cache.get(cache_key)
+        if cached is not None:
+            result = deepcopy(cached)
+            state.last_debug = dict(result.debug_info or {})
+            state.last_debug["cache_hit"] = True
+            state.last_answer = result.answer
+            state.last_chosen = list(result.candidates or [])
+            state.last_label_to_candidate = {
+                f"S{i}": candidate for i, candidate in enumerate(result.candidates or [], start=1)
+            }
+            state.last_remote_sources = list(result.remote_sources or [])
+            state.last_local_sources_for_notes = [
+                {
+                    "text": c.text,
+                    "meta": c.meta,
+                    "distance": c.distance,
+                }
+                for c in (result.candidates or [])
+                if not (c.meta or {}).get("remote")
+            ]
+            return result
+
+    if chat_mode == "chat":
+        append_chat_turn(state, "user", question)
 
     context_result = await build_combined_context_async(
         question,
@@ -157,6 +211,8 @@ async def query(
             "path_contains": state.path_contains,
             "ext_allow": state.ext_allow,
             "ext_deny": state.ext_deny,
+            "context_documents": state.context_documents,
+            "context_chunks": state.context_chunks,
             "best_relevance": plan.relevance,
             "min_relevance": plan.min_relevance,
             "rerank_strategy": plan.rerank_strategy,
@@ -167,6 +223,7 @@ async def query(
             "post_local_count": len(plan.filtered),
             "local_enabled": local_enabled,
             "remote_enabled": remote_policy.enabled,
+            "metadata_prefilter": getattr(plan, "metadata_filter", None),
         }
 
         if plan.relevance < plan.min_relevance and not remote_policy.enabled:
@@ -245,12 +302,15 @@ async def query(
         )
 
     _update_state(state, question, answer, chosen, remote_sources)
+    if chat_mode == "chat":
+        append_chat_turn(state, "assistant", answer)
+        _maybe_auto_save_chat(config, state)
 
     source_list = format_source_list(sources)
     if synthesis_failed:
         state.last_debug["synthesis_fallback"] = True
 
-    return QueryResult(
+    result = QueryResult(
         answer=answer,
         candidates=combined_candidates,
         sources_display=source_list,
@@ -258,6 +318,9 @@ async def query(
         remote_sources=remote_sources,
         debug_info=state.last_debug,
     )
+    if cache is not None and cache_key is not None:
+        cache.set(cache_key, deepcopy(result))
+    return result
 
 
 def query_sync(
@@ -319,7 +382,7 @@ async def _apply_reranking(
     if progress_callback:
         progress_callback("rerank", 0, 1, "Reranking candidates...")
 
-    ranking_config = config.llm.get_ranking_config()
+    ranking_config = config.llm.resolve_service("ranking")
     provider = create_provider(ranking_config)
 
     rerank_candidates = [
@@ -396,25 +459,39 @@ async def _synthesize_answer(
     Returns:
         Tuple of (answer, cost)
     """
-    query_config = config.llm.get_query_config()
+    query_config = config.llm.resolve_service("query")
     if state.model and state.model != query_config.model:
         query_config = replace(query_config, model=state.model)
 
     synthesis_provider = create_provider(query_config)
 
     loop = asyncio.get_event_loop()
+    question_payload = question
+    if config.query.chat_mode == "chat" and state.conversation_history:
+        history_lines: List[str] = []
+        for turn in state.conversation_history[-10:]:
+            role = (turn.get("role") or "user").upper()
+            content = turn.get("content") or ""
+            history_lines.append(f"{role}: {content}")
+        question_payload = (
+            "Conversation history:\n"
+            + "\n".join(history_lines)
+            + f"\n\nCurrent user question:\n{question}"
+        )
+
     answer = await loop.run_in_executor(
         None,
         lambda: synthesis_provider.synthesize(
-            question,
+            question_payload,
             context_block,
             mode=mode_config.synthesis_style,
+            conversation_history=state.conversation_history,
         )
     )
 
     cost = 0.0
     if state.cost_tracker:
-        input_tokens = estimate_tokens(f"{question}\n{context_block}")
+        input_tokens = estimate_tokens(f"{question_payload}\n{context_block}")
         output_tokens = estimate_output_tokens(answer, query_config.max_tokens)
         cost = synthesis_provider.estimate_cost(input_tokens, output_tokens) or 0.0
         state.cost_tracker.add_entry(
@@ -456,3 +533,37 @@ def _update_state(
         }
         for c in chosen
     ]
+
+
+def _get_query_cache(config: LSMConfig) -> QueryCache | None:
+    """Get or initialize a cache for this config instance."""
+    if not config.query.enable_query_cache:
+        return None
+    key = id(config)
+    cache = _QUERY_CACHES.get(key)
+    if cache is None:
+        cache = QueryCache(
+            ttl_seconds=config.query.query_cache_ttl,
+            max_size=config.query.query_cache_size,
+        )
+        _QUERY_CACHES[key] = cache
+    return cache
+
+
+def _maybe_auto_save_chat(config: LSMConfig, state: SessionState) -> None:
+    """Auto-save chat transcript if enabled."""
+    if config.query.chat_mode != "chat":
+        return
+    if not config.chats.enabled or not config.chats.auto_save:
+        return
+    if not state.conversation_history:
+        return
+    try:
+        chats_dir = get_mode_chats_folder(
+            mode_name=config.query.mode,
+            global_folder=config.global_folder,
+            base_dir=config.chats.dir,
+        )
+        save_conversation_markdown(state, chats_dir=chats_dir, mode_name=config.query.mode)
+    except Exception as exc:
+        logger.warning(f"Failed to auto-save chat transcript: {exc}")

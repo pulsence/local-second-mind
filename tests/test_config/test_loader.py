@@ -395,3 +395,29 @@ def test_config_to_raw_includes_embedding_dimension(tmp_path: Path) -> None:
     serialized = config_to_raw(config)
 
     assert "embedding_dimension" in serialized["global"]
+
+
+def test_build_query_config_reads_cache_and_chat_fields(tmp_path: Path) -> None:
+    raw = _base_raw(tmp_path)
+    raw["query"]["chat_mode"] = "chat"
+    raw["query"]["enable_query_cache"] = True
+    raw["query"]["query_cache_ttl"] = 120
+    raw["query"]["query_cache_size"] = 9
+
+    config = build_config_from_raw(raw, tmp_path / "config.json")
+    assert config.query.chat_mode == "chat"
+    assert config.query.enable_query_cache is True
+    assert config.query.query_cache_ttl == 120
+    assert config.query.query_cache_size == 9
+
+
+def test_build_chats_config_and_serialization_defaults(tmp_path: Path) -> None:
+    raw = _base_raw(tmp_path)
+    raw["chats"] = {"enabled": True, "dir": "Chats", "auto_save": False, "format": "markdown"}
+
+    config = build_config_from_raw(raw, tmp_path / "config.json")
+    assert config.chats.enabled is True
+    assert config.chats.auto_save is False
+    serialized = config_to_raw(config)
+    assert "chats" in serialized
+    assert serialized["chats"]["dir"] == "Chats"

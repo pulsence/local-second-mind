@@ -55,6 +55,7 @@ QUERY_COMMANDS: Dict[str, str] = {
     "/remote-search": "Test remote provider (requires: provider query)",
     "/remote-search-all": "Search all providers (requires: query)",
     "/mode": "Show or switch query mode",
+    "/context": "Show or set context anchors",
     "/note": "Save last query as note (optional: name)",
     "/notes": "Alias for /note",
     "/load": "Pin document for context (requires: path)",
@@ -68,7 +69,7 @@ QUERY_COMMANDS: Dict[str, str] = {
 }
 
 # Subcommand completions
-MODE_VALUES = ["grounded", "insight", "hybrid"]
+MODE_VALUES = ["grounded", "insight", "hybrid", "chat", "single"]
 MODE_SETTINGS = ["model_knowledge", "remote", "notes"]
 BUILD_OPTIONS = ["--force"]
 TAG_OPTIONS = ["--max"]
@@ -182,6 +183,11 @@ def _get_argument_completions(
                 matches.append("set")
             return sorted(matches)
 
+    if cmd == "/context":
+        options = ["doc", "chunk", "clear"]
+        matches = [opt for opt in options if opt.startswith(arg)]
+        return matches
+
     # Build command
     if cmd == "/build":
         matches = [o for o in BUILD_OPTIONS if o.startswith(arg)]
@@ -249,7 +255,7 @@ def format_command_help(context: ContextType) -> str:
             "/remote-providers", "/remote-search", "/remote-search-all",
         ],
         "Export": ["/export-citations", "/budget", "/cost-estimate"],
-        "Filters": ["/set", "/clear"],
+        "Filters": ["/set", "/clear", "/context"],
     }
 
     for category, cmds in categories.items():

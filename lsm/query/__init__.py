@@ -20,6 +20,11 @@ __all__ = [
     "Candidate",
     "prepare_local_candidates",
     "LocalQueryPlan",
+    "QueryCache",
+    "prefilter_by_metadata",
+    "extract_tags_from_prompt",
+    "QueryFields",
+    "decompose_query",
     "remote",
 ]
 
@@ -49,6 +54,18 @@ def __getattr__(name: str) -> Any:
         from lsm.query import planning as _planning
 
         return getattr(_planning, name)
+    if name == "QueryCache":
+        from lsm.query.cache import QueryCache as _QueryCache
+
+        return _QueryCache
+    if name in {"prefilter_by_metadata", "extract_tags_from_prompt"}:
+        from lsm.query import prefilter as _prefilter
+
+        return getattr(_prefilter, name)
+    if name in {"QueryFields", "decompose_query"}:
+        from lsm.query import decomposition as _decomposition
+
+        return getattr(_decomposition, name)
     if name == "remote":
         import lsm.remote as _remote
         if not hasattr(_remote, "wikipedia"):
