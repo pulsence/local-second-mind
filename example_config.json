@@ -122,6 +122,26 @@
     "format": "markdown"
   },
 
+  "_comment_agents": "Agent framework settings",
+  "agents": {
+    "enabled": false,
+    "agents_folder": "Agents",
+    "max_tokens_budget": 200000,
+    "max_iterations": 25,
+    "context_window_strategy": "compact",
+    "sandbox": {
+      "allowed_read_paths": [],
+      "allowed_write_paths": [],
+      "allow_url_access": false,
+      "require_user_permission": {
+        "write_file": true,
+        "load_url": true
+      },
+      "tool_llm_assignments": {}
+    },
+    "agent_configs": {}
+  },
+
   "_comment_modes": "Query mode definitions (grounded/insight/hybrid built-in, add custom modes here)",
   "modes": [
     {

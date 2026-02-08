@@ -63,6 +63,8 @@ All notable changes to Local Second Mind are documented here.
 - Remote provider chaining with `remote_provider_chains` config, `ChainLink` mapping (`output:input`), and `RemoteProviderChain` execution in `lsm/remote/chain.py`.
 - Restructured TUI settings screen to config-aligned sub-tabs: `Global`, `Ingest`, `Query`, `LLM`, `Vector DB`, `Modes`, `Remote`, and `Chats/Notes`, with section-level Save/Reset controls.
 - Live settings updates in TUI now write directly to `app.config` for edited fields, with validation/status feedback and config reload-on-reset.
+- Agent framework foundation in new `lsm/agents/` package with `AgentStatus`, `AgentState`, `BaseAgent`, and core runtime models (`AgentLogEntry`, `ToolResponse`, `AgentContext`).
+- New optional `agents` config block with `AgentConfig` and `SandboxConfig`, including loader/serializer support for `agents_folder`, token/iteration limits, context strategy, sandbox permissions, and per-agent overrides.
 
 ### Changed
 

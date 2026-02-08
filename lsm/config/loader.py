@@ -16,6 +16,8 @@ from dotenv import load_dotenv
 
 from .models import (
     LSMConfig,
+    AgentConfig,
+    SandboxConfig,
     GlobalConfig,
     IngestConfig,
     RootConfig,
@@ -320,6 +322,7 @@ def build_config_from_raw(raw: Dict[str, Any], path: Path | str) -> LSMConfig:
     modes = build_modes_registry(raw)
     notes_config = build_notes_config(raw.get("notes", {}))
     chats_config = build_chats_config(raw.get("chats", {}))
+    agents_config = build_agent_config(raw.get("agents"))
     remote_providers = build_remote_providers_registry(raw)
     remote_provider_chains = build_remote_provider_chains_registry(raw)
 
@@ -332,6 +335,7 @@ def build_config_from_raw(raw: Dict[str, Any], path: Path | str) -> LSMConfig:
         modes=modes,
         notes=notes_config,
         chats=chats_config,
+        agents=agents_config,
         remote_providers=remote_providers,
         remote_provider_chains=remote_provider_chains,
         config_path=path,
@@ -434,6 +438,54 @@ def build_chats_config(raw: Dict[str, Any]) -> ChatsConfig:
         dir=str(raw.get("dir", "Chats")),
         auto_save=bool(raw.get("auto_save", True)),
         format=str(raw.get("format", "markdown")),
+    )
+
+
+def build_sandbox_config(raw: Dict[str, Any]) -> SandboxConfig:
+    """
+    Build SandboxConfig from raw configuration.
+
+    Args:
+        raw: Raw sandbox config dictionary
+
+    Returns:
+        SandboxConfig instance
+    """
+    if not isinstance(raw, dict):
+        raw = {}
+    return SandboxConfig(
+        allowed_read_paths=[Path(p) for p in raw.get("allowed_read_paths", [])],
+        allowed_write_paths=[Path(p) for p in raw.get("allowed_write_paths", [])],
+        allow_url_access=bool(raw.get("allow_url_access", False)),
+        require_user_permission=dict(raw.get("require_user_permission", {})),
+        tool_llm_assignments=dict(raw.get("tool_llm_assignments", {})),
+    )
+
+
+def build_agent_config(raw: Dict[str, Any] | None) -> AgentConfig | None:
+    """
+    Build AgentConfig from raw configuration.
+
+    Args:
+        raw: Raw agents config dictionary or None
+
+    Returns:
+        AgentConfig if present, else None.
+    """
+    if raw is None:
+        return None
+    if not isinstance(raw, dict):
+        warnings.warn("Config 'agents' must be an object. Ignoring invalid value.")
+        return None
+
+    return AgentConfig(
+        enabled=bool(raw.get("enabled", False)),
+        agents_folder=Path(raw.get("agents_folder", "Agents")),
+        max_tokens_budget=int(raw.get("max_tokens_budget", 200_000)),
+        max_iterations=int(raw.get("max_iterations", 25)),
+        context_window_strategy=str(raw.get("context_window_strategy", "compact")),
+        sandbox=build_sandbox_config(raw.get("sandbox", {})),
+        agent_configs=dict(raw.get("agent_configs", {})),
     )
 
 
@@ -894,6 +946,23 @@ def config_to_raw(config: LSMConfig) -> Dict[str, Any]:
             remote_provider_chains.append(chain_entry)
 
     gs = config.global_settings
+    agents_raw = None
+    if config.agents is not None:
+        agents_raw = {
+            "enabled": config.agents.enabled,
+            "agents_folder": str(config.agents.agents_folder),
+            "max_tokens_budget": config.agents.max_tokens_budget,
+            "max_iterations": config.agents.max_iterations,
+            "context_window_strategy": config.agents.context_window_strategy,
+            "sandbox": {
+                "allowed_read_paths": [str(p) for p in config.agents.sandbox.allowed_read_paths],
+                "allowed_write_paths": [str(p) for p in config.agents.sandbox.allowed_write_paths],
+                "allow_url_access": config.agents.sandbox.allow_url_access,
+                "require_user_permission": dict(config.agents.sandbox.require_user_permission),
+                "tool_llm_assignments": dict(config.agents.sandbox.tool_llm_assignments),
+            },
+            "agent_configs": dict(config.agents.agent_configs),
+        }
     return {
         "global": {
             "global_folder": str(gs.global_folder) if gs.global_folder else None,
@@ -974,6 +1043,7 @@ def config_to_raw(config: LSMConfig) -> Dict[str, Any]:
             "auto_save": config.chats.auto_save,
             "format": config.chats.format,
         },
+        "agents": agents_raw,
         "remote_providers": remote_providers,
         "remote_provider_chains": remote_provider_chains,
         "vectordb": {

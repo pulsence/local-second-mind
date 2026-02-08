@@ -13,6 +13,7 @@ from lsm.paths import ensure_global_folders
 
 from .global_config import GlobalConfig
 from .chats import ChatsConfig
+from .agents import AgentConfig
 from .ingest import IngestConfig
 from .llm import LLMRegistryConfig
 from .modes import (
@@ -67,6 +68,9 @@ class LSMConfig:
     chats: ChatsConfig = field(default_factory=ChatsConfig)
     """Global chat transcript configuration."""
 
+    agents: Optional[AgentConfig] = None
+    """Optional agent framework configuration."""
+
     config_path: Optional[Path] = None
     """Path to the config file (for resolving relative paths)."""
 
@@ -91,6 +95,9 @@ class LSMConfig:
             if self.vectordb and not self.vectordb.persist_dir.is_absolute():
                 self.vectordb.persist_dir = (base_dir / self.vectordb.persist_dir).resolve()
 
+            if self.agents is not None and not self.agents.agents_folder.is_absolute():
+                self.agents.agents_folder = (base_dir / self.agents.agents_folder).resolve()
+
         if self.modes is None:
             self.modes = self._get_builtin_modes()
 
@@ -102,6 +109,8 @@ class LSMConfig:
         self.llm.validate()
         self.vectordb.validate()
         self.chats.validate()
+        if self.agents is not None:
+            self.agents.validate()
 
         if self.modes:
             for mode_name, mode_config in self.modes.items():
