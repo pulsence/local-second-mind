@@ -208,6 +208,30 @@ class IxTheoProvider(BaseRemoteProvider):
         """Get provider name."""
         return "Index Theologicus"
 
+    def get_input_fields(self) -> List[Dict[str, Any]]:
+        return [
+            {"name": "query", "type": "string", "description": "Theology/religious studies query.", "required": True},
+            {"name": "title", "type": "string", "description": "Title phrase.", "required": False},
+            {"name": "author", "type": "string", "description": "Author name.", "required": False},
+            {"name": "keywords", "type": "array[string]", "description": "Topic keywords.", "required": False},
+            {"name": "subject", "type": "string", "description": "Subject/tradition hint.", "required": False},
+            {"name": "year", "type": "integer", "description": "Publication year hint.", "required": False},
+            {"name": "language", "type": "string", "description": "Language code.", "required": False},
+        ]
+
+    def get_output_fields(self) -> List[Dict[str, Any]]:
+        return super().get_output_fields()
+
+    def get_description(self) -> str:
+        return "Theology and religious studies provider using Index Theologicus."
+
+    def search_structured(
+        self,
+        input_dict: Dict[str, Any],
+        max_results: int = 5,
+    ) -> List[Dict[str, Any]]:
+        return super().search_structured(input_dict, max_results=max_results)
+
     def search_bible_passage(
         self, reference: str, max_results: int = 10
     ) -> List[RemoteResult]:

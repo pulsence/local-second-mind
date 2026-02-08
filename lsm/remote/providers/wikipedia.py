@@ -167,6 +167,27 @@ class WikipediaProvider(BaseRemoteProvider):
         """Get provider name."""
         return "Wikipedia"
 
+    def get_input_fields(self) -> List[Dict[str, Any]]:
+        return [
+            {"name": "query", "type": "string", "description": "Wikipedia topic query.", "required": True},
+            {"name": "title", "type": "string", "description": "Exact title hint.", "required": False},
+            {"name": "keywords", "type": "array[string]", "description": "Optional topic terms.", "required": False},
+            {"name": "language", "type": "string", "description": "Language code hint.", "required": False},
+        ]
+
+    def get_output_fields(self) -> List[Dict[str, Any]]:
+        return super().get_output_fields()
+
+    def get_description(self) -> str:
+        return "General knowledge provider using Wikipedia articles and summaries."
+
+    def search_structured(
+        self,
+        input_dict: Dict[str, Any],
+        max_results: int = 5,
+    ) -> List[Dict[str, Any]]:
+        return super().search_structured(input_dict, max_results=max_results)
+
     def _search_titles(self, query: str, max_results: int) -> List[Dict[str, Any]]:
         search_limit = min(max_results * 3, 20)
         params = {

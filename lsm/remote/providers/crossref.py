@@ -146,6 +146,30 @@ class CrossrefProvider(BaseRemoteProvider):
         """Get provider name."""
         return "Crossref"
 
+    def get_input_fields(self) -> List[Dict[str, Any]]:
+        return [
+            {"name": "query", "type": "string", "description": "Metadata search query.", "required": True},
+            {"name": "title", "type": "string", "description": "Title phrase.", "required": False},
+            {"name": "author", "type": "string", "description": "Author name.", "required": False},
+            {"name": "keywords", "type": "array[string]", "description": "Topic keywords.", "required": False},
+            {"name": "doi", "type": "string", "description": "DOI lookup value.", "required": False},
+            {"name": "year", "type": "integer", "description": "Publication year hint.", "required": False},
+            {"name": "orcid", "type": "string", "description": "ORCID hint.", "required": False},
+        ]
+
+    def get_output_fields(self) -> List[Dict[str, Any]]:
+        return super().get_output_fields()
+
+    def get_description(self) -> str:
+        return "DOI metadata provider for scholarly publications via Crossref."
+
+    def search_structured(
+        self,
+        input_dict: Dict[str, Any],
+        max_results: int = 5,
+    ) -> List[Dict[str, Any]]:
+        return super().search_structured(input_dict, max_results=max_results)
+
     def get_work_by_doi(self, doi: str) -> Optional[Dict[str, Any]]:
         """
         Get detailed information about a work by DOI.

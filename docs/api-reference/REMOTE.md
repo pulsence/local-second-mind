@@ -5,7 +5,7 @@ external sources.
 
 ## RemoteResult
 
-Location: `lsm/query/remote/base.py`
+Location: `lsm/remote/base.py`
 
 Fields:
 
@@ -17,11 +17,30 @@ Fields:
 
 ## BaseRemoteProvider
 
-Location: `lsm/query/remote/base.py`
+Location: `lsm/remote/base.py`
 
 ### search(query, max_results=5) -> list[RemoteResult]
 
 Search remote sources and return results.
+
+### search_structured(input_dict, max_results=5) -> list[dict]
+
+Structured dict-based search entrypoint. Accepts provider-defined input fields
+and returns normalized output dicts with standard keys such as `url`, `title`,
+`description`, `doi`, `authors`, `year`, `score`, and `metadata`.
+
+### get_input_fields() -> list[dict]
+
+Returns provider-declared input schema metadata (`name`, `type`,
+`description`, `required`).
+
+### get_output_fields() -> list[dict]
+
+Returns provider-declared output schema metadata.
+
+### get_description() -> str
+
+Human-readable provider description intended for LLM/tool routing.
 
 ### get_name() -> str
 
@@ -33,7 +52,7 @@ Optional validation hook. Raise `ValueError` for invalid config.
 
 ## Factory APIs
 
-Location: `lsm/query/remote/factory.py`
+Location: `lsm/remote/factory.py`
 
 ### register_remote_provider(provider_type, provider_class)
 

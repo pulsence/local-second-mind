@@ -137,6 +137,30 @@ class ArXivProvider(BaseRemoteProvider):
         """Get provider name."""
         return "arXiv"
 
+    def get_input_fields(self) -> List[Dict[str, Any]]:
+        return [
+            {"name": "query", "type": "string", "description": "Paper/topic query.", "required": True},
+            {"name": "title", "type": "string", "description": "Title phrase.", "required": False},
+            {"name": "author", "type": "string", "description": "Author name.", "required": False},
+            {"name": "keywords", "type": "array[string]", "description": "Topic keywords.", "required": False},
+            {"name": "year", "type": "integer", "description": "Publication year hint.", "required": False},
+            {"name": "doi", "type": "string", "description": "DOI hint.", "required": False},
+            {"name": "category", "type": "string", "description": "arXiv category hint.", "required": False},
+        ]
+
+    def get_output_fields(self) -> List[Dict[str, Any]]:
+        return super().get_output_fields()
+
+    def get_description(self) -> str:
+        return "Academic preprint provider for arXiv papers across STEM fields."
+
+    def search_structured(
+        self,
+        input_dict: Dict[str, Any],
+        max_results: int = 5,
+    ) -> List[Dict[str, Any]]:
+        return super().search_structured(input_dict, max_results=max_results)
+
     def _request(self, params: Dict[str, Any]) -> str:
         self._throttle()
         headers = {"User-Agent": self.user_agent}

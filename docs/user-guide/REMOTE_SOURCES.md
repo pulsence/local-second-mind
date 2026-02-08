@@ -15,9 +15,25 @@ and provider configuration.
 Remote results are included in the LLM context and also presented as a
 separate section.
 
+## Structured Provider Protocol (Phase 5.1)
+
+All built-in remote providers now expose a dict-based protocol in addition to
+plain text query search:
+
+- `get_input_fields()` returns provider-declared accepted input fields.
+- `get_output_fields()` returns normalized output schema metadata.
+- `get_description()` returns a concise provider capability description.
+- `search_structured(input_dict, max_results)` accepts dict inputs and returns
+  normalized result dicts with standard keys:
+  - `url`, `title`, `description`, `doi`, `authors`, `year`, `score`,
+    `metadata`.
+
+This protocol is intended for tool-calling and agent-style orchestration where
+providers need self-describing schemas instead of free-form prompts.
+
 ## Built-In Providers
 
-LSM ships with eleven built-in remote providers covering STEM, humanities, and cross-disciplinary research:
+LSM ships with ten built-in remote providers covering STEM, humanities, and cross-disciplinary research:
 
 ### General & Web Search
 - **Brave Search** - General web search

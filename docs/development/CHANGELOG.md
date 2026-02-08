@@ -56,6 +56,8 @@ All notable changes to Local Second Mind are documented here.
 - Added decomposition dispatcher `decompose_query(method="deterministic"|"ai")` and test coverage in `tests/test_query/test_decomposition.py`.
 - Added `llms.services.decomposition` support so query decomposition uses a dedicated configurable model/provider.
 - Mode-level chat save overrides via `modes[].chats` (`auto_save`, `dir`) for per-mode transcript behavior.
+- Dict-based remote provider protocol in `lsm/remote/base.py` and all built-in providers (`search_structured`, `get_input_fields`, `get_output_fields`, `get_description`) with normalized output fields (`url`, `title`, `description`, `doi`, `authors`, `year`, `score`, `metadata`).
+- Remote provider structured protocol test coverage in `tests/test_providers/remote/test_structured_protocol.py`.
 
 ### Changed
 

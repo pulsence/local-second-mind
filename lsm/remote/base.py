@@ -64,6 +64,64 @@ class BaseRemoteProvider(ABC):
         """
         self.config = config
 
+    def get_input_fields(self) -> List[Dict[str, Any]]:
+        """
+        Describe structured input fields accepted by this provider.
+
+        Returns:
+            List of field definition dicts with keys:
+            - name: field name
+            - type: value type
+            - description: short field description
+            - required: whether field is required
+        """
+        return [
+            {
+                "name": "query",
+                "type": "string",
+                "description": "Free-text search query.",
+                "required": True,
+            }
+        ]
+
+    def get_output_fields(self) -> List[Dict[str, Any]]:
+        """
+        Describe standard structured output fields for remote results.
+        """
+        return [
+            {"name": "url", "type": "string", "description": "Result URL or identifier"},
+            {"name": "title", "type": "string", "description": "Result title"},
+            {"name": "description", "type": "string", "description": "Result snippet/summary"},
+            {"name": "doi", "type": "string", "description": "Digital Object Identifier when available"},
+            {"name": "authors", "type": "array[string]", "description": "Author list when available"},
+            {"name": "year", "type": "integer", "description": "Publication year when available"},
+            {"name": "score", "type": "number", "description": "Provider relevance score"},
+            {"name": "metadata", "type": "object", "description": "Provider-specific metadata"},
+        ]
+
+    def get_description(self) -> str:
+        """
+        Human-readable provider description for LLM tool selection.
+        """
+        return f"{self.get_name()} remote provider"
+
+    def search_structured(
+        self,
+        input_dict: Dict[str, Any],
+        max_results: int = 5,
+    ) -> List[Dict[str, Any]]:
+        """
+        Structured search entrypoint for dict-based inputs.
+
+        Default behavior composes a text query from common fields and delegates
+        to `search(query, max_results)`.
+        """
+        query = self._compose_query_from_input(input_dict)
+        if not query:
+            return []
+        results = self.search(query, max_results=max_results)
+        return [self._to_structured_output(result) for result in results]
+
     @abstractmethod
     def search(
         self,
@@ -72,6 +130,9 @@ class BaseRemoteProvider(ABC):
     ) -> List[RemoteResult]:
         """
         Search the remote source for relevant information.
+
+        This text-query method remains the canonical provider implementation.
+        `search_structured` delegates to this by default.
 
         Args:
             query: Search query string
@@ -104,6 +165,46 @@ class BaseRemoteProvider(ABC):
         """
         # Default: no validation required
         pass
+
+    def _compose_query_from_input(self, input_dict: Dict[str, Any]) -> str:
+        """Build a best-effort text query from structured input."""
+        if not isinstance(input_dict, dict):
+            return str(input_dict or "").strip()
+
+        if input_dict.get("query"):
+            return str(input_dict.get("query")).strip()
+
+        parts: List[str] = []
+        if input_dict.get("title"):
+            parts.append(f'title:"{str(input_dict["title"]).strip()}"')
+        if input_dict.get("author"):
+            parts.append(f'author:"{str(input_dict["author"]).strip()}"')
+        if input_dict.get("doi"):
+            parts.append(f'doi:{str(input_dict["doi"]).strip()}')
+        if input_dict.get("year"):
+            parts.append(str(input_dict["year"]).strip())
+
+        keywords = input_dict.get("keywords")
+        if isinstance(keywords, list):
+            parts.extend([str(k).strip() for k in keywords if str(k).strip()])
+        elif keywords:
+            parts.append(str(keywords).strip())
+
+        return " ".join([p for p in parts if p]).strip()
+
+    def _to_structured_output(self, result: RemoteResult) -> Dict[str, Any]:
+        """Normalize RemoteResult into structured output dict."""
+        metadata = result.metadata or {}
+        return {
+            "url": result.url,
+            "title": result.title,
+            "description": result.snippet,
+            "doi": metadata.get("doi"),
+            "authors": metadata.get("authors"),
+            "year": metadata.get("year"),
+            "score": result.score,
+            "metadata": metadata,
+        }
 
 
 # Aliases for backward compatibility

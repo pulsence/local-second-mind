@@ -959,6 +959,28 @@ class OAIPMHProvider(BaseRemoteProvider):
             return f"OAI-PMH ({self.repositories[0].name})"
         return f"OAI-PMH ({len(self.repositories)} repositories)"
 
+    def get_input_fields(self) -> List[Dict[str, Any]]:
+        return [
+            {"name": "query", "type": "string", "description": "Text query used for client-side filtering.", "required": True},
+            {"name": "repository", "type": "string", "description": "Repository name or base URL hint.", "required": False},
+            {"name": "set_spec", "type": "string", "description": "OAI-PMH set filter.", "required": False},
+            {"name": "metadata_prefix", "type": "string", "description": "Requested metadata format.", "required": False},
+            {"name": "keywords", "type": "array[string]", "description": "Additional keywords.", "required": False},
+        ]
+
+    def get_output_fields(self) -> List[Dict[str, Any]]:
+        return super().get_output_fields()
+
+    def get_description(self) -> str:
+        return "OAI-PMH harvester for repository metadata with client-side relevance filtering."
+
+    def search_structured(
+        self,
+        input_dict: Dict[str, Any],
+        max_results: int = 5,
+    ) -> List[Dict[str, Any]]:
+        return super().search_structured(input_dict, max_results=max_results)
+
     def search(self, query: str, max_results: int = 5) -> List[RemoteResult]:
         """
         Search OAI-PMH repositories.

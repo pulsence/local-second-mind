@@ -203,6 +203,29 @@ class PhilPapersProvider(BaseRemoteProvider):
         """Get provider name."""
         return "PhilPapers"
 
+    def get_input_fields(self) -> List[Dict[str, Any]]:
+        return [
+            {"name": "query", "type": "string", "description": "Philosophy search query.", "required": True},
+            {"name": "title", "type": "string", "description": "Title phrase.", "required": False},
+            {"name": "author", "type": "string", "description": "Author name.", "required": False},
+            {"name": "keywords", "type": "array[string]", "description": "Topic keywords.", "required": False},
+            {"name": "subject", "type": "string", "description": "PhilPapers subject/category.", "required": False},
+            {"name": "year", "type": "integer", "description": "Publication year hint.", "required": False},
+        ]
+
+    def get_output_fields(self) -> List[Dict[str, Any]]:
+        return super().get_output_fields()
+
+    def get_description(self) -> str:
+        return "Philosophy-focused provider indexing PhilPapers publications and categories."
+
+    def search_structured(
+        self,
+        input_dict: Dict[str, Any],
+        max_results: int = 5,
+    ) -> List[Dict[str, Any]]:
+        return super().search_structured(input_dict, max_results=max_results)
+
     def list_subject_categories(self) -> Dict[str, str]:
         """
         Get available subject categories.

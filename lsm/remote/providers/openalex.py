@@ -133,6 +133,30 @@ class OpenAlexProvider(BaseRemoteProvider):
         """Get provider name."""
         return "OpenAlex"
 
+    def get_input_fields(self) -> List[Dict[str, Any]]:
+        return [
+            {"name": "query", "type": "string", "description": "Academic search query.", "required": True},
+            {"name": "title", "type": "string", "description": "Title phrase.", "required": False},
+            {"name": "author", "type": "string", "description": "Author name.", "required": False},
+            {"name": "keywords", "type": "array[string]", "description": "Topic keywords.", "required": False},
+            {"name": "doi", "type": "string", "description": "DOI.", "required": False},
+            {"name": "year", "type": "integer", "description": "Publication year hint.", "required": False},
+            {"name": "concepts", "type": "array[string]", "description": "OpenAlex concept filters.", "required": False},
+        ]
+
+    def get_output_fields(self) -> List[Dict[str, Any]]:
+        return super().get_output_fields()
+
+    def get_description(self) -> str:
+        return "Open scholarly graph provider for papers, authors, venues, and concepts."
+
+    def search_structured(
+        self,
+        input_dict: Dict[str, Any],
+        max_results: int = 5,
+    ) -> List[Dict[str, Any]]:
+        return super().search_structured(input_dict, max_results=max_results)
+
     def get_work_details(self, work_id: str) -> Optional[Dict[str, Any]]:
         """
         Get detailed information about a specific work.

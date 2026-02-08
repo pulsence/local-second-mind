@@ -154,3 +154,25 @@ class BraveSearchProvider(BaseRemoteProvider):
     def get_name(self) -> str:
         """Get provider name."""
         return "Brave Search"
+
+    def get_input_fields(self) -> List[Dict[str, Any]]:
+        return [
+            {"name": "query", "type": "string", "description": "Web search query.", "required": True},
+            {"name": "keywords", "type": "array[string]", "description": "Optional keyword terms.", "required": False},
+            {"name": "title", "type": "string", "description": "Optional title phrase.", "required": False},
+            {"name": "author", "type": "string", "description": "Optional author/person hint.", "required": False},
+            {"name": "year", "type": "integer", "description": "Optional year hint.", "required": False},
+        ]
+
+    def get_output_fields(self) -> List[Dict[str, Any]]:
+        return super().get_output_fields()
+
+    def get_description(self) -> str:
+        return "Privacy-focused web search provider for broad web discovery."
+
+    def search_structured(
+        self,
+        input_dict: Dict[str, Any],
+        max_results: int = 5,
+    ) -> List[Dict[str, Any]]:
+        return super().search_structured(input_dict, max_results=max_results)
