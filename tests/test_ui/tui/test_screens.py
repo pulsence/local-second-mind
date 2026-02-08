@@ -40,6 +40,11 @@ class TestScreenImports:
         from lsm.ui.tui.screens.main import MainScreen
         assert MainScreen is not None
 
+    def test_import_agents_screen(self):
+        """Should be able to import AgentsScreen."""
+        from lsm.ui.tui.screens.agents import AgentsScreen
+        assert AgentsScreen is not None
+
 
 class TestQueryScreen:
     """Tests for QueryScreen class."""

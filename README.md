@@ -7,7 +7,10 @@ with configurable LLM providers.
 ## Caveat Emptor
 
 This project is primarily for personal use. Pull requests or issues may not be
-reviewed unless they overlap with the maintainer's active use cases.
+reviewed unless they overlap with the maintainer's active use cases. Further, unitl
+this project reaches v1.0.0 expect breaking changes between release versions. This
+will particularly affect the config file structure which I am changing organically
+as feature are added and change.
 
 ## Core Goals
 

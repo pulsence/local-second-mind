@@ -12,7 +12,6 @@ All notable changes to Local Second Mind are documented here.
 - DOCX page break detection using `<w:lastRenderedPageBreak/>` and `<w:br w:type="page"/>` XML elements.
 - `chunking_strategy` config option (`"structure"` or `"fixed"`) on `IngestConfig`.
 - Chunk metadata now includes `heading`, `paragraph_index`, and `page_number` fields when using structure chunking.
-- 53 new tests in `tests/test_ingest/test_structure_chunking.py` covering heading detection, paragraph splitting, sentence preservation, page mapping, pipeline integration, and config validation.
 - Language detection module (`lsm/ingest/language.py`) using `langdetect` for automatic document language identification (ISO 639-1 codes).
 - `enable_language_detection` config option on `IngestConfig` (default `False`). Detected language stored in chunk metadata as `"language"`.
 - LLM-based machine translation module (`lsm/ingest/translation.py`) for cross-language search on multilingual corpora.
@@ -31,7 +30,6 @@ All notable changes to Local Second Mind are documented here.
 - Enhanced MuPDF PDF repair with multi-stage strategy: direct open, garbage-collection rebuild (`garbage=4, deflate=True, clean=True`), and plain stream fallback. Expanded repairable error markers to include `"trailer"`, `"startxref"`, `"corrupt"`, and `"malformed"`.
 - Chunk version control via `enable_versioning` on `IngestConfig`. Old chunks marked `is_current=False` instead of deleted. Version number tracked in chunk metadata and manifest. Query retrieval filters to `is_current=True` when versioning is active.
 - `where_filter` parameter on `retrieve_candidates()` for metadata-level filtering at query time.
-- 14 new tests in `test_versioning.py`, 14 in `test_partial_ingest.py`, 15 in `test_stats_cache.py`, and 6 new MuPDF repair tests in `test_parsers_extended.py`.
 - Full PostgreSQL + pgvector support as an alternative vector database backend via `VectorDBConfig(provider="postgresql")`.
 - `VectorDBGetResult` dataclass in `lsm/vectordb/base.py` for typed non-similarity retrieval results (ids, documents, metadatas, embeddings).
 - `get()` abstract method on `BaseVectorDBProvider` supporting retrieval by IDs, filters, with pagination (`limit`/`offset`) and field selection (`include`).
@@ -70,6 +68,8 @@ All notable changes to Local Second Mind are documented here.
 - Agent log helpers in `lsm/agents/log_formatter.py` for formatting, saving, and loading structured `AgentLogEntry` traces.
 - Research agent in `lsm/agents/research.py` with LLM-driven topic decomposition, per-subtopic tool selection, iterative evidence synthesis, outline review loops, and markdown outline persistence.
 - Agent registry/factory in `lsm/agents/factory.py` with built-in `research` registration and `create_agent()` entrypoint for extensible agent creation.
+- Agent UI integration with new `lsm/ui/tui/screens/agents.py` tab (launcher, status, pause/resume/stop, log view) wired into `LSMApp`.
+- Added shell-level agent command handlers in `lsm/ui/shell/commands/agents.py` supporting `/agent start|status|pause|resume|stop|log`, and query screen routing for `/agent` commands.
 
 ### Changed
 

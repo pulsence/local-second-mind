@@ -40,6 +40,7 @@ from lsm.remote import get_registered_providers
 from lsm.query.citations import export_citations_from_note, export_citations_from_sources
 from lsm.query.notes import get_note_filename, generate_note_content, resolve_notes_dir
 from lsm.ui.tui.widgets.status import StatusBar
+from lsm.ui.shell.commands.agents import handle_agent_command
 
 if TYPE_CHECKING:
     from lsm.query.session import Candidate
@@ -890,6 +891,10 @@ class QueryScreen(Widget):
                     )
                 return CommandResult(output="Usage: /context [doc|chunk|clear] ...\n")
 
+            if cmd == "/agent":
+                output = handle_agent_command(q, self.app)
+                return CommandResult(output=output)
+
             if cmd in {"/note", "/notes"}:
                 if not self.app.query_state.last_question:
                     return CommandResult(output="No query to save. Run a query first.\n")
@@ -1256,6 +1261,14 @@ Models and providers
 /vectordb-providers           Show available vector DB providers
 /vectordb-status              Show vector DB status
 /remote-providers             Show remote providers summary
+
+Agents
+/agent start <name> <topic>  Start an agent run
+/agent status                Show active agent status
+/agent pause                 Pause active agent
+/agent resume                Resume active agent
+/agent stop                  Stop active agent
+/agent log                   Show active agent logs
 
 Results
 /show S#                      Show the cited chunk (e.g., /show S2)

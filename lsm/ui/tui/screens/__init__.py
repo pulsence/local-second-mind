@@ -16,6 +16,7 @@ __all__ = [
     "QueryScreen",
     "SettingsScreen",
     "RemoteScreen",
+    "AgentsScreen",
 ]
 
 # Lazy imports to avoid circular dependencies
@@ -35,4 +36,7 @@ def __getattr__(name: str):
     elif name == "RemoteScreen":
         from lsm.ui.tui.screens.remote import RemoteScreen
         return RemoteScreen
+    elif name == "AgentsScreen":
+        from lsm.ui.tui.screens.agents import AgentsScreen
+        return AgentsScreen
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

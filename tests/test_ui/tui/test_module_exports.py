@@ -12,6 +12,7 @@ def test_screen_lazy_exports() -> None:
     assert screen_modules.QueryScreen is not None
     assert screen_modules.SettingsScreen is not None
     assert screen_modules.RemoteScreen is not None
+    assert screen_modules.AgentsScreen is not None
 
     with pytest.raises(AttributeError):
         _ = screen_modules.DoesNotExist
@@ -28,4 +29,3 @@ def test_widget_lazy_exports() -> None:
 
     with pytest.raises(AttributeError):
         _ = widget_modules.DoesNotExist
-

@@ -28,7 +28,7 @@ if TYPE_CHECKING:
 logger = get_logger(__name__)
 
 # Type alias for context
-ContextType = Literal["ingest", "query", "settings", "remote"]
+ContextType = Literal["ingest", "query", "settings", "remote", "agents"]
 
 
 class LSMApp(App):
@@ -47,6 +47,7 @@ class LSMApp(App):
         Binding("ctrl+n", "switch_ingest", "Ingest", show=False),
         Binding("ctrl+q", "switch_query", "Query", show=False),
         Binding("ctrl+r", "switch_remote", "Remote", show=False),
+        Binding("ctrl+g", "switch_agents", "Agents", show=False),
         Binding("ctrl+s", "switch_settings", "Settings", show=False),
         Binding("ctrl+p", "switch_remote", "Remote", show=False),
         Binding("f1", "show_help", "Help", show=False),
@@ -99,6 +100,10 @@ class LSMApp(App):
             with TabPane("Remote (^r)", id="remote"):
                 from lsm.ui.tui.screens.remote import RemoteScreen
                 yield RemoteScreen(id="remote-screen")
+
+            with TabPane("Agents (^g)", id="agents"):
+                from lsm.ui.tui.screens.agents import AgentsScreen
+                yield AgentsScreen(id="agents-screen")
 
             with TabPane("Settings (^s)", id="settings"):
                 from lsm.ui.tui.screens.settings import SettingsScreen
@@ -353,6 +358,13 @@ class LSMApp(App):
         self.current_context = "remote"
         logger.debug("Switched to remote context")
 
+    def action_switch_agents(self) -> None:
+        """Switch to agents tab."""
+        tabbed_content = self.query_one(TabbedContent)
+        tabbed_content.active = "agents"
+        self.current_context = "agents"
+        logger.debug("Switched to agents context")
+
     def _activate_settings_tab(self, tab_id: str) -> None:
         """Switch to a settings sub-tab when settings is active."""
         if self.current_context != "settings":
@@ -418,7 +430,7 @@ class LSMApp(App):
         if tab_id:
             # Remove the "-tab" suffix if present
             context = tab_id.replace("-tab", "")
-            if context in ("ingest", "query", "settings", "remote"):
+            if context in ("ingest", "query", "settings", "remote", "agents"):
                 self.current_context = context
                 logger.debug(f"Tab activated: {context}")
 

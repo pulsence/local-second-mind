@@ -24,6 +24,9 @@ logger = get_logger(__name__)
 class SettingsScreen(Widget):
     """Settings editor aligned to current config sections."""
 
+    current_mode: str = "grounded"
+    """Current selected mode name (for tests and UI state)."""
+
     BINDINGS = [
         Binding("ctrl+o", "settings_tab_1", "Global", show=True),
         Binding("ctrl+g", "settings_tab_2", "Ingest", show=True),
