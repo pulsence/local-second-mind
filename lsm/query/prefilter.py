@@ -99,8 +99,6 @@ def prefilter_by_metadata(
             if tag.lower() in known_tags:
                 where[tag_field] = tag
                 break
-        if tag_field in where:
-            break
 
     # Title matching if provided by metadata inventory.
     titles = _normalize_values(metadata.get("title"))

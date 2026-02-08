@@ -35,6 +35,8 @@ def _state(*, path_contains=None, ext_allow=None, ext_deny=None, pinned_chunks=N
         ext_allow=ext_allow,
         ext_deny=ext_deny,
         pinned_chunks=pinned_chunks or [],
+        context_documents=[],
+        context_chunks=[],
     )
 
 
@@ -118,3 +120,82 @@ def test_prepare_local_candidates_pinned_chunks_inserted(monkeypatch: pytest.Mon
 
     plan = planning.prepare_local_candidates("q", cfg, state, embedder=object(), collection=mock_collection)
     assert plan.filtered[0].cid == "p1"
+
+
+def test_prepare_local_candidates_prefilter_uses_metadata_inventory(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    cfg = _config(local_enabled=True, rerank_strategy="none", retrieve_k=4, no_rerank=False)
+    state = _state()
+
+    base = Candidate(cid="1", text="a", meta={"source_path": "/docs/a.md"}, distance=0.2)
+    monkeypatch.setattr(planning, "embed_text", lambda *args, **kwargs: [0.1])
+    monkeypatch.setattr(planning, "retrieve_candidates", lambda *args, **kwargs: [base])
+    monkeypatch.setattr(planning, "filter_candidates", lambda *args, **kwargs: [base])
+    monkeypatch.setattr(planning, "compute_relevance", lambda filtered: 0.8)
+    monkeypatch.setattr("lsm.query.rerank.enforce_diversity", lambda candidates, max_per_file: candidates)
+
+    captured = {}
+
+    def _fake_prefilter(question, available_metadata):
+        captured["metadata"] = available_metadata
+        return {"content_type": "theology"}
+
+    monkeypatch.setattr(planning, "prefilter_by_metadata", _fake_prefilter)
+
+    from unittest.mock import Mock
+    from lsm.vectordb.base import BaseVectorDBProvider
+
+    mock_collection = Mock(spec=BaseVectorDBProvider)
+    mock_collection.get.return_value = VectorDBGetResult(
+        ids=["m1"],
+        metadatas=[
+            {
+                "content_type": "theology",
+                "ai_tags": '["christology"]',
+                "user_tags": '["doctrine"]',
+                "root_tags": '["theology"]',
+                "folder_tags": '["research"]',
+            }
+        ],
+    )
+
+    plan = planning.prepare_local_candidates("q", cfg, state, embedder=object(), collection=mock_collection)
+
+    assert plan.metadata_filter == {"content_type": "theology"}
+    assert captured["metadata"]["content_type"] == ["theology"]
+    assert captured["metadata"]["ai_tags"] == ["christology"]
+    assert captured["metadata"]["user_tags"] == ["doctrine"]
+    assert captured["metadata"]["root_tags"] == ["theology"]
+    assert captured["metadata"]["folder_tags"] == ["research"]
+
+
+def test_prepare_local_candidates_anchor_chunks_stay_prioritized_after_rerank(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    cfg = _config(local_enabled=True, rerank_strategy="lexical", retrieve_k=4, no_rerank=False)
+    state = _state()
+    state.context_chunks = ["anchor-1"]
+
+    base = Candidate(cid="1", text="a", meta={}, distance=0.2)
+    monkeypatch.setattr(planning, "embed_text", lambda *args, **kwargs: [0.1])
+    monkeypatch.setattr(planning, "retrieve_candidates", lambda *args, **kwargs: [base])
+    monkeypatch.setattr(planning, "filter_candidates", lambda *args, **kwargs: [base])
+    monkeypatch.setattr(planning, "compute_relevance", lambda filtered: 0.8)
+    monkeypatch.setattr(planning, "apply_local_reranking", lambda question, candidates, **kwargs: [base])
+
+    from unittest.mock import Mock
+    from lsm.vectordb.base import BaseVectorDBProvider
+
+    mock_collection = Mock(spec=BaseVectorDBProvider)
+    mock_collection.get.side_effect = [
+        VectorDBGetResult(ids=[], metadatas=[]),  # metadata inventory
+        VectorDBGetResult(
+            ids=["anchor-1"],
+            documents=["anchored text"],
+            metadatas=[{"source_path": "/docs/anchor.md"}],
+        ),  # context chunk anchor fetch
+    ]
+
+    plan = planning.prepare_local_candidates("q", cfg, state, embedder=object(), collection=mock_collection)
+    assert plan.filtered[0].cid == "anchor-1"

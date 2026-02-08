@@ -119,6 +119,30 @@ Live toggle in TUI:
 - `remote`
 - `notes`
 
+## Context Building Improvements (Phase 4.2)
+
+LSM now applies metadata-aware prefiltering before vector similarity search and supports explicit context anchors.
+
+Metadata prefiltering:
+
+- Builds a metadata inventory from stored chunk metadata and derives a best-effort `where` filter from the query.
+- Uses deterministic extraction for author/year/title hints.
+- Matches query terms against metadata fields:
+  - `content_type`
+  - `ai_tags`
+  - `user_tags`
+  - `root_tags`
+  - `folder_tags`
+
+Context anchors:
+
+- `/context` shows current anchor state.
+- `/context doc <path...>` sets document anchors.
+- `/context chunk <id...>` sets chunk anchors.
+- `/context clear` removes anchors.
+
+When anchors are set, anchored chunks/documents are prioritized as the primary context start, then augmented with vector retrieval candidates.
+
 ## Custom Mode Examples
 
 ### Example: Strict Local-Only Q&A

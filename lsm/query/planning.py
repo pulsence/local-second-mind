@@ -4,8 +4,9 @@ Shared query planning utilities.
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
-from typing import List
+from typing import Any, Dict, List
 
 from lsm.config.models import LSMConfig
 from lsm.query.session import SessionState, Candidate
@@ -35,6 +36,80 @@ class LocalQueryPlan:
     local_pool: int
     no_rerank: bool
     metadata_filter: dict | None = None
+
+
+def _deserialize_metadata_values(value: Any) -> List[str]:
+    """Normalize metadata values into a list of strings."""
+    if value is None:
+        return []
+    if isinstance(value, list):
+        return [str(v).strip() for v in value if str(v).strip()]
+    if isinstance(value, str):
+        text = value.strip()
+        if not text:
+            return []
+        if text.startswith("[") and text.endswith("]"):
+            try:
+                parsed = json.loads(text)
+            except Exception:
+                parsed = None
+            if isinstance(parsed, list):
+                return [str(v).strip() for v in parsed if str(v).strip()]
+        return [text]
+    return [str(value).strip()]
+
+
+def _collect_available_metadata(
+    collection: BaseVectorDBProvider | Any,
+    limit: int = 200,
+) -> Dict[str, List[str]]:
+    """Build a lightweight metadata inventory used by prefiltering."""
+    if not isinstance(collection, BaseVectorDBProvider):
+        return {}
+
+    fields = ("content_type", "ai_tags", "user_tags", "root_tags", "folder_tags", "title", "author")
+    inventory: Dict[str, set[str]] = {field: set() for field in fields}
+
+    try:
+        result = collection.get(limit=limit, include=["metadatas"])
+    except Exception as exc:
+        logger.debug(f"Failed metadata inventory fetch for prefiltering: {exc}")
+        return {}
+
+    for meta in result.metadatas or []:
+        if not isinstance(meta, dict):
+            continue
+        for field in fields:
+            for item in _deserialize_metadata_values(meta.get(field)):
+                if item:
+                    inventory[field].add(item)
+
+    return {
+        field: sorted(values)
+        for field, values in inventory.items()
+        if values
+    }
+
+
+def _prioritize_anchor_candidates(
+    anchor_candidates: List[Candidate],
+    candidates: List[Candidate],
+    limit: int,
+) -> List[Candidate]:
+    """Ensure anchor candidates remain first while deduplicating by candidate ID."""
+    if limit < 1:
+        return []
+    prioritized: List[Candidate] = []
+    seen: set[str] = set()
+    for candidate in anchor_candidates + candidates:
+        cid = str(candidate.cid)
+        if cid in seen:
+            continue
+        seen.add(cid)
+        prioritized.append(candidate)
+        if len(prioritized) >= limit:
+            break
+    return prioritized
 
 
 def prepare_local_candidates(
@@ -88,7 +163,8 @@ def prepare_local_candidates(
     filters_active = bool(path_contains) or bool(ext_allow) or bool(ext_deny)
     retrieve_k = config.query.retrieve_k or (max(k, k * 3) if filters_active else k)
 
-    where_filter = prefilter_by_metadata(question, available_metadata={})
+    available_metadata = _collect_available_metadata(collection)
+    where_filter = prefilter_by_metadata(question, available_metadata=available_metadata)
     if config.ingest.enable_versioning:
         where_filter = {**where_filter, "is_current": True}
     if not where_filter:
@@ -173,13 +249,11 @@ def prepare_local_candidates(
                     logger.error(f"Failed to load context document anchor '{doc_path}': {exc}")
 
     if anchor_candidates:
-        existing_ids = {c.cid for c in filtered}
-        prioritized = []
-        for candidate in anchor_candidates:
-            if candidate.cid not in existing_ids:
-                prioritized.append(candidate)
-                existing_ids.add(candidate.cid)
-        filtered = prioritized + filtered
+        filtered = _prioritize_anchor_candidates(
+            anchor_candidates,
+            filtered,
+            limit=max(len(filtered), len(anchor_candidates)),
+        )
 
     if filtered:
         if rerank_strategy in ("lexical", "hybrid"):
@@ -194,6 +268,13 @@ def prepare_local_candidates(
             from lsm.query.rerank import enforce_diversity
             filtered = enforce_diversity(filtered, max_per_file=max_per_file)
             filtered = filtered[: min(k, len(filtered))]
+
+    if anchor_candidates:
+        filtered = _prioritize_anchor_candidates(
+            anchor_candidates,
+            filtered,
+            limit=min(k, max(len(filtered), len(anchor_candidates))),
+        )
 
     relevance = compute_relevance(filtered) if filtered else 0.0
     should_llm_rerank = rerank_strategy in ("llm", "hybrid") and not no_rerank

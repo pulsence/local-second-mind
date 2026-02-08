@@ -225,6 +225,12 @@ Query caching notes:
 - LSM tracks provider response/session IDs and reuses them on follow-up turns when the provider API supports this.
 - Provider cache retention is managed by provider backends; LSM does not expose a retention duration setting.
 
+Context-building notes:
+
+- Query execution applies metadata prefiltering before vector similarity search when matching metadata exists.
+- Prefiltering considers `content_type`, `ai_tags`, `user_tags`, `root_tags`, `folder_tags`, plus deterministic author/year/title hints extracted from the prompt.
+- Context anchors (`/context doc ...` and `/context chunk ...` in TUI) are session-level controls, not static config keys.
+
 ## Modes Configuration
 
 Modes define per-mode behavior for synthesis and source blending.

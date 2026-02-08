@@ -45,6 +45,10 @@ All notable changes to Local Second Mind are documented here.
 - Chat conversation/session tracking in query state, including provider response/session ID chaining for follow-up turns.
 - Provider-side LLM cache/session reuse support across OpenAI, Azure OpenAI, Anthropic, Gemini, and Local providers (where applicable by provider API).
 - TUI live mode toggle for provider cache reuse: `/mode set llm_cache on|off`.
+- Query metadata prefiltering improvements (`lsm/query/prefilter.py`, `lsm/query/planning.py`) using metadata inventory + deterministic author/year/title extraction.
+- Prefiltering now supports all tag fields together: `ai_tags`, `user_tags`, `root_tags`, `folder_tags`, plus `content_type`.
+- Context anchor controls in query TUI (`/context`, `/context doc ...`, `/context chunk ...`, `/context clear`) with anchor-first context prioritization.
+- Added/updated query tests for metadata prefilter behavior and anchor prioritization (`tests/test_query/test_prefilter.py`, `tests/test_query/test_planning.py`).
 
 ### Changed
 

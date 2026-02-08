@@ -23,3 +23,20 @@ def test_prefilter_by_metadata_uses_author_year_content_type_and_tags() -> None:
     assert where.get("author") is not None
     assert where.get("year") == "2024"
     assert where.get("content_type") == "theology"
+
+
+def test_prefilter_by_metadata_matches_all_tag_fields() -> None:
+    where = prefilter_by_metadata(
+        "christology doctrine theology research",
+        available_metadata={
+            "ai_tags": ["christology"],
+            "user_tags": ["doctrine"],
+            "root_tags": ["theology"],
+            "folder_tags": ["research"],
+        },
+    )
+
+    assert where.get("ai_tags") == "christology"
+    assert where.get("user_tags") == "doctrine"
+    assert where.get("root_tags") == "theology"
+    assert where.get("folder_tags") == "research"
