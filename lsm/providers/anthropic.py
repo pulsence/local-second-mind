@@ -62,6 +62,7 @@ class AnthropicProvider(BaseLLMProvider):
         self.config = config
         self._api_key = config.api_key or os.getenv("ANTHROPIC_API_KEY")
         self._client: Optional[Anthropic] = None
+        self.last_response_id: Optional[str] = None
         super().__init__()
         logger.debug(f"Initialized Anthropic provider with model: {config.model}")
 
@@ -206,17 +207,25 @@ class AnthropicProvider(BaseLLMProvider):
         try:
             logger.debug(f"Requesting Claude synthesis in {mode} mode")
 
+            system_payload: Any = instructions
+            if kwargs.get("enable_server_cache"):
+                # Anthropic prompt caching uses cache_control on content blocks.
+                system_payload = [
+                    {"type": "text", "text": instructions, "cache_control": {"type": "ephemeral"}}
+                ]
+
             def _call() -> Any:
                 return self.client.messages.create(
                     model=self.model,
                     max_tokens=max_tokens,
                     temperature=temperature,
-                    system=instructions,
+                    system=system_payload,
                     messages=[{"role": "user", "content": user_content}],
                 )
 
             resp = self._with_retry(_call, "synthesize", retry_on=self._is_retryable_error)
             answer = self._extract_text(resp)
+            self.last_response_id = getattr(resp, "id", None)
             self._record_success("synthesize")
             return answer
 

@@ -27,6 +27,7 @@ def _mock_anthropic_response(payload: str) -> Mock:
     part.text = payload
     response = Mock()
     response.content = [part]
+    response.id = "anthropic_resp_1"
     return response
 
 
@@ -74,6 +75,19 @@ def test_synthesize_fallback_on_error(llm_config):
         assert "Offline mode" in answer
         health = provider.health_check()
         assert health["stats"]["failure_count"] == 1
+
+
+def test_synthesize_tracks_last_response_id(llm_config):
+    with patch("lsm.providers.anthropic.Anthropic") as mock_anthropic:
+        mock_client = Mock()
+        mock_client.messages.create.return_value = _mock_anthropic_response("Answer [S1]")
+        mock_anthropic.return_value = mock_client
+
+        provider = AnthropicProvider(llm_config)
+        answer = provider.synthesize("Question?", "[S1] Context", mode="grounded", enable_server_cache=True)
+
+        assert "Answer" in answer
+        assert provider.last_response_id == "anthropic_resp_1"
 
 
 def test_generate_tags_success(llm_config):

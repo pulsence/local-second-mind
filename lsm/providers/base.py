@@ -54,6 +54,7 @@ class BaseLLMProvider(ABC):
     CIRCUIT_BREAKER_COOLDOWN_SECONDS = 30.0
 
     def __init__(self) -> None:
+        self.last_response_id: Optional[str] = None
         key = f"{self.name}:{self.model}"
         if key not in self._GLOBAL_HEALTH_STATS:
             self._GLOBAL_HEALTH_STATS[key] = ProviderHealthStats()

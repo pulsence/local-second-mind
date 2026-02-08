@@ -58,6 +58,7 @@ class GeminiProvider(BaseLLMProvider):
         self.config = config
         self._api_key = config.api_key or os.getenv("GOOGLE_API_KEY")
         self._client: Optional[genai.Client] = None
+        self.last_response_id: Optional[str] = None
         super().__init__()
         logger.debug(f"Initialized Gemini provider with model: {config.model}")
 
@@ -137,6 +138,10 @@ class GeminiProvider(BaseLLMProvider):
             )
 
         resp = self._with_retry(_call, "generate_content", retry_on=self._is_retryable_error)
+        self.last_response_id = (
+            getattr(resp, "response_id", None)
+            or getattr(resp, "id", None)
+        )
         text = getattr(resp, "text", None)
         if not text:
             return ""

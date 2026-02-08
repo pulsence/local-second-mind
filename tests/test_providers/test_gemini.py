@@ -25,6 +25,7 @@ def llm_config():
 def _setup_genai_mock(mock_genai: Mock, payload: str) -> Mock:
     mock_response = Mock()
     mock_response.text = payload
+    mock_response.response_id = "gemini_resp_1"
     mock_client = Mock()
     mock_client.models.generate_content.return_value = mock_response
     mock_genai.Client.return_value = mock_client
@@ -66,6 +67,17 @@ def test_synthesize_fallback_on_error(llm_config):
         assert "Offline mode" in answer
         health = provider.health_check()
         assert health["stats"]["failure_count"] == 1
+
+
+def test_synthesize_tracks_last_response_id(llm_config):
+    with patch("lsm.providers.gemini.genai") as mock_genai:
+        _setup_genai_mock(mock_genai, "Answer [S1]")
+
+        provider = GeminiProvider(llm_config)
+        answer = provider.synthesize("Question?", "[S1] Context", mode="grounded", enable_server_cache=True)
+
+        assert "Answer" in answer
+        assert provider.last_response_id == "gemini_resp_1"
 
 
 def test_generate_tags_success(llm_config):

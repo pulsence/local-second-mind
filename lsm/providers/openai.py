@@ -79,6 +79,7 @@ class OpenAIProvider(BaseLLMProvider):
             config: LLM configuration with API key and model settings
         """
         self.config = config
+        self.last_response_id: Optional[str] = None
 
         # Create OpenAI client
         if config.api_key:
@@ -302,6 +303,14 @@ class OpenAIProvider(BaseLLMProvider):
                 "max_output_tokens": max_tokens,
             }
 
+            previous_response_id = kwargs.get("previous_response_id")
+            if kwargs.get("enable_server_cache") and previous_response_id:
+                request_args["previous_response_id"] = previous_response_id
+
+            prompt_cache_key = kwargs.get("prompt_cache_key")
+            if kwargs.get("enable_server_cache") and prompt_cache_key:
+                request_args["prompt_cache_key"] = prompt_cache_key
+
             if (
                 temperature is not None
                 and _model_supports_temperature(self.config.model)
@@ -317,10 +326,21 @@ class OpenAIProvider(BaseLLMProvider):
                     _UNSUPPORTED_PARAM_TRACKER.mark_unsupported(self.config.model, "temperature")
                     request_args.pop("temperature", None)
                     resp = self._call_responses(request_args, "synthesize")
+                elif _UNSUPPORTED_PARAM_TRACKER.is_unsupported_error(e, "prompt_cache_key"):
+                    logger.warning("Model does not support prompt_cache_key; retrying without it.")
+                    _UNSUPPORTED_PARAM_TRACKER.mark_unsupported(self.config.model, "prompt_cache_key")
+                    request_args.pop("prompt_cache_key", None)
+                    resp = self._call_responses(request_args, "synthesize")
+                elif _UNSUPPORTED_PARAM_TRACKER.is_unsupported_error(e, "previous_response_id"):
+                    logger.warning("Model does not support previous_response_id; retrying without it.")
+                    _UNSUPPORTED_PARAM_TRACKER.mark_unsupported(self.config.model, "previous_response_id")
+                    request_args.pop("previous_response_id", None)
+                    resp = self._call_responses(request_args, "synthesize")
                 else:
                     raise
 
             answer = (resp.output_text or "").strip()
+            self.last_response_id = getattr(resp, "id", None)
             self._record_success("synthesize")
             logger.info(f"Generated answer ({len(answer)} chars) in {mode} mode")
             return answer

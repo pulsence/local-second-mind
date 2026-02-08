@@ -77,6 +77,7 @@ class AzureOpenAIProvider(BaseLLMProvider):
 
     def __init__(self, config: LLMConfig):
         self.config = config
+        self.last_response_id: Optional[str] = None
         self.endpoint = config.endpoint or os.getenv("AZURE_OPENAI_ENDPOINT")
         self.api_version = config.api_version or os.getenv("AZURE_OPENAI_API_VERSION")
         self.deployment_name = (
@@ -234,6 +235,14 @@ class AzureOpenAIProvider(BaseLLMProvider):
                 "max_output_tokens": max_tokens,
             }
 
+            previous_response_id = kwargs.get("previous_response_id")
+            if kwargs.get("enable_server_cache") and previous_response_id:
+                request_args["previous_response_id"] = previous_response_id
+
+            prompt_cache_key = kwargs.get("prompt_cache_key")
+            if kwargs.get("enable_server_cache") and prompt_cache_key:
+                request_args["prompt_cache_key"] = prompt_cache_key
+
             if (
                 temperature is not None
                 and _model_supports_temperature(self.deployment_name)
@@ -249,10 +258,21 @@ class AzureOpenAIProvider(BaseLLMProvider):
                     _UNSUPPORTED_PARAM_TRACKER.mark_unsupported(self.deployment_name, "temperature")
                     request_args.pop("temperature", None)
                     resp = self._call_responses(request_args, "synthesize")
+                elif _UNSUPPORTED_PARAM_TRACKER.is_unsupported_error(e, "prompt_cache_key"):
+                    logger.warning("Deployment does not support prompt_cache_key; retrying without it.")
+                    _UNSUPPORTED_PARAM_TRACKER.mark_unsupported(self.deployment_name, "prompt_cache_key")
+                    request_args.pop("prompt_cache_key", None)
+                    resp = self._call_responses(request_args, "synthesize")
+                elif _UNSUPPORTED_PARAM_TRACKER.is_unsupported_error(e, "previous_response_id"):
+                    logger.warning("Deployment does not support previous_response_id; retrying without it.")
+                    _UNSUPPORTED_PARAM_TRACKER.mark_unsupported(self.deployment_name, "previous_response_id")
+                    request_args.pop("previous_response_id", None)
+                    resp = self._call_responses(request_args, "synthesize")
                 else:
                     raise
 
             answer = (resp.output_text or "").strip()
+            self.last_response_id = getattr(resp, "id", None)
             self._record_success("synthesize")
             return answer
 

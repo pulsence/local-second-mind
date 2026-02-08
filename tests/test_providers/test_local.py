@@ -67,6 +67,17 @@ def test_synthesize_fallback_on_error(llm_config):
         assert health["stats"]["failure_count"] == 1
 
 
+def test_synthesize_sets_last_response_id_none(llm_config):
+    with patch("lsm.providers.local.requests.post") as mock_post:
+        mock_post.return_value = _mock_response("Answer [S1]")
+
+        provider = LocalProvider(llm_config)
+        answer = provider.synthesize("Question?", "[S1] Context", mode="grounded", enable_server_cache=True)
+
+        assert "Answer" in answer
+        assert provider.last_response_id is None
+
+
 def test_generate_tags_success(llm_config):
     tags_payload = json.dumps({"tags": ["local", "model"]})
 

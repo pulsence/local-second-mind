@@ -66,6 +66,9 @@ class QueryConfig:
     chat_mode: str = "single"
     """Response mode: 'single' (stateless) or 'chat' (maintains conversation)."""
 
+    enable_llm_server_cache: bool = True
+    """Enable provider-side server caching for chat follow-up turns when supported."""
+
     def __post_init__(self):
         """Compute derived values."""
         self.chat_mode = (self.chat_mode or "single").strip().lower()

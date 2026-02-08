@@ -70,7 +70,7 @@ QUERY_COMMANDS: Dict[str, str] = {
 
 # Subcommand completions
 MODE_VALUES = ["grounded", "insight", "hybrid", "chat", "single"]
-MODE_SETTINGS = ["model_knowledge", "remote", "notes"]
+MODE_SETTINGS = ["model_knowledge", "remote", "notes", "llm_cache"]
 BUILD_OPTIONS = ["--force"]
 TAG_OPTIONS = ["--max"]
 EXPORT_FORMATS = ["bibtex", "zotero"]

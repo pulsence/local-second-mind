@@ -19,7 +19,6 @@ All notable changes to Local Second Mind are documented here.
 - `enable_translation` and `translation_target` config options on `IngestConfig`. Uses `"translation"` LLM service from `llms.services`.
 - `WELL_KNOWN_EMBED_MODELS` dictionary in `constants.py` mapping 30+ embedding models to their output dimensions.
 - `embedding_dimension` field on `GlobalConfig` with auto-detection from well-known models. Pipeline validates actual model dimension matches config at startup.
-- 67 new tests across `test_language.py`, `test_translation.py`, `test_embedding_models.py`, and updated existing test files.
 - `RootConfig` dataclass in `lsm/config/models/ingest.py` supporting per-root `tags` and `content_type`.
 - `IngestConfig.roots` now accepts strings, Path objects, dicts with `path`/`tags`/`content_type`, or `RootConfig` instances (all normalized to `List[RootConfig]`).
 - `root_paths` property on `IngestConfig` for convenient `List[Path]` access.
@@ -42,7 +41,10 @@ All notable changes to Local Second Mind are documented here.
 - `migrate-vectordb` CLI subcommand and `/migrate` TUI command for running migrations.
 - PostgreSQL connection variables in `.env.example` (`LSM_POSTGRES_CONNECTION_STRING`, `LSM_POSTGRES_TABLE`).
 - PostgreSQL vectordb example in `example_config.json`.
-- 4 new migration tests, PostgreSQL provider tests, and updated consumer tests (1221 total tests passing).
+- Query result cache in `lsm/query/cache.py` with TTL expiration + LRU eviction, integrated into query execution behind `query.enable_query_cache`.
+- Chat conversation/session tracking in query state, including provider response/session ID chaining for follow-up turns.
+- Provider-side LLM cache/session reuse support across OpenAI, Azure OpenAI, Anthropic, Gemini, and Local providers (where applicable by provider API).
+- TUI live mode toggle for provider cache reuse: `/mode set llm_cache on|off`.
 
 ### Changed
 
@@ -56,6 +58,8 @@ All notable changes to Local Second Mind are documented here.
 - `require_chroma_collection()` utility removed — no longer needed with provider abstraction.
 - `lsm/vectordb/utils.py` deleted entirely.
 - Filter format normalized: simple `{"key": "value"}` instead of `{"key": {"$eq": "value"}}` at the provider interface level.
+- `query.enable_llm_server_cache` default is now `true`.
+- Removed `llm_prompt_cache_retention` query config option; provider backends control retention policy.
 
 ## 0.3.2
 

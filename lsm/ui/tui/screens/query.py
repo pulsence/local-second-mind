@@ -784,6 +784,7 @@ class QueryScreen(Widget):
                         f"  Synthesis style: {mode_config.synthesis_style}",
                         f"  Local sources: enabled (k={mode_config.source_policy.local.k})",
                         f"  Remote sources: {'enabled' if mode_config.source_policy.remote.enabled else 'disabled'}",
+                        f"  LLM server cache: {'enabled' if getattr(self.app.config.query, 'enable_llm_server_cache', True) else 'disabled'}",
                         f"  Model knowledge: "
                         f"{'enabled' if mode_config.source_policy.model_knowledge.enabled else 'disabled'}",
                         f"  Notes: {'enabled' if self.app.config.notes.enabled else 'disabled'}",
@@ -795,7 +796,7 @@ class QueryScreen(Widget):
                         return CommandResult(
                             output=(
                                 "Usage:\n  /mode set <setting> <on|off>\n"
-                                "Settings: model_knowledge, remote, notes (global)\n"
+                                "Settings: model_knowledge, remote, notes (global), llm_cache\n"
                             )
                         )
                     setting = parts[2].strip().lower()
@@ -808,11 +809,13 @@ class QueryScreen(Widget):
                         mode_config.source_policy.remote.enabled = enabled
                     elif setting in {"notes"}:
                         self.app.config.notes.enabled = enabled
+                    elif setting in {"llm_cache", "llm-cache", "server_cache", "server-cache"}:
+                        self.app.config.query.enable_llm_server_cache = enabled
                     else:
                         return CommandResult(
                             output=(
                                 f"Unknown setting: {setting}\n"
-                                "Settings: model_knowledge, remote, notes (global)\n"
+                                "Settings: model_knowledge, remote, notes (global), llm_cache\n"
                             )
                         )
                     return CommandResult(
@@ -1242,7 +1245,7 @@ Modes and sources
 /mode                         Show current query mode
 /mode <name>                  Switch to a different query mode
 /mode chat|single             Switch conversation mode
-/mode set <setting> <on|off>  Toggle model_knowledge, remote, notes
+/mode set <setting> <on|off>  Toggle model_knowledge, remote, notes, llm_cache
 
 Models and providers
 /model                        Show current model selections

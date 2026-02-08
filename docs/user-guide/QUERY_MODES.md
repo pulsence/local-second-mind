@@ -96,6 +96,29 @@ Modes are selected by:
 
 The TUI shows mode details via `/mode`.
 
+## Chat Mode and Caching
+
+Query mode selection (`/mode <name>`) is separate from query response mode:
+
+- `query.chat_mode = "single"`: stateless turns.
+- `query.chat_mode = "chat"`: conversation history is tracked and sent as follow-up context.
+
+Caching options for query/chat:
+
+- `query.enable_query_cache`: local in-memory TTL/LRU result cache.
+- `query.enable_llm_server_cache`: provider-side server cache/session reuse for follow-up chat turns (enabled by default).
+
+Live toggle in TUI:
+
+- `/mode set llm_cache on`
+- `/mode set llm_cache off`
+
+`/mode set` also supports:
+
+- `model_knowledge`
+- `remote`
+- `notes`
+
 ## Custom Mode Examples
 
 ### Example: Strict Local-Only Q&A

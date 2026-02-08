@@ -210,8 +210,20 @@ The `query` section controls retrieval and reranking behavior.
 | `path_contains` | list[string]? | null | Filter: substring(s) in path. |
 | `ext_allow` | list[string]? | null | Filter: allow extensions. |
 | `ext_deny` | list[string]? | null | Filter: deny extensions. |
+| `enable_query_cache` | bool | `false` | Enable local in-memory query result cache (TTL + LRU). |
+| `query_cache_ttl` | int | `3600` | Local query cache TTL in seconds. |
+| `query_cache_size` | int | `100` | Max entries in local query cache. |
+| `chat_mode` | string | `single` | Response mode: `single` or `chat`. |
+| `enable_llm_server_cache` | bool | `true` | Enable provider-side prompt/session cache reuse for chat follow-up turns. |
 
 `local_pool` defaults to `max(k * 3, k_rerank * 4)` when not provided.
+
+Query caching notes:
+
+- `enable_query_cache` caches synthesized query results in process memory with query/mode/filter-sensitive cache keys.
+- `enable_llm_server_cache` enables provider server-side cache/session reuse in `chat_mode = "chat"`.
+- LSM tracks provider response/session IDs and reuses them on follow-up turns when the provider API supports this.
+- Provider cache retention is managed by provider backends; LSM does not expose a retention duration setting.
 
 ## Modes Configuration
 

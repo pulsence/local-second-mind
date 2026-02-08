@@ -46,6 +46,7 @@ class LocalProvider(BaseLLMProvider):
             or os.getenv("OLLAMA_BASE_URL")
             or "http://localhost:11434"
         ).rstrip("/")
+        self.last_response_id: Optional[str] = None
         super().__init__()
         logger.debug(f"Initialized Local provider with model: {config.model}")
 
@@ -92,6 +93,7 @@ class LocalProvider(BaseLLMProvider):
             return self._post("/api/chat", payload)
 
         resp = self._with_retry(_call, "chat", retry_on=self._is_retryable_error)
+        self.last_response_id = None
         message = resp.get("message", {}) if isinstance(resp, dict) else {}
         return (message.get("content") or "").strip()
 

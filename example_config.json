@@ -97,7 +97,8 @@
     "ext_deny": null,
     "enable_query_cache": false,
     "query_cache_ttl": 3600,
-    "query_cache_size": 100
+    "query_cache_size": 100,
+    "enable_llm_server_cache": true
   },
 
   "_comment_notes": "Global notes configuration (applies across all modes)",

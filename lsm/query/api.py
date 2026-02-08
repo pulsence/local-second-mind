@@ -464,6 +464,10 @@ async def _synthesize_answer(
         query_config = replace(query_config, model=state.model)
 
     synthesis_provider = create_provider(query_config)
+    provider_cache_key = f"{synthesis_provider.name}:{synthesis_provider.model}:{config.query.mode}"
+    previous_response_id = None
+    if config.query.chat_mode == "chat" and config.query.enable_llm_server_cache:
+        previous_response_id = state.llm_server_cache_ids.get(provider_cache_key)
 
     loop = asyncio.get_event_loop()
     question_payload = question
@@ -486,8 +490,16 @@ async def _synthesize_answer(
             context_block,
             mode=mode_config.synthesis_style,
             conversation_history=state.conversation_history,
+            enable_server_cache=config.query.enable_llm_server_cache,
+            previous_response_id=previous_response_id,
+            prompt_cache_key=provider_cache_key,
         )
     )
+
+    if config.query.enable_llm_server_cache:
+        response_id = getattr(synthesis_provider, "last_response_id", None)
+        if response_id:
+            state.llm_server_cache_ids[provider_cache_key] = str(response_id)
 
     cost = 0.0
     if state.cost_tracker:

@@ -212,6 +212,33 @@ class TestOpenAIProvider:
             assert "Offline mode" in answer
             assert "What is Python?" in answer
 
+    def test_synthesize_includes_server_cache_args_and_tracks_response_id(self, llm_config):
+        """Test OpenAI server-side cache args are forwarded and response id captured."""
+        mock_response = Mock()
+        mock_response.output_text = "Cached answer [S1]."
+        mock_response.id = "resp_123"
+
+        with patch("lsm.providers.openai.OpenAI") as mock_openai:
+            mock_client = Mock()
+            mock_client.responses.create.return_value = mock_response
+            mock_openai.return_value = mock_client
+
+            provider = OpenAIProvider(llm_config)
+            answer = provider.synthesize(
+                "Follow-up?",
+                "[S1] Context",
+                mode="grounded",
+                enable_server_cache=True,
+                previous_response_id="resp_prev",
+                prompt_cache_key="openai:gpt-5.2:grounded",
+            )
+
+            assert "Cached answer" in answer
+            assert provider.last_response_id == "resp_123"
+            kwargs = mock_client.responses.create.call_args.kwargs
+            assert kwargs["previous_response_id"] == "resp_prev"
+            assert kwargs["prompt_cache_key"] == "openai:gpt-5.2:grounded"
+
     def test_generate_tags_basic(self, llm_config):
         """Test basic tag generation."""
         mock_response = Mock()

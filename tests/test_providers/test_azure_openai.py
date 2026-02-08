@@ -82,3 +82,30 @@ def test_generate_tags_success(llm_config):
         tags = provider.generate_tags("Azure OpenAI", num_tags=2)
 
         assert tags == ["azure", "openai"]
+
+
+def test_synthesize_includes_server_cache_args_and_tracks_response_id(llm_config):
+    mock_response = Mock()
+    mock_response.output_text = "Cached answer [S1]."
+    mock_response.id = "az_resp_123"
+
+    with patch("lsm.providers.azure_openai.AzureOpenAI") as mock_azure:
+        mock_client = Mock()
+        mock_client.responses.create.return_value = mock_response
+        mock_azure.return_value = mock_client
+
+        provider = AzureOpenAIProvider(llm_config)
+        answer = provider.synthesize(
+            "Follow-up?",
+            "[S1] Context",
+            mode="grounded",
+            enable_server_cache=True,
+            previous_response_id="az_resp_prev",
+            prompt_cache_key="azure_openai:gpt-35-turbo:grounded",
+        )
+
+        assert "Cached answer" in answer
+        assert provider.last_response_id == "az_resp_123"
+        kwargs = mock_client.responses.create.call_args.kwargs
+        assert kwargs["previous_response_id"] == "az_resp_prev"
+        assert kwargs["prompt_cache_key"] == "azure_openai:gpt-35-turbo:grounded"

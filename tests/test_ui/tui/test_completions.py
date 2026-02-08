@@ -77,6 +77,11 @@ class TestGetCompletions:
         assert "grounded" in completions
         assert "insight" not in completions
 
+    def test_mode_set_suggests_llm_cache_setting(self):
+        """Mode set command should include llm_cache setting."""
+        completions = get_completions("/mode set ", "query")
+        assert "set llm_cache" in completions
+
     def test_build_command_suggests_options(self):
         """Build command should suggest --force option."""
         completions = get_completions("/build ", "ingest")

@@ -61,7 +61,13 @@ class _FakeApp:
         self.config = SimpleNamespace(
             llm=_LLM(),
             vectordb=SimpleNamespace(provider="chromadb", collection="kb"),
-            query=SimpleNamespace(mode="grounded", path_contains=None, ext_allow=None, ext_deny=None),
+            query=SimpleNamespace(
+                mode="grounded",
+                path_contains=None,
+                ext_allow=None,
+                ext_deny=None,
+                enable_llm_server_cache=False,
+            ),
             notes=SimpleNamespace(enabled=True),
             modes={
                 "grounded": SimpleNamespace(
@@ -212,6 +218,10 @@ def test_execute_model_and_mode_commands() -> None:
     mode_set = screen._execute_query_command("/mode set notes off").output
     assert "set to: off" in mode_set
     assert screen.app.config.notes.enabled is False
+
+    llm_cache_set = screen._execute_query_command("/mode set llm_cache on").output
+    assert "set to: on" in llm_cache_set
+    assert screen.app.config.query.enable_llm_server_cache is True
 
 
 def test_execute_export_and_load(monkeypatch: pytest.MonkeyPatch) -> None:

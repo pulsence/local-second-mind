@@ -386,6 +386,7 @@ def build_query_config(raw: Dict[str, Any]) -> QueryConfig:
         query_cache_ttl=int(query_section.get("query_cache_ttl", 3600)),
         query_cache_size=int(query_section.get("query_cache_size", 100)),
         chat_mode=str(query_section.get("chat_mode", "single")),
+        enable_llm_server_cache=bool(query_section.get("enable_llm_server_cache", True)),
     )
 
     return config
@@ -839,6 +840,7 @@ def config_to_raw(config: LSMConfig) -> Dict[str, Any]:
             "query_cache_ttl": config.query.query_cache_ttl,
             "query_cache_size": config.query.query_cache_size,
             "chat_mode": config.query.chat_mode,
+            "enable_llm_server_cache": config.query.enable_llm_server_cache,
         },
         "modes": modes or None,
         "notes": {

@@ -176,6 +176,9 @@ class SessionState:
     conversation_history: List[Dict[str, str]] = None
     """Chat-mode conversation turns (role/content)."""
 
+    llm_server_cache_ids: Dict[str, str] = None
+    """Provider/model cache chain IDs for server-side conversation continuation."""
+
     cost_tracker: Optional["CostTracker"] = None
     """Session-level cost tracker for API usage."""
 
@@ -201,6 +204,8 @@ class SessionState:
             self.context_chunks = []
         if self.conversation_history is None:
             self.conversation_history = []
+        if self.llm_server_cache_ids is None:
+            self.llm_server_cache_ids = {}
 
     def clear_artifacts(self) -> None:
         """Clear last query artifacts."""
