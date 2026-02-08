@@ -72,6 +72,9 @@ class ParseResult:
     page_segments: Optional[List[PageSegment]] = None
     """Page-level text segments for page number tracking (PDF, DOCX)."""
 
+    version: int = 1
+    """Chunk version number for versioning support."""
+
 
 @dataclass
 class WriteJob:
@@ -111,3 +114,6 @@ class WriteJob:
 
     chunk_positions: Optional[List[Dict[str, Any]]] = None
     """Position information for each chunk (offsets, page numbers, etc.)."""
+
+    version: int = 1
+    """Chunk version number for versioning support."""

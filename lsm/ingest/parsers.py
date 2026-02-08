@@ -213,21 +213,59 @@ def parse_md(path: Path) -> Tuple[str, Dict[str, Any]]:
 
 
 def _open_pdf_with_repair(path: Path) -> fitz.Document:
+    """Open a PDF with progressive repair strategies for common corruption.
+
+    Tries increasingly aggressive repair strategies:
+
+    1. Direct file open (normal path).
+    2. In-memory stream with garbage collection (``garbage=4``, ``deflate=True``,
+       ``clean=True``) to rebuild the xref table and recompress streams — fixes
+       most zlib and xref corruption.
+    3. Plain in-memory stream open (minimal intervention fallback).
+
+    Args:
+        path: Path to the PDF file.
+
+    Returns:
+        Opened ``fitz.Document``.
+
+    Raises:
+        Exception: If all repair strategies fail.
     """
-    Open a PDF document with a simple repair retry for common corruption issues.
-    """
+    # Strategy 1: direct file open
     try:
         return fitz.open(str(path))
     except Exception as e:
         msg = str(e).lower()
-        if "syntax error" not in msg and "zlib error" not in msg and "xref" not in msg:
+        repairable = (
+            "syntax error", "zlib error", "xref", "trailer",
+            "startxref", "corrupt", "malformed",
+        )
+        if not any(marker in msg for marker in repairable):
             raise
+        logger.warning(
+            "PDF open failed for %s (%s), attempting repair strategies", path, e,
+        )
 
-        logger.warning(f"PDF open failed, attempting repair retry for {path}: {e}")
+    data = path.read_bytes()
 
-        # Retry with in-memory stream, which can bypass some file-level errors
-        data = path.read_bytes()
+    # Strategy 2: garbage-collection repair (rebuild xref, recompress streams)
+    try:
+        doc = fitz.open(stream=data, filetype="pdf")
+        cleaned = doc.tobytes(garbage=4, deflate=True, clean=True)
+        doc.close()
+        return fitz.open(stream=cleaned, filetype="pdf")
+    except Exception as e2:
+        logger.debug("Garbage-collection repair failed for %s: %s", path, e2)
+
+    # Strategy 3: plain stream open (minimal intervention)
+    try:
         return fitz.open(stream=data, filetype="pdf")
+    except Exception as e3:
+        logger.error(
+            "All PDF repair strategies failed for %s. Last error: %s", path, e3,
+        )
+        raise
 
 
 def parse_pdf(

@@ -24,7 +24,8 @@ def _config(
         rerank_strategy=rerank_strategy,
         retrieve_k=retrieve_k,
     )
-    return SimpleNamespace(get_mode_config=lambda: mode, query=query, batch_size=32)
+    ingest = SimpleNamespace(enable_versioning=False)
+    return SimpleNamespace(get_mode_config=lambda: mode, query=query, batch_size=32, ingest=ingest)
 
 
 def _state(*, path_contains=None, ext_allow=None, ext_deny=None, pinned_chunks=None):
@@ -55,7 +56,7 @@ def test_prepare_local_candidates_hybrid_rerank_with_filters(monkeypatch: pytest
     c2 = Candidate(cid="2", text="b", meta={"source_path": "/docs/b.md"}, distance=0.3)
 
     monkeypatch.setattr(planning, "embed_text", lambda embedder, question, batch_size: [0.1, 0.2])
-    monkeypatch.setattr(planning, "retrieve_candidates", lambda collection, query_vector, retrieve_k: [c1, c2])
+    monkeypatch.setattr(planning, "retrieve_candidates", lambda collection, query_vector, retrieve_k, **kw: [c1, c2])
     monkeypatch.setattr(planning, "filter_candidates", lambda *args, **kwargs: [c1, c2])
     monkeypatch.setattr(planning, "apply_local_reranking", lambda *args, **kwargs: [c2, c1])
     monkeypatch.setattr(planning, "compute_relevance", lambda filtered: 0.77)
@@ -81,8 +82,8 @@ def test_prepare_local_candidates_rerank_none_uses_enforce_diversity(
     c3 = Candidate(cid="3", text="c", meta={}, distance=0.4)
 
     monkeypatch.setattr(planning, "embed_text", lambda *args, **kwargs: [0.1])
-    monkeypatch.setattr(planning, "retrieve_candidates", lambda *args, **kwargs: [c1, c2, c3])
-    monkeypatch.setattr(planning, "filter_candidates", lambda *args, **kwargs: [c1, c2, c3])
+    monkeypatch.setattr(planning, "retrieve_candidates", lambda *a, **kw: [c1, c2, c3])
+    monkeypatch.setattr(planning, "filter_candidates", lambda *a, **kw: [c1, c2, c3])
     monkeypatch.setattr(planning, "compute_relevance", lambda filtered: 0.5)
     monkeypatch.setattr("lsm.query.rerank.enforce_diversity", lambda candidates, max_per_file: [c3, c2, c1])
 

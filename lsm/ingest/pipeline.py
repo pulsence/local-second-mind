@@ -11,7 +11,7 @@ from pathlib import Path
 
 from lsm.ingest.chunking import chunk_text
 from lsm.ingest.fs import iter_files, collect_folder_tags
-from lsm.ingest.manifest import load_manifest, save_manifest
+from lsm.ingest.manifest import load_manifest, save_manifest, get_next_version
 from lsm.ingest.models import PageSegment, ParseResult, WriteJob
 from lsm.ingest.parsers import parse_file
 from lsm.ingest.structure_chunking import structure_chunk_text, structured_chunks_to_positions
@@ -253,6 +253,9 @@ def ingest(
     translation_target: str = "en",
     translation_llm_config: Optional[LLMConfig] = None,
     embedding_dimension: Optional[int] = None,
+    max_files: Optional[int] = None,
+    max_seconds: Optional[int] = None,
+    enable_versioning: bool = False,
 ) -> Dict[str, Any]:
     """
     Run ingest pipeline.
@@ -307,6 +310,8 @@ def ingest(
     embedded_files = 0
     added_chunks = 0
     embed_seconds = 0.0
+    files_submitted = 0
+    limit_reached = False
     written_chunks = 0
     error_report_path = manifest_path.parent / "ingest_error_report.json"
     error_records = {
@@ -360,12 +365,25 @@ def ingest(
             if job is None:
                 break
 
-            # Delete prior chunks only if the file previously existed in the manifest
+            # Handle prior chunks
             if job.had_prev:
-                try:
-                    provider.delete_by_filter({"source_path": job.source_path})
-                except Exception:
-                    pass
+                if enable_versioning:
+                    # Mark old chunks as non-current instead of deleting
+                    try:
+                        old = provider.get_by_filter(
+                            {"source_path": job.source_path}, include=["metadatas"],
+                        )
+                        old_ids = old.get("ids", [])
+                        if old_ids:
+                            updated = [{"is_current": False} for _ in old_ids]
+                            provider.update_metadatas(old_ids, updated)
+                    except Exception:
+                        pass
+                else:
+                    try:
+                        provider.delete_by_filter({"source_path": job.source_path})
+                    except Exception:
+                        pass
 
             ingested_at = now_iso()
 
@@ -412,18 +430,26 @@ def ingest(
                         else:
                             meta["page_number"] = f"{pos['page_start']}-{pos['page_end']}"
 
+                # Versioning metadata
+                if enable_versioning:
+                    meta["is_current"] = True
+                    meta["version"] = job.version
+
                 to_add_ids.append(chunk_id)
                 to_add_docs.append(chunk)
                 to_add_metas.append(meta)
                 to_add_embs.append(emb)
 
             # Stage manifest update for this file, but do NOT commit yet
-            pending_manifest_updates[job.source_path] = {
+            manifest_entry = {
                 "mtime_ns": job.mtime_ns,
                 "size": job.size,
                 "file_hash": job.file_hash,
                 "updated_at": now_iso(),
             }
+            if enable_versioning:
+                manifest_entry["version"] = job.version
+            pending_manifest_updates[job.source_path] = manifest_entry
 
             # Flush when we hit threshold
             if len(to_add_ids) >= chroma_flush_interval:
@@ -489,6 +515,7 @@ def ingest(
                     had_prev=pr.had_prev,
                     metadata=pr.metadata,
                     chunk_positions=pr.chunk_positions,
+                    version=pr.version,
                 )
                 write_q.put(wj)
 
@@ -569,6 +596,12 @@ def ingest(
             for fp, root_cfg in file_tuples:
                 if stop_signal.is_set():
                     break
+                # Check time limit before processing next file
+                if max_seconds is not None and (time.time() - start_time) >= max_seconds:
+                    emit("limit", files_submitted, total_files,
+                         f"Reached max_seconds limit ({max_seconds}s)")
+                    limit_reached = True
+                    break
                 scanned += 1
                 source_path = canonical_path(fp)
                 key = source_path
@@ -615,6 +648,9 @@ def ingest(
 
                 had_prev = prev is not None
 
+                # Compute version for versioning support
+                version = get_next_version(manifest, key) if enable_versioning else 1
+
                 # Collect folder tags from .lsm_tags.json files
                 f_tags = collect_folder_tags(fp, root_cfg.path)
 
@@ -643,7 +679,17 @@ def ingest(
                         f_tags or None,
                     )
                 )
+                # Store version on the future so embed worker can pick it up
+                futures[-1]._lsm_version = version
                 processed += 1
+                files_submitted += 1
+
+                # Check file count limit
+                if max_files is not None and files_submitted >= max_files:
+                    emit("limit", files_submitted, total_files,
+                         f"Reached max_files limit ({max_files})")
+                    limit_reached = True
+                    break
 
                 # Drain completed futures opportunistically to keep memory stable
                 if len(futures) >= parse_workers * 4:
@@ -651,6 +697,7 @@ def ingest(
                     for f in done:
                         futures.remove(f)
                         pr = f.result()
+                        pr.version = getattr(f, "_lsm_version", 1)
                         if pr.parse_errors:
                             error_records["page_errors"].extend(
                                 {
@@ -682,6 +729,7 @@ def ingest(
                 if stop_signal.is_set():
                     break
                 pr = f.result()
+                pr.version = getattr(f, "_lsm_version", 1)
                 if pr.parse_errors:
                     error_records["page_errors"].extend(
                         {
@@ -759,4 +807,6 @@ def ingest(
         "errors": error_records["failed_documents"],
         "page_errors": error_records["page_errors"],
         "interrupted": interrupted,
+        "files_submitted": files_submitted,
+        "limit_reached": limit_reached,
     }

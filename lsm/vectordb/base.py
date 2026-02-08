@@ -106,3 +106,30 @@ class BaseVectorDBProvider(ABC):
     def health_check(self) -> Dict[str, Any]:
         """Return connection and health status."""
         pass
+
+    def update_metadatas(self, ids: List[str], metadatas: List[Dict[str, Any]]) -> None:
+        """Update metadata for existing vectors by ID.
+
+        Args:
+            ids: List of vector IDs to update.
+            metadatas: List of metadata dicts (one per ID).
+
+        Raises:
+            NotImplementedError: If the provider does not support metadata updates.
+        """
+        raise NotImplementedError(f"{self.name} does not support update_metadatas")
+
+    def get_by_filter(self, filters: Dict[str, Any], include: Optional[List[str]] = None) -> Dict[str, Any]:
+        """Retrieve vectors matching a metadata filter.
+
+        Args:
+            filters: Metadata filter dict.
+            include: Fields to include (e.g. ``["metadatas"]``).
+
+        Returns:
+            Dict with ``ids``, ``metadatas``, and optionally other fields.
+
+        Raises:
+            NotImplementedError: If the provider does not support filtered retrieval.
+        """
+        raise NotImplementedError(f"{self.name} does not support get_by_filter")

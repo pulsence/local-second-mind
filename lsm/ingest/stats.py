@@ -161,6 +161,7 @@ def get_collection_stats(
     batch_size: int = 5000,
     error_report_path: Optional[Path] = None,
     progress_callback: Optional[Callable[[int], None]] = None,
+    cache_path: Optional[Path] = None,
 ) -> Dict[str, Any]:
     """
     Get detailed statistics about a collection.
@@ -168,6 +169,8 @@ def get_collection_stats(
     Args:
         collection: ChromaDB collection
         limit: Maximum number of chunks to analyze (for performance)
+        cache_path: Optional path to stats cache file.  When provided, cached
+            results are returned if the cache is fresh.
 
     Returns:
         Dictionary with detailed statistics
@@ -180,6 +183,16 @@ def get_collection_stats(
             "total_chunks": 0,
             "message": "Collection is empty",
         }
+
+    # Check stats cache
+    _stats_cache = None
+    if cache_path is not None:
+        from lsm.ingest.stats_cache import StatsCache
+        _stats_cache = StatsCache(cache_path)
+        cached = _stats_cache.get_if_fresh(count)
+        if cached is not None:
+            logger.debug("Returning cached stats (count=%d)", count)
+            return cached
 
     try:
         if limit is None or limit <= 0 or limit >= count:
@@ -249,6 +262,13 @@ def get_collection_stats(
             report = load_error_report(error_report_path)
             if report:
                 stats["parse_errors"] = summarize_error_report(report, error_report_path)
+
+        # Update cache
+        if _stats_cache is not None:
+            try:
+                _stats_cache.save(stats, count)
+            except Exception as cache_exc:
+                logger.debug("Failed to save stats cache: %s", cache_exc)
 
         return stats
 

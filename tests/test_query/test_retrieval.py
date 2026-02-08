@@ -146,6 +146,7 @@ class TestRetrieveCandidates:
         mock_collection.query.assert_called_once_with(
             query_embeddings=[query_vector],
             n_results=3,
+            where=None,
             include=["documents", "metadatas", "distances"],
         )
 

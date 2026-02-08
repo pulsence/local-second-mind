@@ -79,11 +79,13 @@ def get_collection_stats(
         if progress_callback:
             progress_callback(analyzed, count)
 
+    cache_path = config.ingest.persist_dir / "stats_cache.json"
     stats = _get_collection_stats(
         collection,
         limit=None,
         error_report_path=config.ingest.manifest.parent / "ingest_error_report.json",
         progress_callback=report_progress,
+        cache_path=cache_path,
     )
 
     top_files = [
@@ -139,7 +141,14 @@ def run_ingest(
         translation_target=config.ingest.translation_target,
         translation_llm_config=translation_llm,
         embedding_dimension=config.embedding_dimension,
+        max_files=config.ingest.max_files,
+        max_seconds=config.ingest.max_seconds,
+        enable_versioning=config.ingest.enable_versioning,
     )
+
+    # Invalidate stats cache after ingest
+    from lsm.ingest.stats_cache import StatsCache
+    StatsCache(config.ingest.persist_dir / "stats_cache.json").invalidate()
 
     return IngestResult(
         total_files=int(result.get("total_files", 0)),

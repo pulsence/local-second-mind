@@ -85,7 +85,11 @@ def prepare_local_candidates(
     filters_active = bool(path_contains) or bool(ext_allow) or bool(ext_deny)
     retrieve_k = config.query.retrieve_k or (max(k, k * 3) if filters_active else k)
 
-    candidates = retrieve_candidates(collection, query_vector, retrieve_k)
+    where_filter = None
+    if config.ingest.enable_versioning:
+        where_filter = {"is_current": True}
+
+    candidates = retrieve_candidates(collection, query_vector, retrieve_k, where_filter=where_filter)
 
     filtered = filter_candidates(
         candidates,

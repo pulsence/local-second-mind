@@ -116,6 +116,16 @@ class IngestConfig:
     translation_target: str = "en"
     """Target language for translation (ISO 639-1 code)."""
 
+    max_files: Optional[int] = None
+    """Maximum number of files to process in a single ingest run. None = no limit."""
+
+    max_seconds: Optional[int] = None
+    """Maximum wall-clock seconds for an ingest run. None = no limit."""
+
+    enable_versioning: bool = False
+    """Enable chunk version control. Old chunks are marked ``is_current=False``
+    instead of deleted, and new chunks get incremented version numbers."""
+
     def __post_init__(self) -> None:
         """Normalize roots to RootConfig and convert string paths."""
         if isinstance(self.roots, list):
@@ -217,4 +227,14 @@ class IngestConfig:
         if self.enable_translation and not self.translation_target:
             raise ValueError(
                 "translation_target is required when enable_translation is True"
+            )
+
+        if self.max_files is not None and self.max_files < 1:
+            raise ValueError(
+                f"max_files must be positive if set, got {self.max_files}"
+            )
+
+        if self.max_seconds is not None and self.max_seconds < 1:
+            raise ValueError(
+                f"max_seconds must be positive if set, got {self.max_seconds}"
             )

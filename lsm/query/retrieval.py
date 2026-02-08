@@ -7,7 +7,7 @@ Handles embedding queries, retrieving candidates from ChromaDB, and applying fil
 from __future__ import annotations
 
 from pathlib import Path
-from typing import List, Optional, Any
+from typing import Any, Dict, List, Optional
 
 import chromadb
 from chromadb.config import Settings
@@ -164,6 +164,7 @@ def retrieve_candidates(
     collection,
     query_embedding: List[float],
     k: int,
+    where_filter: Optional[Dict[str, Any]] = None,
 ) -> List[Candidate]:
     """
     Retrieve candidates from a vector DB using similarity search.
@@ -172,6 +173,7 @@ def retrieve_candidates(
         collection: ChromaDB collection or vector DB provider
         query_embedding: Query vector
         k: Number of candidates to retrieve
+        where_filter: Optional metadata filter (e.g. ``{"is_current": True}``)
 
     Returns:
         List of Candidate objects sorted by distance (most similar first)
@@ -185,7 +187,7 @@ def retrieve_candidates(
     logger.debug(f"Retrieving {k} candidates from vector DB")
 
     if isinstance(collection, BaseVectorDBProvider):
-        res = collection.query(query_embedding, top_k=k)
+        res = collection.query(query_embedding, top_k=k, filters=where_filter)
         ids = res.ids
         docs = res.documents
         metas = res.metadatas
@@ -194,6 +196,7 @@ def retrieve_candidates(
         res = collection.query(
             query_embeddings=[query_embedding],
             n_results=k,
+            where=where_filter,
             include=["documents", "metadatas", "distances"],
         )
         ids = (res.get("ids") or [[]])[0]

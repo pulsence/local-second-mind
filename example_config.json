@@ -38,7 +38,10 @@
     "extensions": [".txt", ".md", ".rst", ".pdf", ".docx", ".html", ".htm"],
     "override_extensions": false,
     "exclude_dirs": [".cache", "node_modules", "__pycache__"],
-    "override_excludes": false
+    "override_excludes": false,
+    "max_files": null,
+    "max_seconds": null,
+    "enable_versioning": false
   },
 
   "_comment_storage": "Vector database configuration",

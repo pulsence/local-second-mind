@@ -189,6 +189,26 @@ class ChromaDBProvider(BaseVectorDBProvider):
         except Exception as e:
             return {"provider": self.name, "status": "error", "error": str(e)}
 
+    def update_metadatas(self, ids: List[str], metadatas: List[Dict[str, Any]]) -> None:
+        """Update metadata for existing vectors by ID."""
+        if not ids:
+            return
+        collection = self._ensure_collection()
+        collection.update(ids=ids, metadatas=metadatas)
+
+    def get_by_filter(self, filters: Dict[str, Any], include: Optional[List[str]] = None) -> Dict[str, Any]:
+        """Retrieve vectors matching a metadata filter."""
+        if not filters:
+            raise ValueError("filters must be a non-empty dict")
+        collection = self._ensure_collection()
+        inc = include or ["metadatas"]
+        results = collection.get(where=filters, include=inc)
+        return {
+            "ids": results.get("ids", []),
+            "metadatas": results.get("metadatas", []),
+            "documents": results.get("documents", []),
+        }
+
     def get_collection(self):
         """Return underlying ChromaDB collection for legacy access."""
         return self._ensure_collection()

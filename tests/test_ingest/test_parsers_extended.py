@@ -108,22 +108,63 @@ def test_ocr_page_exception(monkeypatch: pytest.MonkeyPatch) -> None:
     assert parsers.ocr_page(_FakePage()) == ""
 
 
-def test_open_pdf_with_repair_retry(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    calls = {"n": 0}
-    sentinel = object()
+# ------------------------------------------------------------------
+# MuPDF repair strategy tests (task 3.4.3)
+# ------------------------------------------------------------------
 
-    def _fake_open(*_args, **kwargs):
-        calls["n"] += 1
-        if calls["n"] == 1:
+
+class _GarbageDoc:
+    """Fake fitz.Document supporting tobytes for garbage-collection tests."""
+
+    def __init__(self, pages=None, tobytes_exc=None):
+        self._pages = pages or []
+        self.page_count = len(self._pages)
+        self.metadata = {}
+        self._tobytes_exc = tobytes_exc
+        self._closed = False
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_args):
+        return False
+
+    def load_page(self, page_num: int):
+        return self._pages[page_num]
+
+    def tobytes(self, garbage=0, deflate=False, clean=False):
+        if self._tobytes_exc:
+            raise self._tobytes_exc
+        return b"%PDF-cleaned"
+
+    def close(self):
+        self._closed = True
+
+
+def test_open_pdf_with_repair_retry(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """Strategy 2 garbage-collection repair path succeeds."""
+    calls: list[dict] = []
+    sentinel = _FakeDoc(pages=[_FakePage("ok")])
+    gc_doc = _GarbageDoc()
+
+    def _fake_open(*args, **kwargs):
+        calls.append({"args": args, "kwargs": kwargs})
+        n = len(calls)
+        if n == 1:
             raise RuntimeError("syntax error: xref")
-        if kwargs.get("filetype") == "pdf":
+        if n == 2:
+            # Strategy 2a: open stream for garbage collection
+            return gc_doc
+        if n == 3:
+            # Strategy 2b: reopen cleaned bytes
             return sentinel
-        raise AssertionError("unexpected open call")
+        raise AssertionError(f"Unexpected call #{n}")
 
     monkeypatch.setattr(parsers.fitz, "open", _fake_open)
     p = tmp_path / "a.pdf"
     p.write_bytes(b"pdf")
     assert parsers._open_pdf_with_repair(p) is sentinel
+    assert len(calls) == 3
 
 
 def test_open_pdf_with_repair_non_repairable_raises(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
@@ -132,6 +173,108 @@ def test_open_pdf_with_repair_non_repairable_raises(monkeypatch: pytest.MonkeyPa
     p.write_bytes(b"pdf")
     with pytest.raises(RuntimeError, match="permission denied"):
         parsers._open_pdf_with_repair(p)
+
+
+def test_repair_zlib_garbage_collection(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """Strategy 2 uses garbage collection to rebuild xref and recompress streams."""
+    calls: list[dict] = []
+    sentinel = _FakeDoc(pages=[_FakePage("ok")])
+    gc_doc = _GarbageDoc()
+
+    def _fake_open(*args, **kwargs):
+        calls.append({"args": args, "kwargs": kwargs})
+        n = len(calls)
+        if n == 1:
+            raise RuntimeError("zlib error in stream")
+        if n == 2:
+            return gc_doc
+        if n == 3:
+            return sentinel
+        raise AssertionError(f"Unexpected call #{n}")
+
+    monkeypatch.setattr(parsers.fitz, "open", _fake_open)
+    p = tmp_path / "corrupt.pdf"
+    p.write_bytes(b"%PDF-corrupt")
+
+    result = parsers._open_pdf_with_repair(p)
+    assert result is sentinel
+    assert len(calls) == 3
+    assert "stream" in calls[1]["kwargs"]
+    assert calls[2]["kwargs"].get("stream") == b"%PDF-cleaned"
+
+
+def test_repair_expanded_markers(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """New error markers trigger repair path."""
+    for marker in ("trailer not found", "corrupt object", "malformed pdf", "bad startxref"):
+        calls = {"n": 0}
+        sentinel = object()
+
+        def _make_fake_open(marker_msg):
+            def _fake_open(*_args, **kwargs):
+                calls["n"] += 1
+                if calls["n"] == 1:
+                    raise RuntimeError(marker_msg)
+                if calls["n"] == 2:
+                    return _GarbageDoc()
+                return sentinel
+            return _fake_open
+
+        calls["n"] = 0
+        monkeypatch.setattr(parsers.fitz, "open", _make_fake_open(marker))
+        p = tmp_path / f"test_{marker.replace(' ', '_')}.pdf"
+        p.write_bytes(b"%PDF-test")
+        result = parsers._open_pdf_with_repair(p)
+        assert result is sentinel, f"Repair not triggered for marker: {marker}"
+
+
+def test_repair_all_strategies_fail(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """When all repair strategies fail, the last exception is raised."""
+    def _always_fail(*_args, **_kwargs):
+        raise RuntimeError("zlib error: total failure")
+
+    monkeypatch.setattr(parsers.fitz, "open", _always_fail)
+    p = tmp_path / "hopeless.pdf"
+    p.write_bytes(b"%PDF-bad")
+
+    with pytest.raises(RuntimeError, match="zlib error"):
+        parsers._open_pdf_with_repair(p)
+
+
+def test_repair_garbage_fails_fallback_to_stream(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """If garbage collection fails, fall back to plain stream open (Strategy 3)."""
+    calls = {"n": 0}
+    sentinel = object()
+
+    def _fake_open(*_args, **kwargs):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise RuntimeError("zlib error in pdf")
+        if calls["n"] == 2:
+            return _GarbageDoc(tobytes_exc=RuntimeError("tobytes failed"))
+        if calls["n"] == 3:
+            return sentinel
+        raise AssertionError(f"Unexpected call #{calls['n']}")
+
+    monkeypatch.setattr(parsers.fitz, "open", _fake_open)
+    p = tmp_path / "partial.pdf"
+    p.write_bytes(b"%PDF-partial")
+
+    result = parsers._open_pdf_with_repair(p)
+    assert result is sentinel
+    assert calls["n"] == 3
+
+
+def test_parse_pdf_skip_errors_on_open_failure(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """parse_pdf with skip_errors=True returns empty result when open completely fails."""
+    def _always_fail(_path):
+        raise RuntimeError("zlib error: unrecoverable")
+
+    monkeypatch.setattr(parsers, "_open_pdf_with_repair", _always_fail)
+    text, metadata, page_segs = parsers.parse_pdf(tmp_path / "bad.pdf", skip_errors=True)
+    assert text == ""
+    assert "error" in metadata
+    assert "zlib error" in metadata["error"]
+    assert page_segs is None
 
 
 def test_parse_pdf_success(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:

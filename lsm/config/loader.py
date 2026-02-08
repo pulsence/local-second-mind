@@ -270,6 +270,9 @@ def build_ingest_config(raw: Dict[str, Any], config_path: Path) -> IngestConfig:
         enable_language_detection=bool(ingest_raw.get("enable_language_detection", False)),
         enable_translation=bool(ingest_raw.get("enable_translation", False)),
         translation_target=str(ingest_raw.get("translation_target", "en")),
+        max_files=int(ingest_raw["max_files"]) if ingest_raw.get("max_files") is not None else None,
+        max_seconds=int(ingest_raw["max_seconds"]) if ingest_raw.get("max_seconds") is not None else None,
+        enable_versioning=bool(ingest_raw.get("enable_versioning", False)),
     )
 
     return config
@@ -786,6 +789,9 @@ def config_to_raw(config: LSMConfig) -> Dict[str, Any]:
             "override_extensions": config.ingest.override_extensions,
             "exclude_dirs": config.ingest.exclude_dirs,
             "override_excludes": config.ingest.override_excludes,
+            "max_files": config.ingest.max_files,
+            "max_seconds": config.ingest.max_seconds,
+            "enable_versioning": config.ingest.enable_versioning,
         },
         "llms": {
             "providers": providers_raw,

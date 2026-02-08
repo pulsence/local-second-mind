@@ -27,6 +27,13 @@ All notable changes to Local Second Mind are documented here.
 - Root tags, content type, and folder tags propagated to chunk metadata as `root_tags`, `content_type`, and `folder_tags`.
 - `iter_files()` now yields `(Path, RootConfig)` tuples to track file-to-root mapping.
 - 30 new tests in `tests/test_ingest/test_root_config.py` covering RootConfig, config loading, folder tag discovery, and iter_files changes.
+- Partial ingest support via `max_files` and `max_seconds` limits on `IngestConfig`. Pipeline cleanly flushes queues and saves manifest when limits are reached.
+- Stats caching via `StatsCache` class in `lsm/ingest/stats_cache.py`. Cache stored at `<persist_dir>/stats_cache.json` with staleness detection (count mismatch or age expiry). Automatically invalidated after ingest.
+- Enhanced MuPDF PDF repair with multi-stage strategy: direct open, garbage-collection rebuild (`garbage=4, deflate=True, clean=True`), and plain stream fallback. Expanded repairable error markers to include `"trailer"`, `"startxref"`, `"corrupt"`, and `"malformed"`.
+- Chunk version control via `enable_versioning` on `IngestConfig`. Old chunks marked `is_current=False` instead of deleted. Version number tracked in chunk metadata and manifest. Query retrieval filters to `is_current=True` when versioning is active.
+- `update_metadatas()` and `get_by_filter()` methods on `BaseVectorDBProvider` (concrete, raises `NotImplementedError` by default) and `ChromaDBProvider` (implemented).
+- `where_filter` parameter on `retrieve_candidates()` for metadata-level filtering at query time.
+- 14 new tests in `test_versioning.py`, 14 in `test_partial_ingest.py`, 15 in `test_stats_cache.py`, and 6 new MuPDF repair tests in `test_parsers_extended.py`.
 
 ### Changed
 
