@@ -310,9 +310,9 @@ class TestLSMAppBehavior:
         app.current_context = "settings"
 
         app.action_settings_tab_1()
-        assert tabs.active == "settings-config"
+        assert tabs.active == "settings-global"
         app.action_settings_tab_6()
-        assert tabs.active == "settings-llm"
+        assert tabs.active == "settings-modes"
 
         app.current_context = "query"
         tabs.active = ""

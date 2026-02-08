@@ -365,8 +365,8 @@ class LSMApp(App):
             return
 
     def action_settings_tab_1(self) -> None:
-        """Switch to the settings configuration tab."""
-        self._activate_settings_tab("settings-config")
+        """Switch to the settings global tab."""
+        self._activate_settings_tab("settings-global")
 
     def action_settings_tab_2(self) -> None:
         """Switch to the settings ingest tab."""
@@ -377,16 +377,24 @@ class LSMApp(App):
         self._activate_settings_tab("settings-query")
 
     def action_settings_tab_4(self) -> None:
-        """Switch to the settings mode tab."""
-        self._activate_settings_tab("settings-mode")
+        """Switch to the settings llm tab."""
+        self._activate_settings_tab("settings-llm")
 
     def action_settings_tab_5(self) -> None:
         """Switch to the settings vector DB tab."""
         self._activate_settings_tab("settings-vdb")
 
     def action_settings_tab_6(self) -> None:
-        """Switch to the settings LLM providers tab."""
-        self._activate_settings_tab("settings-llm")
+        """Switch to the settings modes tab."""
+        self._activate_settings_tab("settings-modes")
+
+    def action_settings_tab_7(self) -> None:
+        """Switch to the settings remote tab."""
+        self._activate_settings_tab("settings-remote")
+
+    def action_settings_tab_8(self) -> None:
+        """Switch to the settings chats/notes tab."""
+        self._activate_settings_tab("settings-chats-notes")
 
     def action_show_help(self) -> None:
         """Show help modal."""

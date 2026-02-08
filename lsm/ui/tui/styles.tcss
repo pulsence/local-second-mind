@@ -343,6 +343,12 @@ ProgressBar > .bar--complete {
     margin-bottom: 1;
 }
 
+#settings-status {
+    min-height: 1;
+    margin: 0 2 1 2;
+    color: $text-muted;
+}
+
 .settings-actions {
     layout: horizontal;
     margin-top: 1;

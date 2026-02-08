@@ -11,7 +11,7 @@ lsm
 ```
 
 The TUI provides:
-- **Tabbed interface** - Switch between Query, Ingest, and Settings tabs
+- **Tabbed interface** - Switch between Query, Ingest, Remote, and Settings tabs
 - **Keyboard shortcuts** - Navigate with Ctrl+Q/I/S, build with Ctrl+B, etc.
 - **Autocomplete** - Tab completion for commands (press Tab)
 - **Command history** - Up/Down arrow navigation through previous commands
@@ -25,14 +25,16 @@ The TUI provides:
 |--------|-------------|
 | Query | Search your knowledge base with natural language queries |
 | Ingest | Manage document ingestion, build pipeline, view statistics |
-| Settings | Configure query modes, view provider status, session info |
+| Remote | Test and inspect remote providers |
+| Settings | Edit config sections with live updates and section save/reset |
 
 **TUI Keyboard Shortcuts:**
 
 | Shortcut | Action |
 |----------|--------|
-| Ctrl+I | Switch to Ingest tab |
+| Ctrl+N | Switch to Ingest tab |
 | Ctrl+Q | Switch to Query tab |
+| Ctrl+R | Switch to Remote tab |
 | Ctrl+S | Switch to Settings tab |
 | F1 | Show help modal |
 | Ctrl+C | Quit application |

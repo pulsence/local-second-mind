@@ -61,6 +61,8 @@ All notable changes to Local Second Mind are documented here.
 - Remote result disk caching via `lsm/remote/storage.py` with `save_results()` and `load_cached_results()`, integrated into query remote fetch flow.
 - Remote provider config keys `cache_results` and `cache_ttl` for per-provider cache control.
 - Remote provider chaining with `remote_provider_chains` config, `ChainLink` mapping (`output:input`), and `RemoteProviderChain` execution in `lsm/remote/chain.py`.
+- Restructured TUI settings screen to config-aligned sub-tabs: `Global`, `Ingest`, `Query`, `LLM`, `Vector DB`, `Modes`, `Remote`, and `Chats/Notes`, with section-level Save/Reset controls.
+- Live settings updates in TUI now write directly to `app.config` for edited fields, with validation/status feedback and config reload-on-reset.
 
 ### Changed
 

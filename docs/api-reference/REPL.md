@@ -33,11 +33,22 @@ lsm/gui/shell/tui/
 ### TUI Keyboard Shortcuts
 
 **Global:**
-- `Ctrl+I` - Switch to Ingest tab
+- `Ctrl+N` - Switch to Ingest tab
 - `Ctrl+Q` - Switch to Query tab
+- `Ctrl+R` - Switch to Remote tab
 - `Ctrl+S` - Switch to Settings tab
 - `F1` - Show help modal
 - `Ctrl+C` - Quit application
+
+**Settings View:**
+- `Ctrl+O` - Settings Global sub-tab
+- `Ctrl+G` - Settings Ingest sub-tab
+- `Ctrl+Q` - Settings Query sub-tab
+- `Ctrl+L` - Settings LLM sub-tab
+- `Ctrl+B` - Settings Vector DB sub-tab
+- `Ctrl+D` - Settings Modes sub-tab
+- `Ctrl+R` - Settings Remote sub-tab
+- `Ctrl+N` - Settings Chats/Notes sub-tab
 
 **Query View:**
 - `Enter` - Submit query
