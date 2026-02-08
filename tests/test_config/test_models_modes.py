@@ -17,3 +17,15 @@ def test_remote_provider_config_validate_rejects_negative_weight() -> None:
     provider = RemoteProviderConfig(name="wikipedia", type="wikipedia", weight=-1.0)
     with pytest.raises(ValueError, match="weight must be non-negative"):
         provider.validate()
+
+
+def test_remote_provider_config_cache_defaults() -> None:
+    provider = RemoteProviderConfig(name="wikipedia", type="wikipedia")
+    assert provider.cache_results is False
+    assert provider.cache_ttl == 86400
+
+
+def test_remote_provider_config_validate_rejects_invalid_cache_ttl() -> None:
+    provider = RemoteProviderConfig(name="wikipedia", type="wikipedia", cache_ttl=0)
+    with pytest.raises(ValueError, match="cache_ttl must be positive"):
+        provider.validate()

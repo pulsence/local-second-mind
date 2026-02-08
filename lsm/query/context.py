@@ -17,6 +17,7 @@ from lsm.config.models import LSMConfig
 from lsm.query.session import Candidate, SessionState
 from lsm.query.planning import prepare_local_candidates, LocalQueryPlan
 from lsm.remote import create_remote_provider
+from lsm.remote.storage import load_cached_results, save_results
 from lsm.logging import get_logger
 
 logger = get_logger(__name__)
@@ -256,50 +257,104 @@ def fetch_remote_sources(
 
             mode_weight = remote_policy.get_provider_weight(provider_name)
             effective_weight = mode_weight if mode_weight is not None else provider_config.weight
+            cache_ttl = provider_config.cache_ttl if provider_config.cache_ttl is not None else 86400
 
-            provider = create_remote_provider(
-                provider_config.type,
-                {
-                    "type": provider_config.type,
-                    "weight": effective_weight,
-                    "api_key": provider_config.api_key,
-                    "endpoint": provider_config.endpoint,
-                    "max_results": provider_config.max_results,
-                    "language": provider_config.language,
-                    "user_agent": provider_config.user_agent,
-                    "timeout": provider_config.timeout,
-                    "min_interval_seconds": provider_config.min_interval_seconds,
-                    "section_limit": provider_config.section_limit,
-                    "snippet_max_chars": provider_config.snippet_max_chars,
-                    "include_disambiguation": provider_config.include_disambiguation,
-                }
-            )
-
-            max_results = provider_config.max_results or remote_policy.max_results
-
-            timeout_seconds = provider_config.timeout if provider_config.timeout is not None else 30
-            with ThreadPoolExecutor(max_workers=1) as pool:
-                future = pool.submit(provider.search, question, max_results=max_results)
-                try:
-                    results = future.result(timeout=max(1, int(timeout_seconds)))
-                except FuturesTimeoutError:
-                    future.cancel()
-                    raise TimeoutError(
-                        f"remote provider timed out after {timeout_seconds}s"
+            raw_results: List[Dict[str, Any]] | None = None
+            if provider_config.cache_results:
+                cached = load_cached_results(
+                    provider_name=provider_name,
+                    query=question,
+                    global_folder=config.global_folder,
+                    max_age=int(cache_ttl),
+                )
+                if cached is not None:
+                    raw_results = []
+                    for item in cached:
+                        if not isinstance(item, dict):
+                            continue
+                        raw_results.append(
+                            {
+                                "title": item.get("title", ""),
+                                "url": item.get("url", ""),
+                                "snippet": item.get("snippet", ""),
+                                "score": item.get("score", 0.5),
+                                "metadata": item.get("metadata") or {},
+                            }
+                        )
+                    logger.info(
+                        f"Using cached remote results for provider '{provider_name}' "
+                        f"({len(raw_results)} results)"
                     )
 
-            for result in results:
-                base_score = result.score if result.score is not None else 0.5
+            if raw_results is None:
+                provider = create_remote_provider(
+                    provider_config.type,
+                    {
+                        "type": provider_config.type,
+                        "weight": effective_weight,
+                        "api_key": provider_config.api_key,
+                        "endpoint": provider_config.endpoint,
+                        "max_results": provider_config.max_results,
+                        "language": provider_config.language,
+                        "user_agent": provider_config.user_agent,
+                        "timeout": provider_config.timeout,
+                        "min_interval_seconds": provider_config.min_interval_seconds,
+                        "section_limit": provider_config.section_limit,
+                        "snippet_max_chars": provider_config.snippet_max_chars,
+                        "include_disambiguation": provider_config.include_disambiguation,
+                    }
+                )
+
+                max_results = provider_config.max_results or remote_policy.max_results
+
+                timeout_seconds = provider_config.timeout if provider_config.timeout is not None else 30
+                with ThreadPoolExecutor(max_workers=1) as pool:
+                    future = pool.submit(provider.search, question, max_results=max_results)
+                    try:
+                        results = future.result(timeout=max(1, int(timeout_seconds)))
+                    except FuturesTimeoutError:
+                        future.cancel()
+                        raise TimeoutError(
+                            f"remote provider timed out after {timeout_seconds}s"
+                        )
+
+                raw_results = [
+                    {
+                        "title": result.title,
+                        "url": result.url,
+                        "snippet": result.snippet,
+                        "score": result.score,
+                        "metadata": result.metadata or {},
+                    }
+                    for result in results
+                ]
+
+                if provider_config.cache_results:
+                    try:
+                        save_results(
+                            provider_name=provider_name,
+                            query=question,
+                            results=raw_results,
+                            global_folder=config.global_folder,
+                        )
+                    except Exception as exc:
+                        logger.warning(
+                            f"Failed saving remote cache for provider '{provider_name}': {exc}"
+                        )
+
+            for result in raw_results:
+                base_score = result.get("score")
+                base_score = base_score if base_score is not None else 0.5
                 weighted_score = base_score * effective_weight
                 all_remote_results.append({
-                    "title": result.title,
-                    "url": result.url,
-                    "snippet": result.snippet,
-                    "score": result.score,
+                    "title": result.get("title", ""),
+                    "url": result.get("url", ""),
+                    "snippet": result.get("snippet", ""),
+                    "score": base_score,
                     "weight": effective_weight,
                     "weighted_score": weighted_score,
                     "provider": provider_name,
-                    "metadata": result.metadata,
+                    "metadata": result.get("metadata") or {},
                 })
             completed_providers += 1
 

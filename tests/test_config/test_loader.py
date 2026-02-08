@@ -315,6 +315,41 @@ def test_build_remote_providers_registry_invalid_section_type() -> None:
     assert build_remote_providers_registry({"remote_providers": "bad"}) is None
 
 
+def test_build_remote_provider_config_reads_cache_fields(tmp_path: Path) -> None:
+    raw = _base_raw(tmp_path)
+    raw["remote_providers"] = [
+        {
+            "name": "wiki",
+            "type": "wikipedia",
+            "cache_results": True,
+            "cache_ttl": 7200,
+        }
+    ]
+
+    config = build_config_from_raw(raw, tmp_path / "config.json")
+    assert config.remote_providers is not None
+    provider = config.remote_providers[0]
+    assert provider.cache_results is True
+    assert provider.cache_ttl == 7200
+
+
+def test_config_to_raw_includes_remote_cache_fields(tmp_path: Path) -> None:
+    raw = _base_raw(tmp_path)
+    raw["remote_providers"] = [
+        {
+            "name": "wiki",
+            "type": "wikipedia",
+            "cache_results": True,
+            "cache_ttl": 7200,
+        }
+    ]
+
+    config = build_config_from_raw(raw, tmp_path / "config.json")
+    serialized = config_to_raw(config)
+    assert serialized["remote_providers"][0]["cache_results"] is True
+    assert serialized["remote_providers"][0]["cache_ttl"] == 7200
+
+
 def test_save_and_load_config_json_roundtrip(tmp_path: Path) -> None:
     raw = _base_raw(tmp_path)
     config = build_config_from_raw(raw, tmp_path / "config.json")

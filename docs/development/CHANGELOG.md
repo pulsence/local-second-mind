@@ -58,6 +58,8 @@ All notable changes to Local Second Mind are documented here.
 - Mode-level chat save overrides via `modes[].chats` (`auto_save`, `dir`) for per-mode transcript behavior.
 - Dict-based remote provider protocol in `lsm/remote/base.py` and all built-in providers (`search_structured`, `get_input_fields`, `get_output_fields`, `get_description`) with normalized output fields (`url`, `title`, `description`, `doi`, `authors`, `year`, `score`, `metadata`).
 - Remote provider structured protocol test coverage in `tests/test_providers/remote/test_structured_protocol.py`.
+- Remote result disk caching via `lsm/remote/storage.py` with `save_results()` and `load_cached_results()`, integrated into query remote fetch flow.
+- Remote provider config keys `cache_results` and `cache_ttl` for per-provider cache control.
 
 ### Changed
 

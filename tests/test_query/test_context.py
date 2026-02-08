@@ -394,3 +394,104 @@ def test_fetch_remote_sources_timeout_is_handled(monkeypatch):
 
     results = fetch_remote_sources("test", config, mode_config)
     assert results == []
+
+
+def test_fetch_remote_sources_uses_provider_cache_when_enabled(monkeypatch):
+    """Provider cache hit should avoid live provider calls."""
+
+    def _cached_results(**_kwargs):
+        return [
+            {
+                "title": "Cached",
+                "url": "https://cached.example",
+                "snippet": "from cache",
+                "score": 0.8,
+                "metadata": {"cached": True},
+            }
+        ]
+
+    monkeypatch.setattr("lsm.query.context.load_cached_results", _cached_results)
+    monkeypatch.setattr(
+        "lsm.query.context.create_remote_provider",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("should not call provider")),
+    )
+
+    config = LSMConfig(
+        ingest=IngestConfig(roots=[Path("/tmp")], manifest=Path("/tmp/manifest.json")),
+        query=QueryConfig(mode="hybrid"),
+        llm=LLMRegistryConfig(
+            providers=[LLMProviderConfig(provider_name="openai", api_key="test")],
+            services={"query": LLMServiceConfig(provider="openai", model="gpt-5.2")},
+        ),
+        vectordb=VectorDBConfig(persist_dir=Path("/tmp/.chroma"), collection="test"),
+        remote_providers=[
+            RemoteProviderConfig(
+                name="wiki",
+                type="fake",
+                weight=0.5,
+                cache_results=True,
+                cache_ttl=3600,
+            ),
+        ],
+        config_path=Path("/tmp/config.json"),
+    )
+    mode_config = config.get_mode_config("hybrid")
+    mode_config.source_policy.remote.enabled = True
+    mode_config.source_policy.remote.remote_providers = ["wiki"]
+
+    results = fetch_remote_sources("test", config, mode_config)
+    assert len(results) == 1
+    assert results[0]["title"] == "Cached"
+    assert results[0]["weighted_score"] == pytest.approx(0.4)
+
+
+def test_fetch_remote_sources_saves_cache_on_miss(monkeypatch):
+    """Provider cache miss should save fetched results."""
+
+    class _Provider:
+        def search(self, _question, max_results=5):
+            class _Res:
+                title = "Live"
+                url = "https://live.example"
+                snippet = "live result"
+                score = 0.7
+                metadata = {"live": True}
+
+            return [_Res()]
+
+    saved_calls = []
+
+    monkeypatch.setattr("lsm.query.context.load_cached_results", lambda **_kwargs: None)
+    monkeypatch.setattr("lsm.query.context.create_remote_provider", lambda *_args, **_kwargs: _Provider())
+    monkeypatch.setattr(
+        "lsm.query.context.save_results",
+        lambda **kwargs: saved_calls.append(kwargs),
+    )
+
+    config = LSMConfig(
+        ingest=IngestConfig(roots=[Path("/tmp")], manifest=Path("/tmp/manifest.json")),
+        query=QueryConfig(mode="hybrid"),
+        llm=LLMRegistryConfig(
+            providers=[LLMProviderConfig(provider_name="openai", api_key="test")],
+            services={"query": LLMServiceConfig(provider="openai", model="gpt-5.2")},
+        ),
+        vectordb=VectorDBConfig(persist_dir=Path("/tmp/.chroma"), collection="test"),
+        remote_providers=[
+            RemoteProviderConfig(
+                name="wiki",
+                type="fake",
+                weight=1.0,
+                cache_results=True,
+                cache_ttl=3600,
+            ),
+        ],
+        config_path=Path("/tmp/config.json"),
+    )
+    mode_config = config.get_mode_config("hybrid")
+    mode_config.source_policy.remote.enabled = True
+    mode_config.source_policy.remote.remote_providers = ["wiki"]
+
+    results = fetch_remote_sources("test", config, mode_config)
+    assert len(results) == 1
+    assert saved_calls
+    assert saved_calls[0]["provider_name"] == "wiki"

@@ -604,6 +604,8 @@ def build_remote_provider_config(raw: Dict[str, Any]) -> RemoteProviderConfig:
         section_limit=raw.get("section_limit"),
         snippet_max_chars=raw.get("snippet_max_chars"),
         include_disambiguation=raw.get("include_disambiguation"),
+        cache_results=bool(raw.get("cache_results", False)),
+        cache_ttl=int(raw.get("cache_ttl", 86400)),
     )
 
 
@@ -797,6 +799,8 @@ def config_to_raw(config: LSMConfig) -> Dict[str, Any]:
                     "section_limit": provider.section_limit,
                     "snippet_max_chars": provider.snippet_max_chars,
                     "include_disambiguation": provider.include_disambiguation,
+                    "cache_results": provider.cache_results,
+                    "cache_ttl": provider.cache_ttl,
                 }
             )
 

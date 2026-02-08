@@ -18,6 +18,9 @@ __all__ = [
     "get_registered_providers",
     "get_remote_provider",
     "RemoteProviderFactory",
+    # Storage helpers
+    "save_results",
+    "load_cached_results",
     # Provider implementations
     "BraveSearchProvider",
     "WikipediaProvider",
@@ -45,6 +48,7 @@ from lsm.remote.factory import (
     get_remote_provider,
     RemoteProviderFactory,
 )
+from lsm.remote.storage import save_results, load_cached_results
 
 # Provider implementations
 from lsm.remote.providers.brave import BraveSearchProvider

@@ -271,7 +271,15 @@ class RemoteProviderConfig:
     include_disambiguation: Optional[bool] = None
     """Include disambiguation pages when supported."""
 
+    cache_results: bool = False
+    """Whether to cache provider results on disk."""
+
+    cache_ttl: int = 86400
+    """Cache TTL in seconds for provider result reuse."""
+
     def validate(self) -> None:
         """Validate provider configuration."""
         if self.weight < 0.0:
             raise ValueError(f"weight must be non-negative, got {self.weight}")
+        if self.cache_ttl < 1:
+            raise ValueError(f"cache_ttl must be positive, got {self.cache_ttl}")

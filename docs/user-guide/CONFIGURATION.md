@@ -313,10 +313,16 @@ to specific providers.
     "type": "web_search",
     "weight": 1.0,
     "api_key": "...",
-    "max_results": 5
+    "max_results": 5,
+    "cache_results": false,
+    "cache_ttl": 86400
   }
 ]
 ```
+
+- `cache_results`: When `true`, provider responses are cached on disk under
+  `<global_folder>/Downloads/<provider_name>/`.
+- `cache_ttl`: Cache freshness window in seconds before a query is re-fetched.
 
 Provider `type` must be registered by the remote provider factory. Built-ins:
 
