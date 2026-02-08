@@ -65,6 +65,7 @@ All notable changes to Local Second Mind are documented here.
 - Live settings updates in TUI now write directly to `app.config` for edited fields, with validation/status feedback and config reload-on-reset.
 - Agent framework foundation in new `lsm/agents/` package with `AgentStatus`, `AgentState`, `BaseAgent`, and core runtime models (`AgentLogEntry`, `ToolResponse`, `AgentContext`).
 - New optional `agents` config block with `AgentConfig` and `SandboxConfig`, including loader/serializer support for `agents_folder`, token/iteration limits, context strategy, sandbox permissions, and per-agent overrides.
+- Agent tool system in `lsm/agents/tools/` with `BaseTool`, `ToolRegistry`, `ToolSandbox`, and default tools for file IO, URL loading, local embedding queries, LLM prompting, remote provider queries, and remote chain execution.
 
 ### Changed
 
