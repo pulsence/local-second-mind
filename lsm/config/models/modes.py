@@ -174,6 +174,29 @@ class NotesConfig:
 
 
 @dataclass
+class ModeChatsConfig:
+    """
+    Per-mode overrides for chat transcript behavior.
+    """
+
+    auto_save: Optional[bool] = None
+    """Override global chats.auto_save when set."""
+
+    dir: Optional[str] = None
+    """Override global chats.dir for this mode when set."""
+
+    def __post_init__(self) -> None:
+        if self.dir is not None:
+            normalized = str(self.dir).strip()
+            self.dir = normalized or None
+
+    def validate(self) -> None:
+        """Validate mode chat overrides."""
+        if self.dir is not None and not self.dir.strip():
+            raise ValueError("mode chats.dir cannot be empty when provided")
+
+
+@dataclass
 class ModeConfig:
     """
     Complete configuration for a query mode.
@@ -187,6 +210,9 @@ class ModeConfig:
     source_policy: SourcePolicyConfig = field(default_factory=SourcePolicyConfig)
     """Source policy configuration."""
 
+    chats: Optional[ModeChatsConfig] = None
+    """Optional per-mode chat save overrides."""
+
     def validate(self) -> None:
         """Validate mode configuration."""
         valid_styles = {"grounded", "insight"}
@@ -194,6 +220,8 @@ class ModeConfig:
             raise ValueError(
                 f"synthesis_style must be one of {valid_styles}, got '{self.synthesis_style}'"
             )
+        if self.chats is not None:
+            self.chats.validate()
 
 
 @dataclass

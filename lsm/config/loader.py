@@ -24,6 +24,7 @@ from .models import (
     LLMProviderConfig,
     LLMServiceConfig,
     ModeConfig,
+    ModeChatsConfig,
     SourcePolicyConfig,
     LocalSourcePolicy,
     RemoteSourcePolicy,
@@ -516,9 +517,22 @@ def build_mode_config(raw: Dict[str, Any]) -> ModeConfig:
     """
     source_policy = build_source_policy_config(raw.get("source_policy", {}))
 
+    chats_raw = raw.get("chats")
+    chats_config = None
+    if isinstance(chats_raw, dict):
+        chats_config = ModeChatsConfig(
+            auto_save=(
+                bool(chats_raw["auto_save"])
+                if "auto_save" in chats_raw
+                else None
+            ),
+            dir=chats_raw.get("dir"),
+        )
+
     return ModeConfig(
         synthesis_style=raw.get("synthesis_style", "grounded"),
         source_policy=source_policy,
+        chats=chats_config,
     )
 
 
@@ -754,6 +768,14 @@ def config_to_raw(config: LSMConfig) -> Dict[str, Any]:
                     },
                 },
             }
+            if mode.chats is not None:
+                chats_entry: Dict[str, Any] = {}
+                if mode.chats.auto_save is not None:
+                    chats_entry["auto_save"] = mode.chats.auto_save
+                if mode.chats.dir:
+                    chats_entry["dir"] = mode.chats.dir
+                if chats_entry:
+                    mode_entry["chats"] = chats_entry
             modes.append(mode_entry)
 
     remote_providers = None

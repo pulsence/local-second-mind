@@ -36,6 +36,7 @@ fields in the config file. The top-level keys are:
 | `query` | `QueryConfig` | Retrieval and reranking settings |
 | `modes` | `list[ModeConfig]` | Query mode definitions |
 | `notes` | `NotesConfig` | Notes system settings |
+| `chats` | `ChatsConfig` | Chat transcript saving settings |
 | `remote_providers` | `list[RemoteProviderConfig]` | Remote source providers |
 
 ## Required Fields
@@ -252,12 +253,22 @@ Modes define per-mode behavior for synthesis and source blending.
         "remote_providers": ["brave", "wikipedia", "arxiv"]
       },
       "model_knowledge": { "enabled": true, "require_label": true }
+    },
+    "chats": {
+      "auto_save": true,
+      "dir": "Chats/Research"
     }
   }
 ]
 ```
 
 If `modes` is not defined, LSM uses built-in `grounded`, `insight`, and `hybrid`.
+
+Mode chat overrides:
+
+- `modes[].chats.auto_save` overrides global `chats.auto_save` for that mode.
+- `modes[].chats.dir` overrides global `chats.dir` for that mode.
+- Chat transcripts are saved under the mode subfolder (for example, `Chats/Research/grounded`).
 
 ## Global Notes Configuration
 
@@ -273,6 +284,19 @@ Notes are configured once at the top level and apply to all modes.
   "wikilinks": false,
   "backlinks": false,
   "include_tags": false
+}
+```
+
+## Global Chats Configuration
+
+Chats are configured once at the top level and can be overridden by modes.
+
+```json
+"chats": {
+  "enabled": true,
+  "dir": "Chats",
+  "auto_save": true,
+  "format": "markdown"
 }
 ```
 

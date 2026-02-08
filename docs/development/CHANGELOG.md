@@ -42,6 +42,8 @@ All notable changes to Local Second Mind are documented here.
 - PostgreSQL connection variables in `.env.example` (`LSM_POSTGRES_CONNECTION_STRING`, `LSM_POSTGRES_TABLE`).
 - PostgreSQL vectordb example in `example_config.json`.
 - Query result cache in `lsm/query/cache.py` with TTL expiration + LRU eviction, integrated into query execution behind `query.enable_query_cache`.
+- Query chat modes (`query.chat_mode = single|chat`) with `/mode chat` and `/mode single` switching in TUI query commands.
+- Global chat transcript settings via `ChatsConfig` (`enabled`, `dir`, `auto_save`, `format`) with transcript auto-save support.
 - Chat conversation/session tracking in query state, including provider response/session ID chaining for follow-up turns.
 - Provider-side LLM cache/session reuse support across OpenAI, Azure OpenAI, Anthropic, Gemini, and Local providers (where applicable by provider API).
 - TUI live mode toggle for provider cache reuse: `/mode set llm_cache on|off`.
@@ -53,6 +55,7 @@ All notable changes to Local Second Mind are documented here.
 - Added deterministic field extraction (`extract_fields_deterministic`) and AI-assisted extraction (`extract_fields_ai`) with structured JSON parsing and deterministic fallback.
 - Added decomposition dispatcher `decompose_query(method="deterministic"|"ai")` and test coverage in `tests/test_query/test_decomposition.py`.
 - Added `llms.services.decomposition` support so query decomposition uses a dedicated configurable model/provider.
+- Mode-level chat save overrides via `modes[].chats` (`auto_save`, `dir`) for per-mode transcript behavior.
 
 ### Changed
 
@@ -69,6 +72,7 @@ All notable changes to Local Second Mind are documented here.
 - `query.enable_llm_server_cache` default is now `true`.
 - Removed `llm_prompt_cache_retention` query config option; provider backends control retention policy.
 - Query planning now resolves `llms.services.decomposition` and passes that model config into metadata prefilter/decomposition flow.
+- Chat auto-save now applies mode-level overrides before saving transcripts (global defaults can be overridden per mode).
 
 ## 0.3.2
 

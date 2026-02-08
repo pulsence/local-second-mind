@@ -41,6 +41,13 @@ A mode has three sub-systems:
 
 `notes` controls whether a query session can be saved and where it is stored.
 
+### Chats Policy
+
+Modes can optionally override global chat transcript auto-save behavior via `chats`:
+
+- `auto_save`: override global `chats.auto_save` for this mode.
+- `dir`: override global `chats.dir` for this mode (relative to `global_folder` unless absolute).
+
 ## Mode Configuration Reference
 
 ```json
@@ -63,6 +70,10 @@ A mode has three sub-systems:
       "dir": "research_notes",
       "template": "default",
       "filename_format": "timestamp"
+    },
+    "chats": {
+      "auto_save": true,
+      "dir": "Chats/Research"
     }
   }
 ]

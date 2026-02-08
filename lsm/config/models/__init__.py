@@ -34,6 +34,7 @@ from .modes import (
     ModelKnowledgePolicy,
     SourcePolicyConfig,
     NotesConfig,
+    ModeChatsConfig,
     ModeConfig,
     RemoteProviderConfig,
 )
@@ -73,6 +74,7 @@ __all__ = [
     "ModelKnowledgePolicy",
     "SourcePolicyConfig",
     "NotesConfig",
+    "ModeChatsConfig",
     "ModeConfig",
     "RemoteProviderConfig",
     "QueryConfig",

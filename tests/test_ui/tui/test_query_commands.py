@@ -215,6 +215,14 @@ def test_execute_model_and_mode_commands() -> None:
     bad_mode = screen._execute_query_command("/mode missing").output
     assert "Mode not found" in bad_mode
 
+    set_chat = screen._execute_query_command("/mode chat").output
+    assert "Chat mode set to: chat" in set_chat
+    assert screen.app.config.query.chat_mode == "chat"
+
+    set_single = screen._execute_query_command("/mode single").output
+    assert "Chat mode set to: single" in set_single
+    assert screen.app.config.query.chat_mode == "single"
+
     mode_set = screen._execute_query_command("/mode set notes off").output
     assert "set to: off" in mode_set
     assert screen.app.config.notes.enabled is False

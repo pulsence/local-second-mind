@@ -148,6 +148,10 @@
           "enabled": true,
           "require_label": true
         }
+      },
+      "chats": {
+        "auto_save": true,
+        "dir": "Chats/Research"
       }
     },
     {

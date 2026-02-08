@@ -12,6 +12,9 @@ from lsm.config.models import (
     LLMRegistryConfig,
     LLMServiceConfig,
     LSMConfig,
+    ModeChatsConfig,
+    ModeConfig,
+    SourcePolicyConfig,
     QueryConfig,
     VectorDBConfig,
 )
@@ -216,3 +219,128 @@ def test_chat_mode_passes_previous_response_id_when_llm_server_cache_enabled(mon
 
     assert captured[0] is None
     assert captured[1] == "resp-1"
+
+
+def test_chat_mode_respects_mode_auto_save_override_off(monkeypatch, tmp_path: Path) -> None:
+    from lsm.query import api as qapi
+
+    config = _make_config(tmp_path, chat_mode="chat", cache_enabled=False)
+    config.chats.auto_save = True
+    config.modes = {
+        "grounded": ModeConfig(
+            synthesis_style="grounded",
+            source_policy=SourcePolicyConfig(),
+            chats=ModeChatsConfig(auto_save=False),
+        )
+    }
+    state = SessionState(model="gpt-5.2")
+    candidate = Candidate(cid="c1", text="Context", meta={"source_path": "/docs/a.md"}, distance=0.1)
+    plan = LocalQueryPlan(
+        local_enabled=True,
+        candidates=[candidate],
+        filtered=[candidate],
+        relevance=0.9,
+        filters_active=False,
+        retrieve_k=12,
+        rerank_strategy="none",
+        should_llm_rerank=False,
+        k=12,
+        k_rerank=6,
+        min_relevance=0.25,
+        max_per_file=2,
+        local_pool=36,
+        no_rerank=True,
+    )
+
+    async def _fake_context(*args, **kwargs):
+        return ContextResult(
+            candidates=[candidate],
+            context_block="[S1] Context",
+            sources=[{"label": "S1"}],
+            local_candidates=[candidate],
+            remote_candidates=[],
+            remote_sources=[],
+            plan=plan,
+        )
+
+    provider = Mock()
+    provider.synthesize.return_value = "Chat answer [S1]"
+    provider.estimate_cost.return_value = 0.0
+    provider.name = "openai"
+    provider.model = "gpt-5.2"
+
+    saved = {"count": 0}
+
+    def _fake_save(*args, **kwargs):
+        saved["count"] += 1
+
+    monkeypatch.setattr(qapi, "build_combined_context_async", _fake_context)
+    monkeypatch.setattr(qapi, "create_provider", lambda cfg: provider)
+    monkeypatch.setattr(qapi, "save_conversation_markdown", _fake_save)
+
+    asyncio.run(qapi.query("Hello there", config, state, embedder=Mock(), collection=Mock()))
+    assert saved["count"] == 0
+
+
+def test_chat_mode_respects_mode_chat_dir_override(monkeypatch, tmp_path: Path) -> None:
+    from lsm.query import api as qapi
+
+    config = _make_config(tmp_path, chat_mode="chat", cache_enabled=False)
+    config.chats.auto_save = True
+    config.chats.dir = "Chats"
+    config.modes = {
+        "grounded": ModeConfig(
+            synthesis_style="grounded",
+            source_policy=SourcePolicyConfig(),
+            chats=ModeChatsConfig(dir="Chats/CustomModeFolder"),
+        )
+    }
+    state = SessionState(model="gpt-5.2")
+    candidate = Candidate(cid="c1", text="Context", meta={"source_path": "/docs/a.md"}, distance=0.1)
+    plan = LocalQueryPlan(
+        local_enabled=True,
+        candidates=[candidate],
+        filtered=[candidate],
+        relevance=0.9,
+        filters_active=False,
+        retrieve_k=12,
+        rerank_strategy="none",
+        should_llm_rerank=False,
+        k=12,
+        k_rerank=6,
+        min_relevance=0.25,
+        max_per_file=2,
+        local_pool=36,
+        no_rerank=True,
+    )
+
+    async def _fake_context(*args, **kwargs):
+        return ContextResult(
+            candidates=[candidate],
+            context_block="[S1] Context",
+            sources=[{"label": "S1"}],
+            local_candidates=[candidate],
+            remote_candidates=[],
+            remote_sources=[],
+            plan=plan,
+        )
+
+    provider = Mock()
+    provider.synthesize.return_value = "Chat answer [S1]"
+    provider.estimate_cost.return_value = 0.0
+    provider.name = "openai"
+    provider.model = "gpt-5.2"
+
+    captured = {}
+
+    def _fake_save(state, chats_dir, mode_name):
+        captured["chats_dir"] = chats_dir
+        captured["mode_name"] = mode_name
+
+    monkeypatch.setattr(qapi, "build_combined_context_async", _fake_context)
+    monkeypatch.setattr(qapi, "create_provider", lambda cfg: provider)
+    monkeypatch.setattr(qapi, "save_conversation_markdown", _fake_save)
+
+    asyncio.run(qapi.query("Hello there", config, state, embedder=Mock(), collection=Mock()))
+    assert captured["mode_name"] == "grounded"
+    assert str(captured["chats_dir"]).endswith(str(Path("Chats") / "CustomModeFolder" / "grounded"))

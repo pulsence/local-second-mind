@@ -244,6 +244,28 @@ def test_notes_config_is_global_not_mode_scoped(tmp_path: Path) -> None:
     assert "notes" not in serialized["modes"][0]
 
 
+def test_mode_chats_overrides_roundtrip(tmp_path: Path) -> None:
+    raw = _base_raw(tmp_path)
+    raw["modes"] = [
+        {
+            "name": "research",
+            "synthesis_style": "grounded",
+            "source_policy": {},
+            "chats": {"auto_save": False, "dir": "Chats/Research"},
+        }
+    ]
+
+    config = build_config_from_raw(raw, tmp_path / "config.json")
+    serialized = config_to_raw(config)
+
+    mode_cfg = config.modes["research"]
+    assert mode_cfg.chats is not None
+    assert mode_cfg.chats.auto_save is False
+    assert mode_cfg.chats.dir == "Chats/Research"
+    assert serialized["modes"][0]["chats"]["auto_save"] is False
+    assert serialized["modes"][0]["chats"]["dir"] == "Chats/Research"
+
+
 def test_parse_config_text_rejects_unknown_suffix() -> None:
     with pytest.raises(ValueError, match="Unsupported config format"):
         parse_config_text("a: 1", "config.txt")

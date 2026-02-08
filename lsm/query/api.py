@@ -566,7 +566,19 @@ def _maybe_auto_save_chat(config: LSMConfig, state: SessionState) -> None:
     """Auto-save chat transcript if enabled."""
     if config.query.chat_mode != "chat":
         return
-    if not config.chats.enabled or not config.chats.auto_save:
+    mode_chat_auto_save = config.chats.auto_save
+    mode_chat_dir = config.chats.dir
+    try:
+        mode_config = config.get_mode_config(config.query.mode)
+        if mode_config.chats is not None:
+            if mode_config.chats.auto_save is not None:
+                mode_chat_auto_save = mode_config.chats.auto_save
+            if mode_config.chats.dir:
+                mode_chat_dir = mode_config.chats.dir
+    except Exception as exc:
+        logger.debug(f"Could not resolve mode chat overrides for auto-save: {exc}")
+
+    if not config.chats.enabled or not mode_chat_auto_save:
         return
     if not state.conversation_history:
         return
@@ -574,7 +586,7 @@ def _maybe_auto_save_chat(config: LSMConfig, state: SessionState) -> None:
         chats_dir = get_mode_chats_folder(
             mode_name=config.query.mode,
             global_folder=config.global_folder,
-            base_dir=config.chats.dir,
+            base_dir=mode_chat_dir,
         )
         save_conversation_markdown(state, chats_dir=chats_dir, mode_name=config.query.mode)
     except Exception as exc:
