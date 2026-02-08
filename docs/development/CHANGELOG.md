@@ -68,6 +68,8 @@ All notable changes to Local Second Mind are documented here.
 - Agent tool system in `lsm/agents/tools/` with `BaseTool`, `ToolRegistry`, `ToolSandbox`, and default tools for file IO, URL loading, local embedding queries, LLM prompting, remote provider queries, and remote chain execution.
 - Agent runtime engine in `lsm/agents/harness.py` with JSON action loop, tool execution, context-window strategies (`compact` and `fresh`), background thread execution, pause/resume/stop controls, budget/iteration guards, and persisted per-run state files under `agents_folder`.
 - Agent log helpers in `lsm/agents/log_formatter.py` for formatting, saving, and loading structured `AgentLogEntry` traces.
+- Research agent in `lsm/agents/research.py` with LLM-driven topic decomposition, per-subtopic tool selection, iterative evidence synthesis, outline review loops, and markdown outline persistence.
+- Agent registry/factory in `lsm/agents/factory.py` with built-in `research` registration and `create_agent()` entrypoint for extensible agent creation.
 
 ### Changed
 
