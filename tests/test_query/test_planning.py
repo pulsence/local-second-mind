@@ -26,7 +26,8 @@ def _config(
         retrieve_k=retrieve_k,
     )
     ingest = SimpleNamespace(enable_versioning=False)
-    return SimpleNamespace(get_mode_config=lambda: mode, query=query, batch_size=32, ingest=ingest)
+    llm = SimpleNamespace(resolve_service=lambda name: None)
+    return SimpleNamespace(get_mode_config=lambda: mode, query=query, batch_size=32, ingest=ingest, llm=llm)
 
 
 def _state(*, path_contains=None, ext_allow=None, ext_deny=None, pinned_chunks=None):
@@ -137,7 +138,7 @@ def test_prepare_local_candidates_prefilter_uses_metadata_inventory(
 
     captured = {}
 
-    def _fake_prefilter(question, available_metadata):
+    def _fake_prefilter(question, available_metadata, llm_config=None):
         captured["metadata"] = available_metadata
         return {"content_type": "theology"}
 
@@ -168,6 +169,45 @@ def test_prepare_local_candidates_prefilter_uses_metadata_inventory(
     assert captured["metadata"]["user_tags"] == ["doctrine"]
     assert captured["metadata"]["root_tags"] == ["theology"]
     assert captured["metadata"]["folder_tags"] == ["research"]
+
+
+def test_prepare_local_candidates_uses_decomposition_service_for_prefilter(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    cfg = _config(local_enabled=True, rerank_strategy="none", retrieve_k=4, no_rerank=False)
+    state = _state()
+
+    base = Candidate(cid="1", text="a", meta={"source_path": "/docs/a.md"}, distance=0.2)
+    monkeypatch.setattr(planning, "embed_text", lambda *args, **kwargs: [0.1])
+    monkeypatch.setattr(planning, "retrieve_candidates", lambda *args, **kwargs: [base])
+    monkeypatch.setattr(planning, "filter_candidates", lambda *args, **kwargs: [base])
+    monkeypatch.setattr(planning, "compute_relevance", lambda filtered: 0.8)
+    monkeypatch.setattr("lsm.query.rerank.enforce_diversity", lambda candidates, max_per_file: candidates)
+
+    sentinel_llm = object()
+    captured = {"service_name": None, "llm_config": None}
+
+    def _resolve_service(name):
+        captured["service_name"] = name
+        return sentinel_llm
+
+    cfg.llm = SimpleNamespace(resolve_service=_resolve_service)
+
+    def _fake_prefilter(question, available_metadata, llm_config=None):
+        captured["llm_config"] = llm_config
+        return {}
+
+    monkeypatch.setattr(planning, "prefilter_by_metadata", _fake_prefilter)
+
+    from unittest.mock import Mock
+    from lsm.vectordb.base import BaseVectorDBProvider
+
+    mock_collection = Mock(spec=BaseVectorDBProvider)
+    mock_collection.get.return_value = VectorDBGetResult(ids=[], metadatas=[])
+
+    planning.prepare_local_candidates("q", cfg, state, embedder=object(), collection=mock_collection)
+    assert captured["service_name"] == "decomposition"
+    assert captured["llm_config"] is sentinel_llm
 
 
 def test_prepare_local_candidates_anchor_chunks_stay_prioritized_after_rerank(

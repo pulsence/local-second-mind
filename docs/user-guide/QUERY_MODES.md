@@ -143,6 +143,34 @@ Context anchors:
 
 When anchors are set, anchored chunks/documents are prioritized as the primary context start, then augmented with vector retrieval candidates.
 
+## Natural Language Query Decomposition (Phase 4.3)
+
+LSM includes structured query decomposition in `lsm/query/decomposition.py`.
+
+Extracted fields:
+
+- `author`
+- `keywords`
+- `title`
+- `date_range` (`start`, `end`)
+- `doi`
+- `raw_query`
+
+Extraction modes:
+
+- Deterministic: regex-based extraction for DOI, author, title, and years.
+- AI-assisted: sends an extraction prompt to the configured LLM and parses structured JSON output.
+- Fallback: if AI extraction fails or returns invalid JSON, deterministic extraction is used.
+
+Service configuration:
+
+- Set `llms.services.decomposition` to choose the provider/model used for AI decomposition.
+- If `decomposition` is not defined, LSM falls back to the `default` service.
+
+Primary entrypoint:
+
+- `decompose_query(query, method="deterministic" | "ai", llm_config=...)`
+
 ## Custom Mode Examples
 
 ### Example: Strict Local-Only Q&A

@@ -247,6 +247,12 @@
 
 # Future Items (INGORE ALL THE FOLLOWING FOR NOW)
 
+## LLM Providers
+- There should be a basic method that simply handles sending messages and receiving message with the
+  llm and all other methods (e.g., synthesize, rerank, etc.) all use that base method basic calling,
+  streaming, cached server, etc. The highlevel methods should only can about formating the request
+  or handling the response.
+
 ## Agent
 - Create a simple agent where the user gives a task and the agent processes it via the background.
 - Create the ability to launch agents on a particular time cycle

@@ -115,6 +115,7 @@ and `services` (feature-to-model mappings).
   "services": {
     "default": { "provider": "openai", "model": "gpt-5.2" },
     "query":   { "provider": "openai", "model": "gpt-5.2", "temperature": 0.7, "max_tokens": 2000 },
+    "decomposition": { "provider": "openai", "model": "gpt-5-nano", "temperature": 0.2, "max_tokens": 300 },
     "tagging": { "provider": "gemini", "model": "gemini-2.5-flash-lite", "temperature": 0.5, "max_tokens": 200 },
     "ranking": { "provider": "claude", "model": "claude-haiku-4-5", "temperature": 0.3, "max_tokens": 500 }
   }
@@ -127,8 +128,10 @@ Notes:
   `provider_name`, `api_key`, `base_url`, `endpoint`, `api_version`, `deployment_name`.
 - `services` maps logical names to a provider + model combination with optional
   `temperature` and `max_tokens` overrides.
-- A `"query"` or `"default"` service is required. `tagging` and `ranking` are
+- A `"query"` or `"default"` service is required. `tagging`, `ranking`, and
+  `decomposition` are
   optional and fall back to `"default"` if not defined.
+- `decomposition` controls which model is used for natural-language query decomposition.
 - Each service's `provider` field must reference a name from `providers[]`.
 - Supported providers: `openai`, `anthropic`, `gemini`, `local`, `azure_openai`.
 

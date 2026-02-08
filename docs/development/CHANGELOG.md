@@ -49,6 +49,10 @@ All notable changes to Local Second Mind are documented here.
 - Prefiltering now supports all tag fields together: `ai_tags`, `user_tags`, `root_tags`, `folder_tags`, plus `content_type`.
 - Context anchor controls in query TUI (`/context`, `/context doc ...`, `/context chunk ...`, `/context clear`) with anchor-first context prioritization.
 - Added/updated query tests for metadata prefilter behavior and anchor prioritization (`tests/test_query/test_prefilter.py`, `tests/test_query/test_planning.py`).
+- Natural language query decomposition in `lsm/query/decomposition.py` with `QueryFields` (`author`, `keywords`, `title`, `date_range`, `doi`, `raw_query`).
+- Added deterministic field extraction (`extract_fields_deterministic`) and AI-assisted extraction (`extract_fields_ai`) with structured JSON parsing and deterministic fallback.
+- Added decomposition dispatcher `decompose_query(method="deterministic"|"ai")` and test coverage in `tests/test_query/test_decomposition.py`.
+- Added `llms.services.decomposition` support so query decomposition uses a dedicated configurable model/provider.
 
 ### Changed
 
@@ -64,6 +68,7 @@ All notable changes to Local Second Mind are documented here.
 - Filter format normalized: simple `{"key": "value"}` instead of `{"key": {"$eq": "value"}}` at the provider interface level.
 - `query.enable_llm_server_cache` default is now `true`.
 - Removed `llm_prompt_cache_retention` query config option; provider backends control retention policy.
+- Query planning now resolves `llms.services.decomposition` and passes that model config into metadata prefilter/decomposition flow.
 
 ## 0.3.2
 

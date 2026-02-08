@@ -5,10 +5,12 @@ Natural language query decomposition into structured fields.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+import json
 import re
-from typing import List, Optional, Tuple, Any
+from typing import List, Optional, Tuple, Any, Dict
 
 from lsm.logging import get_logger
+from lsm.providers import create_provider
 
 logger = get_logger(__name__)
 
@@ -18,6 +20,7 @@ _YEAR_RE = re.compile(r"\b(19|20)\d{2}\b")
 _AUTHOR_RE = re.compile(r"(?:author|by)\s*[:=]?\s*([A-Za-z][\w .,'-]{1,120})", re.IGNORECASE)
 _TITLE_RE = re.compile(r"(?:title\s*[:=]\s*|\"|')([^\"']{3,180})(?:\"|')", re.IGNORECASE)
 _WORD_RE = re.compile(r"[A-Za-z][A-Za-z0-9_\-]{2,}")
+_JSON_BLOCK_RE = re.compile(r"\{[\s\S]*\}")
 
 
 @dataclass
@@ -80,14 +83,94 @@ def extract_fields_deterministic(query: str) -> QueryFields:
 
 def extract_fields_ai(query: str, llm_config: Optional[Any] = None) -> QueryFields:
     """
-    AI-assisted extraction hook.
-
-    Currently falls back to deterministic extraction and logs intent. This keeps
-    behavior stable in offline/unit-test contexts while preserving extension points.
+    AI-assisted extraction of query fields with deterministic fallback.
     """
-    if llm_config is not None:
-        logger.debug("extract_fields_ai called with llm_config; using deterministic fallback")
-    return extract_fields_deterministic(query)
+    deterministic = extract_fields_deterministic(query)
+    if llm_config is None:
+        return deterministic
+
+    try:
+        provider = create_provider(llm_config)
+        prompt = (
+            "Extract structured search fields from the user query and return ONLY JSON with keys:\n"
+            "author (string|null), keywords (array of strings), title (string|null),\n"
+            "date_range (object with start/end year as strings or null), doi (string|null), raw_query (string).\n"
+            "Do not include markdown or explanations.\n\n"
+            f"Query: {query}"
+        )
+        response = provider.synthesize(
+            question=prompt,
+            context="",
+            mode="grounded",
+        )
+        parsed = _parse_ai_decomposition_response(response)
+        return _merge_fields(deterministic, parsed, query)
+    except Exception as exc:
+        logger.debug(f"AI decomposition failed; using deterministic fallback: {exc}")
+        return deterministic
+
+
+def _parse_ai_decomposition_response(response_text: str) -> Dict[str, Any]:
+    """
+    Parse provider response into a dictionary.
+    """
+    text = (response_text or "").strip()
+    if not text:
+        return {}
+    try:
+        return json.loads(text)
+    except Exception:
+        match = _JSON_BLOCK_RE.search(text)
+        if not match:
+            return {}
+        try:
+            return json.loads(match.group(0))
+        except Exception:
+            return {}
+
+
+def _merge_fields(
+    deterministic: QueryFields,
+    parsed: Dict[str, Any],
+    raw_query: str,
+) -> QueryFields:
+    """
+    Merge AI-extracted fields with deterministic defaults.
+    """
+    if not isinstance(parsed, dict):
+        return deterministic
+
+    author = parsed.get("author")
+    title = parsed.get("title")
+    doi = parsed.get("doi")
+    keywords = parsed.get("keywords")
+    date_range = parsed.get("date_range")
+
+    merged = QueryFields(
+        author=str(author).strip() if author else deterministic.author,
+        keywords=deterministic.keywords,
+        title=str(title).strip() if title else deterministic.title,
+        date_range=deterministic.date_range,
+        doi=str(doi).strip() if doi else deterministic.doi,
+        raw_query=(str(parsed.get("raw_query")).strip() if parsed.get("raw_query") else raw_query),
+    )
+
+    if isinstance(keywords, list):
+        merged.keywords = sorted(
+            {
+                str(k).strip().lower()
+                for k in keywords
+                if str(k).strip()
+            }
+        )[:12] or deterministic.keywords
+
+    if isinstance(date_range, dict):
+        start = str(date_range.get("start", "")).strip()
+        end = str(date_range.get("end", "")).strip()
+        if start and end:
+            merged.date_range = (start, end)
+
+    return merged
 
 
 def decompose_query(

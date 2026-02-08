@@ -112,6 +112,21 @@ def _prioritize_anchor_candidates(
     return prioritized
 
 
+def _resolve_decomposition_llm_config(config: LSMConfig) -> Any | None:
+    """Resolve LLM service for query decomposition if available."""
+    llm_registry = getattr(config, "llm", None)
+    if llm_registry is None:
+        return None
+    resolver = getattr(llm_registry, "resolve_service", None)
+    if resolver is None:
+        return None
+    try:
+        return resolver("decomposition")
+    except Exception as exc:
+        logger.debug(f"Could not resolve decomposition LLM service: {exc}")
+        return None
+
+
 def prepare_local_candidates(
     question: str,
     config: LSMConfig,
@@ -164,7 +179,12 @@ def prepare_local_candidates(
     retrieve_k = config.query.retrieve_k or (max(k, k * 3) if filters_active else k)
 
     available_metadata = _collect_available_metadata(collection)
-    where_filter = prefilter_by_metadata(question, available_metadata=available_metadata)
+    decomposition_llm = _resolve_decomposition_llm_config(config)
+    where_filter = prefilter_by_metadata(
+        question,
+        available_metadata=available_metadata,
+        llm_config=decomposition_llm,
+    )
     if config.ingest.enable_versioning:
         where_filter = {**where_filter, "is_current": True}
     if not where_filter:

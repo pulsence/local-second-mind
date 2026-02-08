@@ -8,12 +8,11 @@ import re
 from typing import Any, Dict, Iterable, List, Optional
 
 from lsm.logging import get_logger
+from lsm.query.decomposition import decompose_query
 
 logger = get_logger(__name__)
 
 
-_AUTHOR_RE = re.compile(r"(?:author|by)\s*[:=]?\s*([A-Za-z][\w .,'-]{1,120})", re.IGNORECASE)
-_YEAR_RE = re.compile(r"\b(19|20)\d{2}\b")
 _TAG_WORD_RE = re.compile(r"[A-Za-z][A-Za-z0-9_\-]{2,}")
 
 
@@ -44,6 +43,14 @@ def extract_tags_from_prompt(
     if not text:
         return []
 
+    if llm_config is not None:
+        try:
+            fields = decompose_query(query, method="ai", llm_config=llm_config)
+            if fields.keywords:
+                return sorted({str(k).strip().lower() for k in fields.keywords if str(k).strip()})[:8]
+        except Exception as exc:
+            logger.debug(f"AI tag extraction failed; falling back to deterministic tokens: {exc}")
+
     tokens = [m.group(0) for m in _TAG_WORD_RE.finditer(text)]
     stop_words = {
         "what", "when", "where", "which", "with", "from", "into", "about",
@@ -54,7 +61,7 @@ def extract_tags_from_prompt(
     tags = sorted({token for token in tokens if token not in stop_words})[:8]
 
     if llm_config is not None:
-        logger.debug("extract_tags_from_prompt received llm_config; deterministic extraction used")
+        logger.debug("extract_tags_from_prompt used deterministic fallback after AI attempt")
 
     return tags
 
@@ -62,6 +69,7 @@ def extract_tags_from_prompt(
 def prefilter_by_metadata(
     query: str,
     available_metadata: Optional[Dict[str, Any]] = None,
+    llm_config: Optional[Any] = None,
 ) -> Dict[str, Any]:
     """
     Build a best-effort metadata where-filter from natural language query.
@@ -77,13 +85,16 @@ def prefilter_by_metadata(
     metadata = available_metadata or {}
     where: Dict[str, Any] = {}
 
-    author_match = _AUTHOR_RE.search(text)
-    if author_match:
-        where["author"] = author_match.group(1).strip()
+    fields = decompose_query(
+        text,
+        method="ai" if llm_config is not None else "deterministic",
+        llm_config=llm_config,
+    )
 
-    year_match = _YEAR_RE.search(text)
-    if year_match:
-        where["year"] = year_match.group(0)
+    if fields.author:
+        where["author"] = fields.author
+    if fields.date_range:
+        where["year"] = fields.date_range[0]
 
     content_types = _normalize_values(metadata.get("content_type"))
     for value in content_types:
@@ -92,7 +103,7 @@ def prefilter_by_metadata(
             break
 
     # Tag-aware matching across all configured tag metadata fields.
-    query_tags = extract_tags_from_prompt(text)
+    query_tags = extract_tags_from_prompt(text, llm_config=llm_config) or list(fields.keywords)
     for tag_field in ("ai_tags", "user_tags", "root_tags", "folder_tags"):
         known_tags = [v.lower() for v in _normalize_values(metadata.get(tag_field))]
         for tag in query_tags:
@@ -101,10 +112,13 @@ def prefilter_by_metadata(
                 break
 
     # Title matching if provided by metadata inventory.
-    titles = _normalize_values(metadata.get("title"))
-    for title in titles:
-        if title and title.lower() in query_lower:
-            where["title"] = title
-            break
+    if fields.title:
+        where["title"] = fields.title
+    else:
+        titles = _normalize_values(metadata.get("title"))
+        for title in titles:
+            if title and title.lower() in query_lower:
+                where["title"] = title
+                break
 
     return where
