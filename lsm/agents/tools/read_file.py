@@ -15,6 +15,7 @@ class ReadFileTool(BaseTool):
 
     name = "read_file"
     description = "Read text content from a file path."
+    risk_level = "read_only"
     input_schema = {
         "type": "object",
         "properties": {
@@ -30,4 +31,3 @@ class ReadFileTool(BaseTool):
         if not path.is_file():
             raise ValueError(f"Path is not a file: {path}")
         return path.read_text(encoding="utf-8")
-

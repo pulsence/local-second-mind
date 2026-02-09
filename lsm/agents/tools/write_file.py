@@ -16,6 +16,8 @@ class WriteFileTool(BaseTool):
     name = "write_file"
     description = "Write text content to a file path."
     requires_permission = True
+    risk_level = "writes_workspace"
+    needs_network = False
     input_schema = {
         "type": "object",
         "properties": {
@@ -38,4 +40,3 @@ class WriteFileTool(BaseTool):
         with path.open(mode, encoding="utf-8") as handle:
             handle.write(content)
         return f"Wrote {len(content)} chars to {path.resolve()}"
-

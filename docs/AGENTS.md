@@ -27,6 +27,7 @@ Tooling:
 - `lsm/agents/tools/base.py`: `BaseTool`, `ToolRegistry`
 - `lsm/agents/tools/sandbox.py`: `ToolSandbox` permission enforcement
 - `lsm/agents/tools/*.py`: built-in tool implementations
+- Tool metadata includes `risk_level`, `preferred_runner`, and `needs_network`
 
 ## Agent Config
 
@@ -79,15 +80,20 @@ The sandbox is deny-by-default outside configured paths.
 
 Default tool registry (`create_default_tool_registry`) includes:
 
-- `read_file`
-- `read_folder`
-- `write_file`
-- `create_folder`
-- `load_url`
-- `query_llm`
-- `query_remote`
-- `query_remote_chain`
-- `query_embeddings` (registered only when vector DB provider + embedder are available)
+- `read_file` (`risk_level=read_only`)
+- `read_folder` (`risk_level=read_only`)
+- `query_embeddings` (`risk_level=read_only`) (registered only when vector DB provider + embedder are available)
+- `write_file` (`risk_level=writes_workspace`)
+- `create_folder` (`risk_level=writes_workspace`)
+- `load_url` (`risk_level=network`, `needs_network=true`)
+- `query_llm` (`risk_level=network`, `needs_network=true`)
+- `query_remote` (`risk_level=network`, `needs_network=true`)
+- `query_remote_chain` (`risk_level=network`, `needs_network=true`)
+
+`ToolRegistry` also supports risk-based inspection with:
+
+- `list_by_risk(risk_level)`
+- `list_network_tools()`
 
 ## Runtime Loop
 

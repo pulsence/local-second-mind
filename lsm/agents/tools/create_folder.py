@@ -16,6 +16,8 @@ class CreateFolderTool(BaseTool):
     name = "create_folder"
     description = "Create a directory path."
     requires_permission = True
+    risk_level = "writes_workspace"
+    needs_network = False
     input_schema = {
         "type": "object",
         "properties": {
@@ -28,4 +30,3 @@ class CreateFolderTool(BaseTool):
         path = Path(str(args.get("path", "")).strip())
         path.mkdir(parents=True, exist_ok=True)
         return f"Created folder: {path.resolve()}"
-

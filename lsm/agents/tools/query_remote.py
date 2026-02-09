@@ -18,6 +18,8 @@ class QueryRemoteTool(BaseTool):
 
     name = "query_remote"
     description = "Query a configured remote provider with structured input."
+    risk_level = "network"
+    needs_network = True
     input_schema = {
         "type": "object",
         "properties": {

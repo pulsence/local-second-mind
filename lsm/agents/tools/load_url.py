@@ -17,6 +17,8 @@ class LoadURLTool(BaseTool):
     name = "load_url"
     description = "Fetch text content from a URL."
     requires_permission = True
+    risk_level = "network"
+    needs_network = True
     input_schema = {
         "type": "object",
         "properties": {
@@ -39,4 +41,3 @@ class LoadURLTool(BaseTool):
         if max_chars > 0:
             text = text[:max_chars]
         return text
-

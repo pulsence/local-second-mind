@@ -18,6 +18,8 @@ class QueryRemoteChainTool(BaseTool):
 
     name = "query_remote_chain"
     description = "Run a configured remote provider chain using structured input."
+    risk_level = "network"
+    needs_network = True
     input_schema = {
         "type": "object",
         "properties": {
@@ -48,4 +50,3 @@ class QueryRemoteChainTool(BaseTool):
         chain = RemoteProviderChain(self.config, chain_config)
         results = chain.execute(chain_input, max_results=max_results)
         return json.dumps(results, indent=2)
-

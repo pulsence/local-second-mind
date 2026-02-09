@@ -18,6 +18,7 @@ class QueryEmbeddingsTool(BaseTool):
 
     name = "query_embeddings"
     description = "Run local semantic search over the vector database."
+    risk_level = "read_only"
     input_schema = {
         "type": "object",
         "properties": {
@@ -66,4 +67,3 @@ class QueryEmbeddingsTool(BaseTool):
                 }
             )
         return json.dumps(payload, indent=2)
-

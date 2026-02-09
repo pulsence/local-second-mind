@@ -16,6 +16,7 @@ class ReadFolderTool(BaseTool):
 
     name = "read_folder"
     description = "List files and directories within a folder."
+    risk_level = "read_only"
     input_schema = {
         "type": "object",
         "properties": {
@@ -47,4 +48,3 @@ class ReadFolderTool(BaseTool):
                 }
             )
         return json.dumps(entries, indent=2)
-

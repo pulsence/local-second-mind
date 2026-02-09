@@ -5,7 +5,10 @@ Base abstractions for agent tools.
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Literal
+
+RiskLevel = Literal["read_only", "writes_workspace", "network", "exec"]
+PreferredRunner = Literal["local", "docker"]
 
 
 class BaseTool(ABC):
@@ -21,6 +24,9 @@ class BaseTool(ABC):
         "required": [],
     }
     requires_permission: bool = False
+    risk_level: RiskLevel = "read_only"
+    preferred_runner: PreferredRunner = "local"
+    needs_network: bool = False
 
     def get_definition(self) -> Dict[str, Any]:
         """
@@ -34,6 +40,9 @@ class BaseTool(ABC):
             "description": self.description,
             "input_schema": self.input_schema,
             "requires_permission": self.requires_permission,
+            "risk_level": self.risk_level,
+            "preferred_runner": self.preferred_runner,
+            "needs_network": self.needs_network,
         }
 
     @abstractmethod
@@ -107,3 +116,27 @@ class ToolRegistry:
         """
         return [tool.get_definition() for tool in self.list_tools()]
 
+    def list_by_risk(self, risk_level: str) -> List[BaseTool]:
+        """
+        List tools by risk level.
+
+        Args:
+            risk_level: Risk level to filter on.
+
+        Returns:
+            Tool instances matching the risk level, sorted by name.
+        """
+        return [tool for tool in self.list_tools() if tool.risk_level == risk_level]
+
+    def list_network_tools(self) -> List[BaseTool]:
+        """
+        List tools that require network access.
+
+        Returns:
+            Tool instances with network requirements, sorted by name.
+        """
+        return [
+            tool
+            for tool in self.list_tools()
+            if tool.needs_network or tool.risk_level == "network"
+        ]

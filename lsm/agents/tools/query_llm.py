@@ -17,6 +17,8 @@ class QueryLLMTool(BaseTool):
 
     name = "query_llm"
     description = "Run a direct prompt against a configured LLM service."
+    risk_level = "network"
+    needs_network = True
     input_schema = {
         "type": "object",
         "properties": {
@@ -50,4 +52,3 @@ class QueryLLMTool(BaseTool):
         llm_config = self.llm_registry.resolve_service(service)
         provider = create_provider(llm_config)
         return provider.synthesize(prompt, context, mode=mode)
-
