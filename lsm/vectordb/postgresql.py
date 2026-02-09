@@ -397,10 +397,10 @@ class PostgreSQLProvider(BaseVectorDBProvider):
 
             query_sql = sql.SQL(
                 """
-                SELECT id, text, metadata, (embedding <=> %s) AS distance
+                SELECT id, text, metadata, (embedding <=> %s::vector) AS distance
                 FROM {table}
                 {where_clause}
-                ORDER BY embedding <=> %s
+                ORDER BY embedding <=> %s::vector
                 LIMIT %s
                 """
             ).format(table=table_ident, where_clause=where_sql)

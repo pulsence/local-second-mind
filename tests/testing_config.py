@@ -36,6 +36,7 @@ class TestConfig:
     brave_api_key: Optional[str]
     semantic_scholar_api_key: Optional[str]
     core_api_key: Optional[str]
+    postgres_connection_string: Optional[str]
     embed_model: str
     tier: str
 
@@ -75,6 +76,7 @@ def load_test_config(env_path: Optional[Path] = None) -> TestConfig:
         brave_api_key=_env("LSM_TEST_BRAVE_API_KEY"),
         semantic_scholar_api_key=_env("LSM_TEST_SEMANTIC_SCHOLAR_API_KEY"),
         core_api_key=_env("LSM_TEST_CORE_API_KEY"),
+        postgres_connection_string=_env("LSM_TEST_POSTGRES_CONNECTION_STRING"),
         embed_model=embed_model,
         tier=tier,
     )

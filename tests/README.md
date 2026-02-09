@@ -56,6 +56,9 @@ pytest tests/ -v -m integration
 
 # Skip integration/performance suites
 pytest tests/ -v -m "not integration and not performance"
+
+# Run live PostgreSQL vector DB tests
+pytest tests/test_vectordb/test_live_postgresql.py tests/test_vectordb/test_live_migration_chromadb_to_postgres.py -v -m "live"
 ```
 
 ## Synthetic Fixtures

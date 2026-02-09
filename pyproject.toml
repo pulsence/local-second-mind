@@ -61,6 +61,7 @@ markers = [
     "live: tests that make real external API/network calls",
     "live_llm: live tests for LLM provider APIs",
     "live_remote: live tests for remote source providers",
+    "live_vectordb: live tests for vector database providers and migrations",
     "docker: tests that require Docker",
     "performance: performance and stress tests",
 ]

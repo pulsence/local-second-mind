@@ -1,6 +1,5 @@
 # Testing Guide
 
-This guide defines the tiered test strategy for LSM v0.5.0 development.
 
 ## Test Tiers
 
@@ -9,6 +8,7 @@ This guide defines the tiered test strategy for LSM v0.5.0 development.
 - `live`: Real external API calls.
 - `live_llm`: Live subset for LLM providers.
 - `live_remote`: Live subset for remote source providers.
+- `live_vectordb`: Live subset for PostgreSQL/pgvector and migration tests.
 - `docker`: Tests that require Docker runtime support.
 - `performance`: Scale/perf scenarios (run explicitly).
 
@@ -43,6 +43,7 @@ Supported variables:
 - `LSM_TEST_BRAVE_API_KEY`
 - `LSM_TEST_SEMANTIC_SCHOLAR_API_KEY`
 - `LSM_TEST_CORE_API_KEY`
+- `LSM_TEST_POSTGRES_CONNECTION_STRING`
 - `LSM_TEST_EMBED_MODEL` (default: `sentence-transformers/all-MiniLM-L6-v2`)
 - `LSM_TEST_TIER` (`smoke|integration|live`, default: `smoke`)
 
@@ -57,6 +58,7 @@ The following fixtures are available in `tests/conftest.py`:
 - `real_anthropic_provider`
 - `real_gemini_provider`
 - `real_local_provider`
+- `real_postgresql_provider`
 - `rich_test_corpus`
 - `populated_chromadb`
 
@@ -96,6 +98,9 @@ pytest tests/ -v -m "live_llm"
 
 # Only live remote provider tests
 pytest tests/ -v -m "live_remote"
+
+# Only live vector DB tests (PostgreSQL + migration)
+pytest tests/ -v -m "live_vectordb"
 ```
 
 ## Infrastructure Validation
@@ -103,6 +108,26 @@ pytest tests/ -v -m "live_remote"
 Configuration loader behavior is covered by:
 
 - `tests/test_infrastructure/test_test_config.py`
+
+## PostgreSQL + Migration Coverage
+
+Live PostgreSQL provider and migration tests:
+
+- `tests/test_vectordb/test_live_postgresql.py`
+- `tests/test_vectordb/test_live_migration_chromadb_to_postgres.py`
+
+These validate:
+
+- Real CRUD/query/filter/update/delete behavior on PostgreSQL + pgvector
+- Pagination and stats on a live PostgreSQL collection
+- End-to-end migration from a real ChromaDB collection into PostgreSQL
+- Post-migration retrieval and semantic query behavior
+
+Prerequisites for live PostgreSQL tests:
+
+- `LSM_TEST_POSTGRES_CONNECTION_STRING` points to a reachable database
+- Current DB role has `CREATE` privilege on schema `public`
+- `pgvector` extension exists (or the role can create it)
 
 ## Full Pipeline Suite
 
@@ -112,6 +137,7 @@ It includes:
 
 - `@pytest.mark.integration` end-to-end ingest + retrieval (no external network calls)
 - `@pytest.mark.live` end-to-end ingest + LLM rerank + synthesis
+- `@pytest.mark.live` + `@pytest.mark.live_vectordb` end-to-end ingest + retrieval using PostgreSQL/pgvector as the vector store
 - `@pytest.mark.performance` scale/latency check with 100+ chunks (gated by `LSM_PERF_TEST`)
 
 Examples:

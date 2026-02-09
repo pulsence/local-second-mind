@@ -116,3 +116,42 @@ class TestMigrateChromadbToPostgres:
 
         assert result["migrated"] == 5
         assert progress_calls == [(2, 5), (5, 5)]
+
+    @patch("lsm.vectordb.migrations.chromadb_to_postgres.PostgreSQLProvider")
+    @patch("lsm.vectordb.migrations.chromadb_to_postgres.ChromaDBProvider")
+    def test_handles_numpy_embeddings_in_source_results(
+        self,
+        mock_chroma_cls,
+        mock_pg_cls,
+    ) -> None:
+        from lsm.vectordb.migrations.chromadb_to_postgres import migrate_chromadb_to_postgres
+        from pathlib import Path
+
+        np = pytest.importorskip("numpy")
+
+        mock_source = MagicMock()
+        mock_chroma_cls.return_value = mock_source
+        mock_source.count.return_value = 2
+        mock_source.get.side_effect = [
+            VectorDBGetResult(
+                ids=["a", "b"],
+                documents=["doc1", "doc2"],
+                metadatas=[{"k": "1"}, {"k": "2"}],
+                embeddings=np.array([[0.1, 0.2], [0.3, 0.4]], dtype=float),
+            ),
+            VectorDBGetResult(ids=[]),
+        ]
+
+        mock_target = MagicMock()
+        mock_pg_cls.return_value = mock_target
+
+        pg_config = VectorDBConfig(provider="postgresql")
+        result = migrate_chromadb_to_postgres(Path("/tmp/chroma"), "kb", pg_config, batch_size=100)
+
+        assert result["migrated"] == 2
+        mock_target.add_chunks.assert_called_once_with(
+            ["a", "b"],
+            ["doc1", "doc2"],
+            [{"k": "1"}, {"k": "2"}],
+            [[0.1, 0.2], [0.3, 0.4]],
+        )

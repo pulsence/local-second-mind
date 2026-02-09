@@ -10,6 +10,7 @@ import shutil
 import pytest
 from pathlib import Path
 from typing import Dict, Any
+from uuid import uuid4
 
 from lsm.config.models import (
     GlobalConfig,
@@ -399,6 +400,67 @@ def test_config() -> TestConfig:
 
 
 @pytest.fixture(scope="session")
+def live_postgres_connection_string(test_config: TestConfig) -> str:
+    """
+    Return PostgreSQL DSN for live vector DB tests after preflight checks.
+
+    Preconditions:
+    - `LSM_TEST_POSTGRES_CONNECTION_STRING` is configured
+    - connection succeeds
+    - current user can create tables in `public` schema
+    - pgvector extension exists (or can be created)
+    """
+    dsn = test_config.postgres_connection_string
+    if not dsn:
+        pytest.skip(
+            "Set LSM_TEST_POSTGRES_CONNECTION_STRING to enable live PostgreSQL vector DB tests"
+        )
+
+    try:
+        import psycopg2
+    except Exception as exc:
+        pytest.skip(f"psycopg2 is unavailable for PostgreSQL live tests: {exc}")
+
+    try:
+        conn = psycopg2.connect(dsn)
+    except Exception as exc:
+        pytest.skip(f"Unable to connect to PostgreSQL test database: {exc}")
+
+    try:
+        with conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT
+                        current_user,
+                        has_schema_privilege(current_user, 'public', 'CREATE')
+                    """
+                )
+                current_user, can_create = cur.fetchone()
+                if not bool(can_create):
+                    pytest.skip(
+                        f"PostgreSQL user '{current_user}' lacks CREATE privilege on schema public"
+                    )
+
+                cur.execute(
+                    "SELECT EXISTS(SELECT 1 FROM pg_extension WHERE extname = 'vector')"
+                )
+                has_vector = bool(cur.fetchone()[0])
+                if not has_vector:
+                    try:
+                        cur.execute("CREATE EXTENSION IF NOT EXISTS vector")
+                    except Exception as exc:
+                        pytest.skip(
+                            "pgvector extension is not installed and could not be created: "
+                            f"{exc}"
+                        )
+    finally:
+        conn.close()
+
+    return dsn
+
+
+@pytest.fixture(scope="session")
 def real_embedder(test_config: TestConfig):
     """
     Load a real sentence-transformers embedder once per test session.
@@ -430,6 +492,44 @@ def real_chromadb_provider(tmp_path: Path):
     if not provider.is_available():
         pytest.skip("ChromaDB provider is unavailable in this environment")
     return provider
+
+
+@pytest.fixture
+def real_postgresql_provider(live_postgres_connection_string: str):
+    """
+    Create a real PostgreSQL provider against an isolated collection name.
+    """
+    from lsm.vectordb.factory import create_vectordb_provider
+
+    collection_name = f"test_pg_{uuid4().hex[:12]}"
+    config = VectorDBConfig(
+        provider="postgresql",
+        connection_string=live_postgres_connection_string,
+        collection=collection_name,
+        pool_size=2,
+    )
+    provider = create_vectordb_provider(config)
+    if not provider.is_available():
+        pytest.skip("PostgreSQL provider is unavailable in this environment")
+
+    try:
+        provider.delete_all()
+    except Exception:
+        pass
+
+    try:
+        yield provider
+    finally:
+        try:
+            provider.delete_all()
+        except Exception:
+            pass
+        pool = getattr(provider, "_pool", None)
+        if pool is not None:
+            try:
+                pool.closeall()
+            except Exception:
+                pass
 
 
 def _create_live_provider_or_skip(

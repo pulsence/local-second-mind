@@ -61,6 +61,8 @@ def _build_pipeline_config(
     chunk_overlap: int = 120,
     chunking_strategy: str = "structure",
     extensions: list[str] | None = None,
+    vectordb_provider: str = "chromadb",
+    vectordb_connection_string: str | None = None,
 ) -> LSMConfig:
     """Build an isolated config for full pipeline testing."""
     mode_name = "full_pipeline_mode"
@@ -113,9 +115,10 @@ def _build_pipeline_config(
         },
     )
     vectordb = VectorDBConfig(
-        provider="chromadb",
+        provider=vectordb_provider,
         persist_dir=tmp_path / ".chroma",
         collection=collection_name,
+        connection_string=vectordb_connection_string,
     )
 
     modes = {
@@ -283,6 +286,72 @@ def test_full_live_pipeline_with_real_llm_rerank_and_synthesis(
     assert query_result.debug_info.get("synthesis_fallback") is not True
     assert _answer_looks_coherent(query_result.answer)
     assert query_result.remote_sources == []
+
+
+@pytest.mark.live
+@pytest.mark.live_vectordb
+def test_full_pipeline_with_postgresql_store(
+    synthetic_data_root: Path,
+    tmp_path: Path,
+    real_embedder,
+    test_config: RuntimeTestConfig,
+    live_postgres_connection_string: str,
+) -> None:
+    docs_root = _copy_fixture_documents(
+        synthetic_data_root / "documents",
+        tmp_path / "docs",
+        ["philosophy_essay.txt", "research_paper.md", "technical_manual.html"],
+    )
+    config = _build_pipeline_config(
+        docs_root=docs_root,
+        tmp_path=tmp_path,
+        embed_model=test_config.embed_model,
+        provider_name="local",
+        model="llama3.1",
+        rerank_strategy="none",
+        no_rerank=True,
+        min_relevance=0.0,
+        vectordb_provider="postgresql",
+        vectordb_connection_string=live_postgres_connection_string,
+    )
+
+    collection = create_vectordb_provider(config.vectordb)
+    if not collection.is_available():
+        pytest.skip("PostgreSQL provider is unavailable in this environment")
+
+    try:
+        ingest_result = run_ingest(config, force=True)
+        assert ingest_result.total_files == 3
+        assert ingest_result.completed_files == 3
+        assert ingest_result.skipped_files == 0
+        assert ingest_result.errors == []
+        assert ingest_result.chunks_added > 0
+
+        manifest_data = json.loads(config.ingest.manifest.read_text(encoding="utf-8"))
+        assert len(manifest_data) == 3
+
+        assert collection.count() == ingest_result.chunks_added
+
+        query_embedding = embed_text(
+            real_embedder,
+            "How do citations and metadata improve trust in local retrieval systems?",
+        )
+        candidates = retrieve_candidates(collection, query_embedding, k=8)
+
+        assert candidates
+        assert any(
+            ("citation" in candidate.text.lower()) or ("metadata" in candidate.text.lower())
+            for candidate in candidates
+        )
+        for candidate in candidates:
+            assert candidate.meta.get("source_path")
+            assert candidate.meta.get("source_name")
+            assert candidate.meta.get("chunk_index") is not None
+    finally:
+        try:
+            collection.delete_all()
+        except Exception:
+            pass
 
 
 @pytest.mark.performance

@@ -67,7 +67,13 @@ def migrate_chromadb_to_postgres(
 
         documents = result.documents or []
         metadatas = result.metadatas or []
-        embeddings = result.embeddings or []
+        raw_embeddings = result.embeddings
+        if raw_embeddings is None:
+            embeddings = []
+        elif hasattr(raw_embeddings, "tolist"):
+            embeddings = raw_embeddings.tolist()
+        else:
+            embeddings = list(raw_embeddings)
 
         target.add_chunks(ids, documents, metadatas, embeddings)
 

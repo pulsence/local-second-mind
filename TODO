@@ -59,6 +59,7 @@
 ### MCP Services
 - Add abilities to ingest MCPs
 - Add Agent tool to handle MCPs in Agents. 
+- Should internal tools expose a MCP like interface to LLMs?
 
 ### Future Source Providers
 - Create OpenAlex - Crossref - Unpaywall - CORE pipeline to find, download, and ingest documents

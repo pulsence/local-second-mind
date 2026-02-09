@@ -15,6 +15,7 @@ LSM_TEST_KEYS = (
     "LSM_TEST_BRAVE_API_KEY",
     "LSM_TEST_SEMANTIC_SCHOLAR_API_KEY",
     "LSM_TEST_CORE_API_KEY",
+    "LSM_TEST_POSTGRES_CONNECTION_STRING",
     "LSM_TEST_EMBED_MODEL",
     "LSM_TEST_TIER",
 )
@@ -32,6 +33,7 @@ def test_load_test_config_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
 
     assert cfg.config_path is None
     assert cfg.openai_api_key is None
+    assert cfg.postgres_connection_string is None
     assert cfg.embed_model == DEFAULT_EMBED_MODEL
     assert cfg.tier == "smoke"
 
@@ -40,6 +42,7 @@ def test_load_test_config_reads_env_values(monkeypatch: pytest.MonkeyPatch) -> N
     _clear_test_env(monkeypatch)
     monkeypatch.setenv("LSM_TEST_CONFIG", "~/test-config.json")
     monkeypatch.setenv("LSM_TEST_OPENAI_API_KEY", "sk-test")
+    monkeypatch.setenv("LSM_TEST_POSTGRES_CONNECTION_STRING", "postgresql://tester:pw@localhost:5432/lsm_test")
     monkeypatch.setenv("LSM_TEST_EMBED_MODEL", "custom/embed-model")
     monkeypatch.setenv("LSM_TEST_TIER", "integration")
 
@@ -47,6 +50,7 @@ def test_load_test_config_reads_env_values(monkeypatch: pytest.MonkeyPatch) -> N
 
     assert cfg.config_path == Path("~/test-config.json").expanduser()
     assert cfg.openai_api_key == "sk-test"
+    assert cfg.postgres_connection_string == "postgresql://tester:pw@localhost:5432/lsm_test"
     assert cfg.embed_model == "custom/embed-model"
     assert cfg.tier == "integration"
 
