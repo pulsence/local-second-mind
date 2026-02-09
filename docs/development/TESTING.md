@@ -62,6 +62,23 @@ The following fixtures are available in `tests/conftest.py`:
 
 Live provider fixtures auto-skip when required credentials are not configured.
 
+## Synthetic Data Corpus
+
+Comprehensive synthetic fixtures live under `tests/fixtures/synthetic_data/`:
+
+- `documents/philosophy_essay.txt` (long-form prose corpus)
+- `documents/research_paper.md` (markdown paper with headings, lists, code, references)
+- `documents/technical_manual.html` (nested HTML with tables/lists)
+- `documents/large_document.md` (stress-test large markdown corpus)
+- `documents/short_note.txt`, `documents/empty_with_whitespace.txt`, `documents/unicode_content.txt`
+- `documents/duplicate_content_1.txt`, `documents/duplicate_content_2.txt`, `documents/near_duplicate.txt`
+- `documents/nested/` with `.lsm_tags.json` files and nested notes
+- `configs/test_config_openai.json`, `configs/test_config_local.json`, `configs/test_config_minimal.json`
+
+Validation test:
+
+- `tests/test_fixtures/test_synthetic_data.py`
+
 ## Running Tests
 
 ```bash

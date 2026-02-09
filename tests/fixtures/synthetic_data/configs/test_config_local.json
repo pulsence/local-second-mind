@@ -1,0 +1,68 @@
+{
+    "global":  {
+                   "embed_model":  "sentence-transformers/all-MiniLM-L6-v2",
+                   "device":  "cpu",
+                   "batch_size":  16
+               },
+    "ingest":  {
+                   "roots":  [
+                                 "tests/fixtures/synthetic_data/documents"
+                             ],
+                   "persist_dir":  "tests/.tmp/chroma_local",
+                   "collection":  "synthetic_local",
+                   "manifest":  "tests/.tmp/manifest_local.json",
+                   "chunk_size":  1200,
+                   "chunk_overlap":  150,
+                   "extensions":  [
+                                      ".txt",
+                                      ".md",
+                                      ".html"
+                                  ],
+                   "override_extensions":  true,
+                   "exclude_dirs":  [
+                                        ".cache"
+                                    ],
+                   "override_excludes":  false
+               },
+    "vectordb":  {
+                     "provider":  "chromadb",
+                     "persist_dir":  "tests/.tmp/chroma_local",
+                     "collection":  "synthetic_local"
+                 },
+    "llms":  {
+                 "providers":  [
+                                   {
+                                       "provider_name":  "local",
+                                       "base_url":  "http://localhost:11434"
+                                   }
+                               ],
+                 "services":  {
+                                  "query":  {
+                                                "provider":  "local",
+                                                "model":  "llama3.1",
+                                                "temperature":  0.4,
+                                                "max_tokens":  700
+                                            },
+                                  "tagging":  {
+                                                  "provider":  "local",
+                                                  "model":  "llama3.1",
+                                                  "temperature":  0.3,
+                                                  "max_tokens":  180
+                                              },
+                                  "ranking":  {
+                                                  "provider":  "local",
+                                                  "model":  "llama3.1",
+                                                  "temperature":  0.2,
+                                                  "max_tokens":  260
+                                              }
+                              }
+             },
+    "query":  {
+                  "mode":  "grounded",
+                  "k":  10,
+                  "k_rerank":  5,
+                  "min_relevance":  0.2,
+                  "max_per_file":  2,
+                  "no_rerank":  false
+              }
+}

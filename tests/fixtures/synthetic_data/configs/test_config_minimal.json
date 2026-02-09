@@ -1,0 +1,34 @@
+{
+    "global":  {
+                   "embed_model":  "sentence-transformers/all-MiniLM-L6-v2"
+               },
+    "ingest":  {
+                   "roots":  [
+                                 "tests/fixtures/synthetic_data/documents"
+                             ],
+                   "persist_dir":  "tests/.tmp/chroma_minimal",
+                   "collection":  "synthetic_minimal"
+               },
+    "vectordb":  {
+                     "provider":  "chromadb",
+                     "persist_dir":  "tests/.tmp/chroma_minimal",
+                     "collection":  "synthetic_minimal"
+                 },
+    "llms":  {
+                 "providers":  [
+                                   {
+                                       "provider_name":  "local",
+                                       "base_url":  "http://localhost:11434"
+                                   }
+                               ],
+                 "services":  {
+                                  "query":  {
+                                                "provider":  "local",
+                                                "model":  "llama3.1"
+                                            }
+                              }
+             },
+    "query":  {
+                  "mode":  "grounded"
+              }
+}

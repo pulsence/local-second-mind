@@ -1,0 +1,2 @@
+Archive the meeting notes before midnight so the morning review has complete context.
+Flag unresolved claims for verification before publishing the synthesis summary.

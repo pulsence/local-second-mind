@@ -65,10 +65,13 @@ Synthetic integration fixtures live in `tests/fixtures/synthetic_data/`:
 - `sample.md`
 - `sample.html`
 - `nested/nested_note.txt`
+- `documents/` (long-form corpus, edge cases, duplicates, nested tags)
+- `configs/` (openai/local/minimal test config templates)
 
 Integration suites using these fixtures:
 - `tests/test_ingest/test_integration.py`
 - `tests/test_query/test_integration_progress.py`
+- `tests/test_fixtures/test_synthetic_data.py`
 
 ## Notes
 

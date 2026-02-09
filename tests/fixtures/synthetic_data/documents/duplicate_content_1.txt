@@ -1,0 +1,3 @@
+Duplicate fixture content for detection tests.
+This block is intentionally identical across two files.
+Use this to verify exact-hash duplicate handling.

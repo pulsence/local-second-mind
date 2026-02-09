@@ -183,7 +183,7 @@ New fixtures:
 
 **Post-block:** `tests/test_infrastructure/test_test_config.py`, run tests, update `docs/development/TESTING.md`, commit.
 
-### 2.2: Build Comprehensive Test Data Corpus
+### 2.2: Build Comprehensive Test Data Corpus (COMPLETED)
 
 Current fixtures: 4 tiny files. Need rich, diverse data for realistic testing.
 

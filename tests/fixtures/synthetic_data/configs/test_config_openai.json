@@ -1,0 +1,68 @@
+{
+    "global":  {
+                   "embed_model":  "sentence-transformers/all-MiniLM-L6-v2",
+                   "device":  "cpu",
+                   "batch_size":  32
+               },
+    "ingest":  {
+                   "roots":  [
+                                 "tests/fixtures/synthetic_data/documents"
+                             ],
+                   "persist_dir":  "tests/.tmp/chroma",
+                   "collection":  "synthetic_openai",
+                   "manifest":  "tests/.tmp/manifest_openai.json",
+                   "chunk_size":  1400,
+                   "chunk_overlap":  180,
+                   "extensions":  [
+                                      ".txt",
+                                      ".md",
+                                      ".html"
+                                  ],
+                   "override_extensions":  true,
+                   "exclude_dirs":  [
+                                        ".cache"
+                                    ],
+                   "override_excludes":  false
+               },
+    "vectordb":  {
+                     "provider":  "chromadb",
+                     "persist_dir":  "tests/.tmp/chroma",
+                     "collection":  "synthetic_openai"
+                 },
+    "llms":  {
+                 "providers":  [
+                                   {
+                                       "provider_name":  "openai",
+                                       "api_key":  null
+                                   }
+                               ],
+                 "services":  {
+                                  "query":  {
+                                                "provider":  "openai",
+                                                "model":  "gpt-5.2",
+                                                "temperature":  0.3,
+                                                "max_tokens":  800
+                                            },
+                                  "tagging":  {
+                                                  "provider":  "openai",
+                                                  "model":  "gpt-5-mini",
+                                                  "temperature":  0.2,
+                                                  "max_tokens":  200
+                                              },
+                                  "ranking":  {
+                                                  "provider":  "openai",
+                                                  "model":  "gpt-5-mini",
+                                                  "temperature":  0.2,
+                                                  "max_tokens":  300
+                                              }
+                              }
+             },
+    "query":  {
+                  "mode":  "grounded",
+                  "k":  12,
+                  "k_rerank":  6,
+                  "min_relevance":  0.2,
+                  "max_per_file":  3,
+                  "no_rerank":  false
+              }
+}
