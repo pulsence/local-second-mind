@@ -103,3 +103,26 @@ pytest tests/ -v -m "live_remote"
 Configuration loader behavior is covered by:
 
 - `tests/test_infrastructure/test_test_config.py`
+
+## Full Pipeline Suite
+
+- `tests/test_integration/test_full_pipeline.py`
+
+It includes:
+
+- `@pytest.mark.integration` end-to-end ingest + retrieval (no external network calls)
+- `@pytest.mark.live` end-to-end ingest + LLM rerank + synthesis
+- `@pytest.mark.performance` scale/latency check with 100+ chunks (gated by `LSM_PERF_TEST`)
+
+Examples:
+
+```bash
+# End-to-end ingest + retrieval without live services
+pytest tests/test_integration/test_full_pipeline.py -v -m "integration"
+
+# Live full pipeline (requires configured LSM_TEST_* provider credentials)
+pytest tests/test_integration/test_full_pipeline.py -v -m "live"
+
+# Performance scenario
+LSM_PERF_TEST=1 pytest tests/test_integration/test_full_pipeline.py -v -m "performance"
+```
