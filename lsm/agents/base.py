@@ -41,6 +41,9 @@ class AgentState:
     log_entries: List[AgentLogEntry] = field(default_factory=list)
     """Chronological log entries for this run."""
 
+    artifacts: List[str] = field(default_factory=list)
+    """Tracked artifact paths produced during this run."""
+
     created_at: datetime = field(default_factory=datetime.utcnow)
     """Creation timestamp in UTC."""
 
@@ -70,6 +73,20 @@ class AgentState:
         """
         self.log_entries.append(entry)
         self.touch()
+
+    def add_artifact(self, artifact_path: str) -> None:
+        """
+        Track a produced artifact path.
+
+        Args:
+            artifact_path: Filesystem path to track.
+        """
+        normalized = str(artifact_path).strip()
+        if not normalized:
+            return
+        if normalized not in self.artifacts:
+            self.artifacts.append(normalized)
+            self.touch()
 
 
 class BaseAgent(ABC):
@@ -110,4 +127,3 @@ class BaseAgent(ABC):
         """Request stop for an active run."""
         self._stop_requested = True
         self.state.set_status(AgentStatus.COMPLETED)
-

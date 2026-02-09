@@ -103,6 +103,28 @@ pytest tests/ -v -m "live_remote"
 pytest tests/ -v -m "live_vectordb"
 ```
 
+## Security Suite
+
+Agent sandbox security tests are adversarial and should run as part of default validation when changing `lsm/agents/` or `lsm/agents/tools/`.
+
+```bash
+# Run all STRIDE security suites (T1-T8)
+pytest tests/test_agents/test_security_*.py -v
+
+# Run full agent test suite
+pytest tests/test_agents -v
+```
+
+Security suite files:
+
+- `tests/test_agents/test_security_paths.py`
+- `tests/test_agents/test_security_permissions.py`
+- `tests/test_agents/test_security_network.py`
+- `tests/test_agents/test_security_resources.py`
+- `tests/test_agents/test_security_integrity.py`
+- `tests/test_agents/test_security_injection.py`
+- `tests/test_agents/test_security_secrets.py`
+
 ## Infrastructure Validation
 
 Configuration loader behavior is covered by:

@@ -76,6 +76,7 @@ class ToolSandbox:
             raise PermissionError("Network access is disabled by sandbox policy")
 
     def _enforce_args(self, tool: BaseTool, args: Dict[str, Any]) -> None:
+        self._validate_args_schema(tool, args)
         if tool.name in self._READ_TOOL_NAMES:
             path = args.get("path")
             if path is not None:
@@ -84,6 +85,40 @@ class ToolSandbox:
             path = args.get("path")
             if path is not None:
                 self.check_write_path(Path(str(path)))
+
+    def _validate_args_schema(self, tool: BaseTool, args: Dict[str, Any]) -> None:
+        if not isinstance(args, dict):
+            raise ValueError("Tool arguments must be an object")
+
+        schema = tool.input_schema if isinstance(tool.input_schema, dict) else {}
+        required = schema.get("required", [])
+        if isinstance(required, list):
+            for key in required:
+                key_name = str(key)
+                if key_name not in args:
+                    raise ValueError(
+                        f"Missing required argument '{key_name}' for tool '{tool.name}'"
+                    )
+
+        properties = schema.get("properties", {})
+        if not isinstance(properties, dict):
+            return
+
+        unexpected = sorted(set(args.keys()) - set(properties.keys()))
+        if unexpected:
+            raise ValueError(
+                f"Unexpected argument(s) for tool '{tool.name}': {', '.join(unexpected)}"
+            )
+
+        for key, value in args.items():
+            expected_type = properties.get(key, {}).get("type")
+            if expected_type is None:
+                continue
+            if not self._matches_json_type(value, str(expected_type)):
+                actual_type = type(value).__name__
+                raise ValueError(
+                    f"Argument '{key}' for tool '{tool.name}' must be type '{expected_type}' (got {actual_type})"
+                )
 
     def _check_path(self, path: Path, allowed_paths: Iterable[Path], action: str) -> None:
         resolved = self._canonicalize_path(path)
@@ -227,6 +262,26 @@ class ToolSandbox:
             if ":" in part:
                 return True
         return False
+
+    @staticmethod
+    def _matches_json_type(value: Any, expected_type: str) -> bool:
+        if expected_type == "string":
+            return isinstance(value, str)
+        if expected_type == "boolean":
+            return isinstance(value, bool)
+        if expected_type == "integer":
+            return isinstance(value, int) and not isinstance(value, bool)
+        if expected_type == "number":
+            return (
+                isinstance(value, int) and not isinstance(value, bool)
+            ) or isinstance(value, float)
+        if expected_type == "object":
+            return isinstance(value, dict)
+        if expected_type == "array":
+            return isinstance(value, list)
+        if expected_type == "null":
+            return value is None
+        return True
 
     def _is_network_tool(self, tool: BaseTool) -> bool:
         return (

@@ -5,7 +5,7 @@ from datetime import datetime
 from pathlib import Path
 
 from lsm.agents.harness import AgentHarness
-from lsm.agents.log_formatter import save_agent_log
+from lsm.agents.log_formatter import format_agent_log, save_agent_log
 from lsm.agents.log_redactor import redact_secrets
 from lsm.agents.models import AgentContext, AgentLogEntry
 from lsm.agents.tools.base import BaseTool, ToolRegistry
@@ -84,12 +84,43 @@ def test_scrub_environment_removes_secret_variables() -> None:
     assert "EXTRA" not in scrubbed
 
 
+def test_scrub_environment_preserves_minimal_runtime_keys() -> None:
+    source = {
+        "PATH": "/usr/bin",
+        "HOME": "/home/user",
+        "USERPROFILE": "C:\\Users\\user",
+        "TEMP": "/tmp",
+        "TMP": "/tmp2",
+        "LANG": "en_US.UTF-8",
+    }
+    scrubbed = scrub_environment(source)
+    assert scrubbed["PATH"] == "/usr/bin"
+    assert scrubbed["HOME"] == "/home/user"
+    assert scrubbed["USERPROFILE"] == "C:\\Users\\user"
+    assert scrubbed["TEMP"] == "/tmp"
+    assert scrubbed["TMP"] == "/tmp2"
+    assert scrubbed["LANG"] == "en_US.UTF-8"
+
+
+def test_scrub_environment_drops_non_minimal_variables() -> None:
+    source = {"PATH": "/usr/bin", "HOME": "/home/user", "PYTHONPATH": "/custom/python"}
+    scrubbed = scrub_environment(source)
+    assert "PYTHONPATH" not in scrubbed
+
+
 def test_log_redactor_masks_secret_patterns() -> None:
     text = "OPENAI_API_KEY=sk-1234567890abcdef and key_verysecret123 plus AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
     redacted = redact_secrets(text)
     assert "sk-1234567890abcdef" not in redacted
     assert "key_verysecret123" not in redacted
     assert "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA" not in redacted
+    assert "[REDACTED]" in redacted
+
+
+def test_log_redactor_masks_base64_blobs() -> None:
+    blob = "QWxhZGRpbjpvcGVuIHNlc2FtZSBzdXBlciBzZWNyZXQhQWxhZGRpbjpvcGVuIHNlc2FtZQ=="
+    redacted = redact_secrets(f"value={blob}")
+    assert blob not in redacted
     assert "[REDACTED]" in redacted
 
 
@@ -104,6 +135,38 @@ def test_save_agent_log_redacts_content(tmp_path: Path) -> None:
     path = save_agent_log(entries, tmp_path / "agent_log.json")
     payload = json.loads(path.read_text(encoding="utf-8"))
     assert payload[0]["content"] == "API_KEY=[REDACTED]"
+
+
+def test_format_agent_log_redacts_content() -> None:
+    entries = [
+        AgentLogEntry(
+            timestamp=datetime.utcnow(),
+            actor="agent",
+            content="OPENAI_API_KEY=sk-1234567890abcdef",
+        )
+    ]
+    output = format_agent_log(entries)
+    assert "sk-1234567890abcdef" not in output
+    assert "[REDACTED]" in output
+
+
+def test_saved_logs_contain_no_plaintext_secret_values(tmp_path: Path) -> None:
+    entries = [
+        AgentLogEntry(
+            timestamp=datetime.utcnow(),
+            actor="agent",
+            content="token=sk-1234567890abcdef",
+        ),
+        AgentLogEntry(
+            timestamp=datetime.utcnow(),
+            actor="tool",
+            content="secret=key_topsecret987",
+        ),
+    ]
+    path = save_agent_log(entries, tmp_path / "security_log.json")
+    raw = path.read_text(encoding="utf-8")
+    assert "sk-1234567890abcdef" not in raw
+    assert "key_topsecret987" not in raw
 
 
 def test_harness_redacts_tool_output_before_logging(monkeypatch, tmp_path: Path) -> None:

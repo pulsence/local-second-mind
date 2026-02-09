@@ -29,6 +29,9 @@ class AgentHarness:
     Runtime engine for agent execution loops.
     """
 
+    _MAX_TOOL_OUTPUT_CHARS = 20_000
+    _ARTIFACT_ACTIONS = {"write_file", "create_folder"}
+
     def __init__(
         self,
         agent_config: AgentConfig,
@@ -123,6 +126,8 @@ class AgentHarness:
 
                 tool = self.tool_registry.lookup(action)
                 tool_output = self.sandbox.execute(tool, tool_response.action_arguments)
+                tool_output = self._truncate_tool_output(tool_output)
+                self._track_artifact(action, tool_response.action_arguments)
                 self._consume_tokens(tool_output)
                 redacted_tool_output = redact_secrets(tool_output)
                 self._append_log(
@@ -233,6 +238,7 @@ class AgentHarness:
                 "tool_definitions": self.context.tool_definitions if self.context else [],
                 "budget_tracking": self.context.budget_tracking if self.context else {},
             },
+            "artifacts": list(self.state.artifacts),
             "log_entries": [
                 {
                     "timestamp": entry.timestamp.isoformat(),
@@ -339,3 +345,19 @@ class AgentHarness:
                 serialized["content"] = redact_secrets(str(serialized.get("content", "")))
             sanitized.append(serialized)
         return sanitized
+
+    def _truncate_tool_output(self, text: str) -> str:
+        value = str(text)
+        if len(value) <= self._MAX_TOOL_OUTPUT_CHARS:
+            return value
+        removed = len(value) - self._MAX_TOOL_OUTPUT_CHARS
+        return f"{value[:self._MAX_TOOL_OUTPUT_CHARS]}\n[TRUNCATED {removed} chars]"
+
+    def _track_artifact(self, action: str, action_arguments: Dict[str, Any]) -> None:
+        if action not in self._ARTIFACT_ACTIONS:
+            return
+        path_value = action_arguments.get("path")
+        if path_value is None:
+            return
+        artifact_path = Path(str(path_value).strip()).expanduser().resolve(strict=False)
+        self.state.add_artifact(str(artifact_path))

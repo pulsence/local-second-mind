@@ -46,6 +46,25 @@ def test_sandbox_rejects_dot_dot_path_traversal(tmp_path: Path) -> None:
         sandbox.execute(tool, {"path": str(allowed / ".." / "outside.txt")})
 
 
+def test_sandbox_blocks_relative_traversal_outside_allowlist(tmp_path: Path) -> None:
+    allowed = tmp_path / "allowed"
+    allowed.mkdir()
+    sandbox = ToolSandbox(SandboxConfig(allowed_read_paths=[allowed]))
+    tool = ReadPathTool()
+    with pytest.raises(PermissionError, match="Path traversal"):
+        sandbox.execute(tool, {"path": "../secrets.txt"})
+
+
+def test_sandbox_blocks_absolute_path_outside_allowlist(tmp_path: Path) -> None:
+    allowed = tmp_path / "allowed"
+    outside = tmp_path / "outside.txt"
+    allowed.mkdir()
+    sandbox = ToolSandbox(SandboxConfig(allowed_read_paths=[allowed]))
+    tool = ReadPathTool()
+    with pytest.raises(PermissionError, match="not allowed for read"):
+        sandbox.execute(tool, {"path": str(outside.resolve())})
+
+
 @pytest.mark.skipif(os.name != "nt", reason="Windows-specific path rule")
 def test_sandbox_rejects_unc_path_on_windows(tmp_path: Path) -> None:
     sandbox = ToolSandbox(SandboxConfig(allowed_read_paths=[tmp_path]))
@@ -81,3 +100,59 @@ def test_sandbox_blocks_symlink_escape(tmp_path: Path) -> None:
     tool = ReadPathTool()
     with pytest.raises(PermissionError, match="Symlink path"):
         sandbox.execute(tool, {"path": str(symlink_path)})
+
+
+def test_sandbox_rejects_deep_nested_traversal(tmp_path: Path) -> None:
+    allowed = tmp_path / "allowed"
+    allowed.mkdir()
+    sandbox = ToolSandbox(SandboxConfig(allowed_read_paths=[allowed]))
+    tool = ReadPathTool()
+    traversal = allowed / "a" / "b" / "c" / ".." / ".." / ".." / ".." / "outside.txt"
+    with pytest.raises(PermissionError, match="Path traversal"):
+        sandbox.execute(tool, {"path": str(traversal)})
+
+
+def test_sandbox_rejects_empty_path(tmp_path: Path) -> None:
+    sandbox = ToolSandbox(SandboxConfig(allowed_read_paths=[tmp_path]))
+    tool = ReadPathTool()
+    with pytest.raises(ValueError, match="Path cannot be empty"):
+        sandbox.execute(tool, {"path": "   "})
+
+
+def test_sandbox_blocks_write_path_traversal(tmp_path: Path) -> None:
+    allowed = tmp_path / "allowed"
+    allowed.mkdir()
+    sandbox = ToolSandbox(
+        SandboxConfig(
+            allowed_write_paths=[allowed],
+            require_user_permission={"write_file": False},
+        )
+    )
+    tool = WritePathTool()
+    with pytest.raises(PermissionError, match="Path traversal"):
+        sandbox.execute(tool, {"path": str(allowed / ".." / ".." / "outside.txt")})
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Windows-specific case handling")
+def test_sandbox_allows_case_insensitive_paths_on_windows(tmp_path: Path) -> None:
+    allowed = tmp_path / "CaseSensitiveFolder"
+    allowed.mkdir()
+    mixed_case_path = Path(str(allowed)).with_name("casesensitivefolder") / "note.txt"
+    sandbox = ToolSandbox(SandboxConfig(allowed_read_paths=[allowed]))
+    tool = ReadPathTool()
+    result = sandbox.execute(tool, {"path": str(mixed_case_path)})
+    assert result == "ok"
+
+
+def test_sandbox_rejects_path_with_remaining_dot_dot_components(tmp_path: Path) -> None:
+    allowed = tmp_path / "allowed"
+    allowed.mkdir()
+    sandbox = ToolSandbox(
+        SandboxConfig(
+            allowed_write_paths=[allowed],
+            require_user_permission={"write_file": False},
+        )
+    )
+    tool = WritePathTool()
+    with pytest.raises(PermissionError, match="Path traversal"):
+        sandbox.execute(tool, {"path": str(Path("allowed") / ".." / "other.txt")})

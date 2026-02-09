@@ -442,7 +442,7 @@ Precedence:
 
 **Post-block:** tests, run suite, update `docs/AGENTS.md` and `example_config.json`, commit.
 
-### 3.3: Comprehensive Security Test Suite
+### 3.3: Comprehensive Security Test Suite (COMPLETED)
 
 Tests covering all STRIDE threat categories. These tests actively attempt to break out of the sandbox.
 
@@ -530,7 +530,7 @@ Tests covering all STRIDE threat categories. These tests actively attempt to bre
 
 **Post-block:** run full suite, update `docs/development/TESTING.md`, commit.
 
-### 3.3.8: Write Security Documentation
+#### 3.3.8: Write Security Documentation
 
 **File to create:** `docs/development/SECURITY.md`
 
