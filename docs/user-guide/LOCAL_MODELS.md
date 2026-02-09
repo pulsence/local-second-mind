@@ -70,7 +70,7 @@ Notes:
 Run queries as usual:
 
 ```bash
-lsm query "What is the retention policy for project X?"
+lsm
 ```
 
 In the TUI Query tab, you can view provider health:

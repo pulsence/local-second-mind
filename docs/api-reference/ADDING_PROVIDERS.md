@@ -612,7 +612,7 @@ def test_your_provider_synthesis():
 
 2. Test with query command:
 ```bash
-lsm query "Test question"
+lsm
 ```
 
 3. Verify in the TUI:

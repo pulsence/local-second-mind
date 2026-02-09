@@ -76,21 +76,16 @@ Wipe the collection (destructive):
 lsm ingest wipe --confirm
 ```
 
-### Query Command
+### Querying
 
-Ask a single question and exit:
+Query workflows are currently TUI-based. Start the app with:
 
 ```bash
-lsm query "What is the capital of France?"
+lsm
 ```
 
-Options:
-- `--mode {grounded,insight,hybrid}` - Set query mode
-- `--model MODEL` - Override LLM model from config
-- `--no-rerank` - Skip LLM reranking step
-- `-k K` - Number of chunks to retrieve
-
-If you want interactive query, use the TUI (`lsm`).
+Then use the Query tab for interactive questions, citations, mode switching,
+notes, and chat mode.
 
 ## Configuration
 
@@ -137,7 +132,6 @@ Run ingest and query in a script:
 # Build knowledge base
 lsm ingest build
 
-# Ask specific questions
-lsm query "Summary of recent notes?" > output.txt
-lsm query "What are my action items?" >> output.txt
+# Query from the TUI Query tab
+lsm
 ```

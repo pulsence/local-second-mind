@@ -4,8 +4,15 @@ All notable changes to Local Second Mind are documented here.
 
 ## Unreleased
 
+- No unreleased changes yet.
+
+## 0.4.0 - 2026-02-08
+
 ### Added
 
+- Config restructuring with a dedicated top-level `global` object and zero flat top-level fields.
+- LLM providers/services registry pattern (`llms.providers` + `llms.services`) with service resolution and fallback to `default`.
+- Per-provider LLM pricing tables and cost estimation integrated into query cost tracking.
 - Structure-aware chunking in `lsm/ingest/structure_chunking.py` that respects headings, paragraphs, and sentence boundaries.
 - Heading detection for Markdown (`#`-style) and bold-only lines (common in PDF extractions).
 - Page number tracking for PDF and DOCX documents via `PageSegment` dataclass.

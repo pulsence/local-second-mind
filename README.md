@@ -1,183 +1,107 @@
 # Local Second Mind (LSM)
 
-Local Second Mind is a local-first RAG system for personal knowledge management.
-It ingests local documents, retrieves relevant context, and generates cited answers
-with configurable LLM providers.
+Local-first RAG for personal knowledge management.
+
+LSM ingests local documents, builds embeddings, retrieves relevant context, and produces cited answers with configurable LLM providers.
+
+## Version
+
+`0.4.0`
 
 ## Caveat Emptor
 
-This project is primarily for personal use. Pull requests or issues may not be
-reviewed unless they overlap with the maintainer's active use cases. Further, unitl
-this project reaches v1.0.0 expect breaking changes between release versions. This
-will particularly affect the config file structure which I am changing organically
-as feature are added and change.
+This project is maintained for personal use first.
 
-## Core Goals
+- Issues and pull requests may not be reviewed unless they overlap with active maintainer priorities.
+- Until `v1.0.0`, breaking changes can happen between releases, especially in configuration schema and interfaces.
+- Pin versions and review `docs/development/CHANGELOG.md` before upgrading.
 
-- Build and maintain a living local knowledge base.
-- Support incremental ingest as files change.
-- Provide semantic retrieval with optional reranking.
-- Generate grounded answers with source citations.
-- Keep corpus data local while using external LLM APIs only when configured.
+## What Is New in 0.4.0
 
-## Current Architecture
+- Restructured config schema (`global`, `ingest`, `vectordb`, `llms`, `query`, `modes`, `notes`, `chats`, `remote_providers`, `agents`)
+- LLM providers/services registry with service resolution (`default`, `query`, `tagging`, `ranking`, `decomposition`)
+- Structure-aware chunking with heading/paragraph/sentence boundaries and page tracking
+- Language detection, optional translation, folder/root tagging, versioned chunks
+- Query improvements: metadata prefiltering, decomposition, context anchors, chat mode, query cache
+- Remote provider structured protocol, result caching, and provider chains
+- Agent framework with tool sandbox, research agent, TUI tab, and shell commands
+- PostgreSQL + pgvector vector database support and migration tooling
 
-```text
-Local Files
-  -> Parse -> Chunk -> Embed
-  -> Vector Store (ChromaDB or PostgreSQL/pgvector)
-  -> Retrieval + Optional Rerank + Synthesis
-  -> Answer + Citations
-```
-
-## Features
-
-### Ingest
-
-- Recursive ingest from configured roots
-- Parsers for PDF, DOCX, Markdown, HTML, and text
-- Deterministic chunking and local embeddings
-- Incremental ingest via manifest and file metadata
-- Optional AI tagging for chunks
-- Progress callback support in ingest APIs and UI
-
-### Query
-
-- Semantic retrieval from local vector store
-- Configurable relevance thresholds and retrieval depth
-- Optional lexical/LLM/hybrid rerank strategies
-- Source-policy modes (`grounded`, `insight`, `hybrid`, custom modes)
-- Optional remote source blending via provider framework
-- Cited synthesis with fallback behavior when provider calls fail
-
-### Interfaces
-
-- Textual TUI for interactive query/ingest/settings workflows
-- Single-shot CLI commands for ingest automation
-- Structured config loading and validation (`config.json` or `config.yaml`)
-
-## Installation
-
-### Requirements
-
-- Python 3.10+
-
-### Install
+## Install
 
 ```bash
 pip install -e .
 ```
 
-## Environment Setup
+## Quick Start
 
-Store secrets in `.env` (not in config files):
+1. Copy config:
 
 ```bash
-cp .env.example .env
+cp example_config.json config.json
 ```
 
-Common variables:
+2. Add API keys to `.env` (see `.env.example`).
 
-- `OPENAI_API_KEY`
-- `ANTHROPIC_API_KEY`
-- `GOOGLE_API_KEY`
-- `AZURE_OPENAI_API_KEY`
-- `AZURE_OPENAI_ENDPOINT`
-- `BRAVE_API_KEY`
+3. Build embeddings:
 
-See `.env.example` for the full list.
+```bash
+lsm ingest build
+```
 
-## CLI Usage
-
-Default entrypoint:
+4. Start the TUI:
 
 ```bash
 lsm
 ```
 
-Equivalent module form:
-
-```bash
-python -m lsm
-```
-
-### TUI (interactive)
-
-Run `lsm` with no subcommand. Querying is done in the TUI Query tab.
-
-### Single-shot ingest commands
-
-```bash
-lsm ingest build [--dry-run] [--force] [--skip-errors]
-lsm ingest tag [--max N]
-lsm ingest wipe --confirm
-```
-
-Global options:
-
-```bash
-lsm --config path/to/config.json
-lsm --verbose
-lsm --log-level DEBUG
-lsm --log-file logs/lsm.log
-```
-
-## Configuration
-
-Configuration is loaded from `config.json` or `config.yaml`.
-
-Minimal working example:
+## Minimal Config Example
 
 ```json
 {
-  "roots": ["C:/Users/You/Documents"],
-  "vectordb": {
-    "provider": "chromadb",
-    "persist_dir": ".chroma",
-    "collection": "local_kb"
+  "global": {
+    "global_folder": "C:/Users/You/Local Second Mind",
+    "embed_model": "sentence-transformers/all-MiniLM-L6-v2",
+    "device": "cpu",
+    "batch_size": 32
   },
-  "llms": [
-    {
-      "provider_name": "openai",
-      "query": { "model": "gpt-5.2" }
+  "ingest": {
+    "roots": ["C:/Users/You/Documents"]
+  },
+  "llms": {
+    "providers": [{ "provider_name": "openai" }],
+    "services": {
+      "default": { "provider": "openai", "model": "gpt-5.2" }
     }
-  ]
+  }
 }
 ```
 
-Important schema notes:
+## CLI
 
-- Vector DB settings live under `vectordb` (`persist_dir`, `collection`, `provider`).
-- LLM config is an ordered `llms` list with feature-level settings (`query`, `tagging`, `ranking`).
-- Query behavior is configured under `query`.
-- Mode/source-policy behavior is configured under `modes`.
-- Remote integrations are configured under `remote_providers`.
-- Notes are configured globally under top-level `notes`.
-- Optional top-level `global_folder` controls default app data location.
+- `lsm` - launch TUI
+- `lsm ingest build [--dry-run] [--force] [--skip-errors]`
+- `lsm ingest tag [--max N]`
+- `lsm ingest wipe --confirm`
 
-For full configuration reference, see `docs/user-guide/CONFIGURATION.md`.
+Global flags:
 
-## Typical Workflow
-
-1. Copy `example_config.json` to `config.json` and adjust paths/models.
-2. Add API keys to `.env` as needed.
-3. Build your collection: `lsm ingest build`.
-4. Launch TUI: `lsm`.
-5. Query from the Query tab and save notes if desired.
-
-## OCR (Optional)
-
-If enabling OCR for image-based PDFs, install the Tesseract executable and add
-it to `PATH`. `pytesseract` is only a Python wrapper.
+- `--config path/to/config.json`
+- `--verbose`
+- `--log-level DEBUG|INFO|WARNING|ERROR|CRITICAL`
+- `--log-file path/to/lsm.log`
 
 ## Documentation
 
+- `docs/README.md`
 - `docs/user-guide/GETTING_STARTED.md`
-- `docs/user-guide/CLI_USAGE.md`
 - `docs/user-guide/CONFIGURATION.md`
-- `docs/architecture/OVERVIEW.md`
+- `docs/user-guide/QUERY_MODES.md`
+- `docs/user-guide/NOTES.md`
+- `docs/user-guide/REMOTE_SOURCES.md`
+- `docs/AGENTS.md`
 - `docs/development/CHANGELOG.md`
 
 ## License
 
-See `LICENSE`.
+MIT (`LICENSE`)

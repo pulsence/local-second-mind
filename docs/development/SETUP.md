@@ -54,7 +54,7 @@ python -m lsm ingest build --config config.json
 ## Run Query
 
 ```bash
-python -m lsm query "What is in my notes?" --config config.json
+python -m lsm --config config.json
 ```
 
 ## Launch the TUI

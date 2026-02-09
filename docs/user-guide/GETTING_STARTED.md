@@ -124,13 +124,13 @@ Open the Query tab and ask a question:
 What are the main themes in my research notes?
 ```
 
-### Option 2: Single-Shot Query
+### Querying
+
+Use the Query tab in the TUI:
 
 ```bash
-lsm query "What is the capital of France?"
+lsm
 ```
-
-Asks a single question and exits. Perfect for scripts.
 
 ## Understanding Query Results
 
