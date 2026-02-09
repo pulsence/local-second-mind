@@ -37,6 +37,16 @@
 - There should be NO STUBS or MOCK tests.
 
 ## Future Items (INGORE ALL THE FOLLOWING FOR PLANNING)
+### Code Quality
+- Do a checking for large files that could be refactored into small files.
+- Check overly complicated code paths or redundant code.
+- Look for places where code is duplicated and can be consolidated.
+- Look for any legacy code, dead code, or backwards compatability code and remove it.
+- Look for places where module boundaries are not properly respected and abstractions
+  have started to leak and reinforce module boundaries and consider refactoring if
+  abstractions have become too leaky.
+- Check Tests to make sure there is not artifical duplication.
+
 ### Deployment
 - Create clear install instructions
 - Explore creating docker images
@@ -48,7 +58,7 @@
 
 ### MCP Services
 - Add abilities to ingest MCPs
-- Add Agent tool to call MCPs
+- Add Agent tool to handle MCPs in Agents. 
 
 ### Future Source Providers
 - Create OpenAlex - Crossref - Unpaywall - CORE pipeline to find, download, and ingest documents

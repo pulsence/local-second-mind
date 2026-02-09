@@ -228,7 +228,7 @@ documents/nested/
 
 **Post-block:** `tests/test_fixtures/test_synthetic_data.py` verifying all fixture files exist/readable, run tests, update docs, commit.
 
-### 2.3: Migrate Core Tests from Mocked to Real
+### 2.3: Migrate Core Tests from Mocked to Real (COMPLETED)
 
 Systematically replace mock-based tests with real implementations. Keep lightweight fakes only in smoke-tier tests.
 

@@ -7,9 +7,12 @@ sentence preservation, page number mapping, and overlap behaviour.
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
 from lsm.ingest.models import PageSegment
+from lsm.ingest.parsers import parse_html
 from lsm.ingest.structure_chunking import (
     StructuredChunk,
     _detect_heading,
@@ -362,6 +365,70 @@ for knowledge management systems."""
         # Check heading tracking
         headings = {c.heading for c in chunks if c.heading}
         assert "Introduction" in headings or "Background" in headings
+
+
+# ------------------------------------------------------------------
+# Real corpus scenarios
+# ------------------------------------------------------------------
+class TestStructureChunkingWithRealCorpus:
+    """Structure-aware chunking on rich synthetic corpus files."""
+
+    def _document_path(self, synthetic_data_root: Path, filename: str) -> Path:
+        return synthetic_data_root / "documents" / filename
+
+    def test_research_paper_heading_detection(self, synthetic_data_root: Path):
+        text = self._document_path(synthetic_data_root, "research_paper.md").read_text(
+            encoding="utf-8",
+        )
+        chunks = structure_chunk_text(text, chunk_size=900, overlap=0.2)
+
+        assert len(chunks) > 4
+        headings = {c.heading for c in chunks if c.heading}
+        assert "Retrieval-Augmented Knowledge Work in Local-First Systems" in headings
+
+    def test_structure_chunking_after_html_parse(self, synthetic_data_root: Path):
+        html_fp = self._document_path(synthetic_data_root, "technical_manual.html")
+        parsed_text, metadata = parse_html(html_fp)
+        chunks = structure_chunk_text(parsed_text, chunk_size=700, overlap=0.2)
+
+        assert metadata.get("title") == "Knowledge System Operations Manual"
+        assert len(chunks) > 3
+
+        headings = {c.heading for c in chunks if c.heading}
+        assert "Overview" in headings
+        assert any(h.startswith("Step ") for h in headings)
+
+    def test_large_document_chunk_count_and_overlap(self, synthetic_data_root: Path):
+        text = self._document_path(synthetic_data_root, "large_document.md").read_text(
+            encoding="utf-8",
+        )
+        chunks = structure_chunk_text(text, chunk_size=450, overlap=0.25)
+
+        assert len(chunks) > 20
+        assert all(chunk.text.strip() for chunk in chunks)
+
+    def test_page_tracking_with_realistic_segments(self, synthetic_data_root: Path):
+        text = self._document_path(synthetic_data_root, "research_paper.md").read_text(
+            encoding="utf-8",
+        )
+        midpoint = max(1, len(text) // 2)
+        seg1 = text[:midpoint].strip()
+        seg2 = text[midpoint:].strip()
+        segments = [
+            PageSegment(text=seg1, page_number=1),
+            PageSegment(text=seg2, page_number=2),
+        ]
+
+        chunks = structure_chunk_text(
+            text,
+            chunk_size=len(text) + 64,
+            overlap=0.0,
+            page_segments=segments,
+        )
+
+        assert len(chunks) == 1
+        assert chunks[0].page_start == 1
+        assert chunks[0].page_end == 2
 
 
 # ------------------------------------------------------------------

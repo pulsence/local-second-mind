@@ -14,6 +14,7 @@ from typing import Dict, Any
 from lsm.config.models import (
     GlobalConfig,
     IngestConfig,
+    LLMConfig,
     LLMProviderConfig,
     LLMRegistryConfig,
     LLMServiceConfig,
@@ -475,7 +476,7 @@ def real_anthropic_provider(test_config: TestConfig):
     """Create an Anthropic provider using `LSM_TEST_ANTHROPIC_API_KEY`."""
     return _create_live_provider_or_skip(
         provider_name="anthropic",
-        model="claude-sonnet-4",
+        model="claude-sonnet-4-5",
         api_key=test_config.anthropic_api_key,
     )
 
