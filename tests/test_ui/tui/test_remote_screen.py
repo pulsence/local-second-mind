@@ -139,7 +139,7 @@ def test_on_mount_and_provider_list(monkeypatch: pytest.MonkeyPatch) -> None:
 
     provider_select = screen.widgets["#remote-provider-select"]
     assert ("All providers", RemoteScreen.ALL_PROVIDERS_VALUE) in provider_select.options
-    assert provider_select.value == "All providers"
+    assert provider_select.value == RemoteScreen.ALL_PROVIDERS_VALUE
     assert screen.widgets["#remote-query-input"].focused is True
 
     remote_log = screen.widgets["#remote-log"]

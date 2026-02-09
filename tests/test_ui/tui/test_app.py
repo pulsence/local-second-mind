@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import asyncio
 import importlib
+import logging
+import sys
 import pytest
 from unittest.mock import Mock, MagicMock, patch
 from pathlib import Path
@@ -196,6 +198,58 @@ class TestLSMAppMethods:
         app.run_on_ui_thread(_cb)
         assert seen["called"] is True
 
+    def test_setup_tui_logging_keeps_std_streams(self, tmp_path: Path):
+        """_setup_tui_logging should not replace sys.stdout/sys.stderr."""
+        from lsm.ui.tui.app import LSMApp
+
+        app = LSMApp(_build_config(tmp_path))
+        stdout_before = sys.stdout
+        stderr_before = sys.stderr
+
+        app._setup_tui_logging()
+
+        assert sys.stdout is stdout_before
+        assert sys.stderr is stderr_before
+
+    def test_setup_tui_logging_does_not_attach_root_handler(self, tmp_path: Path):
+        """_setup_tui_logging should only attach to the 'lsm' logger."""
+        from lsm.ui.tui.app import LSMApp
+
+        app = LSMApp(_build_config(tmp_path))
+        root_logger = logging.getLogger()
+
+        app._setup_tui_logging()
+
+        assert not any(getattr(h, "_tui_handler", False) for h in root_logger.handlers)
+
+    def test_write_tui_log_targets_active_context(self, tmp_path: Path):
+        """_write_tui_log should write only to the visible context log."""
+        from lsm.ui.tui.app import LSMApp
+
+        app = LSMApp(_build_config(tmp_path))
+        seen = []
+
+        class _Log:
+            def write(self, value):
+                seen.append(value)
+
+        def _query_one(selector, _cls=None):
+            if selector == "#query-log" and app.current_context == "query":
+                return _Log()
+            if selector == "#remote-log" and app.current_context == "remote":
+                return _Log()
+            raise RuntimeError("missing")
+
+        app.query_one = _query_one  # type: ignore[assignment]
+
+        app.current_context = "query"
+        app._write_tui_log("hello")
+        app.current_context = "remote"
+        app._write_tui_log("world")
+
+        assert "hello\n" in seen
+        assert "world\n" in seen
+
 
 class TestLSMAppActions:
     """Tests for LSMApp action methods."""
@@ -275,6 +329,55 @@ def _build_config(tmp_path: Path, provider: str = "chromadb"):
 
 
 class TestLSMAppBehavior:
+    def test_action_switch_settings_refreshes_settings_screen(self, tmp_path: Path):
+        from lsm.ui.tui.app import LSMApp
+
+        app = LSMApp(_build_config(tmp_path))
+        tabs = SimpleNamespace(active="")
+        seen = {"count": 0}
+        settings_screen = SimpleNamespace(
+            refresh_from_config=lambda: seen.__setitem__("count", seen["count"] + 1)
+        )
+
+        def _query_one(selector, _cls=None):
+            if selector == "#settings-screen":
+                return settings_screen
+            return tabs
+
+        app.query_one = _query_one  # type: ignore[assignment]
+
+        app.action_switch_settings()
+        assert app.current_context == "settings"
+        assert tabs.active == "settings"
+        assert seen["count"] == 1
+
+    def test_tab_activated_settings_refreshes_settings_screen(self, tmp_path: Path):
+        from lsm.ui.tui.app import LSMApp
+
+        app = LSMApp(_build_config(tmp_path))
+        tabs = SimpleNamespace(id="main-tabs")
+        seen = {"count": 0}
+        settings_screen = SimpleNamespace(
+            refresh_from_config=lambda: seen.__setitem__("count", seen["count"] + 1)
+        )
+
+        def _query_one(selector, _cls=None):
+            if selector == "#main-tabs":
+                return tabs
+            if selector == "#settings-screen":
+                return settings_screen
+            return tabs
+
+        app.query_one = _query_one  # type: ignore[assignment]
+
+        event = SimpleNamespace(
+            tab=SimpleNamespace(id="settings-tab"),
+            tabbed_content=tabs,
+        )
+        app.on_tabbed_content_tab_activated(event)
+        assert app.current_context == "settings"
+        assert seen["count"] == 1
+
     def test_switch_actions_and_tab_activation(self, tmp_path: Path):
         from lsm.ui.tui.app import LSMApp
 
@@ -291,12 +394,17 @@ class TestLSMAppBehavior:
         app.action_switch_settings()
         assert app.current_context == "settings"
 
-        event = SimpleNamespace(tab=SimpleNamespace(id="query-tab"))
+        event = SimpleNamespace(tab=SimpleNamespace(id="query-tab"), tabbed_content=tabs)
         app.on_tabbed_content_tab_activated(event)
         assert app.current_context == "query"
 
-        event_bad = SimpleNamespace(tab=SimpleNamespace(id="unknown-tab"))
+        event_bad = SimpleNamespace(tab=SimpleNamespace(id="unknown-tab"), tabbed_content=tabs)
         app.on_tabbed_content_tab_activated(event_bad)
+        assert app.current_context == "query"
+
+        nested_tabs = SimpleNamespace(id="settings-tabs")
+        nested_event = SimpleNamespace(tab=SimpleNamespace(id="remote-tab"), tabbed_content=nested_tabs)
+        app.on_tabbed_content_tab_activated(nested_event)
         assert app.current_context == "query"
 
     def test_activate_settings_subtabs_and_actions(self, tmp_path: Path):
@@ -354,7 +462,6 @@ class TestLSMAppBehavior:
         tabs = SimpleNamespace(active="")
         app.query_one = lambda *_args, **_kwargs: tabs  # type: ignore[assignment]
         monkeypatch.setattr(app, "_setup_tui_logging", lambda: None)
-        monkeypatch.setattr(app, "_async_init_query_context", lambda: asyncio.sleep(0))
 
         asyncio.run(app.on_mount())
         assert app.current_context == "query"
@@ -363,15 +470,10 @@ class TestLSMAppBehavior:
         app2 = LSMApp(_build_config(tmp_path))
         app2.query_one = lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("no tabs"))  # type: ignore[assignment]
         monkeypatch.setattr(app2, "_setup_tui_logging", lambda: None)
-
-        async def _fail():
-            raise RuntimeError("broken")
-
-        monkeypatch.setattr(app2, "_async_init_query_context", _fail)
         notices = []
         monkeypatch.setattr(app2, "notify", lambda msg, **kwargs: notices.append((msg, kwargs)))
         asyncio.run(app2.on_mount())
-        assert notices and "Query context unavailable" in notices[0][0]
+        assert notices == []
 
     def test_async_init_ingest_context(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
         from lsm.ui.tui.app import LSMApp

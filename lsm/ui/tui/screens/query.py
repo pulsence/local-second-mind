@@ -1088,11 +1088,18 @@ class QueryScreen(Widget):
             app = self.app
             if not hasattr(app, "query_provider") or app.query_provider is None:
                 self._show_message(
-                    "Query context not initialized.\n\n"
-                    "Please wait for initialization or check settings.",
+                    f"Searching for: {query}\n\nInitializing query context...",
                     preserve_candidates=False,
                 )
-                return
+                try:
+                    await app._async_init_query_context()
+                except Exception as exc:
+                    self._show_message(
+                        "Query context not initialized.\n\n"
+                        f"Initialization failed: {exc}",
+                        preserve_candidates=False,
+                    )
+                    return
 
             # Run the query in a thread to not block UI
             response, candidates = await self._run_query(query)

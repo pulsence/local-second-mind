@@ -64,9 +64,13 @@ class _Tree:
 class _Input:
     def __init__(self) -> None:
         self.cleared = False
+        self.focused = False
 
     def clear(self) -> None:
         self.cleared = True
+
+    def focus(self) -> None:
+        self.focused = True
 
 
 class _TestableIngestScreen(ingest_screen_mod.IngestScreen):
@@ -85,10 +89,11 @@ class _TestableIngestScreen(ingest_screen_mod.IngestScreen):
         raise KeyError(selector)
 
 
-def _screen():
+def _screen(current_context: str = "ingest"):
     app = SimpleNamespace(
         ingest_provider=SimpleNamespace(count=lambda: 3),
         config=SimpleNamespace(collection="kb", vectordb=SimpleNamespace(provider="chromadb")),
+        current_context=current_context,
         call_from_thread=lambda fn: fn(),
         update_chunk_count=lambda n: None,
         _async_init_ingest_context=lambda: None,
@@ -219,3 +224,31 @@ def test_tree_selection_and_actions() -> None:
     assert called["ran"] is True
     screen.action_clear_input()
     assert screen.widgets["#ingest-command-input"].cleared is True
+
+
+def test_on_mount_defers_stats_until_ingest_context() -> None:
+    screen = _screen(current_context="query")
+    called = {"count": 0}
+
+    def _run_worker(coro, exclusive=True):
+        called["count"] += 1
+        coro.close()
+
+    screen.run_worker = _run_worker  # type: ignore[method-assign]
+    screen.on_mount()
+    assert called["count"] == 0
+    assert screen.widgets["#ingest-command-input"].focused is False
+
+
+def test_on_mount_runs_stats_when_ingest_active() -> None:
+    screen = _screen(current_context="ingest")
+    called = {"count": 0}
+
+    def _run_worker(coro, exclusive=True):
+        called["count"] += 1
+        coro.close()
+
+    screen.run_worker = _run_worker  # type: ignore[method-assign]
+    screen.on_mount()
+    assert called["count"] == 1
+    assert screen.widgets["#ingest-command-input"].focused is True

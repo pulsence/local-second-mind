@@ -18,7 +18,7 @@ import asyncio
 from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Container, Horizontal, Vertical, ScrollableContainer
-from textual.widgets import Static, DirectoryTree, ProgressBar, Tree
+from textual.widgets import Static, DirectoryTree, ProgressBar, Tree, TabbedContent
 from textual.widget import Widget
 from textual.reactive import reactive
 
@@ -73,6 +73,7 @@ class IngestScreen(Widget):
         self._completer = create_completer("ingest")
         self._pending_command: Optional[str] = None
         self._pending_responses: List[str] = []
+        self._stats_initialized = False
 
     def compose(self) -> ComposeResult:
         """Compose the ingest screen layout."""
@@ -137,13 +138,29 @@ class IngestScreen(Widget):
     def on_mount(self) -> None:
         """Handle screen mount."""
         logger.debug("Ingest screen mounted")
-        # Refresh stats on mount
-        self.run_worker(self._refresh_stats(), exclusive=True)
-        # Focus command input
-        self.query_one("#ingest-command-input", CommandInput).focus()
         # Hide explore tree until needed
         self.query_one("#ingest-explore-tree", Tree).styles.display = "none"
         self._set_command_status("Ready.")
+        if getattr(self.app, "current_context", None) == "ingest":
+            self._activate_ingest_context()
+
+    def on_tabbed_content_tab_activated(
+        self, event: TabbedContent.TabActivated
+    ) -> None:
+        """Refresh ingest stats when the ingest tab becomes active."""
+        tab_id = event.tab.id
+        if not tab_id:
+            return
+        context = tab_id.replace("-tab", "")
+        if context == "ingest":
+            self._activate_ingest_context()
+
+    def _activate_ingest_context(self) -> None:
+        """Perform ingest-tab-only initialization when tab is active."""
+        if not self._stats_initialized:
+            self.run_worker(self._refresh_stats(), exclusive=True)
+            self._stats_initialized = True
+        self.query_one("#ingest-command-input", CommandInput).focus()
 
     async def on_command_submitted(self, event: CommandSubmitted) -> None:
         """Handle command input submission from CommandInput widget."""

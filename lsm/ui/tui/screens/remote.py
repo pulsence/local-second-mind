@@ -80,6 +80,7 @@ class RemoteScreen(Widget):
     def on_mount(self) -> None:
         """Initialize provider list and focus."""
         logger.debug("Remote screen mounted")
+        self._updating_provider_select = False
         self._refresh_provider_list()
         self._focus_default_input()
         if hasattr(self.app, "_tui_log_buffer"):
@@ -109,6 +110,8 @@ class RemoteScreen(Widget):
     def on_select_changed(self, event: Select.Changed) -> None:
         """Move focus to query input after provider selection."""
         if event.select.id == "remote-provider-select":
+            if getattr(self, "_updating_provider_select", False):
+                return
             if getattr(self.app, "current_context", None) == "remote":
                 self.query_one("#remote-query-input", Input).focus()
             self._sync_provider_controls()
@@ -137,11 +140,19 @@ class RemoteScreen(Widget):
         options = [("All providers", self.ALL_PROVIDERS_VALUE)]
         options.extend((provider.name, provider.name) for provider in providers)
         current = provider_select.value
-        provider_select.set_options(options)
-        if current in {value for _, value in options}:
-            provider_select.value = current
-        elif options and not provider_select.value:
-            provider_select.value = options[0][0]
+        valid_values = {value for _, value in options}
+        self._updating_provider_select = True
+        try:
+            provider_select.set_options(options)
+            if current in valid_values:
+                if provider_select.value != current:
+                    provider_select.value = current
+            elif options:
+                default_value = options[0][1]
+                if provider_select.value != default_value:
+                    provider_select.value = default_value
+        finally:
+            self._updating_provider_select = False
         self._sync_provider_controls()
 
     def _ensure_query_state(self) -> None:

@@ -254,9 +254,19 @@
   or handling the response.
 
 ### Agent
+- Look at the files in .claude_files/sandbox_plan to generate a complete development for a
+  sandbox to run agents in. These plans are to be treated as guidelines since they were created
+  without reference to the actual code. As you develop the plan make sure to update them to the
+  style and structure of the actual code base.
+    - Be sure to clearly document the threat model and security model in docs/ and follow the
+      security test plan. We need to make sure that we try to break the sandbox in the test suite.
 - Create a simple agent where the user gives a task and the agent processes it via the background.
-- Create the ability to launch agents on a particular time cycle
-- Create the ability for agents to store memories
+- Read .claude_files/lsm_agent_roadmap_writing_synthesis_curator.md for an outline of new agents
+  and tools to create. The ideas in this file should be included when creating the next plan and
+  adapted to the style and struture of the actual code base.
+- Read .claude_files/lsm_agent_advanced_capabilities_plan.md for an outline of new capabilites for
+  the agent system. The ideas in this file should be included when creating the next plan and
+  adapted to the style and struture of the actual code base.
 
 ### Testing
 - Make sure that there are tests which interact with web services have a test that actaully

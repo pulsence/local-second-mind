@@ -87,7 +87,7 @@ class LSMApp(App):
         """Compose the application layout."""
         yield Header(show_clock=True, icon="")
 
-        with TabbedContent(initial="query"):
+        with TabbedContent(initial="query", id="main-tabs"):
             with TabPane("Query (^q)", id="query"):
                 # Import here to avoid circular imports
                 from lsm.ui.tui.screens.query import QueryScreen
@@ -124,17 +124,7 @@ class LSMApp(App):
         except Exception:
             pass
         self._setup_tui_logging()
-
-        # Try to initialize query context by default (most common use case)
-        try:
-            await self._async_init_query_context()
-        except Exception as e:
-            logger.warning(f"Could not initialize query context on mount: {e}")
-            self.notify(
-                f"Query context unavailable: {e}",
-                severity="warning",
-                timeout=5,
-            )
+        logger.info("Query context initialization is lazy and will run on first query.")
 
     def _setup_tui_logging(self) -> None:
         """Route LSM logs to the query log panel when running in TUI."""
@@ -147,43 +137,10 @@ class LSMApp(App):
             if isinstance(handler, logging.StreamHandler) and getattr(handler, "stream", None) in streams_to_remove:
                 root_logger.removeHandler(handler)
 
-        root_global = logging.getLogger()
-        root_global.setLevel(root_logger.level)
-        for handler in list(root_global.handlers):
-            if isinstance(handler, logging.StreamHandler) and getattr(handler, "stream", None) in streams_to_remove:
-                root_global.removeHandler(handler)
-
         app = self
         if not hasattr(self, "_tui_log_buffer"):
             from collections import deque
             self._tui_log_buffer = deque(maxlen=500)
-        if not hasattr(self, "_tui_stdout"):
-            self._tui_stdout = sys.stdout
-            self._tui_stderr = sys.stderr
-
-            class _TUIStream:
-                def __init__(self, app_instance: "LSMApp") -> None:
-                    self._app = app_instance
-
-                def write(self, message: str) -> int:
-                    if not message:
-                        return 0
-                    self._app._tui_log_buffer.append(message.rstrip("\n"))
-
-                    def update() -> None:
-                        try:
-                            self._app._write_tui_log(message.rstrip())
-                        except Exception:
-                            pass
-
-                    self._app.run_on_ui_thread(update)
-                    return len(message)
-
-                def flush(self) -> None:
-                    return None
-
-            sys.stdout = _TUIStream(self)
-            sys.stderr = _TUIStream(self)
 
         class _TUILogHandler(logging.Handler):
             def __init__(self, app_instance: "LSMApp") -> None:
@@ -213,21 +170,15 @@ class LSMApp(App):
             handler.setFormatter(formatter)
             root_logger.addHandler(handler)
 
-        if not any(getattr(h, "_tui_handler", False) for h in root_global.handlers):
-            handler = _TUILogHandler(app)
-            handler.setLevel(root_logger.level)
-            formatter = logging.Formatter("[%(levelname)s] %(message)s")
-            handler.setFormatter(formatter)
-            root_global.addHandler(handler)
-
     def _write_tui_log(self, message: str) -> None:
         """Write log messages to available TUI log widgets."""
-        for selector in ("#query-log", "#remote-log"):
-            try:
-                log_widget = self.query_one(selector, RichLog)
-                log_widget.write(f"{message}\n")
-            except Exception:
-                continue
+        context = getattr(self, "current_context", "query")
+        selector = "#remote-log" if context == "remote" else "#query-log"
+        try:
+            log_widget = self.query_one(selector, RichLog)
+            log_widget.write(f"{message}\n")
+        except Exception:
+            return
 
     def run_on_ui_thread(self, callback) -> None:
         """Run a callback on the app UI thread from either same or worker thread."""
@@ -349,6 +300,7 @@ class LSMApp(App):
         tabbed_content = self.query_one(TabbedContent)
         tabbed_content.active = "settings"
         self.current_context = "settings"
+        self._refresh_settings_screen()
         logger.debug("Switched to settings context")
 
     def action_switch_remote(self) -> None:
@@ -426,13 +378,35 @@ class LSMApp(App):
         self, event: TabbedContent.TabActivated
     ) -> None:
         """Handle tab activation to update context."""
+        # Ignore nested TabbedContent events (for example, settings sub-tabs).
+        event_tabs = getattr(event, "tabbed_content", None)
+        if event_tabs is not None and getattr(event_tabs, "id", None) != "main-tabs":
+            try:
+                root_tabs = self.query_one("#main-tabs", TabbedContent)
+            except Exception:
+                root_tabs = None
+            if root_tabs is None or event_tabs is not root_tabs:
+                return
+
         tab_id = event.tab.id
         if tab_id:
             # Remove the "-tab" suffix if present
             context = tab_id.replace("-tab", "")
             if context in ("ingest", "query", "settings", "remote", "agents"):
                 self.current_context = context
+                if context == "settings":
+                    self._refresh_settings_screen()
                 logger.debug(f"Tab activated: {context}")
+
+    def _refresh_settings_screen(self) -> None:
+        """Refresh settings fields from the active in-memory config."""
+        try:
+            settings_screen = self.query_one("#settings-screen")
+            refresh = getattr(settings_screen, "refresh_from_config", None)
+            if callable(refresh):
+                refresh()
+        except Exception:
+            return
 
     # -------------------------------------------------------------------------
     # Watch methods for StatusBar sync
