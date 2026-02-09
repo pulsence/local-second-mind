@@ -11,6 +11,23 @@ All notable changes to Local Second Mind are documented here.
 - Shared provider JSON schema constants in `lsm/providers/helpers.py`:
   - `RERANK_JSON_SCHEMA`
   - `TAGS_JSON_SCHEMA`
+- Test infrastructure for tiered execution (`smoke`, `integration`, `live`, `live_llm`, `live_remote`, `live_vectordb`, `docker`, `performance`) with default exclusion of `live` and `docker`.
+- `tests/testing_config.py` + `tests/.env.test.example` support for `LSM_TEST_*` runtime configuration, including `LSM_TEST_POSTGRES_CONNECTION_STRING`.
+- Tier-aware pytest fixtures for real providers and services in `tests/conftest.py`:
+  - real embedder and ChromaDB fixtures
+  - live LLM provider fixtures (OpenAI, Anthropic, Gemini, Local/Ollama)
+  - PostgreSQL preflight fixture with connectivity, `CREATE` privilege, and `pgvector` checks
+- Comprehensive synthetic corpus in `tests/fixtures/synthetic_data/` for long-form, edge-case, nested-tag, duplicate, and config-driven tests.
+- Real/live Phase 2 suites:
+  - real embedding tests (`tests/test_ingest/test_real_embeddings.py`)
+  - real ChromaDB tests (`tests/test_vectordb/test_real_chromadb.py`)
+  - live LLM provider tests (`tests/test_providers/test_live_*.py`)
+  - live remote provider tests across the built-in remote providers (`tests/test_providers/remote/test_live_*.py`)
+  - end-to-end integration pipeline tests (`tests/test_integration/test_full_pipeline.py`)
+  - live PostgreSQL vector DB tests (`tests/test_vectordb/test_live_postgresql.py`)
+  - live ChromaDB->PostgreSQL migration tests (`tests/test_vectordb/test_live_migration_chromadb_to_postgres.py`)
+- Full live pipeline coverage using PostgreSQL/pgvector as the backing vector store (`@pytest.mark.live` + `@pytest.mark.live_vectordb` path in `tests/test_integration/test_full_pipeline.py`).
+- Mock-cleanup guardrail test (`tests/test_infrastructure/test_mock_audit.py`) to prevent reintroduction of removed legacy shared mock fixtures in core integration suites.
 
 ### Changed
 
@@ -22,6 +39,19 @@ All notable changes to Local Second Mind are documented here.
 - Refactored OpenAI, Azure OpenAI, Anthropic, Gemini, and Local providers to keep provider-specific transport/config logic only.
 - Removed duplicated `rerank/synthesize/stream_synthesize/generate_tags` implementations from provider classes in favor of base implementations.
 - Verified provider factory and exports remain correct after refactor (`lsm/providers/factory.py`, `lsm/providers/__init__.py`).
+- Migrated core ingest/query integration tests away from `mocker`/`unittest.mock` toward lightweight fake implementations plus `monkeypatch`.
+- Removed legacy shared mock fixtures from `tests/conftest.py`:
+  - `mock_openai_client`
+  - `mock_embedder`
+  - `mock_chroma_collection`
+  - `mock_vectordb_provider`
+  - `progress_callback_mock`
+- Updated live Anthropic model selection in tests to `claude-sonnet-4-5`.
+
+### Fixed
+
+- Fixed PostgreSQL vector similarity SQL parameter typing by casting query parameters to `vector` (`%s::vector`) in `lsm/vectordb/postgresql.py`, resolving `vector <=> numeric[]` operator errors in live runs.
+- Fixed ChromaDB->PostgreSQL migration handling of numpy embeddings in `lsm/vectordb/migrations/chromadb_to_postgres.py` by normalizing embeddings without ambiguous truth-value evaluation.
 
 ## 0.4.0 - 2026-02-08
 

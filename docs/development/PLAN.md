@@ -120,7 +120,7 @@ Already has `_chat()` and `_chat_stream()` that map directly to the new interfac
 
 ---
 
-## Phase 2: Rock Solid Test Framework
+## Phase 2: Improved Test Framework (COMPLETED)
 
 Current state: 119 test files, ~1128 tests, almost entirely mock-based. Minimal test data (4 small files). No live service tests, no custom test config, no smoke/live tier separation.
 
@@ -339,9 +339,22 @@ Remove `mock_openai_client`, `mock_embedder`, `mock_chroma_collection` fixtures 
 
 ---
 
-## Phase 3: Rock Solid Agent System with Sandbox Security
+## Phase 3: Solid Agent System with Sandbox Security
 
 Current state: functional framework (BaseAgent, AgentHarness, 9 tools, ToolSandbox with path canonicalization, ResearchAgent), but only ~13 tests, no security hardening beyond basic path checks, no environment scrubbing, no log redaction, no permission gates, no runner abstraction.
+
+**Threat Profile:** The agent sandbox executes LLM-directed tool calls on behalf of the user. The primary threat actors are: (1) prompt injection via untrusted document content that manipulates agent behavior, (2) malicious or hallucinated tool arguments from the LLM attempting to escape sandbox boundaries, and (3) information leakage of API keys and secrets through agent logs or tool outputs. The STRIDE framework structures our security testing:
+
+- **S**poofing: Tool identity verification, registry integrity
+- **T**ampering: Path traversal, symlink escape, write path enforcement
+- **R**epudiation: Agent action logging, artifact tracking
+- **I**nformation Disclosure: Secret leakage via env vars, logs, tool output
+- **D**enial of Service: Iteration caps, token budgets, output truncation
+- **E**levation of Privilege: Permission gates, risk-level policies, sandbox monotonicity
+
+**Security testing regime:** All security tests are adversarial — they actively attempt to break out of the sandbox using known attack patterns (path traversal, null byte injection, UNC paths, symlink escape, prompt injection, etc.). Tests must verify that defenses reject attacks rather than merely testing that normal operations succeed. New tools and agents must include security test coverage before merge. The security test suite runs as part of the default `pytest` invocation (no special markers required for path/permission/injection tests).
+
+**Security documentation:** Phase 3 produces `docs/development/SECURITY.md` documenting the full threat model, STRIDE categories, attack surface inventory, testing methodology, and instructions for extending coverage when adding new tools or agents.
 
 ### 3.1: Tool Risk Metadata and Registry Enhancements
 
@@ -516,6 +529,21 @@ Tests covering all STRIDE threat categories. These tests actively attempt to bre
 - Agent state file contains no secrets
 
 **Post-block:** run full suite, update `docs/development/TESTING.md`, commit.
+
+### 3.3.8: Write Security Documentation
+
+**File to create:** `docs/development/SECURITY.md`
+
+Document the full agent sandbox security posture:
+
+- **Threat model:** Describe the three primary threat actors (prompt injection, hallucinated arguments, secret leakage) and why LLM-directed execution requires defense-in-depth.
+- **Attack surface inventory:** Enumerate every entry point where untrusted data reaches the sandbox (LLM tool call arguments, document content read by tools, URL fetches, user-supplied paths).
+- **STRIDE coverage matrix:** Table mapping each STRIDE category to the specific defenses implemented and the test files that verify them (T1–T8 from section 3.3).
+- **Testing methodology:** Explain the adversarial testing approach — tests attempt to break out, not just confirm happy paths. Include instructions for running the security suite (`pytest tests/test_agents/test_security_*.py -v`).
+- **Extending coverage:** Step-by-step guide for adding security tests when creating new tools or agents, including which threat categories to consider and test templates to follow.
+- **Permission gate reference:** Document the permission precedence chain (per-tool override > per-risk policy > tool default > allow) with examples.
+
+**Post-block:** run tests, commit.
 
 ### 3.4: Runner Abstraction and Sandbox Config Extensions
 
