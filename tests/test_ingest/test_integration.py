@@ -95,18 +95,22 @@ def _build_config(root: Path, tmp_path: Path) -> LSMConfig:
 
 @pytest.mark.integration
 class TestIngestIntegration:
-    def test_ingest_empty_directory(self, tmp_path: Path, mocker) -> None:
+    def test_ingest_empty_directory(self, tmp_path: Path, monkeypatch) -> None:
         provider = InMemoryVectorProvider()
         empty_root = tmp_path / "empty_docs"
         empty_root.mkdir()
         config = _build_config(empty_root, tmp_path)
         progress_events = []
 
-        mocker.patch.dict(
+        monkeypatch.setitem(
             sys.modules,
-            {"sentence_transformers": SimpleNamespace(SentenceTransformer=FakeSentenceTransformer)},
+            "sentence_transformers",
+            SimpleNamespace(SentenceTransformer=FakeSentenceTransformer),
         )
-        mocker.patch("lsm.ingest.pipeline.create_vectordb_provider", return_value=provider)
+        monkeypatch.setattr(
+            "lsm.ingest.pipeline.create_vectordb_provider",
+            lambda *_args, **_kwargs: provider,
+        )
 
         result = run_ingest(
             config,
@@ -123,41 +127,50 @@ class TestIngestIntegration:
         assert any(event[0] == "discovery" for event in progress_events)
         assert any(event[0] == "complete" for event in progress_events)
 
-    def test_ingest_with_text_files(self, synthetic_data_root: Path, tmp_path: Path, mocker) -> None:
+    def test_ingest_with_text_files(self, synthetic_data_root: Path, tmp_path: Path, monkeypatch) -> None:
         provider = InMemoryVectorProvider()
         config = _build_config(synthetic_data_root, tmp_path)
 
-        mocker.patch.dict(
+        monkeypatch.setitem(
             sys.modules,
-            {"sentence_transformers": SimpleNamespace(SentenceTransformer=FakeSentenceTransformer)},
+            "sentence_transformers",
+            SimpleNamespace(SentenceTransformer=FakeSentenceTransformer),
         )
-        mocker.patch("lsm.ingest.pipeline.create_vectordb_provider", return_value=provider)
+        monkeypatch.setattr(
+            "lsm.ingest.pipeline.create_vectordb_provider",
+            lambda *_args, **_kwargs: provider,
+        )
 
         result = run_ingest(config, force=True)
 
         assert result.total_files >= 4
         assert result.completed_files == result.total_files
-        assert result.skipped_files == 0
+        assert result.skipped_files >= 1
+        assert any(error.get("error") == "empty_text" for error in result.errors)
         assert result.chunks_added > 0
         assert provider.count() == result.chunks_added
 
         manifest_data = json.loads(config.ingest.manifest.read_text(encoding="utf-8"))
-        assert len(manifest_data) == result.total_files
+        assert len(manifest_data) == result.total_files - result.skipped_files
 
     def test_incremental_ingest_skips_unchanged(
         self,
         synthetic_data_root: Path,
         tmp_path: Path,
-        mocker,
+        monkeypatch,
     ) -> None:
         provider = InMemoryVectorProvider()
         config = _build_config(synthetic_data_root, tmp_path)
 
-        mocker.patch.dict(
+        monkeypatch.setitem(
             sys.modules,
-            {"sentence_transformers": SimpleNamespace(SentenceTransformer=FakeSentenceTransformer)},
+            "sentence_transformers",
+            SimpleNamespace(SentenceTransformer=FakeSentenceTransformer),
         )
-        mocker.patch("lsm.ingest.pipeline.create_vectordb_provider", return_value=provider)
+        monkeypatch.setattr(
+            "lsm.ingest.pipeline.create_vectordb_provider",
+            lambda *_args, **_kwargs: provider,
+        )
 
         first = run_ingest(config, force=True)
         second = run_ingest(config, force=False)

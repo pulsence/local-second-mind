@@ -293,7 +293,7 @@ Each file tests:
 
 **Post-block:** run all tiers, update docs, commit.
 
-### 2.4: Full Integration Test Suite
+### 2.4: Full Integration Test Suite (COMPLETED)
 
 **Files to create:**
 - `tests/test_integration/test_full_pipeline.py`
@@ -318,7 +318,7 @@ Marked `@pytest.mark.performance`:
 
 **Post-block:** run tests at each tier, update docs, commit.
 
-### 2.5: Clean Up Legacy Mock Tests
+### 2.5: Clean Up Legacy Mock Tests (COMPLETED)
 
 #### 2.5.1: Audit All Mock Usage
 

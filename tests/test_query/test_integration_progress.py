@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import asyncio
 from pathlib import Path
 
@@ -23,6 +25,43 @@ from lsm.query.api import query
 from lsm.query.planning import LocalQueryPlan
 from lsm.query.session import Candidate, SessionState
 from lsm.remote.base import RemoteResult
+
+
+class FakeRerankProvider:
+    name = "openai"
+    model = "gpt-5.2"
+
+    def rerank(self, _question: str, candidates: list[dict], k: int) -> list[dict]:
+        return candidates[:k]
+
+    def estimate_cost(self, _input_tokens: int, _output_tokens: int) -> float:
+        return 0.0
+
+
+class FakeSynthesisProvider:
+    name = "openai"
+    model = "gpt-5.2"
+
+    def __init__(self, answer: str) -> None:
+        self._answer = answer
+
+    def synthesize(self, *_args, **_kwargs) -> str:
+        return self._answer
+
+    def estimate_cost(self, _input_tokens: int, _output_tokens: int) -> float:
+        return 0.0
+
+
+class FakeRemoteProvider:
+    def search(self, _query: str, max_results: int = 3) -> list[RemoteResult]:
+        return [
+            RemoteResult(
+                title="Remote Source",
+                url="https://example.com/remote",
+                snippet="Remote source snippet for integration progress test.",
+                score=0.9,
+            )
+        ][:max_results]
 
 
 def _build_query_config(tmp_path: Path, remote_enabled: bool) -> LSMConfig:
@@ -92,31 +131,23 @@ def _build_local_plan() -> LocalQueryPlan:
 
 @pytest.mark.integration
 class TestQueryProgressCallbacks:
-    def test_progress_callback_receives_all_stages(self, tmp_path: Path, mocker) -> None:
+    def test_progress_callback_receives_all_stages(self, tmp_path: Path, monkeypatch) -> None:
         config = _build_query_config(tmp_path, remote_enabled=False)
         progress_updates = []
         local_plan = _build_local_plan()
 
-        mocker.patch("lsm.query.context.prepare_local_candidates", return_value=local_plan)
-
-        ranking_provider = mocker.Mock()
-        ranking_provider.name = "openai"
-        ranking_provider.model = "gpt-5.2"
-        ranking_provider.rerank.return_value = [
-            {"cid": "local-1", "text": local_plan.filtered[0].text, "metadata": local_plan.filtered[0].meta, "distance": 0.1}
-        ]
-        ranking_provider.estimate_cost.return_value = 0.0
-
-        synthesis_provider = mocker.Mock()
-        synthesis_provider.name = "openai"
-        synthesis_provider.model = "gpt-5.2"
-        synthesis_provider.synthesize.return_value = "Integrated answer [S1]."
-        synthesis_provider.estimate_cost.return_value = 0.0
-
-        mocker.patch(
-            "lsm.query.api.create_provider",
-            side_effect=[ranking_provider, synthesis_provider],
+        monkeypatch.setattr(
+            "lsm.query.context.prepare_local_candidates",
+            lambda *_args, **_kwargs: local_plan,
         )
+
+        provider_iter = iter(
+            [
+                FakeRerankProvider(),
+                FakeSynthesisProvider("Integrated answer [S1]."),
+            ]
+        )
+        monkeypatch.setattr("lsm.query.api.create_provider", lambda _cfg: next(provider_iter))
 
         result = asyncio.run(
             query(
@@ -137,42 +168,27 @@ class TestQueryProgressCallbacks:
         assert stages.index("rerank") < stages.index("synthesis")
         assert "[S1]" in result.answer
 
-    def test_progress_callback_with_remote_sources(self, tmp_path: Path, mocker) -> None:
+    def test_progress_callback_with_remote_sources(self, tmp_path: Path, monkeypatch) -> None:
         config = _build_query_config(tmp_path, remote_enabled=True)
         progress_updates = []
         local_plan = _build_local_plan()
 
-        mocker.patch("lsm.query.context.prepare_local_candidates", return_value=local_plan)
-
-        mock_remote_provider = mocker.Mock()
-        mock_remote_provider.search.return_value = [
-            RemoteResult(
-                title="Remote Source",
-                url="https://example.com/remote",
-                snippet="Remote source snippet for integration progress test.",
-                score=0.9,
-            )
-        ]
-        mocker.patch("lsm.query.context.create_remote_provider", return_value=mock_remote_provider)
-
-        ranking_provider = mocker.Mock()
-        ranking_provider.name = "openai"
-        ranking_provider.model = "gpt-5.2"
-        ranking_provider.rerank.return_value = [
-            {"cid": "local-1", "text": local_plan.filtered[0].text, "metadata": local_plan.filtered[0].meta, "distance": 0.1}
-        ]
-        ranking_provider.estimate_cost.return_value = 0.0
-
-        synthesis_provider = mocker.Mock()
-        synthesis_provider.name = "openai"
-        synthesis_provider.model = "gpt-5.2"
-        synthesis_provider.synthesize.return_value = "Integrated answer with remote [S1] [S2]."
-        synthesis_provider.estimate_cost.return_value = 0.0
-
-        mocker.patch(
-            "lsm.query.api.create_provider",
-            side_effect=[ranking_provider, synthesis_provider],
+        monkeypatch.setattr(
+            "lsm.query.context.prepare_local_candidates",
+            lambda *_args, **_kwargs: local_plan,
         )
+        monkeypatch.setattr(
+            "lsm.query.context.create_remote_provider",
+            lambda _provider_type, _runtime_cfg: FakeRemoteProvider(),
+        )
+
+        provider_iter = iter(
+            [
+                FakeRerankProvider(),
+                FakeSynthesisProvider("Integrated answer with remote [S1] [S2]."),
+            ]
+        )
+        monkeypatch.setattr("lsm.query.api.create_provider", lambda _cfg: next(provider_iter))
 
         result = asyncio.run(
             query(

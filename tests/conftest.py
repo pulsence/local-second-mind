@@ -167,85 +167,6 @@ def document_root(tmp_path: Path, sample_txt_file: Path, sample_md_file: Path) -
 
 
 # -----------------------------------------------------------------------------
-# Mock Object Fixtures
-# -----------------------------------------------------------------------------
-
-@pytest.fixture
-def mock_openai_client(mocker):
-    """
-    Provide a mocked OpenAI client for testing query functionality.
-
-    Prevents actual API calls during tests.
-    """
-    mock_client = mocker.MagicMock()
-
-    # Mock chat completions response
-    mock_response = mocker.MagicMock()
-    mock_response.choices = [
-        mocker.MagicMock(
-            message=mocker.MagicMock(
-                content="This is a mocked LLM response with citations [S1]."
-            )
-        )
-    ]
-
-    mock_client.chat.completions.create.return_value = mock_response
-
-    return mock_client
-
-
-@pytest.fixture
-def mock_embedder(mocker):
-    """
-    Provide a mocked sentence-transformers model for testing.
-
-    Prevents loading actual models during tests.
-    """
-    mock_model = mocker.MagicMock()
-
-    # Mock encode method to return dummy embeddings
-    def mock_encode(texts, **kwargs):
-        import numpy as np
-        # Return fake embeddings (384-dim for all-MiniLM-L6-v2)
-        if isinstance(texts, str):
-            texts = [texts]
-        return np.random.rand(len(texts), 384).astype(np.float32)
-
-    mock_model.encode = mock_encode
-
-    return mock_model
-
-
-@pytest.fixture
-def mock_chroma_collection(mocker):
-    """
-    Provide a mocked ChromaDB collection for testing.
-
-    Prevents actual database operations during tests.
-    """
-    mock_collection = mocker.MagicMock()
-
-    # Mock query method
-    mock_collection.query.return_value = {
-        "ids": [["chunk_1", "chunk_2"]],
-        "distances": [[0.1, 0.2]],
-        "documents": [["Sample chunk 1", "Sample chunk 2"]],
-        "metadatas": [[
-            {"source_path": "/path/to/doc1.txt", "ext": ".txt"},
-            {"source_path": "/path/to/doc2.txt", "ext": ".txt"}
-        ]]
-    }
-
-    # Mock add method
-    mock_collection.add.return_value = None
-
-    # Mock count method
-    mock_collection.count.return_value = 0
-
-    return mock_collection
-
-
-# -----------------------------------------------------------------------------
 # Environment Fixtures
 # -----------------------------------------------------------------------------
 
@@ -354,26 +275,6 @@ def ingest_config(tmp_path: Path, global_folder: Path) -> LSMConfig:
         vectordb=vectordb,
         global_settings=GlobalConfig(global_folder=global_folder),
     )
-
-
-@pytest.fixture
-def mock_vectordb_provider(mocker):
-    """
-    Provide a mock vector DB provider.
-    """
-    provider = mocker.MagicMock()
-    provider.name = "chromadb"
-    provider.count.return_value = 0
-    provider.get_stats.return_value = {"provider": "chromadb"}
-    return provider
-
-
-@pytest.fixture
-def progress_callback_mock(mocker):
-    """
-    Provide a reusable progress callback mock.
-    """
-    return mocker.MagicMock()
 
 
 @pytest.fixture

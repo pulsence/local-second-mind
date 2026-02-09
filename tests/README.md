@@ -34,13 +34,15 @@ tests/
 
 - `sample_config_dict`, `sample_config_file`
 - `sample_txt_file`, `sample_md_file`, `sample_html_file`, `empty_file`, `document_root`
-- `mock_openai_client`, `mock_embedder`, `mock_chroma_collection`
-- `mock_vectordb_provider`
 - `ingest_config`
-- `progress_callback_mock`
 - `global_folder`
 - `clean_env`, `mock_env_with_api_key`
 - `sample_chunks`, `sample_metadata`
+- `synthetic_data_root`
+- `test_config`
+- `real_embedder`, `real_chromadb_provider`, `real_postgresql_provider`
+- `real_openai_provider`, `real_anthropic_provider`, `real_gemini_provider`, `real_local_provider`
+- `rich_test_corpus`, `populated_chromadb`
 
 ## Useful Commands
 
@@ -78,5 +80,6 @@ Integration suites using these fixtures:
 
 ## Notes
 
-- Some suites depend on optional third-party packages or mocked network responses.
+- Some suites depend on optional third-party packages.
+- Unit tests still use targeted mocks for SDK/network failure paths that cannot be reproduced deterministically.
 - If full-suite failures occur, validate whether they are in-scope for the current phase before fixing.

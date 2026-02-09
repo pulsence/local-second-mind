@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from lsm.ingest.api import (
     CollectionInfo,
     CollectionStats,
@@ -9,18 +11,47 @@ from lsm.ingest.api import (
 )
 
 
-def test_get_collection_info_uses_provider_stats(
-    ingest_config,
-    mock_vectordb_provider,
-    mocker,
-) -> None:
-    mock_vectordb_provider.name = "postgresql"
-    mock_vectordb_provider.count.return_value = 7
-    mock_vectordb_provider.get_stats.return_value = {"provider": "postgresql"}
-    mocker.patch(
-        "lsm.ingest.api.create_vectordb_provider",
-        return_value=mock_vectordb_provider,
+class FakeVectorDBProvider:
+    def __init__(
+        self,
+        *,
+        name: str = "chromadb",
+        chunk_count: int = 0,
+        stats: dict | None = None,
+        deleted_count: int = 0,
+    ) -> None:
+        self.name = name
+        self._chunk_count = chunk_count
+        self._stats = stats or {"provider": name}
+        self._deleted_count = deleted_count
+        self.delete_all_calls = 0
+
+    def count(self) -> int:
+        return self._chunk_count
+
+    def get_stats(self) -> dict:
+        return self._stats
+
+    def delete_all(self) -> int:
+        self.delete_all_calls += 1
+        return self._deleted_count
+
+
+class ProgressRecorder:
+    def __init__(self) -> None:
+        self.calls: list[tuple[int, int | None]] = []
+
+    def __call__(self, current: int, total: int | None) -> None:
+        self.calls.append((current, total))
+
+
+def test_get_collection_info_uses_provider_stats(ingest_config, monkeypatch) -> None:
+    provider = FakeVectorDBProvider(
+        name="postgresql",
+        chunk_count=7,
+        stats={"provider": "postgresql"},
     )
+    monkeypatch.setattr("lsm.ingest.api.create_vectordb_provider", lambda _cfg: provider)
 
     info = get_collection_info(ingest_config)
 
@@ -29,34 +60,25 @@ def test_get_collection_info_uses_provider_stats(
     assert info.chunk_count == 7
 
 
-def test_get_collection_info_chromadb_path(ingest_config, mock_vectordb_provider, mocker) -> None:
-    mock_vectordb_provider.name = "chromadb"
-    mock_vectordb_provider.count.return_value = 3
-    mock_vectordb_provider.get_stats.return_value = {"name": "kb", "count": 3, "provider": "chromadb"}
-    mocker.patch(
-        "lsm.ingest.api.create_vectordb_provider",
-        return_value=mock_vectordb_provider,
+def test_get_collection_info_chromadb_path(ingest_config, monkeypatch) -> None:
+    provider = FakeVectorDBProvider(
+        name="chromadb",
+        chunk_count=3,
+        stats={"name": "kb", "count": 3, "provider": "chromadb"},
     )
+    monkeypatch.setattr("lsm.ingest.api.create_vectordb_provider", lambda _cfg: provider)
 
     info = get_collection_info(ingest_config)
 
     assert info == CollectionInfo(name="kb", chunk_count=3, provider="chromadb")
 
 
-def test_get_collection_stats_reports_progress(
-    ingest_config,
-    mock_vectordb_provider,
-    progress_callback_mock,
-    mocker,
-) -> None:
-    mock_vectordb_provider.name = "chromadb"
-    mock_vectordb_provider.count.return_value = 10
-    mocker.patch(
-        "lsm.ingest.api.create_vectordb_provider",
-        return_value=mock_vectordb_provider,
-    )
+def test_get_collection_stats_reports_progress(ingest_config, monkeypatch) -> None:
+    provider = FakeVectorDBProvider(name="chromadb", chunk_count=10)
+    progress_recorder = ProgressRecorder()
+    monkeypatch.setattr("lsm.ingest.api.create_vectordb_provider", lambda _cfg: provider)
 
-    def fake_get_collection_stats(*args, **kwargs):
+    def fake_get_collection_stats(*_args, **kwargs):
         callback = kwargs.get("progress_callback")
         if callback:
             callback(4)
@@ -68,32 +90,24 @@ def test_get_collection_stats_reports_progress(
             "top_files": {"a.txt": 7, "b.md": 3},
         }
 
-    mocker.patch("lsm.ingest.api._get_collection_stats", side_effect=fake_get_collection_stats)
+    monkeypatch.setattr("lsm.ingest.api._get_collection_stats", fake_get_collection_stats)
 
-    stats = get_collection_stats(ingest_config, progress_callback=progress_callback_mock)
+    stats = get_collection_stats(ingest_config, progress_callback=progress_recorder)
 
     assert stats.chunk_count == 10
     assert stats.unique_files == 2
     assert stats.file_types == {".txt": 8, ".md": 2}
     assert {"source_path": "a.txt", "chunk_count": 7} in stats.top_files
     assert {"source_path": "b.md", "chunk_count": 3} in stats.top_files
-    progress_callback_mock.assert_any_call(4, 10)
-    progress_callback_mock.assert_any_call(10, 10)
+    assert (4, 10) in progress_recorder.calls
+    assert (10, 10) in progress_recorder.calls
 
 
-def test_get_collection_stats_fallback(
-    ingest_config,
-    mock_vectordb_provider,
-    mocker,
-) -> None:
-    mock_vectordb_provider.name = "postgresql"
-    mock_vectordb_provider.count.return_value = 11
-    mocker.patch(
-        "lsm.ingest.api.create_vectordb_provider",
-        return_value=mock_vectordb_provider,
-    )
+def test_get_collection_stats_fallback(ingest_config, monkeypatch) -> None:
+    provider = FakeVectorDBProvider(name="postgresql", chunk_count=11)
+    monkeypatch.setattr("lsm.ingest.api.create_vectordb_provider", lambda _cfg: provider)
 
-    def fake_get_collection_stats(*args, **kwargs):
+    def fake_get_collection_stats(*_args, **_kwargs):
         return {
             "total_chunks": 11,
             "unique_files": 0,
@@ -101,7 +115,7 @@ def test_get_collection_stats_fallback(
             "top_files": {},
         }
 
-    mocker.patch("lsm.ingest.api._get_collection_stats", side_effect=fake_get_collection_stats)
+    monkeypatch.setattr("lsm.ingest.api._get_collection_stats", fake_get_collection_stats)
 
     stats = get_collection_stats(ingest_config)
 
@@ -112,26 +126,32 @@ def test_get_collection_stats_fallback(
     assert stats.top_files == []
 
 
-def test_run_ingest_maps_result_and_force_resets_manifest(
-    ingest_config,
-    progress_callback_mock,
-    mocker,
-) -> None:
+def test_run_ingest_maps_result_and_force_resets_manifest(ingest_config, monkeypatch) -> None:
+    import lsm.ingest.pipeline as ingest_pipeline
+
     ingest_config.ingest.manifest.parent.mkdir(parents=True, exist_ok=True)
     ingest_config.ingest.manifest.write_text("{}", encoding="utf-8")
-    ingest_mock = mocker.patch(
-        "lsm.ingest.pipeline.ingest",
-        return_value={
+
+    captured_kwargs = {}
+
+    def fake_ingest(**kwargs):
+        captured_kwargs.update(kwargs)
+        return {
             "total_files": 5,
             "completed_files": 3,
             "skipped_files": 2,
             "chunks_added": 12,
             "elapsed_seconds": 1.25,
             "errors": [{"file": "bad.pdf", "error": "parse failed"}],
-        },
-    )
+        }
 
-    result = run_ingest(ingest_config, force=True, progress_callback=progress_callback_mock)
+    monkeypatch.setattr(ingest_pipeline, "ingest", fake_ingest)
+
+    progress_events = []
+    progress_callback = lambda event, current, total, message: progress_events.append(  # noqa: E731
+        (event, current, total, message)
+    )
+    result = run_ingest(ingest_config, force=True, progress_callback=progress_callback)
 
     assert isinstance(result, IngestResult)
     assert result.total_files == 5
@@ -141,26 +161,24 @@ def test_run_ingest_maps_result_and_force_resets_manifest(
     assert result.elapsed_seconds == 1.25
     assert result.errors == [{"file": "bad.pdf", "error": "parse failed"}]
     assert not ingest_config.ingest.manifest.exists()
-    assert ingest_mock.call_args.kwargs["progress_callback"] is progress_callback_mock
+    assert captured_kwargs["progress_callback"] is progress_callback
 
 
-def test_wipe_collection_deletes_all(ingest_config, mocker) -> None:
-    provider = mocker.MagicMock()
-    provider.delete_all.return_value = 3
-    mocker.patch("lsm.ingest.api.create_vectordb_provider", return_value=provider)
+def test_wipe_collection_deletes_all(ingest_config, monkeypatch) -> None:
+    provider = FakeVectorDBProvider(deleted_count=3)
+    monkeypatch.setattr("lsm.ingest.api.create_vectordb_provider", lambda _cfg: provider)
 
     deleted = wipe_collection(ingest_config)
 
     assert deleted == 3
-    provider.delete_all.assert_called_once()
+    assert provider.delete_all_calls == 1
 
 
-def test_wipe_collection_empty(ingest_config, mocker) -> None:
-    provider = mocker.MagicMock()
-    provider.delete_all.return_value = 0
-    mocker.patch("lsm.ingest.api.create_vectordb_provider", return_value=provider)
+def test_wipe_collection_empty(ingest_config, monkeypatch) -> None:
+    provider = FakeVectorDBProvider(deleted_count=0)
+    monkeypatch.setattr("lsm.ingest.api.create_vectordb_provider", lambda _cfg: provider)
 
     deleted = wipe_collection(ingest_config)
 
     assert deleted == 0
-    provider.delete_all.assert_called_once()
+    assert provider.delete_all_calls == 1

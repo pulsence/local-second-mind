@@ -7,7 +7,6 @@ Covers metadata extraction, chunking positions, OCR detection, and pipeline cont
 import pytest
 import threading
 from pathlib import Path
-from unittest.mock import Mock, patch
 
 from lsm.ingest.parsers import (
     parse_docx,
@@ -246,17 +245,18 @@ class TestOCRSupport:
         """Test that OCR detection works correctly."""
         from lsm.ingest.parsers import is_page_image_based
 
-        # Mock a page with lots of text
-        mock_page_text = Mock()
-        mock_page_text.get_text.return_value = "This is a lot of text. " * 100
+        class FakePage:
+            def __init__(self, text: str) -> None:
+                self._text = text
 
-        assert is_page_image_based(mock_page_text) is False
+            def get_text(self) -> str:
+                return self._text
 
-        # Mock a page with little text (image-based)
-        mock_page_image = Mock()
-        mock_page_image.get_text.return_value = "12"  # Just page number
+        # Page with lots of text should not be treated as image-based.
+        assert is_page_image_based(FakePage("This is a lot of text. " * 100)) is False
 
-        assert is_page_image_based(mock_page_image) is True
+        # Page with little text should be treated as image-based.
+        assert is_page_image_based(FakePage("12")) is True
 
     @pytest.mark.skipif(
         not hasattr(__import__('lsm.ingest.parsers', fromlist=['OCR_AVAILABLE']), 'OCR_AVAILABLE') or
