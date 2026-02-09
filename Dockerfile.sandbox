@@ -1,0 +1,14 @@
+FROM python:3.12-slim
+
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV PYTHONUNBUFFERED=1
+
+RUN useradd --create-home --shell /usr/sbin/nologin sandbox
+
+WORKDIR /workspace
+RUN mkdir -p /workspace /tmp && chown -R sandbox:sandbox /workspace /tmp
+
+USER sandbox
+
+# Runtime command is supplied by DockerRunner:
+# python -m lsm.agents.tools._docker_entrypoint

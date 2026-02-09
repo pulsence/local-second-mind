@@ -545,7 +545,7 @@ Document the full agent sandbox security posture:
 
 **Post-block:** run tests, commit.
 
-### 3.4: Runner Abstraction and Sandbox Config Extensions
+### 3.4: Runner Abstraction and Sandbox Config Extensions (COMPLETED)
 
 #### 3.4.1: Create Runner Abstraction
 

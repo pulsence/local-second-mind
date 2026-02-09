@@ -25,7 +25,9 @@ Built-in agent:
 Tooling:
 
 - `lsm/agents/tools/base.py`: `BaseTool`, `ToolRegistry`
-- `lsm/agents/tools/sandbox.py`: `ToolSandbox` permission enforcement
+- `lsm/agents/tools/sandbox.py`: `ToolSandbox` permission enforcement + runner policy
+- `lsm/agents/tools/runner.py`: base runner interface + `LocalRunner`
+- `lsm/agents/tools/docker_runner.py`: `DockerRunner` foundation
 - `lsm/agents/tools/*.py`: built-in tool implementations
 - Tool metadata includes `risk_level`, `preferred_runner`, and `needs_network`
 
@@ -83,6 +85,9 @@ Permission precedence is:
 `require_user_permission[tool]` -> `require_permission_by_risk[risk_level]` -> `tool.requires_permission` -> allow.
 Execution flow is:
 permission checks -> runner selection -> environment scrubbing -> runner execution -> output redaction.
+Runner selection policy is:
+`read_only`/`writes_workspace` -> local runner;
+`network`/`exec` in `prefer_docker` mode -> docker runner when available, otherwise confirmation-required block.
 
 ## Built-In Tools
 

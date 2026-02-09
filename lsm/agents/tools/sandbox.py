@@ -11,10 +11,14 @@ from typing import Any, Dict, Iterable, Optional
 from lsm.agents.log_redactor import redact_secrets
 from lsm.agents.permission_gate import PermissionGate
 from lsm.config.models.agents import SandboxConfig
+from lsm.logging import get_logger
 
 from .env_scrubber import scrub_environment
 from .base import BaseTool
+from .docker_runner import DockerRunner
 from .runner import BaseRunner, LocalRunner, ToolExecutionResult
+
+logger = get_logger(__name__)
 
 
 class ToolSandbox:
@@ -39,7 +43,7 @@ class ToolSandbox:
         self.global_sandbox = global_sandbox
         self.permission_gate = PermissionGate(config)
         self.local_runner: BaseRunner = local_runner or self._build_local_runner()
-        self.docker_runner = docker_runner
+        self.docker_runner: Optional[BaseRunner] = docker_runner or self._build_docker_runner()
         self.last_execution_result: Optional[ToolExecutionResult] = None
         self._validate_not_exceeding_global()
 
@@ -314,11 +318,71 @@ class ToolSandbox:
             max_file_write_mb=float(self.config.limits.get("max_file_write_mb", 10.0)),
         )
 
+    def _build_docker_runner(self) -> Optional[BaseRunner]:
+        if not bool(self.config.docker.get("enabled", False)):
+            return None
+        return DockerRunner(
+            image=str(self.config.docker.get("image", "lsm-agent-sandbox:latest")),
+            workspace_root=Path.cwd(),
+            read_paths=self._effective_read_paths(),
+            timeout_s_default=float(self.config.limits.get("timeout_s_default", 30.0)),
+            max_stdout_kb=int(self.config.limits.get("max_stdout_kb", 256)),
+            network_default=str(self.config.docker.get("network_default", "none")),
+            cpu_limit=float(self.config.docker.get("cpu_limit", 1.0)),
+            mem_limit_mb=int(self.config.docker.get("mem_limit_mb", 512)),
+            read_only_root=bool(self.config.docker.get("read_only_root", True)),
+        )
+
     def _select_runner(self, tool: BaseTool) -> BaseRunner:
+        risk_level = str(tool.risk_level or "read_only")
         mode = self.config.execution_mode
-        if mode == "prefer_docker" and tool.risk_level in self._DOCKER_ELIGIBLE_RISKS:
-            if bool(self.config.docker.get("enabled", False)) and self.docker_runner is not None:
-                return self.docker_runner
+
+        if risk_level in {"read_only", "writes_workspace"}:
+            logger.debug(
+                "Runner selection: tool='%s' risk='%s' mode='%s' runner='local' reason='low-risk policy'",
+                tool.name,
+                risk_level,
+                mode,
+            )
+            return self.local_runner
+
+        if risk_level in self._DOCKER_ELIGIBLE_RISKS:
+            if mode == "prefer_docker":
+                if bool(self.config.docker.get("enabled", False)) and self.docker_runner is not None:
+                    logger.debug(
+                        "Runner selection: tool='%s' risk='%s' mode='%s' runner='docker' reason='prefer_docker high-risk policy'",
+                        tool.name,
+                        risk_level,
+                        mode,
+                    )
+                    return self.docker_runner
+                reason = (
+                    f"Tool '{tool.name}' (risk '{risk_level}') requires user confirmation "
+                    "for local execution because Docker runner is unavailable"
+                )
+                logger.warning(
+                    "Runner selection blocked: tool='%s' risk='%s' mode='%s' reason='%s'",
+                    tool.name,
+                    risk_level,
+                    mode,
+                    reason,
+                )
+                raise PermissionError(reason)
+
+            logger.debug(
+                "Runner selection: tool='%s' risk='%s' mode='%s' runner='local' reason='execution_mode local_only'",
+                tool.name,
+                risk_level,
+                mode,
+            )
+            return self.local_runner
+
+        logger.debug(
+            "Runner selection: tool='%s' risk='%s' mode='%s' runner='local' reason='fallback'",
+            tool.name,
+            risk_level,
+            mode,
+        )
         return self.local_runner
 
     @staticmethod

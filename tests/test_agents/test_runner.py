@@ -159,12 +159,29 @@ def test_sandbox_selects_docker_runner_for_network_risk_when_enabled() -> None:
     assert sandbox.last_execution_result.runner_used == "docker"
 
 
-def test_sandbox_falls_back_to_local_runner_when_docker_unavailable() -> None:
+def test_sandbox_requires_confirmation_when_prefer_docker_unavailable_for_network_risk() -> None:
     local = RecordingRunner(ToolExecutionResult(stdout="local", runner_used="local"))
     sandbox = ToolSandbox(
         SandboxConfig(
             allow_url_access=True,
             execution_mode="prefer_docker",
+            docker={"enabled": False},
+        ),
+        local_runner=local,
+        docker_runner=None,
+    )
+    with pytest.raises(PermissionError, match="requires user confirmation"):
+        sandbox.execute(NetworkTool(), {})
+    assert local.calls == 0
+    assert sandbox.last_execution_result is None
+
+
+def test_sandbox_uses_local_for_network_risk_when_execution_mode_is_local_only() -> None:
+    local = RecordingRunner(ToolExecutionResult(stdout="local", runner_used="local"))
+    sandbox = ToolSandbox(
+        SandboxConfig(
+            allow_url_access=True,
+            execution_mode="local_only",
             docker={"enabled": False},
         ),
         local_runner=local,
