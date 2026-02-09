@@ -42,6 +42,7 @@ test_config.json
 # Environment variables
 .env
 .env.local
+tests/.env.test
 
 # Logs
 *.log

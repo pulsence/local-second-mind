@@ -4,7 +4,24 @@ All notable changes to Local Second Mind are documented here.
 
 ## Unreleased
 
-- No unreleased changes yet.
+### Added
+
+- Base provider message transport interface in `BaseLLMProvider` with `_send_message(...)` and `_send_streaming_message(...)`.
+- Shared fallback answer helper on `BaseLLMProvider` to replace per-provider `_fallback_answer()` duplication.
+- Shared provider JSON schema constants in `lsm/providers/helpers.py`:
+  - `RERANK_JSON_SCHEMA`
+  - `TAGS_JSON_SCHEMA`
+
+### Changed
+
+- Moved shared LLM business logic into `BaseLLMProvider` concrete methods:
+  - `rerank(...)`
+  - `synthesize(...)`
+  - `stream_synthesize(...)`
+  - `generate_tags(...)`
+- Refactored OpenAI, Azure OpenAI, Anthropic, Gemini, and Local providers to keep provider-specific transport/config logic only.
+- Removed duplicated `rerank/synthesize/stream_synthesize/generate_tags` implementations from provider classes in favor of base implementations.
+- Verified provider factory and exports remain correct after refactor (`lsm/providers/factory.py`, `lsm/providers/__init__.py`).
 
 ## 0.4.0 - 2026-02-08
 

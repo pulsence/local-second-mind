@@ -1,96 +1,88 @@
-﻿# Testing Guide
+# Testing Guide
 
-This guide summarizes the test strategy and how to run tests for LSM.
+This guide defines the tiered test strategy for LSM v0.5.0 development.
 
-## Philosophy
+## Test Tiers
 
-- Prefer unit tests for deterministic logic.
-- Use fixtures for filesystem and config setup.
-- Mock external services (OpenAI, Brave, Chroma) in tests.
-- Keep tests fast and isolated.
+- `smoke`: Fast tests with lightweight fakes, no live services.
+- `integration`: Real embeddings, real ChromaDB, real file parsing, no external network dependencies.
+- `live`: Real external API calls.
+- `live_llm`: Live subset for LLM providers.
+- `live_remote`: Live subset for remote source providers.
+- `docker`: Tests that require Docker runtime support.
+- `performance`: Scale/perf scenarios (run explicitly).
 
-## Install Test Dependencies
+## Default Marker Behavior
 
-```bash
-pip install -e ".[dev]"
+`pytest` now defaults to excluding `live` and `docker` tests via:
+
+```text
+-m "not live and not docker"
 ```
+
+This means `pytest tests/ -v` runs smoke + integration + performance-marked tests that are not also `live`/`docker`.
+
+## Test Runtime Configuration
+
+Test runtime settings are loaded from:
+
+- `tests/.env.test` (local, gitignored)
+- `LSM_TEST_*` environment variables
+
+Template file:
+
+- `tests/.env.test.example`
+
+Supported variables:
+
+- `LSM_TEST_CONFIG`
+- `LSM_TEST_OPENAI_API_KEY`
+- `LSM_TEST_ANTHROPIC_API_KEY`
+- `LSM_TEST_GOOGLE_API_KEY`
+- `LSM_TEST_OLLAMA_BASE_URL`
+- `LSM_TEST_BRAVE_API_KEY`
+- `LSM_TEST_SEMANTIC_SCHOLAR_API_KEY`
+- `LSM_TEST_CORE_API_KEY`
+- `LSM_TEST_EMBED_MODEL` (default: `sentence-transformers/all-MiniLM-L6-v2`)
+- `LSM_TEST_TIER` (`smoke|integration|live`, default: `smoke`)
+
+## Core Infrastructure Fixtures
+
+The following fixtures are available in `tests/conftest.py`:
+
+- `test_config`
+- `real_embedder`
+- `real_chromadb_provider`
+- `real_openai_provider`
+- `real_anthropic_provider`
+- `real_gemini_provider`
+- `real_local_provider`
+- `rich_test_corpus`
+- `populated_chromadb`
+
+Live provider fixtures auto-skip when required credentials are not configured.
 
 ## Running Tests
 
 ```bash
-pytest
+# Default run (excludes live/docker)
+pytest tests/ -v
+
+# Only live tests
+pytest tests/ -v -m "live"
+
+# Everything including live/docker
+pytest tests/ -v -m ""
+
+# Only live LLM tests
+pytest tests/ -v -m "live_llm"
+
+# Only live remote provider tests
+pytest tests/ -v -m "live_remote"
 ```
 
-With coverage:
+## Infrastructure Validation
 
-```bash
-pytest --cov=lsm --cov-report=term-missing
-```
+Configuration loader behavior is covered by:
 
-Single test file:
-
-```bash
-pytest tests/test_ingest/test_parsers.py
-```
-
-Single test function:
-
-```bash
-pytest tests/test_ingest/test_parsers.py::TestParseTxt::test_parse_txt_basic
-```
-
-## Test Layout
-
-```
-tests/
-  conftest.py
-  test_ingest/
-  test_query/
-  test_providers/
-  test_cli/
-  performance/
-```
-
-## Fixtures
-
-Key fixtures live in `tests/conftest.py`:
-
-- sample config dict and files
-- test documents and directories
-- mocked OpenAI client and embedder
-- mocked Chroma collection
-
-## Writing Tests
-
-Guidelines:
-
-- Use `test_<module>.py` filenames.
-- Use `Test<FeatureName>` classes for grouping.
-- Use explicit arrange / act / assert structure.
-
-Example:
-
-```python
-def test_parse_txt_basic(sample_txt_file):
-    text, meta = parse_txt(sample_txt_file)
-    assert "hello" in text
-```
-
-## Coverage Goals
-
-- Short term: 60% coverage
-- Long term: 70%+ coverage
-
-## Performance Tests
-
-Performance tests live under `tests/performance`. Run them selectively:
-
-```bash
-pytest tests/performance/test_large_scale.py
-```
-
-## Troubleshooting
-
-- Import errors: run `pip install -e .`
-- Missing dependencies: check `pyproject.toml` extras
-- Network access: tests should use mocks, not real API calls
+- `tests/test_infrastructure/test_test_config.py`

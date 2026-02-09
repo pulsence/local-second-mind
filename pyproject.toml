@@ -56,11 +56,18 @@ python_files = ["test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
 markers = [
+    "smoke: fast tests with lightweight fakes and no live services",
     "integration: integration-level tests that exercise multi-module flows",
+    "live: tests that make real external API/network calls",
+    "live_llm: live tests for LLM provider APIs",
+    "live_remote: live tests for remote source providers",
+    "docker: tests that require Docker",
     "performance: performance and stress tests",
 ]
 addopts = [
     "--verbose",
+    "-m",
+    "not live and not docker",
     "--cov=lsm",
     "--cov-report=term-missing",
     "--cov-report=html",

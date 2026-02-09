@@ -12,7 +12,7 @@ v0.5.0 focuses on three pillars: (1) eliminating ~1500 lines of duplicated LLM p
 
 ---
 
-## Phase 1: LLM Provider Refactoring
+## Phase 1: LLM Provider Refactoring (COMPLETED)
 
 Five providers (OpenAI 569 LOC, Azure OpenAI 432, Anthropic 344, Gemini 288, Local 262) independently implement identical business logic for `rerank()`, `synthesize()`, `stream_synthesize()`, and `generate_tags()`. The only differences are API call mechanics and response extraction. This phase consolidates shared logic into `BaseLLMProvider` and reduces each provider to its API-specific core.
 
@@ -109,7 +109,7 @@ Already has `_chat()` and `_chat_stream()` that map directly to the new interfac
 
 **Post-block:** Update all provider test files, run `pytest tests/ -v`, update docs, commit.
 
-### 1.4: Validation and Cleanup
+### 1.4: Validation and Cleanup (COMPLETED)
 
 - Verify provider factory creates all providers correctly
 - Ensure no backward-compatible code remains in provider implementations
@@ -124,7 +124,7 @@ Already has `_chat()` and `_chat_stream()` that map directly to the new interfac
 
 Current state: 119 test files, ~1128 tests, almost entirely mock-based. Minimal test data (4 small files). No live service tests, no custom test config, no smoke/live tier separation.
 
-### 2.1: Test Infrastructure and Configuration
+### 2.1: Test Infrastructure and Configuration (COMPLETED)
 
 #### 2.1.1: Create Test Configuration System
 

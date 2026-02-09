@@ -21,6 +21,7 @@ from lsm.config.models import (
     QueryConfig,
     VectorDBConfig,
 )
+from tests.testing_config import TestConfig, load_test_config
 
 
 # -----------------------------------------------------------------------------
@@ -382,3 +383,176 @@ def synthetic_data_root(tmp_path: Path) -> Path:
     dest = tmp_path / "synthetic_data"
     shutil.copytree(source, dest)
     return dest
+
+
+# -----------------------------------------------------------------------------
+# Tier-Aware Test Infrastructure Fixtures
+# -----------------------------------------------------------------------------
+
+@pytest.fixture(scope="session")
+def test_config() -> TestConfig:
+    """
+    Provide resolved test runtime configuration from `LSM_TEST_*`.
+    """
+    return load_test_config()
+
+
+@pytest.fixture(scope="session")
+def real_embedder(test_config: TestConfig):
+    """
+    Load a real sentence-transformers embedder once per test session.
+    """
+    try:
+        from sentence_transformers import SentenceTransformer
+    except Exception as exc:
+        pytest.skip(f"sentence-transformers is unavailable: {exc}")
+
+    try:
+        return SentenceTransformer(test_config.embed_model)
+    except Exception as exc:
+        pytest.skip(f"Failed to load embedding model '{test_config.embed_model}': {exc}")
+
+
+@pytest.fixture
+def real_chromadb_provider(tmp_path: Path):
+    """
+    Create a real ChromaDB provider against an isolated temp directory.
+    """
+    from lsm.vectordb.factory import create_vectordb_provider
+
+    config = VectorDBConfig(
+        provider="chromadb",
+        persist_dir=tmp_path / ".chroma",
+        collection=f"test_{tmp_path.name}",
+    )
+    provider = create_vectordb_provider(config)
+    if not provider.is_available():
+        pytest.skip("ChromaDB provider is unavailable in this environment")
+    return provider
+
+
+def _create_live_provider_or_skip(
+    *,
+    provider_name: str,
+    model: str,
+    api_key: str | None = None,
+    base_url: str | None = None,
+):
+    from lsm.providers.factory import create_provider
+
+    if provider_name != "local" and not api_key:
+        pytest.skip(f"Missing credentials for provider '{provider_name}'")
+    if provider_name == "local" and not base_url:
+        pytest.skip("Set LSM_TEST_OLLAMA_BASE_URL to enable local provider tests")
+
+    config = LLMConfig(
+        provider=provider_name,
+        model=model,
+        api_key=api_key,
+        base_url=base_url,
+    )
+    try:
+        provider = create_provider(config)
+    except Exception as exc:
+        pytest.skip(f"Unable to create {provider_name} provider: {exc}")
+    if not provider.is_available():
+        pytest.skip(f"{provider_name} provider is not available")
+    return provider
+
+
+@pytest.fixture
+def real_openai_provider(test_config: TestConfig):
+    """Create an OpenAI provider using `LSM_TEST_OPENAI_API_KEY`."""
+    return _create_live_provider_or_skip(
+        provider_name="openai",
+        model="gpt-5.2",
+        api_key=test_config.openai_api_key,
+    )
+
+
+@pytest.fixture
+def real_anthropic_provider(test_config: TestConfig):
+    """Create an Anthropic provider using `LSM_TEST_ANTHROPIC_API_KEY`."""
+    return _create_live_provider_or_skip(
+        provider_name="anthropic",
+        model="claude-sonnet-4",
+        api_key=test_config.anthropic_api_key,
+    )
+
+
+@pytest.fixture
+def real_gemini_provider(test_config: TestConfig):
+    """Create a Gemini provider using `LSM_TEST_GOOGLE_API_KEY`."""
+    return _create_live_provider_or_skip(
+        provider_name="gemini",
+        model="gemini-2.5-flash",
+        api_key=test_config.google_api_key,
+    )
+
+
+@pytest.fixture
+def real_local_provider(test_config: TestConfig):
+    """Create a local/Ollama provider using `LSM_TEST_OLLAMA_BASE_URL`."""
+    return _create_live_provider_or_skip(
+        provider_name="local",
+        model="llama3.1",
+        base_url=test_config.ollama_base_url,
+    )
+
+
+@pytest.fixture
+def rich_test_corpus() -> list[str]:
+    """
+    Provide realistic, semantically diverse text used in integration tests.
+    """
+    return [
+        (
+            "Epistemology studies how we justify belief. In a personal knowledge base, "
+            "the key challenge is deciding when a note is evidence versus interpretation."
+        ),
+        (
+            "Retrieval augmented generation combines vector search with language models. "
+            "A retriever finds candidate passages, then a synthesizer forms a grounded answer."
+        ),
+        (
+            "ChromaDB stores dense vector embeddings with metadata filters. "
+            "Metadata like source_path, language, and tags makes retrieval auditable."
+        ),
+        (
+            "Incremental ingest avoids reprocessing unchanged files by hashing content "
+            "and comparing manifest metadata such as modification timestamps."
+        ),
+        (
+            "Citations improve trust in generated answers because readers can inspect "
+            "the underlying passages and verify whether claims are supported."
+        ),
+        (
+            "Local-first systems prioritize user control: documents remain on-device, "
+            "and network calls are optional rather than required for core workflows."
+        ),
+    ]
+
+
+@pytest.fixture
+def populated_chromadb(real_chromadb_provider, real_embedder, rich_test_corpus: list[str]):
+    """
+    Populate a real ChromaDB provider with embeddings for the rich test corpus.
+    """
+    try:
+        vectors = real_embedder.encode(rich_test_corpus, convert_to_numpy=True)
+    except Exception as exc:
+        pytest.skip(f"Failed to embed rich test corpus: {exc}")
+
+    embeddings = vectors.tolist() if hasattr(vectors, "tolist") else list(vectors)
+    ids = [f"corpus_{idx}" for idx in range(len(rich_test_corpus))]
+    metadatas = [
+        {"source_path": f"/synthetic/doc_{idx}.txt", "chunk_index": idx}
+        for idx in range(len(rich_test_corpus))
+    ]
+    real_chromadb_provider.add_chunks(
+        ids=ids,
+        documents=rich_test_corpus,
+        metadatas=metadatas,
+        embeddings=embeddings,
+    )
+    return real_chromadb_provider
