@@ -2,9 +2,52 @@
 Tests for BaseLLMProvider abstract interface.
 """
 
+from types import SimpleNamespace
+
 import pytest
 
 from lsm.providers.base import BaseLLMProvider
+
+
+class ConcreteProvider(BaseLLMProvider):
+    def __init__(self, *, send_response="ok", stream_chunks=None, fail_send=False, config=None):
+        self._send_response = send_response
+        self._stream_chunks = stream_chunks if stream_chunks is not None else ["ok"]
+        self._fail_send = fail_send
+        self._config = config or SimpleNamespace(temperature=0.3, max_tokens=128)
+        self.last_send_args = None
+        super().__init__()
+
+    @property
+    def config(self):
+        return self._config
+
+    @property
+    def name(self) -> str:
+        return "test"
+
+    @property
+    def model(self) -> str:
+        return "test-model"
+
+    def is_available(self) -> bool:
+        return True
+
+    def _send_message(self, system, user, temperature, max_tokens, **kwargs):
+        if self._fail_send:
+            raise RuntimeError("send failed")
+        self.last_send_args = {
+            "system": system,
+            "user": user,
+            "temperature": temperature,
+            "max_tokens": max_tokens,
+            "kwargs": kwargs,
+        }
+        return self._send_response
+
+    def _send_streaming_message(self, system, user, temperature, max_tokens, **kwargs):
+        for chunk in self._stream_chunks:
+            yield chunk
 
 
 class TestBaseLLMProvider:
@@ -195,3 +238,35 @@ class TestBaseLLMProvider:
         provider = CompleteProvider()
         fallback = provider._fallback_answer("Q?", "ctx")
         assert "test-provider" in fallback
+
+    def test_concrete_rerank_and_parse(self):
+        provider = ConcreteProvider(
+            send_response='{"ranking":[{"index":1,"reason":"better"},{"index":0,"reason":"backup"}]}'
+        )
+        candidates = [
+            {"text": "alpha", "metadata": {"source_path": "a.txt"}},
+            {"text": "beta", "metadata": {"source_path": "b.txt"}},
+        ]
+
+        result = provider.rerank("q", candidates, 1)
+
+        assert result == [candidates[1]]
+        assert provider.last_send_args is not None
+        assert provider.last_send_args["kwargs"]["json_schema_name"] == "rerank_response"
+
+    def test_concrete_synthesize_and_fallback(self):
+        provider = ConcreteProvider(send_response="answer text")
+        answer = provider.synthesize("what?", "[S1] context")
+        assert answer == "answer text"
+
+        failed = ConcreteProvider(fail_send=True)
+        fallback = failed.synthesize("what?", "[S1] context")
+        assert "Offline mode" in fallback
+
+    def test_concrete_stream_and_generate_tags(self):
+        stream_provider = ConcreteProvider(stream_chunks=["a", "b"])
+        assert list(stream_provider.stream_synthesize("q", "ctx")) == ["a", "b"]
+
+        tag_provider = ConcreteProvider(send_response='{"tags":["Tag One","Tag Two"]}')
+        tags = tag_provider.generate_tags("text", num_tags=1)
+        assert tags == ["tag one"]

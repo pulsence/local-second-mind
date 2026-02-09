@@ -16,7 +16,7 @@ v0.5.0 focuses on three pillars: (1) eliminating ~1500 lines of duplicated LLM p
 
 Five providers (OpenAI 569 LOC, Azure OpenAI 432, Anthropic 344, Gemini 288, Local 262) independently implement identical business logic for `rerank()`, `synthesize()`, `stream_synthesize()`, and `generate_tags()`. The only differences are API call mechanics and response extraction. This phase consolidates shared logic into `BaseLLMProvider` and reduces each provider to its API-specific core.
 
-### 1.1: Define Base Message Interface
+### 1.1: Define Base Message Interface (COMPLETED)
 
 Add two abstract methods and one concrete helper to `BaseLLMProvider`.
 

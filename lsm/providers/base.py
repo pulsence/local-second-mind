@@ -7,11 +7,23 @@ Defines the contract that all LLM providers must implement.
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from datetime import datetime, timedelta
+import json
 import time
 from typing import List, Dict, Any, Optional, Callable, Iterable
 
 from lsm.logging import get_logger
-from .helpers import generate_fallback_answer
+from .helpers import (
+    RERANK_INSTRUCTIONS,
+    RERANK_JSON_SCHEMA,
+    TAGS_JSON_SCHEMA,
+    format_user_content,
+    generate_fallback_answer,
+    get_synthesis_instructions,
+    get_tag_instructions,
+    parse_json_payload,
+    parse_ranking_response,
+    prepare_candidates_for_rerank,
+)
 
 logger = get_logger(__name__)
 
@@ -109,7 +121,6 @@ class BaseLLMProvider(ABC):
         """
         pass
 
-    @abstractmethod
     def rerank(
         self,
         question: str,
@@ -129,12 +140,41 @@ class BaseLLMProvider(ABC):
         Returns:
             Reranked list of candidates (top k)
 
-        Raises:
-            Exception: If reranking fails
         """
-        pass
+        if not candidates:
+            return []
 
-    @abstractmethod
+        k = max(1, min(k, len(candidates)))
+        payload = {
+            "question": question,
+            "top_n": k,
+            "candidates": prepare_candidates_for_rerank(candidates),
+        }
+        instructions = RERANK_INSTRUCTIONS.format(k=k)
+
+        try:
+            raw = self._send_message(
+                system=instructions,
+                user=json.dumps(payload),
+                temperature=0.2,
+                max_tokens=400,
+                json_schema=RERANK_JSON_SCHEMA,
+                json_schema_name="rerank_response",
+                reasoning_effort="low",
+                **kwargs,
+            )
+            data = parse_json_payload(raw)
+            ranking = data.get("ranking", []) if isinstance(data, dict) else None
+            if not isinstance(ranking, list):
+                self._record_failure(ValueError("Invalid rerank response"), "rerank")
+                return candidates[:k]
+            chosen = parse_ranking_response(ranking, candidates, k)
+            self._record_success("rerank")
+            return chosen
+        except Exception as e:
+            self._record_failure(e, "rerank")
+            return candidates[:k]
+
     def synthesize(
         self,
         question: str,
@@ -154,12 +194,28 @@ class BaseLLMProvider(ABC):
         Returns:
             Generated answer text
 
-        Raises:
-            Exception: If synthesis fails
         """
-        pass
+        instructions = get_synthesis_instructions(mode)
+        user_content = format_user_content(question, context)
+        opts = dict(kwargs)
+        temperature = opts.pop("temperature", self._default_temperature())
+        max_tokens = int(opts.pop("max_tokens", self._default_max_tokens()))
 
-    @abstractmethod
+        try:
+            answer = self._send_message(
+                system=instructions,
+                user=user_content,
+                temperature=temperature,
+                max_tokens=max_tokens,
+                reasoning_effort="medium",
+                **opts,
+            )
+            self._record_success("synthesize")
+            return answer
+        except Exception as e:
+            self._record_failure(e, "synthesize")
+            return self._fallback_answer(question, context)
+
     def stream_synthesize(
         self,
         question: str,
@@ -179,12 +235,33 @@ class BaseLLMProvider(ABC):
         Yields:
             Text chunks as they are generated
 
-        Raises:
-            Exception: If streaming fails
         """
-        pass
+        instructions = get_synthesis_instructions(mode)
+        user_content = format_user_content(question, context)
+        opts = dict(kwargs)
+        temperature = opts.pop("temperature", self._default_temperature())
+        max_tokens = int(opts.pop("max_tokens", self._default_max_tokens()))
 
-    @abstractmethod
+        try:
+            emitted = False
+            for chunk in self._send_streaming_message(
+                system=instructions,
+                user=user_content,
+                temperature=temperature,
+                max_tokens=max_tokens,
+                reasoning_effort="medium",
+                **opts,
+            ):
+                if chunk:
+                    emitted = True
+                    yield chunk
+            self._record_success("stream_synthesize")
+            if not emitted:
+                logger.warning(f"{self.name}/{self.model} streaming synthesis emitted no text")
+        except Exception as e:
+            self._record_failure(e, "stream_synthesize")
+            raise
+
     def generate_tags(
         self,
         text: str,
@@ -204,10 +281,41 @@ class BaseLLMProvider(ABC):
         Returns:
             List of generated tag strings
 
-        Raises:
-            Exception: If tag generation fails
         """
-        pass
+        instructions = get_tag_instructions(num_tags, existing_tags)
+        user_content = f"Text:\n{text[:2000]}"
+        opts = dict(kwargs)
+        temperature = opts.pop("temperature", self._default_temperature())
+        max_tokens = int(min(opts.pop("max_tokens", self._default_max_tokens()), 200))
+
+        try:
+            raw = self._send_message(
+                system=instructions,
+                user=user_content,
+                temperature=temperature,
+                max_tokens=max_tokens,
+                json_schema=TAGS_JSON_SCHEMA,
+                json_schema_name="tags_response",
+                reasoning_effort="low",
+                **opts,
+            )
+            data = parse_json_payload(raw)
+            tags: Optional[List[Any]] = None
+            if isinstance(data, dict) and isinstance(data.get("tags"), list):
+                tags = data["tags"]
+            elif isinstance(data, list):
+                tags = data
+
+            if tags and all(isinstance(tag, str) for tag in tags):
+                cleaned = [tag.lower().strip() for tag in tags if tag.strip()]
+                self._record_success("generate_tags")
+                return cleaned[:num_tags]
+
+            self._record_failure(ValueError("Failed to parse tag response"), "generate_tags")
+            return []
+        except Exception as e:
+            self._record_failure(e, "generate_tags")
+            return []
 
     @abstractmethod
     def is_available(self) -> bool:
@@ -422,3 +530,11 @@ class BaseLLMProvider(ABC):
             provider_name=self.name,
             max_chars=max_chars,
         )
+
+    def _default_temperature(self) -> Optional[float]:
+        config = getattr(self, "config", None)
+        return getattr(config, "temperature", None)
+
+    def _default_max_tokens(self) -> int:
+        config = getattr(self, "config", None)
+        return int(getattr(config, "max_tokens", 2000))

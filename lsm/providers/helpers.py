@@ -60,6 +60,38 @@ Output requirements:
 - Include exactly {num_tags} tags.
 """
 
+RERANK_JSON_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "ranking": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "index": {"type": "integer"},
+                    "reason": {"type": "string"},
+                },
+                "required": ["index", "reason"],
+                "additionalProperties": False,
+            },
+        }
+    },
+    "required": ["ranking"],
+    "additionalProperties": False,
+}
+
+TAGS_JSON_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "tags": {
+            "type": "array",
+            "items": {"type": "string"},
+        }
+    },
+    "required": ["tags"],
+    "additionalProperties": False,
+}
+
 
 def prepare_candidates_for_rerank(
     candidates: List[Dict[str, Any]],
