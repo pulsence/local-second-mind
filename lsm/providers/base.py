@@ -311,6 +311,12 @@ class BaseLLMProvider(ABC):
                 self._record_success("generate_tags")
                 return cleaned[:num_tags]
 
+            if isinstance(raw, str) and "{" not in raw and "[" not in raw:
+                cleaned = [tag.strip().lower() for tag in raw.split(",") if tag.strip()]
+                if cleaned:
+                    self._record_success("generate_tags")
+                    return cleaned[:num_tags]
+
             self._record_failure(ValueError("Failed to parse tag response"), "generate_tags")
             return []
         except Exception as e:

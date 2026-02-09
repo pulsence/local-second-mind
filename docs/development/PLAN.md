@@ -30,7 +30,7 @@ Add two abstract methods and one concrete helper to `BaseLLMProvider`.
 
 **Post-block:** tests in `tests/test_providers/test_base.py`, run `pytest tests/ -v`, update `docs/`, commit.
 
-### 1.2: Move Business Logic to Base Class as Concrete Methods
+### 1.2: Move Business Logic to Base Class as Concrete Methods (COMPLETED)
 
 Convert `rerank()`, `synthesize()`, `stream_synthesize()`, `generate_tags()` from abstract to concrete in `BaseLLMProvider`. They format prompts using existing `helpers.py` utilities and delegate to `_send_message` / `_send_streaming_message`.
 
@@ -64,7 +64,7 @@ Convert `rerank()`, `synthesize()`, `stream_synthesize()`, `generate_tags()` fro
 
 **Post-block:** tests for each concrete method in `tests/test_providers/test_base.py` using a minimal test provider subclass, run `pytest tests/ -v`, update docs, commit.
 
-### 1.3: Refactor Each Provider
+### 1.3: Refactor Each Provider (COMPLETED)
 
 Each provider is reduced to: `__init__`, `name`, `model`, `is_available()`, `list_models()`, `get_model_pricing()`, `_send_message()`, `_send_streaming_message()`, and provider-specific helpers. All duplicated `rerank/synthesize/stream_synthesize/generate_tags/_fallback_answer` implementations are deleted.
 
