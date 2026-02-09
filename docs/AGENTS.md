@@ -72,9 +72,12 @@ Sandbox rules are defined in `agents.sandbox` and enforced by `ToolSandbox`.
 - `allowed_write_paths`: writable locations for file tools
 - `allow_url_access`: permits/disallows URL tools
 - `require_user_permission`: per-tool interactive gate
+- `require_permission_by_risk`: per-risk interactive gate (`read_only`, `writes_workspace`, `network`, `exec`)
 - `tool_llm_assignments`: optional per-tool service mapping
 
 The sandbox is deny-by-default outside configured paths.
+Permission precedence is:
+`require_user_permission[tool]` -> `require_permission_by_risk[risk_level]` -> `tool.requires_permission` -> allow.
 
 ## Built-In Tools
 

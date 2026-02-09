@@ -8,6 +8,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List
 
+_VALID_RISK_LEVELS = {"read_only", "writes_workspace", "network", "exec"}
+
 
 @dataclass
 class SandboxConfig:
@@ -27,12 +29,30 @@ class SandboxConfig:
     require_user_permission: Dict[str, bool] = field(default_factory=dict)
     """Per-tool permission gate (`tool_name -> bool`)."""
 
+    require_permission_by_risk: Dict[str, bool] = field(default_factory=dict)
+    """Per-risk permission gate (`risk_level -> bool`)."""
+
     tool_llm_assignments: Dict[str, str] = field(default_factory=dict)
     """Per-tool LLM service assignment (`tool_name -> service_name`)."""
 
     def __post_init__(self) -> None:
         self.allowed_read_paths = [Path(path).expanduser() for path in self.allowed_read_paths]
         self.allowed_write_paths = [Path(path).expanduser() for path in self.allowed_write_paths]
+        self.require_user_permission = {
+            str(key).strip(): bool(value)
+            for key, value in self.require_user_permission.items()
+            if str(key).strip()
+        }
+        self.require_permission_by_risk = {
+            str(key).strip().lower(): bool(value)
+            for key, value in self.require_permission_by_risk.items()
+            if str(key).strip()
+        }
+        self.tool_llm_assignments = {
+            str(key).strip(): str(value).strip()
+            for key, value in self.tool_llm_assignments.items()
+            if str(key).strip()
+        }
 
     def validate(self) -> None:
         """Validate sandbox configuration."""
@@ -42,6 +62,12 @@ class SandboxConfig:
         for idx, path in enumerate(self.allowed_write_paths):
             if not str(path).strip():
                 raise ValueError(f"sandbox.allowed_write_paths[{idx}] cannot be empty")
+        for risk_level in self.require_permission_by_risk.keys():
+            if risk_level not in _VALID_RISK_LEVELS:
+                raise ValueError(
+                    "sandbox.require_permission_by_risk keys must be one of: "
+                    "read_only, writes_workspace, network, exec"
+                )
 
 
 @dataclass
@@ -86,4 +112,3 @@ class AgentConfig:
         if not isinstance(self.agent_configs, dict):
             raise ValueError("agents.agent_configs must be a dict")
         self.sandbox.validate()
-

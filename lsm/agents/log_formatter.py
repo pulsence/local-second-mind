@@ -9,6 +9,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import List
 
+from .log_redactor import redact_secrets
 from .models import AgentLogEntry
 
 
@@ -30,7 +31,7 @@ def format_agent_log(entries: List[AgentLogEntry]) -> str:
             lines.append(
                 f"LLM (Provider: {entry.provider_name or 'unknown'}: {entry.model_name or 'unknown'})"
             )
-        lines.append(f"Agent: {entry.content}")
+        lines.append(f"Agent: {redact_secrets(entry.content)}")
         if entry.action:
             lines.append(f"Requested Action: {entry.action}")
         if entry.action_arguments:
@@ -56,7 +57,7 @@ def save_agent_log(entries: List[AgentLogEntry], path: Path) -> Path:
             "actor": entry.actor,
             "provider_name": entry.provider_name,
             "model_name": entry.model_name,
-            "content": entry.content,
+            "content": redact_secrets(entry.content),
             "action": entry.action,
             "action_arguments": entry.action_arguments,
         }
@@ -92,4 +93,3 @@ def load_agent_log(path: Path) -> List[AgentLogEntry]:
             )
         )
     return entries
-

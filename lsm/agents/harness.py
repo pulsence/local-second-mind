@@ -15,6 +15,7 @@ from lsm.config.models import AgentConfig, LLMRegistryConfig
 from lsm.logging import get_logger
 from lsm.providers.factory import create_provider
 
+from .log_redactor import redact_secrets
 from .base import AgentState, AgentStatus
 from .models import AgentContext, AgentLogEntry, ToolResponse
 from .tools.base import ToolRegistry
@@ -123,11 +124,12 @@ class AgentHarness:
                 tool = self.tool_registry.lookup(action)
                 tool_output = self.sandbox.execute(tool, tool_response.action_arguments)
                 self._consume_tokens(tool_output)
+                redacted_tool_output = redact_secrets(tool_output)
                 self._append_log(
                     AgentLogEntry(
                         timestamp=datetime.utcnow(),
                         actor="tool",
-                        content=tool_output,
+                        content=redacted_tool_output,
                         action=action,
                         action_arguments=tool_response.action_arguments,
                     )
@@ -136,7 +138,7 @@ class AgentHarness:
                     {
                         "role": "tool",
                         "name": action,
-                        "content": tool_output,
+                        "content": redacted_tool_output,
                     }
                 )
 
@@ -227,7 +229,7 @@ class AgentHarness:
             "created_at": self.state.created_at.isoformat(),
             "updated_at": self.state.updated_at.isoformat(),
             "context": {
-                "messages": self.context.messages if self.context else [],
+                "messages": self._serialize_context_messages() if self.context else [],
                 "tool_definitions": self.context.tool_definitions if self.context else [],
                 "budget_tracking": self.context.budget_tracking if self.context else {},
             },
@@ -237,7 +239,7 @@ class AgentHarness:
                     "actor": entry.actor,
                     "provider_name": entry.provider_name,
                     "model_name": entry.model_name,
-                    "content": entry.content,
+                    "content": redact_secrets(entry.content),
                     "action": entry.action,
                     "action_arguments": entry.action_arguments,
                 }
@@ -256,6 +258,7 @@ class AgentHarness:
         self._state_path = self.agent_config.agents_folder / filename
 
     def _append_log(self, entry: AgentLogEntry) -> None:
+        entry.content = redact_secrets(entry.content)
         self.state.add_log(entry)
 
     def _parse_tool_response(self, raw_response: str) -> ToolResponse:
@@ -326,3 +329,13 @@ class AgentHarness:
         limit = int(self.context.budget_tracking.get("max_tokens_budget", self.agent_config.max_tokens_budget))
         return used >= limit
 
+    def _serialize_context_messages(self) -> list[Dict[str, Any]]:
+        if self.context is None:
+            return []
+        sanitized: list[Dict[str, Any]] = []
+        for message in self.context.messages:
+            serialized = dict(message)
+            if "content" in serialized:
+                serialized["content"] = redact_secrets(str(serialized.get("content", "")))
+            sanitized.append(serialized)
+        return sanitized

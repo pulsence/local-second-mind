@@ -476,6 +476,7 @@ def build_sandbox_config(raw: Dict[str, Any]) -> SandboxConfig:
         allowed_write_paths=[Path(p) for p in raw.get("allowed_write_paths", [])],
         allow_url_access=bool(raw.get("allow_url_access", False)),
         require_user_permission=dict(raw.get("require_user_permission", {})),
+        require_permission_by_risk=dict(raw.get("require_permission_by_risk", {})),
         tool_llm_assignments=dict(raw.get("tool_llm_assignments", {})),
     )
 
@@ -983,6 +984,7 @@ def config_to_raw(config: LSMConfig) -> Dict[str, Any]:
                 "allowed_write_paths": [str(p) for p in config.agents.sandbox.allowed_write_paths],
                 "allow_url_access": config.agents.sandbox.allow_url_access,
                 "require_user_permission": dict(config.agents.sandbox.require_user_permission),
+                "require_permission_by_risk": dict(config.agents.sandbox.require_permission_by_risk),
                 "tool_llm_assignments": dict(config.agents.sandbox.tool_llm_assignments),
             },
             "agent_configs": dict(config.agents.agent_configs),

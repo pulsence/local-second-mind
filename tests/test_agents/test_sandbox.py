@@ -32,7 +32,8 @@ class LoadURLLikeTool(BaseTool):
     name = "load_url"
     description = "url"
     input_schema = {"type": "object", "properties": {"url": {"type": "string"}}}
-    requires_permission = True
+    risk_level = "network"
+    needs_network = True
 
     def execute(self, args: dict) -> str:
         return "ok"
@@ -87,7 +88,7 @@ def test_sandbox_blocks_url_access_when_disabled(tmp_path: Path) -> None:
         )
     )
     tool = LoadURLLikeTool()
-    with pytest.raises(PermissionError, match="URL access is disabled"):
+    with pytest.raises(PermissionError, match="Network access is disabled"):
         sandbox.execute(tool, {"url": "https://example.com"})
 
 
@@ -99,4 +100,3 @@ def test_sandbox_rejects_local_paths_outside_global() -> None:
             SandboxConfig(allowed_read_paths=[outside_root]),
             global_sandbox=SandboxConfig(allowed_read_paths=[global_root]),
         )
-

@@ -78,6 +78,7 @@ def test_build_config_reads_agents_section(tmp_path: Path) -> None:
             "allowed_write_paths": [str(tmp_path / "out")],
             "allow_url_access": True,
             "require_user_permission": {"write_file": True},
+            "require_permission_by_risk": {"network": True},
             "tool_llm_assignments": {"query_remote": "decomposition"},
         },
         "agent_configs": {
@@ -93,6 +94,7 @@ def test_build_config_reads_agents_section(tmp_path: Path) -> None:
     assert config.agents.context_window_strategy == "fresh"
     assert config.agents.sandbox.allow_url_access is True
     assert config.agents.sandbox.require_user_permission["write_file"] is True
+    assert config.agents.sandbox.require_permission_by_risk["network"] is True
     assert config.agents.sandbox.tool_llm_assignments["query_remote"] == "decomposition"
     assert config.agents.agent_configs["research"]["max_iterations"] == 10
 
@@ -118,6 +120,7 @@ def test_config_to_raw_includes_agents_section(tmp_path: Path) -> None:
             "allowed_write_paths": [str(tmp_path / "out")],
             "allow_url_access": False,
             "require_user_permission": {"write_file": True},
+            "require_permission_by_risk": {"writes_workspace": True},
             "tool_llm_assignments": {"query_llm": "default"},
         },
         "agent_configs": {"research": {"enabled": True}},
@@ -131,4 +134,11 @@ def test_config_to_raw_includes_agents_section(tmp_path: Path) -> None:
     assert serialized["agents"]["max_iterations"] == 3
     assert serialized["agents"]["context_window_strategy"] == "compact"
     assert serialized["agents"]["sandbox"]["require_user_permission"]["write_file"] is True
+    assert serialized["agents"]["sandbox"]["require_permission_by_risk"]["writes_workspace"] is True
     assert serialized["agents"]["agent_configs"]["research"]["enabled"] is True
+
+
+def test_sandbox_config_validate_rejects_unknown_risk_level() -> None:
+    cfg = SandboxConfig(require_permission_by_risk={"unknown": True})
+    with pytest.raises(ValueError, match="require_permission_by_risk"):
+        cfg.validate()

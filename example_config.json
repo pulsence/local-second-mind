@@ -137,6 +137,11 @@
         "write_file": true,
         "load_url": true
       },
+      "require_permission_by_risk": {
+        "writes_workspace": true,
+        "network": true,
+        "exec": true
+      },
       "tool_llm_assignments": {}
     },
     "agent_configs": {}

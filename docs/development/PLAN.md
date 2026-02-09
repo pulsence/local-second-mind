@@ -356,7 +356,7 @@ Current state: functional framework (BaseAgent, AgentHarness, 9 tools, ToolSandb
 
 **Security documentation:** Phase 3 produces `docs/development/SECURITY.md` documenting the full threat model, STRIDE categories, attack surface inventory, testing methodology, and instructions for extending coverage when adding new tools or agents.
 
-### 3.1: Tool Risk Metadata and Registry Enhancements
+### 3.1: Tool Risk Metadata and Registry Enhancements (COMPLETED)
 
 #### 3.1.1: Add Risk Metadata to BaseTool
 
@@ -386,7 +386,7 @@ Update `get_definition()` to include risk fields.
 
 **Post-block:** `tests/test_agents/test_tool_risk_metadata.py`, run tests, update `docs/AGENTS.md`, commit.
 
-### 3.2: Sandbox Security Hardening
+### 3.2: Sandbox Security Hardening (COMPLETED)
 
 #### 3.2.1: Harden Path Canonicalization
 
