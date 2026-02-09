@@ -3,7 +3,11 @@ from __future__ import annotations
 import pytest
 
 from lsm.agents.tools import (
+    AppendFileTool,
     CreateFolderTool,
+    ExtractSnippetsTool,
+    FileMetadataTool,
+    HashFileTool,
     LoadURLTool,
     QueryEmbeddingsTool,
     QueryLLMTool,
@@ -11,6 +15,8 @@ from lsm.agents.tools import (
     QueryRemoteTool,
     ReadFileTool,
     ReadFolderTool,
+    SimilaritySearchTool,
+    SourceMapTool,
     WriteFileTool,
 )
 from lsm.agents.tools.base import BaseTool, ToolRegistry
@@ -45,8 +51,14 @@ def test_base_tool_definition_includes_risk_metadata_defaults() -> None:
     [
         (ReadFileTool, "read_only", False),
         (ReadFolderTool, "read_only", False),
+        (FileMetadataTool, "read_only", False),
+        (HashFileTool, "read_only", False),
+        (ExtractSnippetsTool, "read_only", False),
+        (SimilaritySearchTool, "read_only", False),
+        (SourceMapTool, "read_only", False),
         (QueryEmbeddingsTool, "read_only", False),
         (WriteFileTool, "writes_workspace", False),
+        (AppendFileTool, "writes_workspace", False),
         (CreateFolderTool, "writes_workspace", False),
         (LoadURLTool, "network", True),
         (QueryLLMTool, "network", True),

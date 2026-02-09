@@ -592,7 +592,7 @@ Update `ToolSandbox.execute()`:
 
 **Post-block:** `tests/test_agents/test_runner.py`, run tests, update docs and `example_config.json`, commit.
 
-### 3.5: Docker Sandbox Foundation
+### 3.5: Docker Sandbox Foundation (COMPLETED)
 
 Preliminary DockerRunner for future high-risk tools. No agents or tools require it in v0.5.0.
 
@@ -622,7 +622,7 @@ Update `ToolSandbox._select_runner()`:
 
 **Post-block:** `tests/test_agents/test_docker_runner.py` (marked `@pytest.mark.docker`), `tests/test_agents/test_runner_policy.py`, run tests, update docs, commit.
 
-### 3.6: New Agent Tools (MVP Set)
+### 3.6: New Agent Tools (MVP Set) (COMPLETED)
 
 Six tools needed by the planned Writing, Synthesis, and Curator agents.
 
