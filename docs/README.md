@@ -44,6 +44,7 @@ This project is maintained for personal use first.
 
 - [Setup](development/SETUP.md)
 - [Testing](development/TESTING.md)
+- [Development Plan](development/PLAN.md)
 - [Changelog](development/CHANGELOG.md)
 
 ## Version
