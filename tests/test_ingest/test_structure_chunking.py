@@ -43,6 +43,9 @@ class TestDetectHeading:
     def test_bold_line(self):
         assert _detect_heading("**Bold Heading**") == "Bold Heading"
 
+    def test_html_heading(self):
+        assert _detect_heading("<h2>HTML Section</h2>") == "HTML Section"
+
     def test_regular_text(self):
         assert _detect_heading("Just a regular paragraph.") is None
 

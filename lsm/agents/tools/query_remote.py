@@ -60,7 +60,7 @@ class QueryRemoteTool(BaseTool):
 
     @staticmethod
     def _provider_config_to_dict(provider_cfg: RemoteProviderConfig) -> Dict[str, Any]:
-        return {
+        config: Dict[str, Any] = {
             "type": provider_cfg.type,
             "weight": provider_cfg.weight,
             "api_key": provider_cfg.api_key,
@@ -74,4 +74,6 @@ class QueryRemoteTool(BaseTool):
             "snippet_max_chars": provider_cfg.snippet_max_chars,
             "include_disambiguation": provider_cfg.include_disambiguation,
         }
-
+        if provider_cfg.extra:
+            config.update(provider_cfg.extra)
+        return config

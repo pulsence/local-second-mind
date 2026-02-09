@@ -23,6 +23,27 @@ from lsm.logging import get_logger
 logger = get_logger(__name__)
 
 
+def _remote_provider_runtime_config(provider_config: Any, effective_weight: float) -> Dict[str, Any]:
+    """Build provider runtime config preserving provider-specific passthrough fields."""
+    runtime_config: Dict[str, Any] = {
+        "type": provider_config.type,
+        "weight": effective_weight,
+        "api_key": provider_config.api_key,
+        "endpoint": provider_config.endpoint,
+        "max_results": provider_config.max_results,
+        "language": provider_config.language,
+        "user_agent": provider_config.user_agent,
+        "timeout": provider_config.timeout,
+        "min_interval_seconds": provider_config.min_interval_seconds,
+        "section_limit": provider_config.section_limit,
+        "snippet_max_chars": provider_config.snippet_max_chars,
+        "include_disambiguation": provider_config.include_disambiguation,
+    }
+    if getattr(provider_config, "extra", None):
+        runtime_config.update(provider_config.extra)
+    return runtime_config
+
+
 # -----------------------------
 # Context Block Building
 # -----------------------------
@@ -289,20 +310,7 @@ def fetch_remote_sources(
             if raw_results is None:
                 provider = create_remote_provider(
                     provider_config.type,
-                    {
-                        "type": provider_config.type,
-                        "weight": effective_weight,
-                        "api_key": provider_config.api_key,
-                        "endpoint": provider_config.endpoint,
-                        "max_results": provider_config.max_results,
-                        "language": provider_config.language,
-                        "user_agent": provider_config.user_agent,
-                        "timeout": provider_config.timeout,
-                        "min_interval_seconds": provider_config.min_interval_seconds,
-                        "section_limit": provider_config.section_limit,
-                        "snippet_max_chars": provider_config.snippet_max_chars,
-                        "include_disambiguation": provider_config.include_disambiguation,
-                    }
+                    _remote_provider_runtime_config(provider_config, effective_weight),
                 )
 
                 max_results = provider_config.max_results or remote_policy.max_results

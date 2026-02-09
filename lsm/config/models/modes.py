@@ -5,7 +5,7 @@ Query mode and source policy configuration models.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import List, Optional, Union
+from typing import Any, Dict, List, Optional, Union
 
 from .constants import DEFAULT_K, DEFAULT_K_RERANK, DEFAULT_MIN_RELEVANCE
 
@@ -276,6 +276,9 @@ class RemoteProviderConfig:
 
     cache_ttl: int = 86400
     """Cache TTL in seconds for provider result reuse."""
+
+    extra: Dict[str, Any] = field(default_factory=dict)
+    """Provider-specific passthrough options preserved from config."""
 
     def validate(self) -> None:
         """Validate provider configuration."""

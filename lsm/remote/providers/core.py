@@ -133,7 +133,17 @@ class COREProvider(BaseRemoteProvider):
         ]
 
     def get_output_fields(self) -> List[Dict[str, Any]]:
-        return super().get_output_fields()
+        return super().get_output_fields() + [
+            {"name": "core_id", "type": "string", "description": "CORE work identifier."},
+            {"name": "repositories", "type": "array[string]", "description": "Repository names."},
+            {"name": "has_full_text", "type": "boolean", "description": "Full-text availability flag."},
+            {"name": "full_text_url", "type": "string", "description": "Full text URL."},
+            {"name": "download_url", "type": "string", "description": "Direct download URL."},
+            {"name": "language", "type": "string", "description": "Language code."},
+            {"name": "publisher", "type": "string", "description": "Publisher name."},
+            {"name": "journal", "type": "string", "description": "Journal title."},
+            {"name": "citation", "type": "string", "description": "Formatted citation string."},
+        ]
 
     def get_description(self) -> str:
         return "Open access research provider aggregating repository and journal content."

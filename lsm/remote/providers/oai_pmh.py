@@ -969,7 +969,18 @@ class OAIPMHProvider(BaseRemoteProvider):
         ]
 
     def get_output_fields(self) -> List[Dict[str, Any]]:
-        return super().get_output_fields()
+        return super().get_output_fields() + [
+            {"name": "oai_identifier", "type": "string", "description": "OAI-PMH identifier."},
+            {"name": "repository", "type": "string", "description": "Repository display name."},
+            {"name": "subjects", "type": "array[string]", "description": "Record subjects."},
+            {"name": "types", "type": "array[string]", "description": "Resource types."},
+            {"name": "publisher", "type": "string", "description": "Publisher name."},
+            {"name": "source", "type": "string", "description": "Source collection/journal."},
+            {"name": "languages", "type": "array[string]", "description": "Language tags."},
+            {"name": "datestamp", "type": "string", "description": "OAI datestamp."},
+            {"name": "sets", "type": "array[string]", "description": "OAI set spec values."},
+            {"name": "citation", "type": "string", "description": "Formatted citation string."},
+        ]
 
     def get_description(self) -> str:
         return "OAI-PMH harvester for repository metadata with client-side relevance filtering."

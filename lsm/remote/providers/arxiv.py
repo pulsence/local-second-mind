@@ -149,7 +149,15 @@ class ArXivProvider(BaseRemoteProvider):
         ]
 
     def get_output_fields(self) -> List[Dict[str, Any]]:
-        return super().get_output_fields()
+        return super().get_output_fields() + [
+            {"name": "arxiv_id", "type": "string", "description": "arXiv identifier."},
+            {"name": "categories", "type": "array[string]", "description": "arXiv categories."},
+            {"name": "primary_category", "type": "string", "description": "Primary arXiv category."},
+            {"name": "published", "type": "string", "description": "Published timestamp."},
+            {"name": "updated", "type": "string", "description": "Updated timestamp."},
+            {"name": "pdf_url", "type": "string", "description": "Direct PDF URL when available."},
+            {"name": "citation", "type": "string", "description": "Formatted citation string."},
+        ]
 
     def get_description(self) -> str:
         return "Academic preprint provider for arXiv papers across STEM fields."

@@ -416,6 +416,30 @@ def test_config_to_raw_includes_remote_cache_fields(tmp_path: Path) -> None:
     assert serialized["remote_providers"][0]["cache_ttl"] == 7200
 
 
+def test_remote_provider_extra_fields_roundtrip(tmp_path: Path) -> None:
+    raw = _base_raw(tmp_path)
+    raw["remote_providers"] = [
+        {
+            "name": "openalex",
+            "type": "openalex",
+            "email": "you@example.com",
+            "year_from": 2020,
+            "open_access_only": True,
+        }
+    ]
+
+    config = build_config_from_raw(raw, tmp_path / "config.json")
+    provider = config.remote_providers[0]
+    assert provider.extra["email"] == "you@example.com"
+    assert provider.extra["year_from"] == 2020
+    assert provider.extra["open_access_only"] is True
+
+    serialized = config_to_raw(config)
+    assert serialized["remote_providers"][0]["email"] == "you@example.com"
+    assert serialized["remote_providers"][0]["year_from"] == 2020
+    assert serialized["remote_providers"][0]["open_access_only"] is True
+
+
 def test_save_and_load_config_json_roundtrip(tmp_path: Path) -> None:
     raw = _base_raw(tmp_path)
     config = build_config_from_raw(raw, tmp_path / "config.json")

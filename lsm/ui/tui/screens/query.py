@@ -1209,9 +1209,25 @@ class QueryScreen(Widget):
         Returns:
             Response text
         """
-        # This is a placeholder - the actual implementation
-        # will integrate with the existing query system
-        return f"Query: {query}\n\n[Query execution placeholder - integrate with existing system]"
+        from lsm.query.api import query_sync as run_query_sync
+
+        try:
+            result = run_query_sync(
+                question=query,
+                config=self._config,
+                state=self._session_state,
+                embedder=self._embedder,
+                collection=self._collection,
+            )
+            self._last_candidates = result.candidates
+            if result.debug_info:
+                self._session_state.last_debug = result.debug_info
+            if result.cost is not None:
+                self._session_state.last_cost = result.cost
+            return result.answer
+        except Exception as exc:
+            logger.error(f"Synchronous query fallback failed: {exc}", exc_info=True)
+            return f"Query error: {exc}"
 
     def _show_message(self, message: str, preserve_candidates: bool = True) -> None:
         """

@@ -158,7 +158,20 @@ class CrossrefProvider(BaseRemoteProvider):
         ]
 
     def get_output_fields(self) -> List[Dict[str, Any]]:
-        return super().get_output_fields()
+        return super().get_output_fields() + [
+            {"name": "venue", "type": "string", "description": "Container title / journal."},
+            {"name": "publisher", "type": "string", "description": "Publisher name."},
+            {"name": "type", "type": "string", "description": "Crossref work type."},
+            {"name": "issn", "type": "array[string]", "description": "ISSN list."},
+            {"name": "isbn", "type": "array[string]", "description": "ISBN list."},
+            {"name": "cited_by_count", "type": "integer", "description": "Times cited count."},
+            {"name": "references_count", "type": "integer", "description": "References count."},
+            {"name": "subjects", "type": "array[string]", "description": "Subject areas."},
+            {"name": "orcids", "type": "array[string]", "description": "Author ORCID values."},
+            {"name": "license_url", "type": "string", "description": "License URL when available."},
+            {"name": "pdf_url", "type": "string", "description": "Full-text / PDF URL when available."},
+            {"name": "citation", "type": "string", "description": "Formatted citation string."},
+        ]
 
     def get_description(self) -> str:
         return "DOI metadata provider for scholarly publications via Crossref."

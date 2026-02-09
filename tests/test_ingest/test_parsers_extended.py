@@ -350,6 +350,23 @@ def test_parse_docx_success_and_error(monkeypatch: pytest.MonkeyPatch, tmp_path:
     assert page_segs2 is None
 
 
+def test_parse_docx_preserves_heading_styles(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    fake_doc = SimpleNamespace(
+        core_properties=SimpleNamespace(author=None, title=None, subject=None, keywords=None, created=None, modified=None),
+        paragraphs=[
+            SimpleNamespace(text="Intro", style=SimpleNamespace(name="Heading 1")),
+            SimpleNamespace(text="Body paragraph", style=SimpleNamespace(name="Normal")),
+        ],
+    )
+    monkeypatch.setattr(parsers, "Document", lambda _p: fake_doc)
+    monkeypatch.setattr(parsers, "_docx_has_page_break_before", lambda _para: False)
+
+    text, _metadata, page_segs = parsers.parse_docx(tmp_path / "x.docx")
+    assert "# Intro" in text
+    assert "Body paragraph" in text
+    assert page_segs is None
+
+
 def test_parse_html_extracts_metadata(tmp_path: Path) -> None:
     p = tmp_path / "a.html"
     p.write_text(
@@ -362,6 +379,19 @@ def test_parse_html_extracts_metadata(tmp_path: Path) -> None:
     assert metadata["title"] == "T"
     assert metadata["author"] == "A"
     assert metadata["description"] == "D"
+
+
+def test_parse_html_preserves_heading_structure(tmp_path: Path) -> None:
+    p = tmp_path / "headings.html"
+    p.write_text(
+        "<html><body><h1>Main</h1><p>Paragraph one.</p><h2>Sub</h2><p>Paragraph two.</p></body></html>",
+        encoding="utf-8",
+    )
+    text, _metadata = parsers.parse_html(p)
+    assert "# Main" in text
+    assert "## Sub" in text
+    assert "Paragraph one." in text
+    assert "Paragraph two." in text
 
 
 def test_parse_file_dispatch(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
@@ -379,4 +409,3 @@ def test_parse_file_dispatch(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) ->
     assert parsers.parse_file(tmp_path / "a.html")[0] == "html"
     assert parsers.parse_file(tmp_path / "a.htm")[0] == "html"
     assert parsers.parse_file(tmp_path / "a.bin")[0] == "txt"
-

@@ -214,7 +214,14 @@ class PhilPapersProvider(BaseRemoteProvider):
         ]
 
     def get_output_fields(self) -> List[Dict[str, Any]]:
-        return super().get_output_fields()
+        return super().get_output_fields() + [
+            {"name": "philpapers_id", "type": "string", "description": "PhilPapers record ID."},
+            {"name": "subjects", "type": "array[string]", "description": "PhilPapers subject categories."},
+            {"name": "type", "type": "string", "description": "Publication type."},
+            {"name": "publisher", "type": "string", "description": "Publisher name."},
+            {"name": "source", "type": "string", "description": "Source origin label."},
+            {"name": "citation", "type": "string", "description": "Formatted citation string."},
+        ]
 
     def get_description(self) -> str:
         return "Philosophy-focused provider indexing PhilPapers publications and categories."

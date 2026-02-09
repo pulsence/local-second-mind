@@ -143,7 +143,18 @@ class SemanticScholarProvider(BaseRemoteProvider):
         ]
 
     def get_output_fields(self) -> List[Dict[str, Any]]:
-        return super().get_output_fields()
+        return super().get_output_fields() + [
+            {"name": "paper_id", "type": "string", "description": "Semantic Scholar paper ID."},
+            {"name": "venue", "type": "string", "description": "Publication venue."},
+            {"name": "publication_date", "type": "string", "description": "Publication date."},
+            {"name": "citation_count", "type": "integer", "description": "Citation count."},
+            {"name": "influential_citation_count", "type": "integer", "description": "Influential citation count."},
+            {"name": "fields_of_study", "type": "array[string]", "description": "Fields of study metadata."},
+            {"name": "is_open_access", "type": "boolean", "description": "Open access flag."},
+            {"name": "pdf_url", "type": "string", "description": "Open access PDF URL when available."},
+            {"name": "arxiv_id", "type": "string", "description": "Linked arXiv identifier when available."},
+            {"name": "citation", "type": "string", "description": "Formatted citation string."},
+        ]
 
     def get_description(self) -> str:
         return "Scholarly search provider with citation and influence metadata."

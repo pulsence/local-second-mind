@@ -399,6 +399,30 @@ def _docx_has_page_break_before(paragraph) -> bool:
     return False
 
 
+def _docx_heading_level(paragraph) -> Optional[int]:
+    """Return heading level (1-6) for DOCX heading-styled paragraphs."""
+    try:
+        style_name = (paragraph.style.name or "").strip().lower()
+    except Exception:
+        style_name = ""
+
+    if not style_name.startswith("heading"):
+        return None
+
+    parts = style_name.split()
+    if len(parts) < 2:
+        return None
+
+    try:
+        level = int(parts[1])
+    except ValueError:
+        return None
+
+    if 1 <= level <= 6:
+        return level
+    return None
+
+
 def parse_docx(
     path: Path,
 ) -> Tuple[str, Dict[str, Any], Optional[List[PageSegment]]]:
@@ -429,7 +453,12 @@ def parse_docx(
                 page_parts[current_page] = []
 
             if para.text:
-                page_parts[current_page].append(para.text)
+                heading_level = _docx_heading_level(para)
+                if heading_level is not None:
+                    heading_prefix = "#" * heading_level
+                    page_parts[current_page].append(f"{heading_prefix} {para.text}")
+                else:
+                    page_parts[current_page].append(para.text)
 
         # Build page segments
         page_segments: List[PageSegment] = []
@@ -491,7 +520,41 @@ def parse_html(path: Path) -> Tuple[str, Dict[str, Any]]:
     # Remove script/style
     for tag in soup(["script", "style", "noscript"]):
         tag.decompose()
-    text = soup.get_text("\n")
+
+    # Preserve heading structure as markdown-style heading lines so
+    # structure chunking can detect heading boundaries.
+    lines: List[str] = []
+    body = soup.body or soup
+    for node in body.descendants:
+        if not getattr(node, "name", None):
+            continue
+        name = str(node.name).lower()
+
+        if name in {"h1", "h2", "h3", "h4", "h5", "h6"}:
+            heading_text = normalize_whitespace(node.get_text(" ", strip=True))
+            if heading_text:
+                level = int(name[1])
+                lines.append(f"{'#' * level} {heading_text}")
+                lines.append("")
+            continue
+
+        if name == "p":
+            para_text = normalize_whitespace(node.get_text(" ", strip=True))
+            if para_text:
+                lines.append(para_text)
+                lines.append("")
+            continue
+
+        if name == "li":
+            item_text = normalize_whitespace(node.get_text(" ", strip=True))
+            if item_text:
+                lines.append(item_text)
+                lines.append("")
+
+    if lines:
+        text = "\n".join(lines).strip()
+    else:
+        text = soup.get_text("\n")
 
     return text, metadata
 

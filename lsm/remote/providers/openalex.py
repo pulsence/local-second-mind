@@ -145,7 +145,19 @@ class OpenAlexProvider(BaseRemoteProvider):
         ]
 
     def get_output_fields(self) -> List[Dict[str, Any]]:
-        return super().get_output_fields()
+        return super().get_output_fields() + [
+            {"name": "openalex_id", "type": "string", "description": "OpenAlex work ID."},
+            {"name": "venue", "type": "string", "description": "Primary venue/source name."},
+            {"name": "publication_date", "type": "string", "description": "Publication date."},
+            {"name": "cited_by_count", "type": "integer", "description": "Citations count."},
+            {"name": "topics", "type": "array[string]", "description": "OpenAlex topics."},
+            {"name": "concepts", "type": "array[string]", "description": "OpenAlex concepts."},
+            {"name": "type", "type": "string", "description": "OpenAlex work type."},
+            {"name": "is_open_access", "type": "boolean", "description": "Open access flag."},
+            {"name": "oa_url", "type": "string", "description": "Open access URL."},
+            {"name": "pdf_url", "type": "string", "description": "PDF URL when available."},
+            {"name": "citation", "type": "string", "description": "Formatted citation string."},
+        ]
 
     def get_description(self) -> str:
         return "Open scholarly graph provider for papers, authors, venues, and concepts."

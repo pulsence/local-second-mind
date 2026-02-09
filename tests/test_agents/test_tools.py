@@ -130,11 +130,14 @@ def test_query_llm_tool_uses_provider_factory(monkeypatch, tmp_path: Path) -> No
 
 
 def test_query_remote_tool_returns_structured_results(monkeypatch, tmp_path: Path) -> None:
+    captured_config = {}
+
     class FakeRemoteProvider:
         def search_structured(self, input_dict, max_results=5):
             return [{"title": "Paper", "url": "https://example.com"}]
 
     def fake_create_remote_provider(provider_type, config):
+        captured_config.update(config)
         return FakeRemoteProvider()
 
     monkeypatch.setattr(
@@ -143,11 +146,14 @@ def test_query_remote_tool_returns_structured_results(monkeypatch, tmp_path: Pat
     )
 
     raw = _base_raw(tmp_path)
-    raw["remote_providers"] = [{"name": "arxiv", "type": "arxiv", "max_results": 3}]
+    raw["remote_providers"] = [
+        {"name": "arxiv", "type": "arxiv", "max_results": 3, "sort_by": "submittedDate"}
+    ]
     config = build_config_from_raw(raw, tmp_path / "config.json")
     tool = QueryRemoteTool(config)
     payload = json.loads(tool.execute({"provider": "arxiv", "input": {"query": "ai"}}))
     assert payload[0]["title"] == "Paper"
+    assert captured_config["sort_by"] == "submittedDate"
 
 
 def test_query_remote_chain_tool_executes_chain(monkeypatch, tmp_path: Path) -> None:
@@ -181,4 +187,3 @@ def test_query_remote_chain_tool_executes_chain(monkeypatch, tmp_path: Path) -> 
         tool.execute({"chain": "Research Digest", "input": {"query": "test"}})
     )
     assert payload[0]["title"] == "Chained"
-

@@ -176,7 +176,13 @@ class WikipediaProvider(BaseRemoteProvider):
         ]
 
     def get_output_fields(self) -> List[Dict[str, Any]]:
-        return super().get_output_fields()
+        return super().get_output_fields() + [
+            {"name": "pageid", "type": "integer", "description": "Wikipedia page ID."},
+            {"name": "language", "type": "string", "description": "Wikipedia language code."},
+            {"name": "last_modified", "type": "string", "description": "Last modified timestamp."},
+            {"name": "is_disambiguation", "type": "boolean", "description": "Whether page is disambiguation."},
+            {"name": "citation", "type": "string", "description": "Formatted citation string."},
+        ]
 
     def get_description(self) -> str:
         return "General knowledge provider using Wikipedia articles and summaries."

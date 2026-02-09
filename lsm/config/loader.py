@@ -42,6 +42,24 @@ from .models import (
     DEFAULT_EXCLUDE_DIRS,
 )
 
+_REMOTE_PROVIDER_BASE_KEYS = {
+    "name",
+    "type",
+    "weight",
+    "api_key",
+    "endpoint",
+    "max_results",
+    "language",
+    "user_agent",
+    "timeout",
+    "min_interval_seconds",
+    "section_limit",
+    "snippet_max_chars",
+    "include_disambiguation",
+    "cache_results",
+    "cache_ttl",
+}
+
 
 def load_raw_config(path: Path) -> Dict[str, Any]:
     """
@@ -646,6 +664,9 @@ def build_remote_provider_config(raw: Dict[str, Any]) -> RemoteProviderConfig:
     Returns:
         RemoteProviderConfig instance
     """
+    extra = {
+        key: value for key, value in raw.items() if key not in _REMOTE_PROVIDER_BASE_KEYS
+    }
     return RemoteProviderConfig(
         name=raw["name"],  # Required field
         type=raw["type"],  # Required field
@@ -662,6 +683,7 @@ def build_remote_provider_config(raw: Dict[str, Any]) -> RemoteProviderConfig:
         include_disambiguation=raw.get("include_disambiguation"),
         cache_results=bool(raw.get("cache_results", False)),
         cache_ttl=int(raw.get("cache_ttl", 86400)),
+        extra=extra,
     )
 
 
@@ -909,25 +931,27 @@ def config_to_raw(config: LSMConfig) -> Dict[str, Any]:
     if config.remote_providers:
         remote_providers = []
         for provider in config.remote_providers:
-            remote_providers.append(
-                {
-                    "name": provider.name,
-                    "type": provider.type,
-                    "weight": provider.weight,
-                    "api_key": provider.api_key,
-                    "endpoint": provider.endpoint,
-                    "max_results": provider.max_results,
-                    "language": provider.language,
-                    "user_agent": provider.user_agent,
-                    "timeout": provider.timeout,
-                    "min_interval_seconds": provider.min_interval_seconds,
-                    "section_limit": provider.section_limit,
-                    "snippet_max_chars": provider.snippet_max_chars,
-                    "include_disambiguation": provider.include_disambiguation,
-                    "cache_results": provider.cache_results,
-                    "cache_ttl": provider.cache_ttl,
-                }
-            )
+            provider_entry = {
+                "name": provider.name,
+                "type": provider.type,
+                "weight": provider.weight,
+                "api_key": provider.api_key,
+                "endpoint": provider.endpoint,
+                "max_results": provider.max_results,
+                "language": provider.language,
+                "user_agent": provider.user_agent,
+                "timeout": provider.timeout,
+                "min_interval_seconds": provider.min_interval_seconds,
+                "section_limit": provider.section_limit,
+                "snippet_max_chars": provider.snippet_max_chars,
+                "include_disambiguation": provider.include_disambiguation,
+                "cache_results": provider.cache_results,
+                "cache_ttl": provider.cache_ttl,
+            }
+            for key, value in (provider.extra or {}).items():
+                if key not in provider_entry:
+                    provider_entry[key] = value
+            remote_providers.append(provider_entry)
 
     remote_provider_chains = None
     if config.remote_provider_chains:

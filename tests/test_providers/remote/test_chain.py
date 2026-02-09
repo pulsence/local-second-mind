@@ -114,3 +114,29 @@ def test_remote_provider_chain_raises_for_missing_provider() -> None:
 
     with pytest.raises(ValueError, match="Remote provider not configured"):
         chain.execute({"query": "test"})
+
+
+def test_remote_provider_chain_passes_provider_specific_options(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config = _base_config()
+    config.remote_providers = [
+        RemoteProviderConfig(name="openalex", type="openalex", extra={"email": "you@example.com"}),
+    ]
+    chain_config = RemoteProviderChainConfig(name="Single", links=[ChainLink(source="openalex")])
+    chain = RemoteProviderChain(config=config, chain_config=chain_config)
+
+    captured_cfg = {}
+
+    class _Provider:
+        def search_structured(self, _input_dict, max_results=5):
+            return [{"ok": True}][:max_results]
+
+    def _factory(_provider_type, cfg):
+        captured_cfg.update(cfg)
+        return _Provider()
+
+    monkeypatch.setattr("lsm.remote.chain.create_remote_provider", _factory)
+    results = chain.execute({"query": "test"}, max_results=5)
+    assert results == [{"ok": True}]
+    assert captured_cfg["email"] == "you@example.com"

@@ -13,6 +13,27 @@ from lsm.remote.factory import create_remote_provider
 logger = get_logger(__name__)
 
 
+def _provider_runtime_config(provider_cfg: Any) -> Dict[str, Any]:
+    """Build provider config preserving provider-specific passthrough keys."""
+    runtime_config: Dict[str, Any] = {
+        "type": provider_cfg.type,
+        "weight": provider_cfg.weight,
+        "api_key": provider_cfg.api_key,
+        "endpoint": provider_cfg.endpoint,
+        "max_results": provider_cfg.max_results,
+        "language": provider_cfg.language,
+        "user_agent": provider_cfg.user_agent,
+        "timeout": provider_cfg.timeout,
+        "min_interval_seconds": provider_cfg.min_interval_seconds,
+        "section_limit": provider_cfg.section_limit,
+        "snippet_max_chars": provider_cfg.snippet_max_chars,
+        "include_disambiguation": provider_cfg.include_disambiguation,
+    }
+    if getattr(provider_cfg, "extra", None):
+        runtime_config.update(provider_cfg.extra)
+    return runtime_config
+
+
 class RemoteProviderChain:
     """
     Execute a configured chain of remote providers.
@@ -44,20 +65,7 @@ class RemoteProviderChain:
             provider_cfg = self._get_provider_config(link.source)
             provider = create_remote_provider(
                 provider_cfg.type,
-                {
-                    "type": provider_cfg.type,
-                    "weight": provider_cfg.weight,
-                    "api_key": provider_cfg.api_key,
-                    "endpoint": provider_cfg.endpoint,
-                    "max_results": provider_cfg.max_results,
-                    "language": provider_cfg.language,
-                    "user_agent": provider_cfg.user_agent,
-                    "timeout": provider_cfg.timeout,
-                    "min_interval_seconds": provider_cfg.min_interval_seconds,
-                    "section_limit": provider_cfg.section_limit,
-                    "snippet_max_chars": provider_cfg.snippet_max_chars,
-                    "include_disambiguation": provider_cfg.include_disambiguation,
-                },
+                _provider_runtime_config(provider_cfg),
             )
 
             current_outputs = []

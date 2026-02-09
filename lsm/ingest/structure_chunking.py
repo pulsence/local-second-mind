@@ -12,7 +12,7 @@ page range it spans.
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Dict, Any, List, Optional
 
 from lsm.config.models.constants import DEFAULT_CHUNK_OVERLAP, DEFAULT_CHUNK_SIZE
@@ -73,6 +73,13 @@ def _detect_heading(line: str) -> Optional[str]:
     m = _MD_HEADING_RE.match(line.strip())
     if m:
         return m.group(2).strip()
+
+    m = _HTML_HEADING_RE.match(line.strip())
+    if m:
+        heading_text = re.sub(r"<[^>]+>", "", m.group(2))
+        heading_text = re.sub(r"\s+", " ", heading_text).strip()
+        if heading_text:
+            return heading_text
 
     m = _BOLD_LINE_RE.match(line.strip())
     if m:

@@ -165,7 +165,12 @@ class BraveSearchProvider(BaseRemoteProvider):
         ]
 
     def get_output_fields(self) -> List[Dict[str, Any]]:
-        return super().get_output_fields()
+        return super().get_output_fields() + [
+            {"name": "rank", "type": "integer", "description": "Result rank from Brave."},
+            {"name": "age", "type": "string", "description": "Result age indicator from Brave."},
+            {"name": "language", "type": "string", "description": "Detected result language."},
+            {"name": "family_friendly", "type": "boolean", "description": "Brave family-friendly flag."},
+        ]
 
     def get_description(self) -> str:
         return "Privacy-focused web search provider for broad web discovery."

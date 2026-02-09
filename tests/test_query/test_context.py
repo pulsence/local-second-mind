@@ -495,3 +495,51 @@ def test_fetch_remote_sources_saves_cache_on_miss(monkeypatch):
     assert len(results) == 1
     assert saved_calls
     assert saved_calls[0]["provider_name"] == "wiki"
+
+
+def test_fetch_remote_sources_passes_provider_specific_options(monkeypatch):
+    captured_cfg = {}
+
+    class _Provider:
+        def search(self, _question, max_results=5):
+            class _Res:
+                title = "Live"
+                url = "https://live.example"
+                snippet = "live result"
+                score = 0.7
+                metadata = {}
+
+            return [_Res()]
+
+    def _factory(_provider_type, cfg):
+        captured_cfg.update(cfg)
+        return _Provider()
+
+    monkeypatch.setattr("lsm.query.context.load_cached_results", lambda **_kwargs: None)
+    monkeypatch.setattr("lsm.query.context.create_remote_provider", _factory)
+
+    config = LSMConfig(
+        ingest=IngestConfig(roots=[Path("/tmp")], manifest=Path("/tmp/manifest.json")),
+        query=QueryConfig(mode="hybrid"),
+        llm=LLMRegistryConfig(
+            providers=[LLMProviderConfig(provider_name="openai", api_key="test")],
+            services={"query": LLMServiceConfig(provider="openai", model="gpt-5.2")},
+        ),
+        vectordb=VectorDBConfig(persist_dir=Path("/tmp/.chroma"), collection="test"),
+        remote_providers=[
+            RemoteProviderConfig(
+                name="openalex",
+                type="openalex",
+                extra={"email": "you@example.com", "year_from": 2020},
+            ),
+        ],
+        config_path=Path("/tmp/config.json"),
+    )
+    mode_config = config.get_mode_config("hybrid")
+    mode_config.source_policy.remote.enabled = True
+    mode_config.source_policy.remote.remote_providers = ["openalex"]
+
+    results = fetch_remote_sources("test", config, mode_config)
+    assert len(results) == 1
+    assert captured_cfg["email"] == "you@example.com"
+    assert captured_cfg["year_from"] == 2020

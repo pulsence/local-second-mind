@@ -220,7 +220,13 @@ class IxTheoProvider(BaseRemoteProvider):
         ]
 
     def get_output_fields(self) -> List[Dict[str, Any]]:
-        return super().get_output_fields()
+        return super().get_output_fields() + [
+            {"name": "ixtheo_id", "type": "string", "description": "IxTheo record ID."},
+            {"name": "subjects", "type": "array[string]", "description": "Thematic subject labels."},
+            {"name": "source", "type": "string", "description": "Source origin label."},
+            {"name": "language", "type": "string", "description": "Language code for result."},
+            {"name": "citation", "type": "string", "description": "Formatted citation string."},
+        ]
 
     def get_description(self) -> str:
         return "Theology and religious studies provider using Index Theologicus."
