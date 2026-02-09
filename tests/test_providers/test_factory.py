@@ -87,6 +87,12 @@ class TestProviderFactory:
             def generate_tags(self, text, num_tags=3, existing_tags=None, **kwargs):
                 return ["custom", "tag"]
 
+            def _send_message(self, system, user, temperature, max_tokens, **kwargs):
+                return "Custom answer"
+
+            def _send_streaming_message(self, system, user, temperature, max_tokens, **kwargs):
+                yield "Custom answer"
+
         register_provider("custom", CustomProvider)
 
         providers = list_available_providers()
@@ -136,6 +142,12 @@ class TestProviderFactory:
             def generate_tags(self, text, num_tags=3, existing_tags=None, **kwargs):
                 return []
 
+            def _send_message(self, system, user, temperature, max_tokens, **kwargs):
+                return ""
+
+            def _send_streaming_message(self, system, user, temperature, max_tokens, **kwargs):
+                yield ""
+
         class Provider2(BaseLLMProvider):
             def __init__(self, config):
                 self.config = config
@@ -163,6 +175,12 @@ class TestProviderFactory:
 
             def generate_tags(self, text, num_tags=3, existing_tags=None, **kwargs):
                 return []
+
+            def _send_message(self, system, user, temperature, max_tokens, **kwargs):
+                return ""
+
+            def _send_streaming_message(self, system, user, temperature, max_tokens, **kwargs):
+                yield ""
 
         register_provider("test_dup", Provider1)
         register_provider("test_dup", Provider2)

@@ -16,7 +16,6 @@ from .base import BaseLLMProvider
 from .helpers import (
     RERANK_INSTRUCTIONS,
     format_user_content,
-    generate_fallback_answer,
     get_synthesis_instructions,
     get_tag_instructions,
     parse_json_payload,
@@ -127,6 +126,77 @@ class AnthropicProvider(BaseLLMProvider):
             "InternalServerError",
             "ServiceUnavailableError",
         }
+
+    def _send_message(
+        self,
+        system: str,
+        user: str,
+        temperature: Optional[float],
+        max_tokens: int,
+        **kwargs,
+    ) -> str:
+        system_payload: Any = system
+        if kwargs.get("enable_server_cache"):
+            system_payload = [{"type": "text", "text": system, "cache_control": {"type": "ephemeral"}}]
+
+        def _call() -> Any:
+            return self.client.messages.create(
+                model=self.model,
+                max_tokens=max_tokens,
+                temperature=temperature,
+                system=system_payload,
+                messages=[{"role": "user", "content": user}],
+            )
+
+        resp = self._with_retry(_call, "send_message", retry_on=self._is_retryable_error)
+        self.last_response_id = getattr(resp, "id", None)
+        return self._extract_text(resp)
+
+    def _send_streaming_message(
+        self,
+        system: str,
+        user: str,
+        temperature: Optional[float],
+        max_tokens: int,
+        **kwargs,
+    ):
+        try:
+            stream = self.client.messages.stream(
+                model=self.model,
+                max_tokens=max_tokens,
+                temperature=temperature,
+                system=system,
+                messages=[{"role": "user", "content": user}],
+            )
+            with stream as s:
+                for text in s.text_stream:
+                    if text:
+                        yield text
+            return
+        except AttributeError:
+            pass
+
+        stream = self.client.messages.create(
+            model=self.model,
+            max_tokens=max_tokens,
+            temperature=temperature,
+            system=system,
+            messages=[{"role": "user", "content": user}],
+            stream=True,
+        )
+        for event in stream:
+            event_type = getattr(event, "type", None)
+            if event_type is None and isinstance(event, dict):
+                event_type = event.get("type")
+            if event_type == "content_block_delta":
+                delta = getattr(event, "delta", None)
+                if delta is None and isinstance(event, dict):
+                    delta = event.get("delta")
+                text = getattr(delta, "text", None)
+                if text is None and isinstance(delta, dict):
+                    text = delta.get("text")
+                if text:
+                    yield text
 
     def rerank(
         self,
@@ -339,5 +409,3 @@ class AnthropicProvider(BaseLLMProvider):
         """Get pricing for the current Anthropic model."""
         return self.MODEL_PRICING.get(self.model)
 
-    def _fallback_answer(self, question: str, context: str, max_chars: int = 1200) -> str:
-        return generate_fallback_answer(question, context, "Anthropic API", max_chars=max_chars)

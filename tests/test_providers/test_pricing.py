@@ -69,6 +69,12 @@ class TestBaseLLMProviderPricing:
             def generate_tags(self, text, num_tags=3, existing_tags=None, **kwargs):
                 return []
 
+            def _send_message(self, system, user, temperature, max_tokens, **kwargs):
+                return ""
+
+            def _send_streaming_message(self, system, user, temperature, max_tokens, **kwargs):
+                yield ""
+
         provider = MinimalProvider()
         assert provider.estimate_cost(1000, 500) is None
 
@@ -101,6 +107,12 @@ class TestBaseLLMProviderPricing:
 
             def generate_tags(self, text, num_tags=3, existing_tags=None, **kwargs):
                 return []
+
+            def _send_message(self, system, user, temperature, max_tokens, **kwargs):
+                return ""
+
+            def _send_streaming_message(self, system, user, temperature, max_tokens, **kwargs):
+                yield ""
 
         provider = MinimalProvider()
         assert provider.get_model_pricing() is None

@@ -112,6 +112,7 @@ Already has `_chat()` and `_chat_stream()` that map directly to the new interfac
 ### 1.4: Validation and Cleanup
 
 - Verify provider factory creates all providers correctly
+- Ensure no backward-compatible code remains in provider implementations
 - Run full test suite, fix regressions
 - Verify `lsm/providers/__init__.py` exports
 
@@ -1128,6 +1129,7 @@ Update Architecture section, Key Files table, Important Notes, Commands section 
 ## Verification Plan
 
 1. **After Phase 1**: Run full test suite. All existing tests pass. Provider factory creates all 5 providers. `synthesize()`, `rerank()`, `generate_tags()`, `stream_synthesize()` work identically to before refactoring.
+   - Update `docs/development/CHANGELOG.md` with changes in Phase 1
 
 2. **After Phase 2**: Run each tier independently:
    - `pytest tests/ -v` (smoke + integration) - all pass, fast (<60s)
@@ -1135,6 +1137,7 @@ Update Architecture section, Key Files table, Important Notes, Commands section 
    - `pytest tests/ -v -m live_llm` (with API keys) - real LLM calls succeed
    - `pytest tests/ -v -m live_remote` - all 10 remote providers tested
    - `pytest tests/ -v -m live` - full live pipeline end-to-end
+   - Update `docs/development/CHANGELOG.md` with changes in Phase 2
 
 3. **After Phase 3**: Run security tests explicitly:
    - `pytest tests/test_agents/test_security_*.py -v` - all 47+ security tests pass
@@ -1142,6 +1145,7 @@ Update Architecture section, Key Files table, Important Notes, Commands section 
    - Verify secret redaction in logs
    - Verify permission gates block unauthorized tools
    - Test each new agent with `@pytest.mark.integration` tests
+   - Update `docs/development/CHANGELOG.md` with changes in Phase 3
 
 4. **After Phase 4**: Memory system verification:
    - Memory CRUD operations (SQLite and PostgreSQL backends)
@@ -1149,12 +1153,14 @@ Update Architecture section, Key Files table, Important Notes, Commands section 
    - MemoryContextBuilder injects standing context
    - Curator memory distillation produces valid candidates
    - CLI/TUI memory commands functional
+   - Update `docs/development/CHANGELOG.md` with changes in Phase 4
 
 5. **After Phase 5**: Scheduler verification:
    - Schedule persistence across restarts
    - No overlapping runs (concurrency policy)
    - Safe defaults enforced (read-only, no network)
    - Tick loop timing accuracy
+   - Update `docs/development/CHANGELOG.md` with changes in Phase 5
 
 6. **After Phase 6**: Meta-agent verification:
    - Task graph topological sort and execution order
@@ -1162,5 +1168,6 @@ Update Architecture section, Key Files table, Important Notes, Commands section 
    - Artifact handoff between sub-agents
    - Failure isolation (one sub-agent fails, others unaffected)
    - Final synthesis collects all outputs
+   - Update `docs/development/CHANGELOG.md` with changes in Phase 6
 
 7. **Final**: Full suite green at smoke+integration tier. Live tier passes with configured credentials.

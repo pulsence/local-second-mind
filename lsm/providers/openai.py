@@ -19,7 +19,6 @@ from .helpers import (
     RERANK_INSTRUCTIONS,
     UnsupportedParamTracker,
     format_user_content,
-    generate_fallback_answer,
     get_synthesis_instructions,
     get_tag_instructions,
     parse_json_payload,
@@ -153,6 +152,119 @@ class OpenAIProvider(BaseLLMProvider):
             action,
             retry_on=self._is_retryable_error,
         )
+
+    def _send_message(
+        self,
+        system: str,
+        user: str,
+        temperature: Optional[float],
+        max_tokens: int,
+        **kwargs,
+    ) -> str:
+        request_args: Dict[str, Any] = {
+            "model": self.config.model,
+            "reasoning": {"effort": kwargs.get("reasoning_effort", "medium")},
+            "instructions": system,
+            "input": [{"role": "user", "content": user}],
+            "max_output_tokens": max_tokens,
+        }
+
+        previous_response_id = kwargs.get("previous_response_id")
+        if kwargs.get("enable_server_cache") and previous_response_id:
+            request_args["previous_response_id"] = previous_response_id
+
+        prompt_cache_key = kwargs.get("prompt_cache_key")
+        if kwargs.get("enable_server_cache") and prompt_cache_key:
+            request_args["prompt_cache_key"] = prompt_cache_key
+
+        json_schema = kwargs.get("json_schema")
+        if json_schema and _UNSUPPORTED_PARAM_TRACKER.should_send(self.config.model, "text"):
+            request_args["text"] = {
+                "format": {
+                    "type": "json_schema",
+                    "name": kwargs.get("json_schema_name", "response"),
+                    "strict": True,
+                    "schema": json_schema,
+                }
+            }
+
+        if (
+            temperature is not None
+            and _model_supports_temperature(self.config.model)
+            and _UNSUPPORTED_PARAM_TRACKER.should_send(self.config.model, "temperature")
+        ):
+            request_args["temperature"] = temperature
+
+        try:
+            resp = self._call_responses(request_args, "send_message")
+        except Exception as e:
+            if _UNSUPPORTED_PARAM_TRACKER.is_unsupported_error(e, "temperature"):
+                _UNSUPPORTED_PARAM_TRACKER.mark_unsupported(self.config.model, "temperature")
+                request_args.pop("temperature", None)
+                resp = self._call_responses(request_args, "send_message")
+            elif _UNSUPPORTED_PARAM_TRACKER.is_unsupported_error(e, "text"):
+                _UNSUPPORTED_PARAM_TRACKER.mark_unsupported(self.config.model, "text")
+                request_args.pop("text", None)
+                resp = self._call_responses(request_args, "send_message")
+            elif _UNSUPPORTED_PARAM_TRACKER.is_unsupported_error(e, "prompt_cache_key"):
+                _UNSUPPORTED_PARAM_TRACKER.mark_unsupported(self.config.model, "prompt_cache_key")
+                request_args.pop("prompt_cache_key", None)
+                resp = self._call_responses(request_args, "send_message")
+            elif _UNSUPPORTED_PARAM_TRACKER.is_unsupported_error(e, "previous_response_id"):
+                _UNSUPPORTED_PARAM_TRACKER.mark_unsupported(self.config.model, "previous_response_id")
+                request_args.pop("previous_response_id", None)
+                resp = self._call_responses(request_args, "send_message")
+            else:
+                raise
+
+        self.last_response_id = getattr(resp, "id", None)
+        return (resp.output_text or "").strip()
+
+    def _send_streaming_message(
+        self,
+        system: str,
+        user: str,
+        temperature: Optional[float],
+        max_tokens: int,
+        **kwargs,
+    ):
+        request_args: Dict[str, Any] = {
+            "model": self.config.model,
+            "reasoning": {"effort": kwargs.get("reasoning_effort", "medium")},
+            "instructions": system,
+            "input": [{"role": "user", "content": user}],
+            "max_output_tokens": max_tokens,
+        }
+
+        if (
+            temperature is not None
+            and _model_supports_temperature(self.config.model)
+            and _UNSUPPORTED_PARAM_TRACKER.should_send(self.config.model, "temperature")
+        ):
+            request_args["temperature"] = temperature
+
+        try:
+            stream = self.client.responses.create(**request_args, stream=True)
+        except Exception as e:
+            if _UNSUPPORTED_PARAM_TRACKER.is_unsupported_error(e, "temperature"):
+                _UNSUPPORTED_PARAM_TRACKER.mark_unsupported(self.config.model, "temperature")
+                request_args.pop("temperature", None)
+                stream = self.client.responses.create(**request_args, stream=True)
+            else:
+                raise
+
+        for event in stream:
+            event_type = getattr(event, "type", None)
+            if event_type is None and isinstance(event, dict):
+                event_type = event.get("type")
+            if event_type in {"response.output_text.delta", "response.output_text"}:
+                delta = getattr(event, "delta", None)
+                if delta is None and isinstance(event, dict):
+                    delta = event.get("delta")
+                if delta:
+                    yield delta
+            elif event_type == "response.completed":
+                break
 
     def rerank(
         self,
@@ -548,20 +660,6 @@ class OpenAIProvider(BaseLLMProvider):
                 logger.error(f"Streaming synthesis failed: {e}")
             self._record_failure(e, "stream_synthesize")
             raise
-
-    def _fallback_answer(self, question: str, context: str, max_chars: int = 1200) -> str:
-        """
-        Generate a fallback answer when API is unavailable.
-
-        Args:
-            question: User's question
-            context: Context block
-            max_chars: Maximum characters to include
-
-        Returns:
-            Fallback message with context snippet
-        """
-        return generate_fallback_answer(question, context, "OpenAI API", max_chars=max_chars)
 
     def get_model_pricing(self) -> Optional[Dict[str, float]]:
         """Get pricing for the current OpenAI model."""

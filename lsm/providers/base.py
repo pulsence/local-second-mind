@@ -11,6 +11,7 @@ import time
 from typing import List, Dict, Any, Optional, Callable, Iterable
 
 from lsm.logging import get_logger
+from .helpers import generate_fallback_answer
 
 logger = get_logger(__name__)
 
@@ -59,6 +60,54 @@ class BaseLLMProvider(ABC):
         if key not in self._GLOBAL_HEALTH_STATS:
             self._GLOBAL_HEALTH_STATS[key] = ProviderHealthStats()
         self._health_stats = self._GLOBAL_HEALTH_STATS[key]
+
+    @abstractmethod
+    def _send_message(
+        self,
+        system: str,
+        user: str,
+        temperature: Optional[float],
+        max_tokens: int,
+        **kwargs
+    ) -> str:
+        """
+        Send a single non-streaming message to the provider.
+
+        Args:
+            system: System instruction content
+            user: User prompt content
+            temperature: Sampling temperature
+            max_tokens: Maximum output tokens
+            **kwargs: Provider-specific request fields
+
+        Returns:
+            Generated text response
+        """
+        pass
+
+    @abstractmethod
+    def _send_streaming_message(
+        self,
+        system: str,
+        user: str,
+        temperature: Optional[float],
+        max_tokens: int,
+        **kwargs
+    ) -> Iterable[str]:
+        """
+        Send a streaming message to the provider.
+
+        Args:
+            system: System instruction content
+            user: User prompt content
+            temperature: Sampling temperature
+            max_tokens: Maximum output tokens
+            **kwargs: Provider-specific request fields
+
+        Yields:
+            Text chunks from the model response
+        """
+        pass
 
     @abstractmethod
     def rerank(
@@ -364,3 +413,12 @@ class BaseLLMProvider(ABC):
                     f"Retrying in {delay:.2f}s..."
                 )
                 time.sleep(delay)
+
+    def _fallback_answer(self, question: str, context: str, max_chars: int = 1200) -> str:
+        """Generate a fallback answer when provider requests fail."""
+        return generate_fallback_answer(
+            question=question,
+            context=context,
+            provider_name=self.name,
+            max_chars=max_chars,
+        )

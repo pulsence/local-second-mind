@@ -36,6 +36,12 @@ class DummyProvider(BaseLLMProvider):
     def generate_tags(self, text, num_tags=3, existing_tags=None, **kwargs):
         return ["tag1"]
 
+    def _send_message(self, system, user, temperature, max_tokens, **kwargs):
+        return "answer"
+
+    def _send_streaming_message(self, system, user, temperature, max_tokens, **kwargs):
+        yield "answer"
+
 
 def test_health_check_updates():
     provider = DummyProvider()

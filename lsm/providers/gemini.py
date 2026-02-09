@@ -17,7 +17,6 @@ from .base import BaseLLMProvider
 from .helpers import (
     RERANK_INSTRUCTIONS,
     format_user_content,
-    generate_fallback_answer,
     get_synthesis_instructions,
     get_tag_instructions,
     parse_json_payload,
@@ -146,6 +145,38 @@ class GeminiProvider(BaseLLMProvider):
         if not text:
             return ""
         return text.strip()
+
+    def _send_message(
+        self,
+        system: str,
+        user: str,
+        temperature: Optional[float],
+        max_tokens: int,
+        **kwargs,
+    ) -> str:
+        prompt = f"{system}\n\n{user}"
+        return self._generate(prompt, temperature=temperature or 0.0, max_tokens=max_tokens)
+
+    def _send_streaming_message(
+        self,
+        system: str,
+        user: str,
+        temperature: Optional[float],
+        max_tokens: int,
+        **kwargs,
+    ):
+        client = self._ensure_client()
+        config = self._build_config(temperature or 0.0, max_tokens)
+        prompt = f"{system}\n\n{user}"
+        stream = client.models.generate_content_stream(
+            model=self.model,
+            contents=prompt,
+            config=config,
+        )
+        for chunk in stream:
+            text = getattr(chunk, "text", None)
+            if text:
+                yield text
 
     def rerank(
         self,
@@ -283,5 +314,3 @@ class GeminiProvider(BaseLLMProvider):
         """Get pricing for the current Gemini model."""
         return self.MODEL_PRICING.get(self.model)
 
-    def _fallback_answer(self, question: str, context: str, max_chars: int = 1200) -> str:
-        return generate_fallback_answer(question, context, "Gemini API", max_chars=max_chars)

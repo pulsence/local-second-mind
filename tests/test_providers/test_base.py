@@ -55,6 +55,12 @@ class TestBaseLLMProvider:
             def generate_tags(self, text, num_tags=3, existing_tags=None, **kwargs):
                 return ["tag1", "tag2"]
 
+            def _send_message(self, system, user, temperature, max_tokens, **kwargs):
+                return "ok"
+
+            def _send_streaming_message(self, system, user, temperature, max_tokens, **kwargs):
+                yield "ok"
+
         provider = CompleteProvider({})
 
         assert str(provider) == "test/test-model"
@@ -89,6 +95,12 @@ class TestBaseLLMProvider:
 
             def generate_tags(self, text, num_tags=3, existing_tags=None, **kwargs):
                 return ["tag1", "tag2"]
+
+            def _send_message(self, system, user, temperature, max_tokens, **kwargs):
+                return "ok"
+
+            def _send_streaming_message(self, system, user, temperature, max_tokens, **kwargs):
+                yield "ok"
 
         provider = CompleteProvider({})
 
@@ -126,6 +138,12 @@ class TestBaseLLMProvider:
             def generate_tags(self, text, num_tags=3, existing_tags=None, **kwargs):
                 return ["tag1"]
 
+            def _send_message(self, system, user, temperature, max_tokens, **kwargs):
+                return "ok"
+
+            def _send_streaming_message(self, system, user, temperature, max_tokens, **kwargs):
+                yield "ok"
+
         provider = CompleteProvider({})
         provider.CIRCUIT_BREAKER_THRESHOLD = 2
 
@@ -137,3 +155,43 @@ class TestBaseLLMProvider:
 
         with pytest.raises(RuntimeError, match="Circuit breaker open"):
             provider._with_retry(lambda: "ok", "test", max_attempts=1)
+
+    def test_base_fallback_uses_provider_name(self):
+        """Base fallback answer should be available and include provider name."""
+
+        class CompleteProvider(BaseLLMProvider):
+            def __init__(self):
+                super().__init__()
+
+            @property
+            def name(self) -> str:
+                return "test-provider"
+
+            @property
+            def model(self) -> str:
+                return "test-model"
+
+            def is_available(self) -> bool:
+                return True
+
+            def rerank(self, question, candidates, k, **kwargs):
+                return candidates[:k]
+
+            def synthesize(self, question, context, mode="grounded", **kwargs):
+                return "ok"
+
+            def stream_synthesize(self, question, context, mode="grounded", **kwargs):
+                yield "ok"
+
+            def generate_tags(self, text, num_tags=3, existing_tags=None, **kwargs):
+                return ["tag1"]
+
+            def _send_message(self, system, user, temperature, max_tokens, **kwargs):
+                return "ok"
+
+            def _send_streaming_message(self, system, user, temperature, max_tokens, **kwargs):
+                yield "ok"
+
+        provider = CompleteProvider()
+        fallback = provider._fallback_answer("Q?", "ctx")
+        assert "test-provider" in fallback

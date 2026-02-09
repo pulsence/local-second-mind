@@ -16,7 +16,6 @@ from .base import BaseLLMProvider
 from .helpers import (
     RERANK_INSTRUCTIONS,
     format_user_content,
-    generate_fallback_answer,
     get_synthesis_instructions,
     get_tag_instructions,
     parse_json_payload,
@@ -97,6 +96,21 @@ class LocalProvider(BaseLLMProvider):
         message = resp.get("message", {}) if isinstance(resp, dict) else {}
         return (message.get("content") or "").strip()
 
+    def _send_message(
+        self,
+        system: str,
+        user: str,
+        temperature: Optional[float],
+        max_tokens: int,
+        **kwargs,
+    ) -> str:
+        return self._chat(
+            system,
+            user,
+            temperature=temperature if temperature is not None else self.config.temperature,
+            max_tokens=max_tokens,
+        )
+
     def _chat_stream(
         self,
         system: str,
@@ -134,6 +148,21 @@ class LocalProvider(BaseLLMProvider):
                 yield content
             if data.get("done"):
                 break
+
+    def _send_streaming_message(
+        self,
+        system: str,
+        user: str,
+        temperature: Optional[float],
+        max_tokens: int,
+        **kwargs,
+    ):
+        yield from self._chat_stream(
+            system,
+            user,
+            temperature=temperature if temperature is not None else self.config.temperature,
+            max_tokens=max_tokens,
+        )
 
     def rerank(
         self,
@@ -257,5 +286,3 @@ class LocalProvider(BaseLLMProvider):
         """Local models are free -- always return zero-cost pricing."""
         return {"input": 0.0, "output": 0.0}
 
-    def _fallback_answer(self, question: str, context: str, max_chars: int = 1200) -> str:
-        return generate_fallback_answer(question, context, "Local model", max_chars=max_chars)
