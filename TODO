@@ -47,6 +47,9 @@
   abstractions have become too leaky.
 - Check Tests to make sure there is not artifical duplication.
 
+### Agents
+- Create a Librarian agent who task it to explore the embeddings DB and create a graph of ideas
+
 ### Deployment
 - Create clear install instructions
 - Explore creating docker images

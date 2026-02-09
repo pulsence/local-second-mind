@@ -79,6 +79,13 @@ def test_build_config_reads_agents_section(tmp_path: Path) -> None:
             "allow_url_access": True,
             "require_user_permission": {"write_file": True},
             "require_permission_by_risk": {"network": True},
+            "execution_mode": "prefer_docker",
+            "limits": {
+                "timeout_s_default": 15,
+                "max_stdout_kb": 128,
+                "max_file_write_mb": 4,
+            },
+            "docker": {"enabled": True, "image": "test-image"},
             "tool_llm_assignments": {"query_remote": "decomposition"},
         },
         "agent_configs": {
@@ -95,6 +102,12 @@ def test_build_config_reads_agents_section(tmp_path: Path) -> None:
     assert config.agents.sandbox.allow_url_access is True
     assert config.agents.sandbox.require_user_permission["write_file"] is True
     assert config.agents.sandbox.require_permission_by_risk["network"] is True
+    assert config.agents.sandbox.execution_mode == "prefer_docker"
+    assert config.agents.sandbox.limits["timeout_s_default"] == 15
+    assert config.agents.sandbox.limits["max_stdout_kb"] == 128
+    assert config.agents.sandbox.limits["max_file_write_mb"] == 4
+    assert config.agents.sandbox.docker["enabled"] is True
+    assert config.agents.sandbox.docker["image"] == "test-image"
     assert config.agents.sandbox.tool_llm_assignments["query_remote"] == "decomposition"
     assert config.agents.agent_configs["research"]["max_iterations"] == 10
 
@@ -121,6 +134,9 @@ def test_config_to_raw_includes_agents_section(tmp_path: Path) -> None:
             "allow_url_access": False,
             "require_user_permission": {"write_file": True},
             "require_permission_by_risk": {"writes_workspace": True},
+            "execution_mode": "local_only",
+            "limits": {"timeout_s_default": 22, "max_stdout_kb": 33, "max_file_write_mb": 2},
+            "docker": {"enabled": False, "mem_limit_mb": 1024},
             "tool_llm_assignments": {"query_llm": "default"},
         },
         "agent_configs": {"research": {"enabled": True}},
@@ -135,10 +151,28 @@ def test_config_to_raw_includes_agents_section(tmp_path: Path) -> None:
     assert serialized["agents"]["context_window_strategy"] == "compact"
     assert serialized["agents"]["sandbox"]["require_user_permission"]["write_file"] is True
     assert serialized["agents"]["sandbox"]["require_permission_by_risk"]["writes_workspace"] is True
+    assert serialized["agents"]["sandbox"]["execution_mode"] == "local_only"
+    assert serialized["agents"]["sandbox"]["limits"]["timeout_s_default"] == 22
+    assert serialized["agents"]["sandbox"]["limits"]["max_stdout_kb"] == 33
+    assert serialized["agents"]["sandbox"]["limits"]["max_file_write_mb"] == 2
+    assert serialized["agents"]["sandbox"]["docker"]["enabled"] is False
+    assert serialized["agents"]["sandbox"]["docker"]["mem_limit_mb"] == 1024
     assert serialized["agents"]["agent_configs"]["research"]["enabled"] is True
 
 
 def test_sandbox_config_validate_rejects_unknown_risk_level() -> None:
     cfg = SandboxConfig(require_permission_by_risk={"unknown": True})
     with pytest.raises(ValueError, match="require_permission_by_risk"):
+        cfg.validate()
+
+
+def test_sandbox_config_validate_rejects_unknown_execution_mode() -> None:
+    cfg = SandboxConfig(execution_mode="invalid")
+    with pytest.raises(ValueError, match="execution_mode"):
+        cfg.validate()
+
+
+def test_sandbox_config_validate_rejects_invalid_limits() -> None:
+    cfg = SandboxConfig(limits={"timeout_s_default": 0, "max_stdout_kb": 0, "max_file_write_mb": 0})
+    with pytest.raises(ValueError, match="timeout_s_default"):
         cfg.validate()

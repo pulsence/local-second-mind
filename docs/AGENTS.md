@@ -73,11 +73,16 @@ Sandbox rules are defined in `agents.sandbox` and enforced by `ToolSandbox`.
 - `allow_url_access`: permits/disallows URL tools
 - `require_user_permission`: per-tool interactive gate
 - `require_permission_by_risk`: per-risk interactive gate (`read_only`, `writes_workspace`, `network`, `exec`)
+- `execution_mode`: runner policy (`local_only` or `prefer_docker`)
+- `limits`: execution limits (`timeout_s_default`, `max_stdout_kb`, `max_file_write_mb`)
+- `docker`: docker runner settings (`enabled`, `image`, `network_default`, `cpu_limit`, `mem_limit_mb`, `read_only_root`)
 - `tool_llm_assignments`: optional per-tool service mapping
 
 The sandbox is deny-by-default outside configured paths.
 Permission precedence is:
 `require_user_permission[tool]` -> `require_permission_by_risk[risk_level]` -> `tool.requires_permission` -> allow.
+Execution flow is:
+permission checks -> runner selection -> environment scrubbing -> runner execution -> output redaction.
 
 ## Built-In Tools
 

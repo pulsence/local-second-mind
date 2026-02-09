@@ -15,6 +15,7 @@ from .query_embeddings import QueryEmbeddingsTool
 from .query_llm import QueryLLMTool
 from .query_remote import QueryRemoteTool
 from .query_remote_chain import QueryRemoteChainTool
+from .runner import BaseRunner, LocalRunner, ToolExecutionResult
 
 if TYPE_CHECKING:
     from lsm.config.models import LSMConfig
@@ -33,6 +34,9 @@ __all__ = [
     "QueryLLMTool",
     "QueryRemoteTool",
     "QueryRemoteChainTool",
+    "BaseRunner",
+    "LocalRunner",
+    "ToolExecutionResult",
     "create_default_tool_registry",
 ]
 

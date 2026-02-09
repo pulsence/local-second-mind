@@ -477,6 +477,9 @@ def build_sandbox_config(raw: Dict[str, Any]) -> SandboxConfig:
         allow_url_access=bool(raw.get("allow_url_access", False)),
         require_user_permission=dict(raw.get("require_user_permission", {})),
         require_permission_by_risk=dict(raw.get("require_permission_by_risk", {})),
+        execution_mode=str(raw.get("execution_mode", "local_only")),
+        limits=dict(raw.get("limits", {})),
+        docker=dict(raw.get("docker", {})),
         tool_llm_assignments=dict(raw.get("tool_llm_assignments", {})),
     )
 
@@ -985,6 +988,9 @@ def config_to_raw(config: LSMConfig) -> Dict[str, Any]:
                 "allow_url_access": config.agents.sandbox.allow_url_access,
                 "require_user_permission": dict(config.agents.sandbox.require_user_permission),
                 "require_permission_by_risk": dict(config.agents.sandbox.require_permission_by_risk),
+                "execution_mode": config.agents.sandbox.execution_mode,
+                "limits": dict(config.agents.sandbox.limits),
+                "docker": dict(config.agents.sandbox.docker),
                 "tool_llm_assignments": dict(config.agents.sandbox.tool_llm_assignments),
             },
             "agent_configs": dict(config.agents.agent_configs),

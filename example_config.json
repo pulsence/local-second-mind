@@ -142,6 +142,20 @@
         "network": true,
         "exec": true
       },
+      "execution_mode": "local_only",
+      "limits": {
+        "timeout_s_default": 30,
+        "max_stdout_kb": 256,
+        "max_file_write_mb": 10
+      },
+      "docker": {
+        "enabled": false,
+        "image": "lsm-agent-sandbox:latest",
+        "network_default": "none",
+        "cpu_limit": 1.0,
+        "mem_limit_mb": 512,
+        "read_only_root": true
+      },
       "tool_llm_assignments": {}
     },
     "agent_configs": {}

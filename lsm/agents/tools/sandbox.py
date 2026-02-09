@@ -8,10 +8,13 @@ import os
 from pathlib import Path
 from typing import Any, Dict, Iterable, Optional
 
+from lsm.agents.log_redactor import redact_secrets
 from lsm.agents.permission_gate import PermissionGate
 from lsm.config.models.agents import SandboxConfig
 
+from .env_scrubber import scrub_environment
 from .base import BaseTool
+from .runner import BaseRunner, LocalRunner, ToolExecutionResult
 
 
 class ToolSandbox:
@@ -22,15 +25,22 @@ class ToolSandbox:
     _READ_TOOL_NAMES = {"read_file", "read_folder"}
     _WRITE_TOOL_NAMES = {"write_file", "create_folder"}
     _NETWORK_TOOL_NAMES = {"load_url", "query_llm", "query_remote", "query_remote_chain"}
+    _DOCKER_ELIGIBLE_RISKS = {"network", "exec"}
 
     def __init__(
         self,
         config: SandboxConfig,
         global_sandbox: Optional[SandboxConfig] = None,
+        *,
+        local_runner: Optional[BaseRunner] = None,
+        docker_runner: Optional[BaseRunner] = None,
     ) -> None:
         self.config = config
         self.global_sandbox = global_sandbox
         self.permission_gate = PermissionGate(config)
+        self.local_runner: BaseRunner = local_runner or self._build_local_runner()
+        self.docker_runner = docker_runner
+        self.last_execution_result: Optional[ToolExecutionResult] = None
         self._validate_not_exceeding_global()
 
     def execute(self, tool: BaseTool, args: Dict[str, Any]) -> str:
@@ -44,9 +54,16 @@ class ToolSandbox:
         Returns:
             Tool output text.
         """
-        self._enforce_tool_permissions(tool)
+        self.last_execution_result = None
+        self._enforce_tool_permissions(tool, args)
         self._enforce_args(tool, args)
-        return tool.execute(args)
+        runner = self._select_runner(tool)
+        env = scrub_environment()
+        result = runner.run(tool, args, env)
+        result.stdout = redact_secrets(result.stdout)
+        result.stderr = redact_secrets(result.stderr)
+        self.last_execution_result = result
+        return result.stdout
 
     def check_read_path(self, path: Path) -> None:
         """
@@ -66,8 +83,8 @@ class ToolSandbox:
         """
         self._check_path(path, self._effective_write_paths(), "write")
 
-    def _enforce_tool_permissions(self, tool: BaseTool) -> None:
-        decision = self.permission_gate.check(tool, {})
+    def _enforce_tool_permissions(self, tool: BaseTool, args: Dict[str, Any]) -> None:
+        decision = self.permission_gate.check(tool, args)
         if decision.requires_confirmation:
             raise PermissionError(decision.reason)
         if not decision.allowed:
@@ -289,6 +306,20 @@ class ToolSandbox:
             or tool.risk_level == "network"
             or tool.name in self._NETWORK_TOOL_NAMES
         )
+
+    def _build_local_runner(self) -> BaseRunner:
+        return LocalRunner(
+            timeout_s_default=float(self.config.limits.get("timeout_s_default", 30.0)),
+            max_stdout_kb=int(self.config.limits.get("max_stdout_kb", 256)),
+            max_file_write_mb=float(self.config.limits.get("max_file_write_mb", 10.0)),
+        )
+
+    def _select_runner(self, tool: BaseTool) -> BaseRunner:
+        mode = self.config.execution_mode
+        if mode == "prefer_docker" and tool.risk_level in self._DOCKER_ELIGIBLE_RISKS:
+            if bool(self.config.docker.get("enabled", False)) and self.docker_runner is not None:
+                return self.docker_runner
+        return self.local_runner
 
     @staticmethod
     def _is_relative_to(path: Path, root: Path) -> bool:

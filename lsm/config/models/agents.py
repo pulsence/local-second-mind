@@ -9,6 +9,20 @@ from pathlib import Path
 from typing import Any, Dict, List
 
 _VALID_RISK_LEVELS = {"read_only", "writes_workspace", "network", "exec"}
+_VALID_EXECUTION_MODES = {"local_only", "prefer_docker"}
+_DEFAULT_SANDBOX_LIMITS = {
+    "timeout_s_default": 30.0,
+    "max_stdout_kb": 256,
+    "max_file_write_mb": 10.0,
+}
+_DEFAULT_SANDBOX_DOCKER = {
+    "enabled": False,
+    "image": "lsm-agent-sandbox:latest",
+    "network_default": "none",
+    "cpu_limit": 1.0,
+    "mem_limit_mb": 512,
+    "read_only_root": True,
+}
 
 
 @dataclass
@@ -32,6 +46,19 @@ class SandboxConfig:
     require_permission_by_risk: Dict[str, bool] = field(default_factory=dict)
     """Per-risk permission gate (`risk_level -> bool`)."""
 
+    execution_mode: str = "local_only"
+    """Runner selection policy (`local_only` or `prefer_docker`)."""
+
+    limits: Dict[str, Any] = field(
+        default_factory=lambda: dict(_DEFAULT_SANDBOX_LIMITS)
+    )
+    """Sandbox runtime limits (`timeout_s_default`, `max_stdout_kb`, `max_file_write_mb`)."""
+
+    docker: Dict[str, Any] = field(
+        default_factory=lambda: dict(_DEFAULT_SANDBOX_DOCKER)
+    )
+    """Docker runner configuration (reserved for sandbox container execution)."""
+
     tool_llm_assignments: Dict[str, str] = field(default_factory=dict)
     """Per-tool LLM service assignment (`tool_name -> service_name`)."""
 
@@ -48,6 +75,13 @@ class SandboxConfig:
             for key, value in self.require_permission_by_risk.items()
             if str(key).strip()
         }
+        self.execution_mode = str(self.execution_mode or "local_only").strip().lower()
+        limits = self.limits if isinstance(self.limits, dict) else {}
+        docker = self.docker if isinstance(self.docker, dict) else {}
+        self.limits = dict(_DEFAULT_SANDBOX_LIMITS)
+        self.limits.update(limits)
+        self.docker = dict(_DEFAULT_SANDBOX_DOCKER)
+        self.docker.update(docker)
         self.tool_llm_assignments = {
             str(key).strip(): str(value).strip()
             for key, value in self.tool_llm_assignments.items()
@@ -68,6 +102,20 @@ class SandboxConfig:
                     "sandbox.require_permission_by_risk keys must be one of: "
                     "read_only, writes_workspace, network, exec"
                 )
+        if self.execution_mode not in _VALID_EXECUTION_MODES:
+            raise ValueError("sandbox.execution_mode must be 'local_only' or 'prefer_docker'")
+        try:
+            timeout_s = float(self.limits.get("timeout_s_default", 30.0))
+            max_stdout_kb = int(self.limits.get("max_stdout_kb", 256))
+            max_file_write_mb = float(self.limits.get("max_file_write_mb", 10.0))
+        except (TypeError, ValueError) as exc:
+            raise ValueError("sandbox.limits values must be numeric") from exc
+        if timeout_s <= 0:
+            raise ValueError("sandbox.limits.timeout_s_default must be > 0")
+        if max_stdout_kb < 1:
+            raise ValueError("sandbox.limits.max_stdout_kb must be >= 1")
+        if max_file_write_mb <= 0:
+            raise ValueError("sandbox.limits.max_file_write_mb must be > 0")
 
 
 @dataclass
