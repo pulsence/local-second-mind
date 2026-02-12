@@ -1,6 +1,5 @@
 .claude/
 .claude_files/
-notes/
 CLAUDE.md
 AGENTS.md
 !docs/AGENTS.md
@@ -53,13 +52,3 @@ tmp/
 temp/
 .cache/
 
-# Chroma persistent storage
-chroma/
-chromadb/
-.chroma/
-
-# Ingest manifests and checkpoints
-.ingest/
-
-# Incremental ingest state
-.ingest_state/

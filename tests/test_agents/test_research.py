@@ -111,6 +111,10 @@ def test_research_agent_runs_and_saves_outline(monkeypatch, tmp_path: Path) -> N
     assert agent.last_result is not None
     assert "# Research Outline: AI safety" in agent.last_result.outline_markdown
     assert agent.last_result.output_path.exists()
+    assert agent.last_result.log_path.exists()
+    saved_log = json.loads(agent.last_result.log_path.read_text(encoding="utf-8"))
+    assert isinstance(saved_log, list)
+    assert len(saved_log) > 0
 
 
 def test_research_agent_stops_when_budget_exhausted(monkeypatch, tmp_path: Path) -> None:
@@ -187,4 +191,3 @@ def test_agent_registry_rejects_unknown_agent(tmp_path: Path) -> None:
             sandbox=sandbox,
             agent_config=config.agents,
         )
-

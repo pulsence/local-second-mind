@@ -680,6 +680,13 @@ Move from `ResearchAgent` to `BaseAgent`:
 - `_consume_tokens(text)` - budget tracking
 - `_budget_exhausted() -> bool` - budget check
 
+Also need to pass descriptions and arguments to the LLM so that they
+can select. Right now only the names of the tool and so do not have enough
+information on what the tool does or what kind of arguement to return.
+
+This tool formatted and response parsing should be handled by the BaseAgent as
+a helper so all future agents can use the same code.
+
 **Files to modify:**
 - `lsm/agents/base.py`
 - `lsm/agents/research.py` - delegate to base

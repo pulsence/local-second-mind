@@ -124,24 +124,17 @@
 
   "_comment_agents": "Agent framework settings",
   "agents": {
-    "enabled": false,
+    "enabled": true,
     "agents_folder": "Agents",
     "max_tokens_budget": 200000,
     "max_iterations": 25,
     "context_window_strategy": "compact",
     "sandbox": {
-      "allowed_read_paths": [],
-      "allowed_write_paths": [],
-      "allow_url_access": false,
-      "require_user_permission": {
-        "write_file": true,
-        "load_url": true
-      },
-      "require_permission_by_risk": {
-        "writes_workspace": true,
-        "network": true,
-        "exec": true
-      },
+      "allowed_read_paths": ["./docs", "./notes", "./.ingest", "./.chroma"],
+      "allowed_write_paths": ["./Agents", "./notes"],
+      "allow_url_access": true,
+      "require_user_permission": {},
+      "require_permission_by_risk": {},
       "execution_mode": "local_only",
       "limits": {
         "timeout_s_default": 30,
@@ -158,7 +151,13 @@
       },
       "tool_llm_assignments": {}
     },
-    "agent_configs": {}
+    "agent_configs": {
+      "research": {
+        "enabled": true,
+        "max_iterations": 30,
+        "default_remote_provider": "arxiv"
+      }
+    }
   },
 
   "_comment_modes": "Query mode definitions (grounded/insight/hybrid built-in, add custom modes here)",

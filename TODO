@@ -37,34 +37,110 @@
 - There should be NO STUBS or MOCK tests.
 
 ## Future Items (INGORE ALL THE FOLLOWING FOR PLANNING)
-### Code Quality
-- Do a checking for large files that could be refactored into small files.
-- Check overly complicated code paths or redundant code.
-- Look for places where code is duplicated and can be consolidated.
-- Look for any legacy code, dead code, or backwards compatability code and remove it.
-- Look for places where module boundaries are not properly respected and abstractions
-  have started to leak and reinforce module boundaries and consider refactoring if
-  abstractions have become too leaky.
-- Check Tests to make sure there is not artifical duplication.
+### v0.6.0: TUI Improvements
+- Settings Screen
+  - Each tab needs to be broken out into its own "widget" file to more clearly deliniate the code
+  - The Seetings screen should be moved to an MVC structure. The config objects act as the Model,
+    the Settting Screen itself serves as the Controler and the tabbed widgets that dispaly the 
+    config values serve as the Views.
+- Screen elements are too large on defualt command prompt in windows, need to scale UI better
 
-### Agents
-- Create a Librarian agent who task it to explore the embeddings DB and create a graph of ideas
+### v0.7.0: Agents and Remote Sources
+#### Architecture
+- Create lsm.utils module for common utility code like logger
+- Create a utility that produces a graph of a file like those graph from tree-sitter.
+  - This should also produce a graph from all "text" files from headings->subheadings->paragraphs.
+- Need to create a test harness to check test how agents and tools improve or regress based
+  upon feature changes.
 
-### Deployment
-- Create clear install instructions
-- Explore creating docker images
+#### Ingest
+- Research graphs on embeddings and way to improve information discover in embeddings.
+- Store graphs of files embedded to help with search/discovery.
+- When a text document has subheadings the user should be able to define how many subheadings
+  deep should be considered when creating chunk boundaries by headings. Otherwise the ingest
+  should intellegently use subheadings based upon the follow criteria:
+    - When a heading is larger than the max chunk size and contains sub-headings,
+      then the section should be chunked along the sub-heading boundaries. The meta-data
+      in the chunk should indicate the heirarchy of headings: heading::sub-heading
+    - This process should repeat into nested subheadings so long as the current heading
+      level is larger than the target max chunk size.
 
-### Ingest
-- Need to consider when a heading has sub headings, they can be included and explore what if
-  heading groups are particular small and so produce the situation where overlaps include whole
-  other chunks.
+#### Agents and Tools
+- Default Agent Workspace:
+  - Each Agent should default to the following folder for their workspace: `<agents_folder>/<agent_name>/<timestap>
+  - Each Agent by default has read/write access to their workspace.
+  - The allowed_read_paths, and allowed_write_paths
+  - Agent logs by default save in their workspace.
+- When an agent requires the user to approve an action it should pause until the user
+  gives the approval.
+  - The user should be able to approve the action for this session, for this agent, for
+    all future uses.
+- Update sending tools to use AI Model API field `tools=[...]` where possible and only otherwise
+  defualt to creating a human readable list.
+  - When a human readable list must be used, it should be wrapped in a fixed JSON structure.
+- A RemoteSources tool that exposes all current Source Providers configured.
+- Sort how to create a tool that runs shell commands. This prevents from having to recreate
+  the shell commands in system, but we need to make sure to protect against sandbox escapes.
+- Core manipulation tools are find/read/write/edit:
+  - Creating a line harsh which is then sent to llm can greatly assist in editing a file. By edit
+    we mean, selectively replacing a section of a file with a new section. See https://blog.can.ac/2026/02/12/the-harness-problem/
+    for a description of this. The line hash makes it easier for the LLM to indicate which lines
+    to replace.
+  - See the tilth project https://github.com/jahala/tilth for inspiration on how to boost both
+    find and edit. We are seeking to accomlish the same why as Jahala:
+    ```
+    I built this because I watched AI agents make 6 tool calls to find one function. glob → read → "too big" → grep → read again → read another file. Each round-trip burns inference time and tokens.
 
-### MCP Services
-- Add abilities to ingest MCPs
-- Add Agent tool to handle MCPs in Agents. 
-- Should internal tools expose a MCP like interface to LLMs?
+    tilth gives agents (and humans) structural awareness in one call. The outline tells you what's in the file. The search tells you where things are defined and used. The --section flag gets you exactly the lines you need.
 
-### Future Source Providers
+    It's also just a nicer cat for codebases.
+    ```
+  - Leverage file grapher in finding sections and editing sections.
+  - Find_File tool should file by name or content in file
+  - Find_Section tool should find section in specified file or find file with related sections
+- Fully implement Docker runner.
+  - Explore hot loading docker and then launching in the docker instance vs launching a docker
+    instance whenever it is needed.
+- Added Agent types, so a user can view the different kinds of agents. E.g., study or assistants.
+- Create a Librarian Agent who task it to explore the embeddings DB and create a graph of ideas
+- Agent Assistant:
+  - This agent acts as an assitant to review the work produced by all other agents and produce
+    summaries of what happened. This could be summaries of results, actions taken, a security
+    review to identify if there is anything that needs to be reviewed by user.
+  - Can identify across agents if there is anything that should be stored as a memory or maybe
+    memories that need to be updated or removed.
+  - It is kind of like HR for the agents.
+- Email Assistant:
+  - Read emails (last 1 hr, last 24 hrs, etc.) and provide a summary of emails
+  - Provide a task list based upon certain criteria to select emails (e.g., search string, 
+    to/from particular persons, unread, folder, etc.)
+  - Ability to draft emails but user must explicitly approve before sending
+- Calendar Assistant:
+  - Read calendar and provide information about upcoming events
+  - Give an event and receive suggestions on when to schedule the event
+  - Ability to add/remove/edit events with explicity approval from user
+- News Assistant:
+  - Provide a news summary over selected time frame in the style of a news letter
+  - Provide a news summary based upon specific criteria or topics
+- Assistant Meta-Agent:
+  - A meta-agent specifically tasked with launching and controlling Assistant type agents.
+- Code Editor:
+  - Agent designed to edit code
+- Manuscript Editor:
+  - An agent who reads text documents (plain text, markdown, word) and then iteratively
+    edits the document. It is like a Code Editor but for essays and manuscripts.
+
+#### MCP Services
+- Add abilities to act as MCP host
+
+#### AI Providers
+- Add support for OpenRouter
+
+#### Remote Source Providers
+- Generic RSS Reader that can cache past reads and download latest items
+- All remote providers that use OAI protocol should leverage the BaseOAIProvider to reduce code
+  reuse.
+- Ability to access major Email and Calendar providers
 - Create OpenAlex - Crossref - Unpaywall - CORE pipeline to find, download, and ingest documents
 - Archive.org
 - Look into AI Providers Web Search API as alts to Brave
@@ -85,3 +161,34 @@
 - Finantial Sources
     - Market data
     - Federal/Government API data
+
+### v0.8.0: Refactor and Dog Food
+#### Code Quality
+- Do a checking for large files that could be refactored into small files.
+- Check overly complicated code paths or redundant code.
+- Look for places where code is duplicated and can be consolidated.
+- Look for any legacy code, dead code, or backwards compatability code and remove it.
+- Look for places where module boundaries are not properly respected and abstractions
+  have started to leak and reinforce module boundaries and consider refactoring if
+  abstractions have become too leaky.
+- Check Tests to make sure there is not artifical duplication.
+
+#### Deployment
+- Create clear install instructions
+- Explore creating docker images
+
+### v0.9.0: Extra Control Paths
+- Add ability to send email/txt notifications
+- Add ability to create RSS Feed from for example the News Agent
+- Add ability to launch commands by txt/email
+
+### v0.10.0: UI
+- Add Web interface (mobile and desktop browsers)
+- Add desktop UI
+
+### v0.11.0: Intergrations
+- Add Zotero itegrations
+- Complete Obsidian integration
+  - Create obsidian plugin that connects to the LSM server used by the Web UI to allow
+    the user to interact with LSM via the API requests
+- Complete logseq integration

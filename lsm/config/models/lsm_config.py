@@ -95,8 +95,17 @@ class LSMConfig:
             if self.vectordb and not self.vectordb.persist_dir.is_absolute():
                 self.vectordb.persist_dir = (base_dir / self.vectordb.persist_dir).resolve()
 
-            if self.agents is not None and not self.agents.agents_folder.is_absolute():
-                self.agents.agents_folder = (base_dir / self.agents.agents_folder).resolve()
+        if self.agents is not None and not self.agents.agents_folder.is_absolute():
+            if self.global_settings.global_folder is not None:
+                self.agents.agents_folder = (
+                    self.global_settings.global_folder / self.agents.agents_folder
+                ).resolve()
+            elif self.config_path:
+                self.agents.agents_folder = (
+                    self.config_path.parent / self.agents.agents_folder
+                ).resolve()
+            else:
+                self.agents.agents_folder = self.agents.agents_folder.resolve()
 
         if self.modes is None:
             self.modes = self._get_builtin_modes()

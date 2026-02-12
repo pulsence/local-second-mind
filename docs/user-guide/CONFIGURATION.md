@@ -378,6 +378,8 @@ an API key.
 
 - `vectordb.persist_dir`, `ingest.persist_dir`, and `ingest.manifest` are
   resolved relative to the config file.
+- `agents.agents_folder` is resolved relative to `global.global_folder` when
+  provided as a relative path.
 - If `notes.dir` is `"notes"`, notes are written to `<global_folder>/Notes`.
 - For any other relative `notes.dir`, paths are resolved relative to the config file.
 - `ingest.roots` can be absolute or relative to the working directory.

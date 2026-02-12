@@ -112,12 +112,12 @@ def test_build_config_reads_agents_section(tmp_path: Path) -> None:
     assert config.agents.agent_configs["research"]["max_iterations"] == 10
 
 
-def test_build_config_resolves_agents_folder_relative_to_config_path(tmp_path: Path) -> None:
+def test_build_config_resolves_agents_folder_relative_to_global_folder(tmp_path: Path) -> None:
     raw = _base_raw(tmp_path)
     raw["agents"] = {"enabled": True, "agents_folder": "Agents"}
     config = build_config_from_raw(raw, tmp_path / "config.json")
     assert config.agents is not None
-    assert config.agents.agents_folder == (tmp_path / "Agents").resolve()
+    assert config.agents.agents_folder == (tmp_path / "lsm-global" / "Agents").resolve()
 
 
 def test_config_to_raw_includes_agents_section(tmp_path: Path) -> None:

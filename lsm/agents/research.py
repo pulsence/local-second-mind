@@ -15,6 +15,7 @@ from lsm.logging import get_logger
 from lsm.providers.factory import create_provider
 
 from .base import AgentStatus, BaseAgent
+from .log_formatter import save_agent_log
 from .models import AgentContext, AgentLogEntry
 from .tools.base import ToolRegistry
 from .tools.sandbox import ToolSandbox
@@ -31,6 +32,7 @@ class ResearchResult:
     topic: str
     outline_markdown: str
     output_path: Path
+    log_path: Path
 
 
 class ResearchAgent(BaseAgent):
@@ -120,11 +122,14 @@ class ResearchAgent(BaseAgent):
             subtopics = normalized
             self._log(f"Refining with {len(subtopics)} review suggestions.")
 
-        output_path = self._save_outline(topic, self._build_outline(topic, outline_sections))
+        outline_markdown = self._build_outline(topic, outline_sections)
+        output_path = self._save_outline(topic, outline_markdown)
+        log_path = self._save_log(output_path)
         self.last_result = ResearchResult(
             topic=topic,
-            outline_markdown=self._build_outline(topic, outline_sections),
+            outline_markdown=outline_markdown,
             output_path=output_path,
+            log_path=log_path,
         )
         self.state.set_status(AgentStatus.COMPLETED)
         return self.state
@@ -276,6 +281,10 @@ class ResearchAgent(BaseAgent):
         self._log(f"Saved research outline to {output_path}")
         return output_path
 
+    def _save_log(self, output_path: Path) -> Path:
+        log_path = output_path.with_name(f"{output_path.stem}_log.json")
+        return save_agent_log(self.state.log_entries, log_path)
+
     def _parse_json(self, value: str) -> Any:
         text = str(value or "").strip()
         if not text:
@@ -315,4 +324,3 @@ class ResearchAgent(BaseAgent):
                 content=content,
             )
         )
-
