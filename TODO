@@ -116,7 +116,7 @@
     edits the document. It is like a Code Editor but for essays and manuscripts.
 
 #### MCP Services
-- Add abilities to act as MCP host
+- Add ability to act as MCP host
 
 #### AI Providers
 - Add support for OpenRouter
@@ -148,6 +148,12 @@
     - Federal/Government API data
 
 ### v0.8.0: Embedding Retrevial Improvments
+#### Architecural Overhall
+- Read .claude_files/INGEST_FUTURE.md for an outline of how to create a plan to improve the 
+  ingest and embedding retrevial pipeline.
+
+####
+
 #### Document Headings Improvement
 - When a text document has subheadings the user should be able to define how many subheadings
   deep should be considered when creating chunk boundaries by headings. Otherwise the ingest
@@ -180,7 +186,7 @@
 
 ### v0.11.0: UI
 - Add Web interface (mobile and desktop browsers)
-- Add desktop UI
+- Add desktop UI based up web interface
 
 ### v0.12.0: Intergrations
 - Add Zotero itegrations

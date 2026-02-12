@@ -160,6 +160,12 @@
       "writing": {
         "enabled": true,
         "max_iterations": 20
+      },
+      "synthesis": {
+        "enabled": true,
+        "max_iterations": 20,
+        "target_format": "bullets",
+        "target_length_words": 350
       }
     }
   },

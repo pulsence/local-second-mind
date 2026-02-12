@@ -13,6 +13,7 @@ Built-in agent:
 
 - `research`
 - `writing`
+- `synthesis`
 
 ## Architecture
 
@@ -22,6 +23,8 @@ Built-in agent:
 - `lsm/agents/log_formatter.py`: log formatting and serialization helpers
 - `lsm/agents/factory.py`: registry + `create_agent(...)`
 - `lsm/agents/research.py`: built-in research workflow agent
+- `lsm/agents/writing.py`: built-in grounded writing workflow agent
+- `lsm/agents/synthesis.py`: built-in synthesis workflow agent
 
 Tooling:
 
@@ -145,6 +148,15 @@ Use when you need multi-step retrieval + synthesis rather than a single query tu
 The `writing` agent gathers grounding evidence from local tools, builds an outline, drafts prose, self-reviews, and writes a final markdown deliverable.
 
 Use when you need a polished grounded write-up from your local knowledge base.
+
+## Synthesis Agent
+
+The `synthesis` agent selects scope, gathers candidate sources, synthesizes compact output in a target format (bullets, outline, narrative, or QA), and writes:
+
+- `synthesis.md`
+- `source_map.md`
+
+Use when you need concise cross-document distillation with explicit source coverage.
 
 ## TUI Usage
 

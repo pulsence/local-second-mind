@@ -11,6 +11,7 @@ from lsm.config.models import AgentConfig, LLMRegistryConfig
 
 from .base import BaseAgent
 from .research import ResearchAgent
+from .synthesis import SynthesisAgent
 from .writing import WritingAgent
 from .tools.base import ToolRegistry
 from .tools.sandbox import ToolSandbox
@@ -30,6 +31,7 @@ class AgentRegistry:
     def __init__(self) -> None:
         self._builders: Dict[str, AgentBuilder] = {}
         self.register("research", self._build_research_agent)
+        self.register("synthesis", self._build_synthesis_agent)
         self.register("writing", self._build_writing_agent)
 
     def register(self, name: str, builder: AgentBuilder) -> None:
@@ -98,6 +100,26 @@ class AgentRegistry:
         if overrides and "max_iterations" in overrides:
             agent_config = replace(agent_config, max_iterations=int(overrides["max_iterations"]))
         return WritingAgent(
+            llm_registry=llm_registry,
+            tool_registry=tool_registry,
+            sandbox=sandbox,
+            agent_config=agent_config,
+            agent_overrides=overrides,
+        )
+
+    @staticmethod
+    def _build_synthesis_agent(
+        llm_registry: LLMRegistryConfig,
+        tool_registry: ToolRegistry,
+        sandbox: ToolSandbox,
+        agent_config: AgentConfig,
+        overrides: Optional[dict],
+    ) -> BaseAgent:
+        if overrides and "enabled" in overrides and not bool(overrides["enabled"]):
+            raise ValueError("Agent 'synthesis' is disabled by configuration override")
+        if overrides and "max_iterations" in overrides:
+            agent_config = replace(agent_config, max_iterations=int(overrides["max_iterations"]))
+        return SynthesisAgent(
             llm_registry=llm_registry,
             tool_registry=tool_registry,
             sandbox=sandbox,

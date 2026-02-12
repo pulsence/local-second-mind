@@ -711,7 +711,7 @@ Harness creates `<agents_folder>/<agent_name>_<timestamp>/workspace/` and passes
 
 **Post-block:** `tests/test_agents/test_agent_helpers.py`, `tests/test_agents/test_harness_allowlist.py`, run tests, update docs, commit.
 
-### 3.8: Writing Agent
+### 3.8: Writing Agent (COMPLETED)
 
 **File to create:** `lsm/agents/writing.py`
 
