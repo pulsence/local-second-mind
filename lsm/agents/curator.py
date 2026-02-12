@@ -1,0 +1,639 @@
+"""
+Curator agent implementation.
+"""
+
+from __future__ import annotations
+
+import json
+from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
+from typing import Any, Dict, List, Optional
+
+from lsm.config.models import AgentConfig, LLMRegistryConfig
+from lsm.providers.factory import create_provider
+
+from .base import AgentStatus, BaseAgent
+from .log_formatter import save_agent_log
+from .models import AgentContext
+from .tools.base import ToolRegistry
+from .tools.sandbox import ToolSandbox
+
+
+@dataclass
+class CuratorResult:
+    """
+    Structured result payload for a curator run.
+    """
+
+    topic: str
+    report_markdown: str
+    output_path: Path
+    log_path: Path
+
+
+class CuratorAgent(BaseAgent):
+    """
+    Maintain corpus quality with actionable reports.
+    """
+
+    name = "curator"
+    description = "Maintain corpus quality with actionable reports."
+    tool_allowlist = {
+        "read_folder",
+        "file_metadata",
+        "hash_file",
+        "query_embeddings",
+        "similarity_search",
+        "write_file",
+    }
+
+    def __init__(
+        self,
+        llm_registry: LLMRegistryConfig,
+        tool_registry: ToolRegistry,
+        sandbox: ToolSandbox,
+        agent_config: AgentConfig,
+        agent_overrides: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        super().__init__(name=self.name, description=self.description)
+        self.llm_registry = llm_registry
+        self.tool_registry = tool_registry
+        self.sandbox = sandbox
+        self.agent_config = agent_config
+        self.agent_overrides = agent_overrides or {}
+
+        self.max_iterations = int(
+            self.agent_overrides.get("max_iterations", self.agent_config.max_iterations)
+        )
+        self.max_tokens_budget = int(
+            self.agent_overrides.get(
+                "max_tokens_budget",
+                self.agent_config.max_tokens_budget,
+            )
+        )
+        self.last_result: Optional[CuratorResult] = None
+
+    def run(self, initial_context: AgentContext) -> Any:
+        """
+        Run the curator workflow.
+
+        Args:
+            initial_context: Agent context containing the user request/topic.
+
+        Returns:
+            Agent state after execution.
+        """
+        self._tokens_used = 0
+        self.state.set_status(AgentStatus.RUNNING)
+        topic = self._extract_topic(initial_context)
+        self.state.current_task = f"Curating: {topic}"
+
+        provider = create_provider(self.llm_registry.resolve_service("default"))
+        scope = self._select_scope(provider, topic)
+        inventory = self._inventory_files(scope)
+        metadata = self._collect_metadata(inventory)
+        exact_duplicates = self._detect_exact_duplicates(inventory)
+        near_duplicates = self._detect_near_duplicates(inventory, scope)
+        quality_signals = self._collect_quality_signals(topic)
+        heuristics = self._apply_heuristics(metadata, quality_signals, scope)
+        recommendations = self._generate_recommendations(
+            provider,
+            topic=topic,
+            scope=scope,
+            inventory=inventory,
+            metadata=metadata,
+            exact_duplicates=exact_duplicates,
+            near_duplicates=near_duplicates,
+            heuristics=heuristics,
+        )
+
+        report_markdown = self._build_report(
+            topic=topic,
+            scope=scope,
+            inventory=inventory,
+            metadata=metadata,
+            exact_duplicates=exact_duplicates,
+            near_duplicates=near_duplicates,
+            heuristics=heuristics,
+            recommendations=recommendations,
+        )
+        output_path = self._save_report(topic, report_markdown, initial_context)
+        log_path = self._save_log(output_path.parent)
+        self.last_result = CuratorResult(
+            topic=topic,
+            report_markdown=report_markdown,
+            output_path=output_path,
+            log_path=log_path,
+        )
+        self.state.set_status(AgentStatus.COMPLETED)
+        return self.state
+
+    def _extract_topic(self, context: AgentContext) -> str:
+        for message in reversed(context.messages):
+            if str(message.get("role", "")).lower() == "user":
+                topic = str(message.get("content", "")).strip()
+                if topic:
+                    return topic
+        return "Corpus Curation"
+
+    def _available_tools(self) -> set[str]:
+        return {
+            str(item.get("name", "")).strip()
+            for item in self._get_tool_definitions(
+                self.tool_registry,
+                tool_allowlist=self.tool_allowlist,
+            )
+            if str(item.get("name", "")).strip()
+        }
+
+    def _select_scope(self, provider: Any, topic: str) -> Dict[str, Any]:
+        default_scope_path = str(
+            self.agent_overrides.get("scope_path", self._default_scope_path())
+        )
+        default_stale_days = int(self.agent_overrides.get("stale_days", 365))
+        default_near_duplicate_threshold = float(
+            self.agent_overrides.get("near_duplicate_threshold", 0.9)
+        )
+        default_top_near_duplicates = int(
+            self.agent_overrides.get("top_near_duplicates", 25)
+        )
+
+        prompt = (
+            "Select corpus curation scope. "
+            "Return strict JSON with keys: "
+            '{"scope_path":"...", "stale_days": 365, '
+            '"near_duplicate_threshold": 0.9, "top_near_duplicates": 25}.'
+        )
+        response = provider.synthesize(prompt, f"Topic:\n{topic}", mode="insight")
+        self._consume_tokens(response)
+        parsed = self._parse_json(response)
+
+        scope_path = default_scope_path
+        stale_days = default_stale_days
+        near_duplicate_threshold = default_near_duplicate_threshold
+        top_near_duplicates = default_top_near_duplicates
+
+        if isinstance(parsed, dict):
+            parsed_scope = str(parsed.get("scope_path", "")).strip()
+            if parsed_scope and "scope_path" not in self.agent_overrides:
+                scope_path = parsed_scope
+
+            try:
+                stale_days = int(parsed.get("stale_days", stale_days))
+            except (TypeError, ValueError):
+                pass
+            try:
+                near_duplicate_threshold = float(
+                    parsed.get("near_duplicate_threshold", near_duplicate_threshold)
+                )
+            except (TypeError, ValueError):
+                pass
+            try:
+                top_near_duplicates = int(
+                    parsed.get("top_near_duplicates", top_near_duplicates)
+                )
+            except (TypeError, ValueError):
+                pass
+
+        stale_days = max(30, min(stale_days, 3650))
+        near_duplicate_threshold = max(0.5, min(near_duplicate_threshold, 0.999))
+        top_near_duplicates = max(5, min(top_near_duplicates, 200))
+
+        scope = {
+            "scope_path": scope_path,
+            "stale_days": stale_days,
+            "near_duplicate_threshold": near_duplicate_threshold,
+            "top_near_duplicates": top_near_duplicates,
+        }
+        self._log(f"Selected curation scope: {json.dumps(scope)}")
+        return scope
+
+    def _default_scope_path(self) -> str:
+        if self.sandbox.config.allowed_read_paths:
+            return str(self.sandbox.config.allowed_read_paths[0])
+        return "."
+
+    def _inventory_files(self, scope: Dict[str, Any]) -> List[str]:
+        if "read_folder" not in self._available_tools():
+            return []
+        output = self._run_tool(
+            "read_folder",
+            {"path": str(scope.get("scope_path", ".")), "recursive": True},
+        )
+        parsed = self._parse_json(output)
+        if not isinstance(parsed, list):
+            return []
+
+        allowed_exts = {".txt", ".md", ".rst", ".pdf", ".docx", ".html", ".htm"}
+        files: list[str] = []
+        for item in parsed:
+            if not isinstance(item, dict):
+                continue
+            if bool(item.get("is_dir", False)):
+                continue
+            path = str(item.get("path", "")).strip()
+            if not path:
+                continue
+            ext = Path(path).suffix.lower()
+            if ext and ext not in allowed_exts:
+                continue
+            if path not in files:
+                files.append(path)
+
+        files = files[:400]
+        self._log(f"Inventory found {len(files)} files.")
+        return files
+
+    def _collect_metadata(self, paths: List[str]) -> List[Dict[str, Any]]:
+        if "file_metadata" not in self._available_tools() or not paths:
+            return []
+
+        results: list[Dict[str, Any]] = []
+        batch_size = 50
+        for start in range(0, len(paths), batch_size):
+            batch = paths[start : start + batch_size]
+            output = self._run_tool("file_metadata", {"paths": batch})
+            parsed = self._parse_json(output)
+            if isinstance(parsed, list):
+                for item in parsed:
+                    if isinstance(item, dict):
+                        results.append(item)
+        return results
+
+    def _detect_exact_duplicates(self, paths: List[str]) -> List[Dict[str, Any]]:
+        if "hash_file" not in self._available_tools() or not paths:
+            return []
+
+        by_hash: Dict[str, List[str]] = {}
+        for path in paths:
+            output = self._run_tool("hash_file", {"path": path})
+            parsed = self._parse_json(output)
+            if not isinstance(parsed, dict):
+                continue
+            digest = str(parsed.get("sha256", "")).strip()
+            hashed_path = str(parsed.get("path", path)).strip()
+            if digest and hashed_path:
+                by_hash.setdefault(digest, []).append(hashed_path)
+
+        duplicates: list[Dict[str, Any]] = []
+        for digest in sorted(by_hash.keys()):
+            dup_paths = sorted(set(by_hash[digest]))
+            if len(dup_paths) < 2:
+                continue
+            duplicates.append(
+                {
+                    "sha256": digest,
+                    "count": len(dup_paths),
+                    "paths": dup_paths,
+                }
+            )
+        return duplicates
+
+    def _detect_near_duplicates(
+        self,
+        paths: List[str],
+        scope: Dict[str, Any],
+    ) -> List[Dict[str, Any]]:
+        if "similarity_search" not in self._available_tools() or not paths:
+            return []
+
+        candidate_paths = paths[:120]
+        args = {
+            "paths": candidate_paths,
+            "top_k": int(scope.get("top_near_duplicates", 25)),
+            "threshold": float(scope.get("near_duplicate_threshold", 0.9)),
+        }
+        output = self._run_tool("similarity_search", args)
+        parsed = self._parse_json(output)
+        if not isinstance(parsed, list):
+            return []
+
+        results: list[Dict[str, Any]] = []
+        for item in parsed:
+            if not isinstance(item, dict):
+                continue
+            left = str(item.get("source_path_a", "")).strip()
+            right = str(item.get("source_path_b", "")).strip()
+            if not left or not right:
+                continue
+            try:
+                similarity = float(item.get("similarity", 0.0))
+            except (TypeError, ValueError):
+                similarity = 0.0
+            results.append(
+                {
+                    "source_path_a": left,
+                    "source_path_b": right,
+                    "similarity": similarity,
+                }
+            )
+        return results
+
+    def _collect_quality_signals(self, topic: str) -> List[Dict[str, Any]]:
+        if "query_embeddings" not in self._available_tools():
+            return []
+        query = str(
+            self.agent_overrides.get(
+                "quality_query",
+                f"{topic} TODO draft placeholder incomplete",
+            )
+        ).strip()
+        if not query:
+            return []
+        output = self._run_tool(
+            "query_embeddings",
+            {"query": query, "top_k": 10, "max_chars": 500},
+        )
+        parsed = self._parse_json(output)
+        if not isinstance(parsed, list):
+            return []
+        return [item for item in parsed if isinstance(item, dict)]
+
+    def _apply_heuristics(
+        self,
+        metadata: List[Dict[str, Any]],
+        quality_signals: List[Dict[str, Any]],
+        scope: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        stale_cutoff = datetime.now(timezone.utc) - timedelta(
+            days=int(scope.get("stale_days", 365))
+        )
+
+        stale_files: list[Dict[str, Any]] = []
+        tiny_files: list[Dict[str, Any]] = []
+        empty_files: list[Dict[str, Any]] = []
+        quality_hits: list[Dict[str, Any]] = []
+
+        for item in metadata:
+            path = str(item.get("path", "")).strip()
+            if not path:
+                continue
+            size = self._coerce_int(item.get("size_bytes"), default=0)
+            if size == 0:
+                empty_files.append({"path": path, "size_bytes": size})
+            if size > 0 and size < 120:
+                tiny_files.append({"path": path, "size_bytes": size})
+
+            mtime_raw = str(item.get("mtime_iso", "")).strip()
+            if mtime_raw:
+                try:
+                    mtime = datetime.fromisoformat(mtime_raw)
+                    if mtime.tzinfo is None:
+                        mtime = mtime.replace(tzinfo=timezone.utc)
+                    if mtime < stale_cutoff:
+                        stale_files.append({"path": path, "mtime_iso": mtime.isoformat()})
+                except ValueError:
+                    continue
+
+        for hit in quality_signals:
+            text = str(hit.get("text", "")).lower()
+            if not text:
+                continue
+            if any(marker in text for marker in ("todo", "tbd", "lorem ipsum", "fixme")):
+                metadata_obj = hit.get("metadata")
+                source_path = ""
+                if isinstance(metadata_obj, dict):
+                    source_path = str(metadata_obj.get("source_path", "")).strip()
+                if not source_path:
+                    source_path = str(hit.get("source_path", "")).strip()
+                if source_path:
+                    quality_hits.append(
+                        {
+                            "path": source_path,
+                            "relevance": float(hit.get("relevance", 0.0) or 0.0),
+                        }
+                    )
+
+        return {
+            "stale_files": self._dedupe_dicts(stale_files, key="path"),
+            "tiny_files": self._dedupe_dicts(tiny_files, key="path"),
+            "empty_files": self._dedupe_dicts(empty_files, key="path"),
+            "quality_hits": self._dedupe_dicts(quality_hits, key="path"),
+        }
+
+    def _generate_recommendations(
+        self,
+        provider: Any,
+        topic: str,
+        scope: Dict[str, Any],
+        inventory: List[str],
+        metadata: List[Dict[str, Any]],
+        exact_duplicates: List[Dict[str, Any]],
+        near_duplicates: List[Dict[str, Any]],
+        heuristics: Dict[str, Any],
+    ) -> List[str]:
+        default_recommendations = self._default_recommendations(
+            exact_duplicates,
+            near_duplicates,
+            heuristics,
+        )
+        prompt = (
+            "Produce concise actionable corpus curation recommendations. "
+            "Return JSON array of strings."
+        )
+        context = json.dumps(
+            {
+                "topic": topic,
+                "scope": scope,
+                "inventory_count": len(inventory),
+                "metadata_count": len(metadata),
+                "exact_duplicates": exact_duplicates[:5],
+                "near_duplicates": near_duplicates[:5],
+                "heuristics": heuristics,
+                "defaults": default_recommendations,
+            },
+            indent=2,
+        )
+        response = provider.synthesize(prompt, context, mode="insight")
+        self._consume_tokens(response)
+        parsed = self._parse_json(response)
+        if isinstance(parsed, list):
+            normalized = [str(item).strip() for item in parsed if str(item).strip()]
+            if normalized:
+                return normalized[:12]
+        return default_recommendations
+
+    def _default_recommendations(
+        self,
+        exact_duplicates: List[Dict[str, Any]],
+        near_duplicates: List[Dict[str, Any]],
+        heuristics: Dict[str, Any],
+    ) -> List[str]:
+        recs: list[str] = []
+        if exact_duplicates:
+            recs.append(
+                "Consolidate exact-duplicate files and retain a single canonical copy per hash group."
+            )
+        if near_duplicates:
+            recs.append(
+                "Review high-similarity file pairs and merge overlapping notes where appropriate."
+            )
+        stale_files = heuristics.get("stale_files") or []
+        if stale_files:
+            recs.append(
+                "Archive or refresh stale files that have not been updated within the configured staleness window."
+            )
+        tiny_files = heuristics.get("tiny_files") or []
+        if tiny_files:
+            recs.append(
+                "Expand very small files into fuller notes or merge them into related documents."
+            )
+        empty_files = heuristics.get("empty_files") or []
+        if empty_files:
+            recs.append("Delete empty files that do not serve as intentional placeholders.")
+        quality_hits = heuristics.get("quality_hits") or []
+        if quality_hits:
+            recs.append(
+                "Resolve placeholder markers (e.g., TODO/FIXME/TBD) in flagged files."
+            )
+        if not recs:
+            recs.append("No urgent quality issues detected; continue periodic curation checks.")
+        return recs
+
+    def _build_report(
+        self,
+        topic: str,
+        scope: Dict[str, Any],
+        inventory: List[str],
+        metadata: List[Dict[str, Any]],
+        exact_duplicates: List[Dict[str, Any]],
+        near_duplicates: List[Dict[str, Any]],
+        heuristics: Dict[str, Any],
+        recommendations: List[str],
+    ) -> str:
+        lines = [
+            f"# Curation Report: {topic}",
+            "",
+            "## Scope",
+            "",
+            f"- Path: `{scope.get('scope_path', '.')}`",
+            f"- Stale threshold (days): {int(scope.get('stale_days', 365))}",
+            f"- Near-duplicate similarity threshold: {float(scope.get('near_duplicate_threshold', 0.9)):.3f}",
+            "",
+            "## Summary",
+            "",
+            f"- Files scanned: {len(inventory)}",
+            f"- Files with metadata: {len(metadata)}",
+            f"- Exact duplicate groups: {len(exact_duplicates)}",
+            f"- Near-duplicate pairs: {len(near_duplicates)}",
+            "",
+            "## Exact Duplicates",
+            "",
+        ]
+        if not exact_duplicates:
+            lines.append("No exact duplicates detected.")
+            lines.append("")
+        else:
+            for group in exact_duplicates[:20]:
+                lines.append(f"- Hash `{group['sha256'][:12]}...` ({group['count']} files):")
+                for path in group["paths"][:8]:
+                    lines.append(f"  - `{path}`")
+            lines.append("")
+
+        lines.extend(["## Near Duplicates", ""])
+        if not near_duplicates:
+            lines.append("No near-duplicate pairs above threshold detected.")
+            lines.append("")
+        else:
+            for pair in near_duplicates[:30]:
+                lines.append(
+                    f"- {pair['similarity']:.3f}: `{pair['source_path_a']}` <-> `{pair['source_path_b']}`"
+                )
+            lines.append("")
+
+        stale_files = heuristics.get("stale_files") or []
+        tiny_files = heuristics.get("tiny_files") or []
+        empty_files = heuristics.get("empty_files") or []
+        quality_hits = heuristics.get("quality_hits") or []
+
+        lines.extend(["## Heuristics", ""])
+        lines.append(f"- Stale files: {len(stale_files)}")
+        for item in stale_files[:20]:
+            lines.append(f"  - `{item['path']}` (mtime: {item['mtime_iso']})")
+        lines.append(f"- Tiny files (<120 bytes): {len(tiny_files)}")
+        for item in tiny_files[:20]:
+            lines.append(f"  - `{item['path']}` ({item['size_bytes']} bytes)")
+        lines.append(f"- Empty files: {len(empty_files)}")
+        for item in empty_files[:20]:
+            lines.append(f"  - `{item['path']}`")
+        lines.append(f"- Placeholder-quality hits: {len(quality_hits)}")
+        for item in quality_hits[:20]:
+            lines.append(f"  - `{item['path']}`")
+        lines.append("")
+
+        lines.extend(["## Recommendations", ""])
+        for recommendation in recommendations:
+            lines.append(f"- {recommendation}")
+        lines.append("")
+        return "\n".join(lines).strip() + "\n"
+
+    def _save_report(
+        self,
+        topic: str,
+        report_markdown: str,
+        initial_context: AgentContext,
+    ) -> Path:
+        run_dir = self._resolve_output_dir(topic, initial_context)
+        run_dir.mkdir(parents=True, exist_ok=True)
+
+        report_path = run_dir / "curation_report.md"
+        report_path.write_text(report_markdown, encoding="utf-8")
+        self.state.add_artifact(str(report_path))
+        self._log(f"Saved curation report to {report_path}")
+        return report_path
+
+    def _resolve_output_dir(self, topic: str, initial_context: AgentContext) -> Path:
+        workspace = str(initial_context.run_workspace or "").strip()
+        if workspace:
+            return Path(workspace)
+
+        safe_topic = "".join(
+            ch if ch.isalnum() or ch in ("-", "_") else "_"
+            for ch in topic.strip()
+        )
+        safe_topic = safe_topic[:80] or "curator"
+        timestamp = datetime.utcnow().strftime("%Y%m%d-%H%M%S")
+        return self.agent_config.agents_folder / f"{self.name}_{safe_topic}_{timestamp}"
+
+    def _save_log(self, run_dir: Path) -> Path:
+        log_path = run_dir / "log.json"
+        self.state.add_artifact(str(log_path))
+        return save_agent_log(self.state.log_entries, log_path)
+
+    def _run_tool(self, tool_name: str, args: Dict[str, Any]) -> str:
+        try:
+            tool = self.tool_registry.lookup(tool_name)
+        except KeyError:
+            self._log(f"Skipping unknown tool '{tool_name}'.")
+            return ""
+        try:
+            output = self.sandbox.execute(tool, args)
+            self._consume_tokens(output)
+            self._log(
+                output,
+                actor="tool",
+                action=tool_name,
+                action_arguments=args,
+            )
+            return output
+        except Exception as exc:
+            self._log(f"Tool '{tool_name}' failed: {exc}")
+            return ""
+
+    def _dedupe_dicts(self, rows: List[Dict[str, Any]], key: str) -> List[Dict[str, Any]]:
+        seen: set[str] = set()
+        deduped: list[Dict[str, Any]] = []
+        for row in rows:
+            marker = str(row.get(key, "")).strip()
+            if not marker or marker in seen:
+                continue
+            seen.add(marker)
+            deduped.append(row)
+        return deduped
+
+    def _coerce_int(self, value: Any, default: int = 0) -> int:
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            return default

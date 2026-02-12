@@ -11,6 +11,7 @@ The agent runtime is implemented in `lsm/agents/` and integrated into both:
 
 Built-in agent:
 
+- `curator`
 - `research`
 - `writing`
 - `synthesis`
@@ -25,6 +26,7 @@ Built-in agent:
 - `lsm/agents/research.py`: built-in research workflow agent
 - `lsm/agents/writing.py`: built-in grounded writing workflow agent
 - `lsm/agents/synthesis.py`: built-in synthesis workflow agent
+- `lsm/agents/curator.py`: built-in corpus curation workflow agent
 
 Tooling:
 
@@ -157,6 +159,14 @@ The `synthesis` agent selects scope, gathers candidate sources, synthesizes comp
 - `source_map.md`
 
 Use when you need concise cross-document distillation with explicit source coverage.
+
+## Curator Agent
+
+The `curator` agent inventories files, collects metadata, detects exact and near-duplicates, applies staleness/quality heuristics, and writes:
+
+- `curation_report.md`
+
+Use when you want actionable maintenance recommendations for corpus quality.
 
 ## TUI Usage
 

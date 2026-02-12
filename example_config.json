@@ -166,6 +166,13 @@
         "max_iterations": 20,
         "target_format": "bullets",
         "target_length_words": 350
+      },
+      "curator": {
+        "enabled": true,
+        "max_iterations": 12,
+        "stale_days": 365,
+        "near_duplicate_threshold": 0.9,
+        "top_near_duplicates": 25
       }
     }
   },

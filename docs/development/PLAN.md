@@ -339,7 +339,7 @@ Remove `mock_openai_client`, `mock_embedder`, `mock_chroma_collection` fixtures 
 
 ---
 
-## Phase 3: Solid Agent System with Sandbox Security
+## Phase 3: Solid Agent System with Sandbox Security (COMPLETED)
 
 Current state: functional framework (BaseAgent, AgentHarness, 9 tools, ToolSandbox with path canonicalization, ResearchAgent), but only ~13 tests, no security hardening beyond basic path checks, no environment scrubbing, no log redaction, no permission gates, no runner abstraction.
 
@@ -729,7 +729,7 @@ Register in `lsm/agents/factory.py`.
 
 **Post-block:** `tests/test_agents/test_writing_agent.py`, run tests, update docs and `example_config.json`, commit.
 
-### 3.9: Synthesis Agent
+### 3.9: Synthesis Agent (COMPLETED)
 
 **File to create:** `lsm/agents/synthesis.py`
 
@@ -747,7 +747,7 @@ Register in factory.
 
 **Post-block:** `tests/test_agents/test_synthesis_agent.py`, run tests, update docs, commit.
 
-### 3.10: Curator Agent
+### 3.10: Curator Agent (COMPLETED)
 
 **File to create:** `lsm/agents/curator.py`
 
