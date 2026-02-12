@@ -67,18 +67,15 @@
 
 #### Agents and Tools
 - Default Agent Workspace:
-  - Each Agent should default to the following folder for their workspace: `<agents_folder>/<agent_name>/<timestap>
   - Each Agent by default has read/write access to their workspace.
-  - The allowed_read_paths, and allowed_write_paths
   - Agent logs by default save in their workspace.
 - When an agent requires the user to approve an action it should pause until the user
   gives the approval.
   - The user should be able to approve the action for this session, for this agent, for
     all future uses.
-- Update sending tools to use AI Model API field `tools=[...]` where possible and only otherwise
-  defualt to creating a human readable list.
-  - When a human readable list must be used, it should be wrapped in a fixed JSON structure.
-- A RemoteSources tool that exposes all current Source Providers configured.
+- Update sending tools to use AI Model API field `tools=[...]` (function calling API) where possible and only
+  otherwise when that is not available to creating a human readable list.
+  - When a human readable list must be used, it should mimic the JSON structure used for the function.
 - Sort how to create a tool that runs shell commands. This prevents from having to recreate
   the shell commands in system, but we need to make sure to protect against sandbox escapes.
 - Core manipulation tools are find/read/write/edit:

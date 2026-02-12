@@ -118,16 +118,20 @@ Default tool registry (`create_default_tool_registry`) includes:
 
 `AgentHarness` loop:
 
-1. Prepare context + tool definitions
+1. Prepare context + filtered tool definitions (`tool_allowlist` when provided)
 2. Call LLM
 3. Parse strict JSON action response
-4. Execute tool via sandbox when requested
+4. Execute tool via sandbox when requested (reject unlisted tools)
 5. Append tool output to context
 6. Stop on `DONE`, stop request, budget exhaustion, or iteration cap
 
-State is persisted to `agents_folder` as:
+Per-run workspace is created as:
 
-- `<agent_name>_<timestamp>_state.json`
+- `<agents_folder>/<agent_name>_<timestamp>/workspace/`
+
+State is persisted under the same run folder as:
+
+- `<agents_folder>/<agent_name>_<timestamp>/<agent_name>_<timestamp>_state.json`
 
 ## Research Agent
 

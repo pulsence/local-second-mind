@@ -68,3 +68,5 @@ class AgentContext:
     budget_tracking: Dict[str, Any] = field(default_factory=dict)
     """Token/cost counters and budget status for the run."""
 
+    run_workspace: Optional[str] = None
+    """Optional per-run workspace path for artifacts and agent outputs."""

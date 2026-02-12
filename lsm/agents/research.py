@@ -16,7 +16,7 @@ from lsm.providers.factory import create_provider
 
 from .base import AgentStatus, BaseAgent
 from .log_formatter import save_agent_log
-from .models import AgentContext, AgentLogEntry
+from .models import AgentContext
 from .tools.base import ToolRegistry
 from .tools.sandbox import ToolSandbox
 
@@ -69,7 +69,6 @@ class ResearchAgent(BaseAgent):
                 self.agent_config.max_tokens_budget,
             )
         )
-        self._tokens_used = 0
         self.last_result: Optional[ResearchResult] = None
 
     def run(self, initial_context: AgentContext) -> Any:
@@ -82,6 +81,7 @@ class ResearchAgent(BaseAgent):
         Returns:
             Agent state after execution.
         """
+        self._tokens_used = 0
         self.state.set_status(AgentStatus.RUNNING)
         topic = self._extract_topic(initial_context)
         self.state.current_task = f"Researching: {topic}"
@@ -180,31 +180,30 @@ class ResearchAgent(BaseAgent):
 
             self._consume_tokens(output)
             findings.append({"tool": tool_name, "output": output})
-            self.state.add_log(
-                AgentLogEntry(
-                    timestamp=datetime.utcnow(),
-                    actor="tool",
-                    content=output,
-                    action=tool_name,
-                    action_arguments=args,
-                )
+            self._log(
+                output,
+                actor="tool",
+                action=tool_name,
+                action_arguments=args,
             )
         return findings
 
     def _select_tools(self, provider: Any, subtopic: str) -> List[str]:
-        available = [tool.name for tool in self.tool_registry.list_tools()]
+        tool_definitions = self._get_tool_definitions(self.tool_registry)
+        available = [str(item.get("name", "")).strip() for item in tool_definitions]
+        available = [name for name in available if name]
         prompt = (
             "Select the best tools for this subtopic. "
             "Return JSON object: {\"tools\":[\"tool_name\", ...]}.\n"
             f"Subtopic: {subtopic}\n"
-            f"Available tools: {available}"
+            "Available tools (name, description, args schema):\n"
+            f"{self._format_tool_definitions_for_prompt(self.tool_registry)}"
         )
         response = provider.synthesize(prompt, "", mode="insight")
         self._consume_tokens(response)
-        parsed = self._parse_json(response)
-        if isinstance(parsed, dict) and isinstance(parsed.get("tools"), list):
-            selected = [str(item).strip() for item in parsed["tools"] if str(item).strip()]
-            return [name for name in selected if name in available]
+        selected = self._parse_tool_selection(response, available)
+        if selected:
+            return selected
 
         defaults = [name for name in ("query_embeddings", "query_remote") if name in available]
         if defaults:
@@ -285,15 +284,6 @@ class ResearchAgent(BaseAgent):
         log_path = output_path.with_name(f"{output_path.stem}_log.json")
         return save_agent_log(self.state.log_entries, log_path)
 
-    def _parse_json(self, value: str) -> Any:
-        text = str(value or "").strip()
-        if not text:
-            return None
-        try:
-            return json.loads(text)
-        except Exception:
-            return None
-
     def _fallback_line_list(self, text: str) -> List[str]:
         lines = []
         for line in str(text).splitlines():
@@ -301,26 +291,3 @@ class ResearchAgent(BaseAgent):
             if stripped:
                 lines.append(stripped)
         return lines
-
-    def _consume_tokens(self, text: str) -> None:
-        self._tokens_used += max(1, len(str(text)) // 4)
-
-    def _budget_exhausted(self) -> bool:
-        return self._tokens_used >= self.max_tokens_budget
-
-    def _log(
-        self,
-        content: str,
-        actor: str = "agent",
-        provider_name: Optional[str] = None,
-        model_name: Optional[str] = None,
-    ) -> None:
-        self.state.add_log(
-            AgentLogEntry(
-                timestamp=datetime.utcnow(),
-                actor=actor,
-                provider_name=provider_name,
-                model_name=model_name,
-                content=content,
-            )
-        )

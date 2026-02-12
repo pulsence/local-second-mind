@@ -668,7 +668,7 @@ Update `lsm/agents/tools/__init__.py` `create_default_tool_registry()`.
 
 **Post-block:** `tests/test_agents/test_new_tools.py`, run tests, update `docs/AGENTS.md`, commit.
 
-### 3.7: Agent Framework Flexibility
+### 3.7: Agent Framework Flexibility (COMPLETED)
 
 Make it easy to create new agents by extracting common patterns.
 

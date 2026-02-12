@@ -9,7 +9,7 @@ import threading
 import time
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Set
 
 from lsm.config.models import AgentConfig, LLMRegistryConfig
 from lsm.logging import get_logger
@@ -36,16 +36,20 @@ class AgentHarness:
         llm_registry: LLMRegistryConfig,
         sandbox: ToolSandbox,
         agent_name: str = "agent",
+        tool_allowlist: Optional[Set[str]] = None,
     ) -> None:
         self.agent_config = agent_config
         self.tool_registry = tool_registry
         self.llm_registry = llm_registry
         self.sandbox = sandbox
         self.agent_name = agent_name
+        self.tool_allowlist = self._normalize_allowlist(tool_allowlist)
 
         self.state = AgentState()
         self.context: Optional[AgentContext] = None
         self._state_path: Optional[Path] = None
+        self._run_root: Optional[Path] = None
+        self._workspace_path: Optional[Path] = None
         self._thread: Optional[threading.Thread] = None
         self._stop_event = threading.Event()
         self._lock = threading.Lock()
@@ -63,7 +67,7 @@ class AgentHarness:
         with self._lock:
             self._stop_event.clear()
             self.context = initial_context
-            self.context.tool_definitions = self.tool_registry.list_definitions()
+            self.context.tool_definitions = self._list_tool_definitions()
             if not self.context.budget_tracking:
                 self.context.budget_tracking = {}
             self.context.budget_tracking.setdefault(
@@ -74,6 +78,8 @@ class AgentHarness:
             self.context.budget_tracking.setdefault("iterations", 0)
             self.state.set_status(AgentStatus.RUNNING)
             self._ensure_state_path()
+            if self._workspace_path is not None:
+                self.context.run_workspace = str(self._workspace_path)
             self.save_state()
 
         try:
@@ -120,6 +126,9 @@ class AgentHarness:
                     self.state.set_status(AgentStatus.COMPLETED)
                     self.save_state()
                     return self.state
+
+                if not self._is_tool_allowed(action):
+                    raise PermissionError(f"Tool '{action}' is not allowed for this harness run")
 
                 tool = self.tool_registry.lookup(action)
                 tool_output = self.sandbox.execute(tool, tool_response.action_arguments)
@@ -214,6 +223,10 @@ class AgentHarness:
         """Return the current state file path."""
         return self._state_path
 
+    def get_workspace_path(self) -> Optional[Path]:
+        """Return the per-run workspace path."""
+        return self._workspace_path
+
     def save_state(self) -> Optional[Path]:
         """
         Persist state to a JSON file.
@@ -233,6 +246,7 @@ class AgentHarness:
                 "messages": self._serialize_context_messages() if self.context else [],
                 "tool_definitions": self.context.tool_definitions if self.context else [],
                 "budget_tracking": self.context.budget_tracking if self.context else {},
+                "run_workspace": self.context.run_workspace if self.context else None,
             },
             "artifacts": list(self.state.artifacts),
             "log_entries": [
@@ -256,8 +270,13 @@ class AgentHarness:
         if self._state_path is not None:
             return
         timestamp = datetime.utcnow().strftime("%Y%m%d-%H%M%S")
-        filename = f"{self.agent_name}_{timestamp}_state.json"
-        self._state_path = self.agent_config.agents_folder / filename
+        run_name = f"{self.agent_name}_{timestamp}"
+        self._run_root = self.agent_config.agents_folder / run_name
+        self._workspace_path = self._run_root / "workspace"
+        self._workspace_path.mkdir(parents=True, exist_ok=True)
+        filename = f"{run_name}_state.json"
+        self._state_path = self._run_root / filename
+        self.state.add_artifact(str(self._workspace_path))
 
     def _append_log(self, entry: AgentLogEntry) -> None:
         entry.content = redact_secrets(entry.content)
@@ -314,7 +333,9 @@ class AgentHarness:
         return [{"role": "system", "content": summary}] + recent
 
     def _tools_context_block(self) -> str:
-        return json.dumps(self.tool_registry.list_definitions(), indent=2)
+        if self.context is not None:
+            return json.dumps(self.context.tool_definitions, indent=2)
+        return json.dumps(self._list_tool_definitions(), indent=2)
 
     def _consume_tokens(self, text: str) -> None:
         if self.context is None:
@@ -348,3 +369,25 @@ class AgentHarness:
             return
         for artifact in result.artifacts:
             self.state.add_artifact(str(artifact))
+
+    @staticmethod
+    def _normalize_allowlist(tool_allowlist: Optional[Set[str]]) -> Optional[Set[str]]:
+        if not tool_allowlist:
+            return None
+        normalized = {str(name).strip() for name in tool_allowlist if str(name).strip()}
+        return normalized or None
+
+    def _list_tool_definitions(self) -> list[Dict[str, Any]]:
+        definitions = self.tool_registry.list_definitions()
+        if self.tool_allowlist is None:
+            return definitions
+        return [
+            definition
+            for definition in definitions
+            if str(definition.get("name", "")).strip() in self.tool_allowlist
+        ]
+
+    def _is_tool_allowed(self, tool_name: str) -> bool:
+        if self.tool_allowlist is None:
+            return True
+        return str(tool_name).strip() in self.tool_allowlist
