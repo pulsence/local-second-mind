@@ -131,6 +131,19 @@ def test_harness_allowlist_filters_llm_tool_context_and_blocks_execution(
     assert isinstance(context_payload, list)
     assert [item["name"] for item in context_payload] == ["allowed"]
 
+    state_path = harness.get_state_path()
+    assert state_path is not None
+    summary_path = state_path.parent / "run_summary.json"
+    assert summary_path.exists()
+
+    summary = json.loads(summary_path.read_text(encoding="utf-8"))
+    assert summary["status"] == "failed"
+    assert summary["run_outcome"] == "failed"
+    assert summary["tools_used"] == {}
+    assert summary["approvals_denials"]["approvals"] == 0
+    assert summary["approvals_denials"]["denials"] == 1
+    assert summary["approvals_denials"]["by_tool"]["blocked"]["denials"] == 1
+
 
 def test_harness_creates_workspace_and_persists_context_path(monkeypatch, tmp_path: Path) -> None:
     class FakeProvider:

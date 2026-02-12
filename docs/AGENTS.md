@@ -19,7 +19,7 @@ Built-in agent:
 ## Architecture
 
 - `lsm/agents/base.py`: `BaseAgent`, `AgentState`, lifecycle status model
-- `lsm/agents/harness.py`: runtime loop, tool-calling execution, budget/iteration guards, state persistence
+- `lsm/agents/harness.py`: runtime loop, tool-calling execution, budget/iteration guards, state persistence, per-run summaries
 - `lsm/agents/models.py`: runtime message/log/response models
 - `lsm/agents/log_formatter.py`: log formatting and serialization helpers
 - `lsm/agents/factory.py`: registry + `create_agent(...)`
@@ -196,6 +196,12 @@ State is persisted under the same run folder as:
 
 - `<agents_folder>/<agent_name>_<timestamp>/<agent_name>_<timestamp>_state.json`
 
+Each run also emits a summary artifact:
+
+- `<agents_folder>/<agent_name>_<timestamp>/run_summary.json`
+
+`run_summary.json` includes agent/topic metadata, tool usage, approval/denial counts, artifacts, run outcome, duration, token usage, and extracted user constraints.
+
 ## Research Agent
 
 The `research` agent decomposes a topic, queries available sources/tools, iteratively synthesizes findings, and writes structured output.
@@ -224,6 +230,11 @@ The `curator` agent inventories files, collects metadata, detects exact and near
 - `curation_report.md`
 
 Use when you want actionable maintenance recommendations for corpus quality.
+
+Curator also supports memory distillation mode via `--mode memory` in the topic (or `agent_configs.curator.mode=memory`), which scans recent `run_summary.json` files and writes:
+
+- `memory_candidates.md`
+- `memory_candidates.json`
 
 ## TUI Usage
 

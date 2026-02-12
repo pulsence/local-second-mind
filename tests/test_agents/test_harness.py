@@ -107,6 +107,77 @@ def test_harness_executes_tool_then_done(monkeypatch, tmp_path: Path) -> None:
     assert state_file.exists()
 
 
+def test_harness_writes_run_summary_json(monkeypatch, tmp_path: Path) -> None:
+    class FakeProvider:
+        name = "fake"
+        model = "fake-model"
+
+        def __init__(self):
+            self._responses = [
+                json.dumps(
+                    {
+                        "response": "Call echo",
+                        "action": "echo",
+                        "action_arguments": {"text": "hello"},
+                    }
+                ),
+                json.dumps(
+                    {
+                        "response": "Done",
+                        "action": "DONE",
+                        "action_arguments": {},
+                    }
+                ),
+            ]
+
+        def synthesize(self, question, context, mode="insight", **kwargs):
+            _ = question, context, mode, kwargs
+            return self._responses.pop(0)
+
+    monkeypatch.setattr("lsm.agents.harness.create_provider", lambda config: FakeProvider())
+
+    raw = _base_raw(tmp_path)
+    config = build_config_from_raw(raw, tmp_path / "config.json")
+    registry = ToolRegistry()
+    registry.register(EchoTool())
+    sandbox = ToolSandbox(config.agents.sandbox)
+    harness = AgentHarness(config.agents, registry, config.llm, sandbox, agent_name="research")
+
+    state = harness.run(
+        AgentContext(
+            messages=[
+                {
+                    "role": "user",
+                    "content": "Must cite sources and avoid speculation.",
+                }
+            ]
+        )
+    )
+    assert state.status.value == "completed"
+
+    state_path = harness.get_state_path()
+    assert state_path is not None
+    summary_path = state_path.parent / "run_summary.json"
+    assert summary_path.exists()
+
+    summary = json.loads(summary_path.read_text(encoding="utf-8"))
+    assert summary["agent_name"] == "research"
+    assert summary["topic"] == "Must cite sources and avoid speculation."
+    assert summary["status"] == "completed"
+    assert summary["run_outcome"] == "completed"
+    assert summary["tools_used"] == {"echo": 1}
+    assert summary["tool_sequence"] == ["echo"]
+    assert summary["approvals_denials"]["approvals"] == 1
+    assert summary["approvals_denials"]["denials"] == 0
+    assert summary["approvals_denials"]["by_tool"]["echo"]["approvals"] == 1
+    assert summary["token_usage"]["iterations"] == 2
+    assert summary["token_usage"]["tokens_used"] > 0
+    assert "Must cite sources and avoid speculation" in summary["constraints"]
+    assert "avoid speculation" in summary["constraints"]
+
+    assert str(summary_path) in state.artifacts
+
+
 def test_harness_fresh_context_strategy(monkeypatch, tmp_path: Path) -> None:
     class FakeProvider:
         name = "fake"
@@ -189,4 +260,3 @@ def test_log_formatter_save_load_and_format(tmp_path: Path) -> None:
     loaded = load_agent_log(path)
     assert len(loaded) == 1
     assert loaded[0].action == "query_remote"
-

@@ -5,6 +5,7 @@ Curator agent implementation.
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -86,9 +87,16 @@ class CuratorAgent(BaseAgent):
         """
         self._tokens_used = 0
         self.state.set_status(AgentStatus.RUNNING)
-        topic = self._extract_topic(initial_context)
-        self.state.current_task = f"Curating: {topic}"
+        topic_input = self._extract_topic(initial_context)
+        mode, topic = self._resolve_mode(topic_input)
 
+        if mode == "memory":
+            self.state.current_task = f"Curating memory: {topic}"
+            self.last_result = self._run_memory_mode(topic, initial_context)
+            self.state.set_status(AgentStatus.COMPLETED)
+            return self.state
+
+        self.state.current_task = f"Curating: {topic}"
         provider = create_provider(self.llm_registry.resolve_service("default"))
         scope = self._select_scope(provider, topic)
         inventory = self._inventory_files(scope)
@@ -136,6 +144,262 @@ class CuratorAgent(BaseAgent):
                 if topic:
                     return topic
         return "Corpus Curation"
+
+    def _resolve_mode(self, topic: str) -> tuple[str, str]:
+        configured_mode = str(self.agent_overrides.get("mode", "default")).strip().lower()
+        topic_mode_match = re.search(r"--mode\s+([a-zA-Z_]+)", str(topic))
+        mode = configured_mode
+        if topic_mode_match:
+            mode = str(topic_mode_match.group(1)).strip().lower()
+        if mode not in {"default", "memory"}:
+            mode = "default"
+
+        cleaned_topic = re.sub(r"\s*--mode\s+[a-zA-Z_]+\s*", " ", str(topic)).strip()
+        if not cleaned_topic:
+            cleaned_topic = "Corpus Curation"
+        return mode, cleaned_topic
+
+    def _run_memory_mode(self, topic: str, initial_context: AgentContext) -> CuratorResult:
+        summary_limit = int(self.agent_overrides.get("memory_summary_limit", 50))
+        summaries = self._load_recent_run_summaries(limit=max(1, summary_limit))
+        candidates = self._build_memory_candidates_from_summaries(summaries)
+        markdown = self._build_memory_candidates_markdown(topic, summaries, candidates)
+
+        run_dir = self._resolve_output_dir(topic, initial_context)
+        run_dir.mkdir(parents=True, exist_ok=True)
+        markdown_path = run_dir / "memory_candidates.md"
+        json_path = run_dir / "memory_candidates.json"
+        markdown_path.write_text(markdown, encoding="utf-8")
+        json_path.write_text(json.dumps(candidates, indent=2), encoding="utf-8")
+        self.state.add_artifact(str(markdown_path))
+        self.state.add_artifact(str(json_path))
+        self._log(f"Saved memory candidates markdown to {markdown_path}")
+        self._log(f"Saved memory candidates json to {json_path}")
+
+        log_path = self._save_log(run_dir)
+        return CuratorResult(
+            topic=topic,
+            report_markdown=markdown,
+            output_path=markdown_path,
+            log_path=log_path,
+        )
+
+    def _load_recent_run_summaries(self, limit: int = 50) -> List[Dict[str, Any]]:
+        root = Path(self.agent_config.agents_folder)
+        if not root.exists():
+            return []
+        paths = sorted(
+            root.rglob("run_summary.json"),
+            key=lambda path: path.stat().st_mtime,
+            reverse=True,
+        )
+        summaries: list[Dict[str, Any]] = []
+        for path in paths[: max(1, int(limit))]:
+            try:
+                parsed = json.loads(path.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                continue
+            if not isinstance(parsed, dict):
+                continue
+            parsed["summary_path"] = str(path)
+            summaries.append(parsed)
+        self._log(f"Loaded {len(summaries)} run summaries for memory distillation.")
+        return summaries
+
+    def _build_memory_candidates_from_summaries(
+        self,
+        summaries: List[Dict[str, Any]],
+    ) -> List[Dict[str, Any]]:
+        tool_threshold = max(2, int(self.agent_overrides.get("memory_tool_threshold", 3)))
+        constraint_threshold = max(
+            2, int(self.agent_overrides.get("memory_constraint_threshold", 2))
+        )
+        denial_threshold = max(1, int(self.agent_overrides.get("memory_denial_threshold", 2)))
+        trust_threshold = max(
+            3, int(self.agent_overrides.get("memory_trusted_tool_threshold", 5))
+        )
+
+        tool_usage: Dict[str, int] = {}
+        constraints: Dict[str, int] = {}
+        approvals_denials: Dict[str, Dict[str, int]] = {}
+
+        for summary in summaries:
+            tool_map = summary.get("tools_used")
+            if isinstance(tool_map, dict):
+                for raw_tool, raw_count in tool_map.items():
+                    tool_name = str(raw_tool).strip()
+                    if not tool_name:
+                        continue
+                    try:
+                        count = max(0, int(raw_count))
+                    except (TypeError, ValueError):
+                        continue
+                    tool_usage[tool_name] = tool_usage.get(tool_name, 0) + count
+
+            summary_constraints = summary.get("constraints")
+            if isinstance(summary_constraints, list):
+                for raw_constraint in summary_constraints:
+                    constraint = str(raw_constraint).strip()
+                    if not constraint:
+                        continue
+                    constraints[constraint] = constraints.get(constraint, 0) + 1
+
+            decisions = summary.get("approvals_denials")
+            by_tool = decisions.get("by_tool") if isinstance(decisions, dict) else None
+            if not isinstance(by_tool, dict):
+                continue
+            for raw_tool, raw_metrics in by_tool.items():
+                tool_name = str(raw_tool).strip()
+                if not tool_name or not isinstance(raw_metrics, dict):
+                    continue
+                entry = approvals_denials.setdefault(
+                    tool_name,
+                    {"approvals": 0, "denials": 0},
+                )
+                entry["approvals"] += self._coerce_int(raw_metrics.get("approvals"), default=0)
+                entry["denials"] += self._coerce_int(raw_metrics.get("denials"), default=0)
+
+        candidates: list[Dict[str, Any]] = []
+        seen_keys: set[str] = set()
+
+        for tool_name, count in sorted(tool_usage.items(), key=lambda item: item[1], reverse=True):
+            if count < tool_threshold:
+                continue
+            key = f"preferred_tool_{self._slugify(tool_name)}"
+            if key in seen_keys:
+                continue
+            seen_keys.add(key)
+            candidates.append(
+                {
+                    "key": key,
+                    "type": "task_state",
+                    "scope": "agent",
+                    "tags": ["workflow", "tooling"],
+                    "confidence": min(0.95, 0.60 + (0.05 * min(count, 6))),
+                    "value": {"tool": tool_name, "usage_count": count},
+                    "rationale": (
+                        f"Tool '{tool_name}' appears repeatedly across recent run summaries."
+                    ),
+                    "provenance": "curator_memory_mode",
+                }
+            )
+
+        for constraint, count in sorted(constraints.items(), key=lambda item: item[1], reverse=True):
+            if count < constraint_threshold:
+                continue
+            key = f"constraint_{self._slugify(constraint)}"
+            if key in seen_keys:
+                continue
+            seen_keys.add(key)
+            candidates.append(
+                {
+                    "key": key,
+                    "type": "project_fact",
+                    "scope": "project",
+                    "tags": ["constraints", "workflow"],
+                    "confidence": min(0.95, 0.55 + (0.08 * min(count, 5))),
+                    "value": {"constraint": constraint, "mentions": count},
+                    "rationale": (
+                        f"Constraint '{constraint}' is repeated in multiple run summaries."
+                    ),
+                    "provenance": "curator_memory_mode",
+                }
+            )
+
+        for tool_name, metrics in sorted(
+            approvals_denials.items(),
+            key=lambda item: (item[1].get("denials", 0), item[1].get("approvals", 0)),
+            reverse=True,
+        ):
+            approvals = self._coerce_int(metrics.get("approvals"), default=0)
+            denials = self._coerce_int(metrics.get("denials"), default=0)
+            if denials >= denial_threshold and denials > approvals:
+                key = f"permission_guardrail_{self._slugify(tool_name)}"
+                if key not in seen_keys:
+                    seen_keys.add(key)
+                    candidates.append(
+                        {
+                            "key": key,
+                            "type": "task_state",
+                            "scope": "agent",
+                            "tags": ["permissions", "safety"],
+                            "confidence": min(0.95, 0.60 + (0.05 * min(denials, 6))),
+                            "value": {
+                                "tool": tool_name,
+                                "approvals": approvals,
+                                "denials": denials,
+                            },
+                            "rationale": (
+                                f"Tool '{tool_name}' is denied more often than approved in recent runs."
+                            ),
+                            "provenance": "curator_memory_mode",
+                        }
+                    )
+            elif approvals >= trust_threshold and denials == 0:
+                key = f"trusted_tool_{self._slugify(tool_name)}"
+                if key not in seen_keys:
+                    seen_keys.add(key)
+                    candidates.append(
+                        {
+                            "key": key,
+                            "type": "task_state",
+                            "scope": "agent",
+                            "tags": ["permissions", "workflow"],
+                            "confidence": min(0.95, 0.60 + (0.04 * min(approvals, 8))),
+                            "value": {
+                                "tool": tool_name,
+                                "approvals": approvals,
+                                "denials": denials,
+                            },
+                            "rationale": (
+                                f"Tool '{tool_name}' is consistently approved with no denials."
+                            ),
+                            "provenance": "curator_memory_mode",
+                        }
+                    )
+
+        self._log(f"Generated {len(candidates)} memory candidates.")
+        return candidates
+
+    def _build_memory_candidates_markdown(
+        self,
+        topic: str,
+        summaries: List[Dict[str, Any]],
+        candidates: List[Dict[str, Any]],
+    ) -> str:
+        lines = [
+            f"# Memory Candidates: {topic}",
+            "",
+            "## Input",
+            "",
+            f"- Run summaries scanned: {len(summaries)}",
+            f"- Candidates generated: {len(candidates)}",
+            "",
+            "## Candidates",
+            "",
+        ]
+        if not candidates:
+            lines.append("No memory candidates generated from available run summaries.")
+            lines.append("")
+            return "\n".join(lines)
+
+        for candidate in candidates:
+            lines.append(
+                f"- `{candidate['key']}` "
+                f"({candidate['type']} | {candidate['scope']} | confidence={candidate['confidence']:.2f})"
+            )
+            lines.append(f"  - tags: {', '.join(candidate.get('tags', [])) or '-'}")
+            lines.append(f"  - rationale: {candidate.get('rationale', '')}")
+            value_text = json.dumps(candidate.get("value", {}), ensure_ascii=True)
+            lines.append(f"  - value: `{value_text}`")
+        lines.append("")
+        return "\n".join(lines)
+
+    @staticmethod
+    def _slugify(value: str) -> str:
+        slug = re.sub(r"[^a-z0-9]+", "_", str(value).strip().lower())
+        slug = slug.strip("_")
+        return (slug or "item")[:60]
 
     def _available_tools(self) -> set[str]:
         return {

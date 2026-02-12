@@ -60,6 +60,9 @@ class AgentHarness:
         self._thread: Optional[threading.Thread] = None
         self._stop_event = threading.Event()
         self._lock = threading.Lock()
+        self._tool_usage_counts: Dict[str, int] = {}
+        self._tool_sequence: list[str] = []
+        self._permission_events: list[Dict[str, Any]] = []
 
         self._initialize_memory_context_builder(memory_context_builder)
 
@@ -73,9 +76,13 @@ class AgentHarness:
         Returns:
             Final agent state.
         """
+        started_at = datetime.utcnow()
         with self._lock:
             self._stop_event.clear()
             self.context = initial_context
+            self._tool_usage_counts = {}
+            self._tool_sequence = []
+            self._permission_events = []
             self.context.tool_definitions = self._list_tool_definitions()
             if not self.context.budget_tracking:
                 self.context.budget_tracking = {}
@@ -137,14 +144,30 @@ class AgentHarness:
                 action = (tool_response.action or "").strip()
                 if not action or action.upper() == "DONE":
                     self.state.set_status(AgentStatus.COMPLETED)
-                    self.save_state()
-                    return self.state
+                    break
 
                 if not self._is_tool_allowed(action):
-                    raise PermissionError(f"Tool '{action}' is not allowed for this harness run")
+                    denial_reason = f"Tool '{action}' is not allowed for this harness run"
+                    self._record_permission_decision(action, allowed=False, reason=denial_reason)
+                    raise PermissionError(denial_reason)
 
                 tool = self.tool_registry.lookup(action)
-                tool_output = self.sandbox.execute(tool, tool_response.action_arguments)
+                try:
+                    tool_output = self.sandbox.execute(tool, tool_response.action_arguments)
+                except PermissionError as exc:
+                    self._record_permission_decision(
+                        action,
+                        allowed=False,
+                        reason=str(exc),
+                    )
+                    raise
+
+                self._record_permission_decision(
+                    action,
+                    allowed=True,
+                    reason="Tool execution allowed",
+                )
+                self._record_tool_execution(action)
                 self._track_artifacts_from_sandbox()
                 self._consume_tokens(tool_output)
                 redacted_tool_output = redact_secrets(tool_output)
@@ -194,6 +217,8 @@ class AgentHarness:
             )
             self.save_state()
             return self.state
+        finally:
+            self._write_run_summary(started_at)
 
     def start_background(self, initial_context: AgentContext) -> threading.Thread:
         """
@@ -393,6 +418,84 @@ class AgentHarness:
         for artifact in result.artifacts:
             self.state.add_artifact(str(artifact))
 
+    def _record_tool_execution(self, tool_name: str) -> None:
+        normalized = str(tool_name).strip()
+        if not normalized:
+            return
+        self._tool_usage_counts[normalized] = self._tool_usage_counts.get(normalized, 0) + 1
+        self._tool_sequence.append(normalized)
+
+    def _record_permission_decision(self, tool_name: str, *, allowed: bool, reason: str) -> None:
+        normalized = str(tool_name).strip()
+        if not normalized:
+            return
+        self._permission_events.append(
+            {
+                "tool_name": normalized,
+                "allowed": bool(allowed),
+                "reason": str(reason),
+                "timestamp": datetime.utcnow().isoformat(),
+            }
+        )
+
+    def _write_run_summary(self, started_at: datetime) -> Optional[Path]:
+        if self._run_root is None:
+            return None
+        finished_at = datetime.utcnow()
+        duration_seconds = max(0.0, (finished_at - started_at).total_seconds())
+        summary_path = self._run_root / "run_summary.json"
+
+        approval_count = 0
+        denial_count = 0
+        by_tool: Dict[str, Dict[str, int]] = {}
+        for event in self._permission_events:
+            tool_name = str(event.get("tool_name", "")).strip()
+            if not tool_name:
+                continue
+            entry = by_tool.setdefault(tool_name, {"approvals": 0, "denials": 0})
+            if bool(event.get("allowed", False)):
+                approval_count += 1
+                entry["approvals"] += 1
+            else:
+                denial_count += 1
+                entry["denials"] += 1
+
+        budget = self.context.budget_tracking if self.context is not None else {}
+        summary = {
+            "agent_name": self.agent_name,
+            "topic": self._extract_topic(self.context) if self.context is not None else "",
+            "status": self.state.status.value,
+            "run_outcome": (
+                "failed" if self.state.status == AgentStatus.FAILED else "completed"
+            ),
+            "started_at": started_at.isoformat(),
+            "finished_at": finished_at.isoformat(),
+            "duration_seconds": round(duration_seconds, 3),
+            "tools_used": dict(self._tool_usage_counts),
+            "tool_sequence": list(self._tool_sequence),
+            "approvals_denials": {
+                "approvals": approval_count,
+                "denials": denial_count,
+                "by_tool": by_tool,
+                "events": self._permission_events,
+            },
+            "artifacts_created": list(self.state.artifacts),
+            "token_usage": {
+                "tokens_used": int(budget.get("tokens_used", 0)),
+                "max_tokens_budget": int(
+                    budget.get("max_tokens_budget", self.agent_config.max_tokens_budget)
+                ),
+                "iterations": int(budget.get("iterations", 0)),
+            },
+            "constraints": self._extract_constraints(
+                self._extract_topic(self.context) if self.context is not None else ""
+            ),
+        }
+        summary_path.parent.mkdir(parents=True, exist_ok=True)
+        summary_path.write_text(json.dumps(summary, indent=2), encoding="utf-8")
+        self.state.add_artifact(str(summary_path))
+        return summary_path
+
     @staticmethod
     def _normalize_allowlist(tool_allowlist: Optional[Set[str]]) -> Optional[Set[str]]:
         if not tool_allowlist:
@@ -478,3 +581,36 @@ class AgentHarness:
             if content:
                 return content
         return ""
+
+    @staticmethod
+    def _extract_constraints(topic: str) -> list[str]:
+        text = str(topic or "").strip()
+        if not text:
+            return []
+        lowered = text.lower()
+        markers = [
+            "avoid ",
+            "must ",
+            "should ",
+            "do not ",
+            "don't ",
+            "without ",
+            "no ",
+        ]
+        constraints: list[str] = []
+        for marker in markers:
+            index = lowered.find(marker)
+            if index < 0:
+                continue
+            segment = text[index:].strip()
+            if segment:
+                constraints.append(segment.rstrip("."))
+        seen: set[str] = set()
+        deduped: list[str] = []
+        for item in constraints:
+            key = item.lower()
+            if key in seen:
+                continue
+            seen.add(key)
+            deduped.append(item)
+        return deduped[:8]

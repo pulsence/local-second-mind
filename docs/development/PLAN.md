@@ -889,7 +889,7 @@ Register both in `create_default_tool_registry()`.
 
 **Post-block:** `tests/test_agents/test_memory_tools.py`, run tests, update docs, commit.
 
-### 4.4: Curator Memory Distillation
+### 4.4: Curator Memory Distillation (COMPLETED)
 
 #### 4.4.1: Add Run Summaries to Harness
 
@@ -910,20 +910,9 @@ In memory mode, Curator:
 
 **Post-block:** `tests/test_agents/test_curator_memory_mode.py`, run tests, update docs, commit.
 
-### 4.5: Memory UI/CLI
+### 4.5: Memory TUI
 
-#### 4.5.1: CLI Commands
-
-**Files to modify:**
-- `lsm/ui/shell/commands/agents.py` - add memory subcommands
-
-Commands:
-- `/memory list [--scope global|agent|project] [--type pinned|project_fact|...]`
-- `/memory promote <candidate_id>`
-- `/memory delete <memory_id>`
-- `/memory candidates` - list pending candidates
-
-#### 4.5.2: TUI Memory View
+#### 4.5.1: TUI Memory View
 
 **Files to modify:**
 - `lsm/ui/tui/screens/agents.py` - add memory candidates panel
