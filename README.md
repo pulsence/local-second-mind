@@ -12,7 +12,8 @@ LSM ingests local documents, builds embeddings, retrieves relevant context, and 
 
 This project is maintained for personal use first.
 
-- Issues and pull requests may not be reviewed unless they overlap with active maintainer priorities.
+- **Pull requests are not accepted.** See [CONTRIBUTING.md](CONTRIBUTING.md) for how to help.
+- Bugs and feature requests are welcome as [GitHub issues](https://github.com/pulsence/local-second-mind/issues).
 - Until `v1.0.0`, breaking changes can happen between releases, especially in configuration schema and interfaces.
 - Pin versions and review `docs/development/CHANGELOG.md` before upgrading.
 

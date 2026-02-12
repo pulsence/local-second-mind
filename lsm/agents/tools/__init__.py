@@ -21,12 +21,15 @@ from .query_remote import QueryRemoteTool
 from .query_remote_chain import QueryRemoteChainTool
 from .similarity_search import SimilaritySearchTool
 from .source_map import SourceMapTool
+from .memory_put import MemoryPutTool
+from .memory_search import MemorySearchTool
 from .docker_runner import DockerRunner
 from .runner import BaseRunner, LocalRunner, ToolExecutionResult
 
 if TYPE_CHECKING:
     from lsm.config.models import LSMConfig
     from lsm.vectordb.base import BaseVectorDBProvider
+    from lsm.agents.memory import BaseMemoryStore
 
 __all__ = [
     "BaseTool",
@@ -47,6 +50,8 @@ __all__ = [
     "QueryRemoteChainTool",
     "SimilaritySearchTool",
     "SourceMapTool",
+    "MemoryPutTool",
+    "MemorySearchTool",
     "DockerRunner",
     "BaseRunner",
     "LocalRunner",
@@ -61,6 +66,7 @@ def create_default_tool_registry(
     collection: Optional["BaseVectorDBProvider"] = None,
     embedder=None,
     batch_size: int = 32,
+    memory_store: Optional["BaseMemoryStore"] = None,
 ) -> ToolRegistry:
     """
     Build a tool registry with built-in default tools.
@@ -70,6 +76,7 @@ def create_default_tool_registry(
         collection: Optional vector DB provider for embedding queries.
         embedder: Optional embedding model instance.
         batch_size: Embedding batch size for query tool.
+        memory_store: Optional pre-initialized memory store backend.
 
     Returns:
         Populated ToolRegistry instance.
@@ -104,4 +111,13 @@ def create_default_tool_registry(
                 batch_size=batch_size,
             )
         )
+    agents_cfg = getattr(config, "agents", None)
+    memory_enabled = bool(
+        agents_cfg
+        and getattr(agents_cfg, "enabled", False)
+        and getattr(getattr(agents_cfg, "memory", None), "enabled", False)
+    )
+    if memory_enabled and memory_store is not None:
+        registry.register(MemoryPutTool(memory_store))
+        registry.register(MemorySearchTool(memory_store))
     return registry

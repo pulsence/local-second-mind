@@ -10,6 +10,7 @@ from typing import Any, Optional
 
 from lsm.agents import create_agent
 from lsm.agents.log_formatter import format_agent_log
+from lsm.agents.memory import create_memory_store
 from lsm.agents.models import AgentContext
 from lsm.agents.tools import ToolSandbox, create_default_tool_registry
 
@@ -37,11 +38,19 @@ class AgentRuntimeManager:
             if agent_cfg is None or not getattr(agent_cfg, "enabled", False):
                 return "Agents are disabled. Enable `agents.enabled` in config.\n"
 
+            memory_store = None
+            if getattr(agent_cfg, "memory", None) is not None and agent_cfg.memory.enabled:
+                try:
+                    memory_store = create_memory_store(agent_cfg, app.config.vectordb)
+                except Exception as exc:
+                    return f"Failed to initialize agent memory store: {exc}\n"
+
             tool_registry = create_default_tool_registry(
                 app.config,
                 collection=getattr(app, "query_provider", None),
                 embedder=getattr(app, "query_embedder", None),
                 batch_size=getattr(app.config, "batch_size", 32),
+                memory_store=memory_store,
             )
             sandbox = ToolSandbox(agent_cfg.sandbox)
             agent = create_agent(
@@ -65,8 +74,8 @@ class AgentRuntimeManager:
                 try:
                     agent.run(context)
                 finally:
-                    # Keep agent available for log/status inspection after completion.
-                    pass
+                    if memory_store is not None:
+                        memory_store.close()
 
             thread = threading.Thread(
                 target=_run,
@@ -181,4 +190,3 @@ def _agent_help() -> str:
         "  /agent resume\n"
         "  /agent log\n"
     )
-

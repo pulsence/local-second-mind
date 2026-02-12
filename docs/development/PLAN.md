@@ -871,7 +871,7 @@ Update `last_used_at` only for memories actually injected into agent context.
 
 **Post-block:** `tests/test_agents/test_memory_api.py`, `tests/test_agents/test_memory_context_builder.py`, run tests, update docs, commit.
 
-### 4.3: Memory Agent Tools
+### 4.3: Memory Agent Tools (COMPLETED)
 
 #### 4.3.1: Create memory_put Tool
 

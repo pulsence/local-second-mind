@@ -144,6 +144,7 @@ Runtime integration:
 - `MemoryContextBuilder` runs before each LLM call in `AgentHarness`
 - Standing memory context is injected as a separate prompt block (not merged into tool definitions)
 - Zero-memory injection is valid and simply omits the standing-context block
+- Memory tools (`memory_put`, `memory_search`) are registered only when a memory backend is initialized and passed into the tool registry
 
 Migration helpers are provided in `lsm/agents/memory/migrations.py` for SQLite-to-PostgreSQL and PostgreSQL-to-SQLite moves.
 
@@ -162,10 +163,12 @@ Default tool registry (`create_default_tool_registry`) includes:
 - `write_file` (`risk_level=writes_workspace`)
 - `append_file` (`risk_level=writes_workspace`)
 - `create_folder` (`risk_level=writes_workspace`)
+- `memory_put` (`risk_level=writes_workspace`, `requires_permission=true`) (registered when memory is enabled and a memory backend is provided to the default registry)
 - `load_url` (`risk_level=network`, `needs_network=true`)
 - `query_llm` (`risk_level=network`, `needs_network=true`)
 - `query_remote` (`risk_level=network`, `needs_network=true`)
 - `query_remote_chain` (`risk_level=network`, `needs_network=true`)
+- `memory_search` (`risk_level=read_only`) (registered when memory is enabled and a memory backend is provided to the default registry)
 
 `ToolRegistry` also supports risk-based inspection with:
 

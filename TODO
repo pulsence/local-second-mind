@@ -169,6 +169,10 @@
       level is larger than the target max chunk size.
 
 ### v0.9.0: Refactor and Dog Food
+#### Documentation
+- Improve documentation
+- Find a way to automatically turn the documentation into a viewable site
+
 #### Code Quality
 - Do a checking for large files that could be refactored into small files.
 - Check overly complicated code paths or redundant code.

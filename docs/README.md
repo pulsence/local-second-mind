@@ -42,6 +42,7 @@ This project is maintained for personal use first.
 
 ## Development
 
+- [Contributing](../CONTRIBUTING.md)
 - [Setup](development/SETUP.md)
 - [Testing](development/TESTING.md)
 - [Development Plan](development/PLAN.md)
