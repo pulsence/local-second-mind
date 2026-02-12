@@ -28,7 +28,8 @@ All notable changes to Local Second Mind are documented here.
   - `tests/test_agents/test_memory_api.py`
   - `tests/test_agents/test_memory_context_builder.py`
 - Memory agent tools:
-  - `memory_put` (`writes_workspace`, `requires_permission=True`) for proposing memory candidates
+  - `memory_put` (`writes_workspace`, `requires_permission=True`) for proposing candidates and updating existing memories by `memory_id`
+  - `memory_remove` (`writes_workspace`, `requires_permission=True`) for deleting memory records
   - `memory_search` (`read_only`) for querying promoted memories
 - Memory tool coverage in `tests/test_agents/test_memory_tools.py`.
 - Base provider message transport interface in `BaseLLMProvider` with `_send_message(...)` and `_send_streaming_message(...)`.

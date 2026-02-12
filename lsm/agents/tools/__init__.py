@@ -23,6 +23,7 @@ from .similarity_search import SimilaritySearchTool
 from .source_map import SourceMapTool
 from .memory_put import MemoryPutTool
 from .memory_search import MemorySearchTool
+from .memory_remove import MemoryRemoveTool
 from .docker_runner import DockerRunner
 from .runner import BaseRunner, LocalRunner, ToolExecutionResult
 
@@ -52,6 +53,7 @@ __all__ = [
     "SourceMapTool",
     "MemoryPutTool",
     "MemorySearchTool",
+    "MemoryRemoveTool",
     "DockerRunner",
     "BaseRunner",
     "LocalRunner",
@@ -119,5 +121,6 @@ def create_default_tool_registry(
     )
     if memory_enabled and memory_store is not None:
         registry.register(MemoryPutTool(memory_store))
+        registry.register(MemoryRemoveTool(memory_store))
         registry.register(MemorySearchTool(memory_store))
     return registry

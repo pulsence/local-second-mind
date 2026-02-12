@@ -4,7 +4,12 @@ import json
 from pathlib import Path
 
 from lsm.agents.memory import Memory, SQLiteMemoryStore
-from lsm.agents.tools import MemoryPutTool, MemorySearchTool, create_default_tool_registry
+from lsm.agents.tools import (
+    MemoryPutTool,
+    MemoryRemoveTool,
+    MemorySearchTool,
+    create_default_tool_registry,
+)
 from lsm.config.loader import build_config_from_raw
 from lsm.config.models.agents import MemoryConfig
 
@@ -122,6 +127,67 @@ def test_memory_search_tool_returns_promoted_filtered_records(tmp_path: Path) ->
         store.close()
 
 
+def test_memory_put_tool_updates_existing_memory(tmp_path: Path) -> None:
+    store = _sqlite_store(tmp_path)
+    try:
+        existing = Memory(
+            type="project_fact",
+            key="writing_style",
+            value={"tone": "formal"},
+            scope="agent",
+            tags=["style"],
+            source_run_id="run-initial",
+        )
+        candidate_id = store.put_candidate(existing, provenance="writer", rationale="initial")
+        store.promote(candidate_id)
+
+        tool = MemoryPutTool(store)
+        payload = json.loads(
+            tool.execute(
+                {
+                    "memory_id": existing.id,
+                    "value": {"tone": "concise"},
+                    "tags": ["style", "concise"],
+                    "rationale": "Preference refined after feedback.",
+                }
+            )
+        )
+        assert payload["operation"] == "update_memory"
+        assert payload["status"] == "promoted"
+        assert payload["memory_id"] == existing.id
+        assert payload["memory"]["value"]["tone"] == "concise"
+        assert payload["memory"]["tags"] == ["style", "concise"]
+
+        refreshed = store.get(existing.id)
+        assert refreshed.value["tone"] == "concise"
+        assert refreshed.tags == ["style", "concise"]
+    finally:
+        store.close()
+
+
+def test_memory_remove_tool_deletes_memory(tmp_path: Path) -> None:
+    store = _sqlite_store(tmp_path)
+    try:
+        existing = Memory(
+            type="project_fact",
+            key="to_delete",
+            value={"keep": False},
+            scope="project",
+            tags=["cleanup"],
+            source_run_id="run-delete",
+        )
+        candidate_id = store.put_candidate(existing, provenance="curator", rationale="seed")
+        store.promote(candidate_id)
+
+        tool = MemoryRemoveTool(store)
+        payload = json.loads(tool.execute({"memory_id": existing.id}))
+        assert payload["operation"] == "remove_memory"
+        assert payload["status"] == "deleted"
+        assert payload["memory_id"] == existing.id
+    finally:
+        store.close()
+
+
 def test_default_registry_registers_memory_tools_when_memory_enabled(tmp_path: Path) -> None:
     config = build_config_from_raw(_base_raw(tmp_path, memory_enabled=True), tmp_path / "config.json")
     store = _sqlite_store(tmp_path, "registry-memory.sqlite3")
@@ -129,6 +195,7 @@ def test_default_registry_registers_memory_tools_when_memory_enabled(tmp_path: P
         registry = create_default_tool_registry(config, memory_store=store)
         names = {tool.name for tool in registry.list_tools()}
         assert "memory_put" in names
+        assert "memory_remove" in names
         assert "memory_search" in names
     finally:
         store.close()
@@ -141,6 +208,7 @@ def test_default_registry_skips_memory_tools_when_memory_disabled(tmp_path: Path
         registry = create_default_tool_registry(config, memory_store=store)
         names = {tool.name for tool in registry.list_tools()}
         assert "memory_put" not in names
+        assert "memory_remove" not in names
         assert "memory_search" not in names
     finally:
         store.close()
