@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 
 from lsm.config.loader import build_config_from_raw, config_to_raw
-from lsm.config.models.agents import AgentConfig, SandboxConfig
+from lsm.config.models.agents import AgentConfig, MemoryConfig, SandboxConfig
 
 
 def _base_raw(tmp_path: Path) -> dict:
@@ -88,6 +88,14 @@ def test_build_config_reads_agents_section(tmp_path: Path) -> None:
             "docker": {"enabled": True, "image": "test-image"},
             "tool_llm_assignments": {"query_remote": "decomposition"},
         },
+        "memory": {
+            "enabled": True,
+            "storage_backend": "sqlite",
+            "sqlite_path": "memory.sqlite3",
+            "ttl_project_fact_days": 120,
+            "ttl_task_state_days": 14,
+            "ttl_cache_hours": 12,
+        },
         "agent_configs": {
             "research": {"max_iterations": 10}
         },
@@ -109,6 +117,14 @@ def test_build_config_reads_agents_section(tmp_path: Path) -> None:
     assert config.agents.sandbox.docker["enabled"] is True
     assert config.agents.sandbox.docker["image"] == "test-image"
     assert config.agents.sandbox.tool_llm_assignments["query_remote"] == "decomposition"
+    assert config.agents.memory.enabled is True
+    assert config.agents.memory.storage_backend == "sqlite"
+    assert config.agents.memory.sqlite_path == (
+        tmp_path / "lsm-global" / "Agents" / "memory.sqlite3"
+    ).resolve()
+    assert config.agents.memory.ttl_project_fact_days == 120
+    assert config.agents.memory.ttl_task_state_days == 14
+    assert config.agents.memory.ttl_cache_hours == 12
     assert config.agents.agent_configs["research"]["max_iterations"] == 10
 
 
@@ -139,6 +155,16 @@ def test_config_to_raw_includes_agents_section(tmp_path: Path) -> None:
             "docker": {"enabled": False, "mem_limit_mb": 1024},
             "tool_llm_assignments": {"query_llm": "default"},
         },
+        "memory": {
+            "enabled": True,
+            "storage_backend": "sqlite",
+            "sqlite_path": "memory.sqlite3",
+            "postgres_connection_string": None,
+            "postgres_table_prefix": "agent_memory",
+            "ttl_project_fact_days": 90,
+            "ttl_task_state_days": 7,
+            "ttl_cache_hours": 24,
+        },
         "agent_configs": {"research": {"enabled": True}},
     }
     config = build_config_from_raw(raw, tmp_path / "config.json")
@@ -157,6 +183,12 @@ def test_config_to_raw_includes_agents_section(tmp_path: Path) -> None:
     assert serialized["agents"]["sandbox"]["limits"]["max_file_write_mb"] == 2
     assert serialized["agents"]["sandbox"]["docker"]["enabled"] is False
     assert serialized["agents"]["sandbox"]["docker"]["mem_limit_mb"] == 1024
+    assert serialized["agents"]["memory"]["enabled"] is True
+    assert serialized["agents"]["memory"]["storage_backend"] == "sqlite"
+    assert serialized["agents"]["memory"]["sqlite_path"].endswith("memory.sqlite3")
+    assert serialized["agents"]["memory"]["ttl_project_fact_days"] == 90
+    assert serialized["agents"]["memory"]["ttl_task_state_days"] == 7
+    assert serialized["agents"]["memory"]["ttl_cache_hours"] == 24
     assert serialized["agents"]["agent_configs"]["research"]["enabled"] is True
 
 
@@ -175,4 +207,24 @@ def test_sandbox_config_validate_rejects_unknown_execution_mode() -> None:
 def test_sandbox_config_validate_rejects_invalid_limits() -> None:
     cfg = SandboxConfig(limits={"timeout_s_default": 0, "max_stdout_kb": 0, "max_file_write_mb": 0})
     with pytest.raises(ValueError, match="timeout_s_default"):
+        cfg.validate()
+
+
+def test_memory_config_validate_rejects_unknown_backend() -> None:
+    cfg = MemoryConfig(storage_backend="unknown")
+    with pytest.raises(ValueError, match="storage_backend"):
+        cfg.validate()
+
+
+def test_memory_config_validate_rejects_non_positive_ttl_values() -> None:
+    cfg = MemoryConfig(ttl_project_fact_days=0)
+    with pytest.raises(ValueError, match="ttl_project_fact_days"):
+        cfg.validate()
+
+    cfg = MemoryConfig(ttl_task_state_days=0)
+    with pytest.raises(ValueError, match="ttl_task_state_days"):
+        cfg.validate()
+
+    cfg = MemoryConfig(ttl_cache_hours=0)
+    with pytest.raises(ValueError, match="ttl_cache_hours"):
         cfg.validate()

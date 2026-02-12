@@ -5,8 +5,9 @@ Agent system configuration models.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from datetime import timedelta
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 _VALID_RISK_LEVELS = {"read_only", "writes_workspace", "network", "exec"}
 _VALID_EXECUTION_MODES = {"local_only", "prefer_docker"}
@@ -23,6 +24,7 @@ _DEFAULT_SANDBOX_DOCKER = {
     "mem_limit_mb": 512,
     "read_only_root": True,
 }
+_VALID_MEMORY_BACKENDS = {"auto", "sqlite", "postgresql"}
 
 
 @dataclass
@@ -119,6 +121,84 @@ class SandboxConfig:
 
 
 @dataclass
+class MemoryConfig:
+    """
+    Agent memory storage configuration.
+    """
+
+    enabled: bool = True
+    """Whether persistent memory storage is enabled."""
+
+    storage_backend: str = "auto"
+    """Backend selection: 'auto', 'sqlite', or 'postgresql'."""
+
+    sqlite_path: Path = Path("memory.sqlite3")
+    """SQLite memory database path."""
+
+    postgres_connection_string: Optional[str] = None
+    """Optional PostgreSQL connection string override."""
+
+    postgres_table_prefix: str = "agent_memory"
+    """Table name prefix for PostgreSQL memory tables."""
+
+    ttl_project_fact_days: int = 90
+    """TTL cap for project_fact memories."""
+
+    ttl_task_state_days: int = 7
+    """TTL cap for task_state memories."""
+
+    ttl_cache_hours: int = 24
+    """TTL cap for cache memories."""
+
+    def __post_init__(self) -> None:
+        self.storage_backend = str(self.storage_backend or "auto").strip().lower()
+        self.sqlite_path = Path(self.sqlite_path).expanduser()
+        self.postgres_connection_string = (
+            str(self.postgres_connection_string).strip()
+            if self.postgres_connection_string is not None
+            else None
+        )
+        self.postgres_table_prefix = (
+            str(self.postgres_table_prefix or "agent_memory")
+            .strip()
+            .lower()
+        )
+        if not self.postgres_table_prefix:
+            self.postgres_table_prefix = "agent_memory"
+
+    def validate(self) -> None:
+        """Validate memory configuration."""
+        if self.storage_backend not in _VALID_MEMORY_BACKENDS:
+            raise ValueError(
+                "agents.memory.storage_backend must be one of: "
+                "auto, sqlite, postgresql"
+            )
+        if self.ttl_project_fact_days < 1:
+            raise ValueError("agents.memory.ttl_project_fact_days must be >= 1")
+        if self.ttl_task_state_days < 1:
+            raise ValueError("agents.memory.ttl_task_state_days must be >= 1")
+        if self.ttl_cache_hours < 1:
+            raise ValueError("agents.memory.ttl_cache_hours must be >= 1")
+
+    def ttl_cap_for_type(self, memory_type: str) -> Optional[timedelta]:
+        """
+        Return TTL cap for a memory type.
+        """
+        normalized = str(memory_type or "").strip().lower()
+        if normalized == "pinned":
+            return None
+        if normalized == "project_fact":
+            return timedelta(days=int(self.ttl_project_fact_days))
+        if normalized == "task_state":
+            return timedelta(days=int(self.ttl_task_state_days))
+        if normalized == "cache":
+            return timedelta(hours=int(self.ttl_cache_hours))
+        raise ValueError(
+            "memory_type must be one of: pinned, project_fact, task_state, cache"
+        )
+
+
+@dataclass
 class AgentConfig:
     """
     Top-level configuration for the agent system.
@@ -142,6 +222,9 @@ class AgentConfig:
     sandbox: SandboxConfig = field(default_factory=SandboxConfig)
     """Sandbox policy for tool execution."""
 
+    memory: MemoryConfig = field(default_factory=MemoryConfig)
+    """Persistent memory storage configuration."""
+
     agent_configs: Dict[str, Dict[str, Any]] = field(default_factory=dict)
     """Per-agent overrides keyed by agent name."""
 
@@ -160,3 +243,4 @@ class AgentConfig:
         if not isinstance(self.agent_configs, dict):
             raise ValueError("agents.agent_configs must be a dict")
         self.sandbox.validate()
+        self.memory.validate()

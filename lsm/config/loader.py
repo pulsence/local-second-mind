@@ -17,6 +17,7 @@ from dotenv import load_dotenv
 from .models import (
     LSMConfig,
     AgentConfig,
+    MemoryConfig,
     SandboxConfig,
     GlobalConfig,
     IngestConfig,
@@ -484,6 +485,30 @@ def build_sandbox_config(raw: Dict[str, Any]) -> SandboxConfig:
     )
 
 
+def build_memory_config(raw: Dict[str, Any]) -> MemoryConfig:
+    """
+    Build MemoryConfig from raw configuration.
+
+    Args:
+        raw: Raw memory config dictionary.
+
+    Returns:
+        MemoryConfig instance.
+    """
+    if not isinstance(raw, dict):
+        raw = {}
+    return MemoryConfig(
+        enabled=bool(raw.get("enabled", True)),
+        storage_backend=str(raw.get("storage_backend", "auto")),
+        sqlite_path=Path(raw.get("sqlite_path", "memory.sqlite3")),
+        postgres_connection_string=raw.get("postgres_connection_string"),
+        postgres_table_prefix=str(raw.get("postgres_table_prefix", "agent_memory")),
+        ttl_project_fact_days=int(raw.get("ttl_project_fact_days", 90)),
+        ttl_task_state_days=int(raw.get("ttl_task_state_days", 7)),
+        ttl_cache_hours=int(raw.get("ttl_cache_hours", 24)),
+    )
+
+
 def build_agent_config(raw: Dict[str, Any] | None) -> AgentConfig | None:
     """
     Build AgentConfig from raw configuration.
@@ -507,6 +532,7 @@ def build_agent_config(raw: Dict[str, Any] | None) -> AgentConfig | None:
         max_iterations=int(raw.get("max_iterations", 25)),
         context_window_strategy=str(raw.get("context_window_strategy", "compact")),
         sandbox=build_sandbox_config(raw.get("sandbox", {})),
+        memory=build_memory_config(raw.get("memory", {})),
         agent_configs=dict(raw.get("agent_configs", {})),
     )
 
@@ -992,6 +1018,16 @@ def config_to_raw(config: LSMConfig) -> Dict[str, Any]:
                 "limits": dict(config.agents.sandbox.limits),
                 "docker": dict(config.agents.sandbox.docker),
                 "tool_llm_assignments": dict(config.agents.sandbox.tool_llm_assignments),
+            },
+            "memory": {
+                "enabled": config.agents.memory.enabled,
+                "storage_backend": config.agents.memory.storage_backend,
+                "sqlite_path": str(config.agents.memory.sqlite_path),
+                "postgres_connection_string": config.agents.memory.postgres_connection_string,
+                "postgres_table_prefix": config.agents.memory.postgres_table_prefix,
+                "ttl_project_fact_days": config.agents.memory.ttl_project_fact_days,
+                "ttl_task_state_days": config.agents.memory.ttl_task_state_days,
+                "ttl_cache_hours": config.agents.memory.ttl_cache_hours,
             },
             "agent_configs": dict(config.agents.agent_configs),
         }

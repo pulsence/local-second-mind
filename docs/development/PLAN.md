@@ -771,7 +771,7 @@ Register in factory.
 
 Persistent agent posture and preferences. Memories affect *how* an agent works, not *what it knows*. Lifecycle: Candidate -> Promoted -> Expired. Memories are not automatically injected; they are retrieved selectively.
 
-### 4.1: Memory Storage Backend
+### 4.1: Memory Storage Backend (COMPLETED)
 
 #### 4.1.1: Create Memory Data Model
 

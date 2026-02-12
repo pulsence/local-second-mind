@@ -27,6 +27,9 @@ Built-in agent:
 - `lsm/agents/writing.py`: built-in grounded writing workflow agent
 - `lsm/agents/synthesis.py`: built-in synthesis workflow agent
 - `lsm/agents/curator.py`: built-in corpus curation workflow agent
+- `lsm/agents/memory/models.py`: memory and memory-candidate dataclasses
+- `lsm/agents/memory/store.py`: memory store abstraction + SQLite/PostgreSQL backends
+- `lsm/agents/memory/migrations.py`: SQLite <-> PostgreSQL migration helpers
 
 Tooling:
 
@@ -55,6 +58,16 @@ Agents are configured in top-level `agents`:
     "require_user_permission": {},
     "tool_llm_assignments": {}
   },
+  "memory": {
+    "enabled": true,
+    "storage_backend": "auto",
+    "sqlite_path": "memory.sqlite3",
+    "postgres_connection_string": null,
+    "postgres_table_prefix": "agent_memory",
+    "ttl_project_fact_days": 90,
+    "ttl_task_state_days": 7,
+    "ttl_cache_hours": 24
+  },
   "agent_configs": {
     "research": {
       "max_iterations": 30
@@ -70,6 +83,7 @@ Agents are configured in top-level `agents`:
 - `max_tokens_budget`: approximate token cap per run
 - `max_iterations`: max action loop iterations
 - `context_window_strategy`: `compact` or `fresh`
+- `memory`: persistent memory backend config and TTL caps
 - `agent_configs`: per-agent overrides
 
 ## Sandbox Model
@@ -94,6 +108,34 @@ permission checks -> runner selection -> environment scrubbing -> runner executi
 Runner selection policy is:
 `read_only`/`writes_workspace` -> local runner;
 `network`/`exec` in `prefer_docker` mode -> docker runner when available, otherwise confirmation-required block.
+
+## Memory Storage
+
+Memory storage is configured in `agents.memory` and implemented in `lsm/agents/memory/`.
+
+- `storage_backend`: `auto`, `sqlite`, or `postgresql`
+- `sqlite_path`: SQLite DB file path for memory storage
+- `postgres_connection_string`: optional PostgreSQL override for memory storage
+- `postgres_table_prefix`: table prefix used by PostgreSQL memory tables
+- TTL caps: `ttl_project_fact_days`, `ttl_task_state_days`, `ttl_cache_hours`
+
+Backend selection in `auto` mode:
+
+- Uses PostgreSQL memory storage when `vectordb.provider` is `postgresql`
+- Uses SQLite memory storage for `chromadb` (or any non-PostgreSQL vector backend)
+
+Path resolution:
+
+- If `agents.memory.sqlite_path` is relative, it resolves under `agents_folder`
+
+Lifecycle model:
+
+- Memory candidates are created as `pending`
+- Candidates can be `promoted` or `rejected`
+- Promoted memories are searchable
+- Expired memories are removed via TTL cleanup
+
+Migration helpers are provided in `lsm/agents/memory/migrations.py` for SQLite-to-PostgreSQL and PostgreSQL-to-SQLite moves.
 
 ## Built-In Tools
 

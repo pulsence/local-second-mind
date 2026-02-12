@@ -50,8 +50,10 @@
 - Create lsm.utils module for common utility code like logger
 - Create a utility that produces a graph of a file like those graph from tree-sitter.
   - This should also produce a graph from all "text" files from headings->subheadings->paragraphs.
-- Need to create a test harness to check test how agents and tools improve or regress based
-  upon feature changes.
+- Need to create a test harness to check test how agents and tools
+  improve or regress based upon feature changes.
+- Analyze ways that SQLite (or PGSql) could be leverage for storing
+  data.
 
 #### Agents and Tools
 - Default Agent Workspace:
@@ -120,6 +122,7 @@
 
 #### AI Providers
 - Add support for OpenRouter
+- Analyze how to best specify which LLM to use for different features.
 
 #### Remote Source Providers
 - Generic RSS Reader that can cache past reads and download latest items

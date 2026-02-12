@@ -6,6 +6,20 @@ All notable changes to Local Second Mind are documented here.
 
 ### Added
 
+- Agent memory storage backend foundation in `lsm/agents/memory/`:
+  - memory datamodels (`Memory`, `MemoryCandidate`)
+  - backend abstraction (`BaseMemoryStore`)
+  - SQLite and PostgreSQL memory store implementations
+  - backend factory with `auto` selection
+  - migration helpers for SQLite <-> PostgreSQL memory stores
+- New `MemoryConfig` in `lsm/config/models/agents.py` with:
+  - `storage_backend` (`auto` | `sqlite` | `postgresql`)
+  - `sqlite_path`, `postgres_connection_string`, `postgres_table_prefix`
+  - TTL cap settings (`ttl_project_fact_days`, `ttl_task_state_days`, `ttl_cache_hours`)
+- Memory store coverage tests in `tests/test_agents/test_memory_store.py`:
+  - CRUD, promotion/rejection lifecycle, expiry cleanup
+  - TTL cap enforcement and backend auto-selection
+  - store-to-store migration behavior
 - Base provider message transport interface in `BaseLLMProvider` with `_send_message(...)` and `_send_streaming_message(...)`.
 - Shared fallback answer helper on `BaseLLMProvider` to replace per-provider `_fallback_answer()` duplication.
 - Shared provider JSON schema constants in `lsm/providers/helpers.py`:
@@ -31,6 +45,8 @@ All notable changes to Local Second Mind are documented here.
 
 ### Changed
 
+- Agent config loader/serializer now round-trips `agents.memory` settings via `build_memory_config(...)` and `config_to_raw(...)`.
+- Relative `agents.memory.sqlite_path` values now resolve under resolved `agents_folder` (which itself resolves under `global_folder` when configured).
 - Moved shared LLM business logic into `BaseLLMProvider` concrete methods:
   - `rerank(...)`
   - `synthesize(...)`
@@ -124,6 +140,38 @@ All notable changes to Local Second Mind are documented here.
 - Agent registry/factory in `lsm/agents/factory.py` with built-in `research` registration and `create_agent()` entrypoint for extensible agent creation.
 - Agent UI integration with new `lsm/ui/tui/screens/agents.py` tab (launcher, status, pause/resume/stop, log view) wired into `LSMApp`.
 - Added shell-level agent command handlers in `lsm/ui/shell/commands/agents.py` supporting `/agent start|status|pause|resume|stop|log`, and query screen routing for `/agent` commands.
+- Tool risk metadata on `BaseTool`: `risk_level` (`read_only` | `writes_workspace` | `network` | `exec`), `preferred_runner` (`local` | `docker`), `needs_network`. All 15 built-in tools tagged with appropriate risk levels. `ToolRegistry` gains `list_by_risk()` and `list_network_tools()` query methods.
+- Sandbox security hardening in `lsm/agents/tools/sandbox.py`:
+  - `_canonicalize_path()` with null byte rejection, Windows UNC path and alternate data stream blocking, symlink escape detection, and post-normalization `..` rejection.
+  - Environment scrubbing in `lsm/agents/tools/env_scrubber.py` — minimal env (PATH, HOME, TEMP, LANG) with `*_API_KEY`, `*_SECRET*`, `*_TOKEN*`, `*_PASSWORD*` exclusion.
+  - Log redaction in `lsm/agents/log_redactor.py` — masks `sk-*`, `key_*`, base64 blobs, and secret assignment patterns in all agent logs and tool output.
+  - Interactive permission gates in `lsm/agents/permission_gate.py` with `PermissionGate` class and `PermissionDecision` dataclass. Precedence: per-tool override > per-risk policy > tool default > allow.
+- `SandboxConfig` extensions: `execution_mode` (`local_only` | `prefer_docker`), `require_permission_by_risk` dict, `limits` (timeout, max stdout, max file write), `docker` settings (image, network, CPU/memory limits, read-only root).
+- Runner abstraction in `lsm/agents/tools/runner.py` with `ToolExecutionResult` dataclass, `BaseRunner` ABC, and `LocalRunner` implementation with timeout enforcement, output truncation, and write-size limits.
+- Docker sandbox foundation: `DockerRunner` in `lsm/agents/tools/docker_runner.py` using subprocess `docker run` with workspace mounts, resource limits, and JSON payload protocol. `Dockerfile.sandbox` with Python 3.12-slim, non-root user, and read-only root. Entrypoint in `lsm/agents/tools/_docker_entrypoint.py`. Runner selection policy routes `read_only`/`writes_workspace` to LocalRunner and `network`/`exec` to DockerRunner when available.
+- Six new agent tools:
+  - `extract_snippets` — semantic snippet retrieval scoped to specific file paths.
+  - `file_metadata` — file size, mtime, and extension for path lists.
+  - `hash_file` — SHA256 hash computation for duplicate detection.
+  - `similarity_search` — cosine similarity pairs for chunk IDs or source paths.
+  - `source_map` — evidence aggregation by source path with count and top snippets.
+  - `append_file` — append content to existing files (`writes_workspace`, requires permission).
+- Agent framework flexibility enhancements in `lsm/agents/base.py`: extracted `_log()`, `_parse_json()`, `_consume_tokens()`, `_budget_exhausted()` helpers from `ResearchAgent` to `BaseAgent`. Added `_format_tool_definitions_for_prompt()` and `_parse_tool_selection()` for standardized tool formatting and LLM response parsing.
+- Tool allowlist on `AgentHarness`: `tool_allowlist` parameter filters tool definitions sent to the LLM and blocks execution of unlisted tools.
+- Automatic per-run workspace creation: harness creates `<agents_folder>/<agent_name>_<timestamp>/workspace/` and passes path in agent context.
+- Writing agent in `lsm/agents/writing.py` with grounding retrieval, outline building, prose drafting, self-review, and `deliverable.md` persistence. Tool allowlist: `query_embeddings`, `read_file`, `read_folder`, `write_file`, `extract_snippets`, `source_map`.
+- Synthesis agent in `lsm/agents/synthesis.py` with scope selection, candidate gathering, format-driven synthesis (bullets/outline/narrative/QA), tightening, coverage check, and `synthesis.md` + `source_map.md` persistence. Tool allowlist: `read_folder`, `query_embeddings`, `read_file`, `write_file`, `extract_snippets`, `source_map`.
+- Curator agent in `lsm/agents/curator.py` with file inventory, metadata collection, SHA256 exact-duplicate detection, embedding-based near-duplicate detection, staleness/quality heuristics, LLM-driven recommendations, and `curation_report.md` persistence. Tool allowlist: `read_folder`, `file_metadata`, `hash_file`, `query_embeddings`, `similarity_search`, `write_file`.
+- Agent factory updated to register `writing`, `synthesis`, and `curator` agents alongside `research`.
+- Comprehensive adversarial security test suite (50 tests across 7 files) covering STRIDE threat categories:
+  - T1: Arbitrary file access — path traversal, null bytes, UNC paths, ADS, symlink escape (`test_security_paths.py`, 12 tests)
+  - T2+T3: Command execution and privilege escalation — registry, schema, permission gates, risk policies (`test_security_permissions.py`, 8 tests)
+  - T4: Network abuse — tool blocking when `allow_url_access=False` (`test_security_network.py`, 5 tests)
+  - T5: Resource exhaustion — iteration caps, token budgets, output truncation (`test_security_resources.py`, 5 tests)
+  - T6: Data integrity — write boundaries, safe directory creation, artifact tracking (`test_security_integrity.py`, 4 tests)
+  - T7: Prompt injection — non-JSON responses, malformed actions, embedded JSON isolation (`test_security_injection.py`, 7 tests)
+  - T8: Secret leakage — env scrubbing, log redaction, base64 masking, harness integration (`test_security_secrets.py`, 9 tests)
+- Security documentation in `docs/development/SECURITY.md` with threat model, attack surface inventory, STRIDE coverage matrix, adversarial testing methodology, extension guide, and permission gate reference.
 
 ### Changed
 

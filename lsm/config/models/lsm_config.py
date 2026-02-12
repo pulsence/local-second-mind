@@ -107,6 +107,11 @@ class LSMConfig:
             else:
                 self.agents.agents_folder = self.agents.agents_folder.resolve()
 
+        if self.agents is not None and not self.agents.memory.sqlite_path.is_absolute():
+            self.agents.memory.sqlite_path = (
+                self.agents.agents_folder / self.agents.memory.sqlite_path
+            ).resolve()
+
         if self.modes is None:
             self.modes = self._get_builtin_modes()
 

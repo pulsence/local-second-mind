@@ -42,7 +42,7 @@ from .modes import (
 )
 from .query import QueryConfig
 from .chats import ChatsConfig
-from .agents import AgentConfig, SandboxConfig
+from .agents import AgentConfig, MemoryConfig, SandboxConfig
 from .lsm_config import LSMConfig
 
 __all__ = [
@@ -85,6 +85,7 @@ __all__ = [
     "QueryConfig",
     "ChatsConfig",
     "AgentConfig",
+    "MemoryConfig",
     "SandboxConfig",
     "LSMConfig",
 ]
