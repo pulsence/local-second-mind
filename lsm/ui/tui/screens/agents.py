@@ -50,6 +50,23 @@ class AgentsScreen(Widget):
                     with Container(id="agents-status-panel"):
                         yield Static("Status", classes="agents-section-title")
                         yield Static("No active agent.", id="agents-status-output", markup=False)
+                    with Container(id="agents-memory-panel"):
+                        yield Static("Memory Candidates", classes="agents-section-title")
+                        yield Select([], id="agents-memory-select")
+                        yield Input(
+                            placeholder="TTL days (e.g., 30)",
+                            id="agents-memory-ttl-input",
+                        )
+                        with Horizontal(id="agents-memory-buttons"):
+                            yield Button("Refresh", id="agents-memory-refresh-button")
+                            yield Button("Approve", id="agents-memory-approve-button")
+                            yield Button("Reject", id="agents-memory-reject-button")
+                            yield Button("Edit TTL", id="agents-memory-ttl-button")
+                        yield Static(
+                            "No memory candidates loaded.",
+                            id="agents-memory-output",
+                            markup=False,
+                        )
 
                 with Container(id="agents-log-panel"):
                     yield Static("Agent Log", classes="agents-section-title")
@@ -59,6 +76,7 @@ class AgentsScreen(Widget):
     def on_mount(self) -> None:
         """Initialize agent select options and focus."""
         self._refresh_agent_options()
+        self._refresh_memory_candidates()
         self._focus_default_input()
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
@@ -81,6 +99,18 @@ class AgentsScreen(Widget):
             return
         if button_id == "agents-log-button":
             self._show_log()
+            return
+        if button_id == "agents-memory-refresh-button":
+            self._refresh_memory_candidates()
+            return
+        if button_id == "agents-memory-approve-button":
+            self._approve_memory_candidate()
+            return
+        if button_id == "agents-memory-reject-button":
+            self._reject_memory_candidate()
+            return
+        if button_id == "agents-memory-ttl-button":
+            self._edit_memory_candidate_ttl()
             return
 
     def on_input_submitted(self, event: Input.Submitted) -> None:
@@ -137,12 +167,104 @@ class AgentsScreen(Widget):
         output = manager.log()
         self._append_log(output)
 
+    def _refresh_memory_candidates(self) -> None:
+        try:
+            candidate_select = self.query_one("#agents-memory-select", Select)
+            output_widget = self.query_one("#agents-memory-output", Static)
+        except Exception:
+            return
+
+        manager = get_agent_runtime_manager()
+        try:
+            candidates = manager.get_memory_candidates(
+                self.app,
+                status="pending",
+                limit=200,
+            )
+        except Exception as exc:
+            candidate_select.set_options([])
+            output_widget.update(str(exc))
+            return
+
+        options = []
+        for candidate in candidates:
+            memory = candidate.memory
+            label = (
+                f"{candidate.id[:12]} | {memory.key} "
+                f"({memory.type}/{memory.scope})"
+            )
+            options.append((label, candidate.id))
+
+        candidate_select.set_options(options)
+        if options:
+            candidate_select.value = options[0][1]
+            output_widget.update(f"Loaded {len(options)} pending memory candidate(s).")
+            return
+        output_widget.update("No pending memory candidates found.")
+
+    def _approve_memory_candidate(self) -> None:
+        candidate_id = self._selected_memory_candidate_id()
+        if not candidate_id:
+            self._set_memory_status("Select a memory candidate first.")
+            return
+        manager = get_agent_runtime_manager()
+        output = manager.promote_memory_candidate(self.app, candidate_id)
+        self._refresh_memory_candidates()
+        self._set_memory_status(output.strip())
+        self._append_log(output)
+
+    def _reject_memory_candidate(self) -> None:
+        candidate_id = self._selected_memory_candidate_id()
+        if not candidate_id:
+            self._set_memory_status("Select a memory candidate first.")
+            return
+        manager = get_agent_runtime_manager()
+        output = manager.reject_memory_candidate(self.app, candidate_id)
+        self._refresh_memory_candidates()
+        self._set_memory_status(output.strip())
+        self._append_log(output)
+
+    def _edit_memory_candidate_ttl(self) -> None:
+        candidate_id = self._selected_memory_candidate_id()
+        if not candidate_id:
+            self._set_memory_status("Select a memory candidate first.")
+            return
+
+        ttl_input = self.query_one("#agents-memory-ttl-input", Input)
+        ttl_text = ttl_input.value.strip()
+        if not ttl_text:
+            self._set_memory_status("Enter TTL days before editing.")
+            return
+        try:
+            ttl_days = int(ttl_text)
+        except ValueError:
+            self._set_memory_status("TTL days must be an integer.")
+            return
+        if ttl_days < 1:
+            self._set_memory_status("TTL days must be >= 1.")
+            return
+
+        manager = get_agent_runtime_manager()
+        output = manager.edit_memory_candidate_ttl(self.app, candidate_id, ttl_days)
+        self._refresh_memory_candidates()
+        self._set_memory_status(output.strip())
+        self._append_log(output)
+
+    def _selected_memory_candidate_id(self) -> str:
+        candidate_select = self.query_one("#agents-memory-select", Select)
+        value = candidate_select.value
+        if not isinstance(value, str):
+            return ""
+        return value.strip()
+
     def _set_status(self, message: str) -> None:
         self.query_one("#agents-status-output", Static).update(message)
+
+    def _set_memory_status(self, message: str) -> None:
+        self.query_one("#agents-memory-output", Static).update(message)
 
     def _append_log(self, message: str) -> None:
         if not message:
             return
         log_widget = self.query_one("#agents-log", RichLog)
         log_widget.write(message.rstrip() + "\n")
-

@@ -244,6 +244,9 @@ Open the **Agents** tab:
 - enter a topic
 - start/pause/resume/stop
 - inspect live status/log output
+- review pending memory candidates
+- approve/reject candidates
+- edit candidate TTL (days)
 
 ## Shell Commands
 
@@ -253,6 +256,10 @@ Open the **Agents** tab:
 - `/agent resume`
 - `/agent stop`
 - `/agent log`
+- `/memory candidates [pending|promoted|rejected|all]`
+- `/memory promote <candidate_id>`
+- `/memory reject <candidate_id>`
+- `/memory ttl <candidate_id> <days>`
 
 ## Notes
 

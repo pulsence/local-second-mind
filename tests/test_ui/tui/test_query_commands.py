@@ -290,6 +290,24 @@ def test_execute_show_open_set_clear_and_run_command(monkeypatch: pytest.MonkeyP
     assert screen.app.exited is True
 
 
+def test_execute_routes_agent_and_memory_commands(monkeypatch: pytest.MonkeyPatch) -> None:
+    screen = _screen()
+    monkeypatch.setattr(
+        "lsm.ui.tui.screens.query.handle_agent_command",
+        lambda command, app: f"agent:{command}",
+    )
+    monkeypatch.setattr(
+        "lsm.ui.tui.screens.query.handle_memory_command",
+        lambda command, app: f"memory:{command}",
+    )
+
+    out_agent = screen._execute_query_command("/agent status").output
+    out_memory = screen._execute_query_command("/memory candidates").output
+
+    assert out_agent == "agent:/agent status"
+    assert out_memory == "memory:/memory candidates"
+
+
 def test_show_citation_expand_and_actions(monkeypatch: pytest.MonkeyPatch) -> None:
     screen = _screen()
     panel = SimpleNamespace(

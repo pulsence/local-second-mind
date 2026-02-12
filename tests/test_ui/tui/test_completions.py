@@ -41,6 +41,7 @@ class TestGetCommands:
         """Query context should include query-specific commands."""
         commands = get_commands("query")
         assert "/mode" in commands
+        assert "/memory" in commands
         assert "/show" in commands
         assert "/expand" in commands
         assert "/costs" in commands
@@ -120,6 +121,14 @@ class TestGetCompletions:
         assert "bibtex" in completions
         assert "zotero" in completions
 
+    def test_memory_command_suggests_subcommands(self):
+        """Memory command should suggest memory subcommands."""
+        completions = get_completions("/memory ", "query")
+        assert "candidates" in completions
+        assert "promote" in completions
+        assert "reject" in completions
+        assert "ttl" in completions
+
     def test_remote_provider_suggests_actions(self):
         """Remote provider command should suggest current command name."""
         completions = get_completions("/remote-provider ", "query")
@@ -153,6 +162,7 @@ class TestFormatCommandHelp:
         """Help text should include command names."""
         help_text = format_command_help("query")
         assert "/mode" in help_text
+        assert "/memory" in help_text
         assert "/help" in help_text
 
 

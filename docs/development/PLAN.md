@@ -910,7 +910,7 @@ In memory mode, Curator:
 
 **Post-block:** `tests/test_agents/test_curator_memory_mode.py`, run tests, update docs, commit.
 
-### 4.5: Memory TUI
+### 4.5: Memory TUI (COMPLETED)
 
 #### 4.5.1: TUI Memory View
 

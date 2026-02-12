@@ -66,6 +66,8 @@ QUERY_COMMANDS: Dict[str, str] = {
     "/debug": "Show retrieval diagnostics",
     "/set": "Set session filter (requires: filter value)",
     "/clear": "Clear session filter",
+    "/agent": "Run or inspect agent workflows",
+    "/memory": "Manage agent memory candidates",
 }
 
 # Subcommand completions
@@ -74,6 +76,7 @@ MODE_SETTINGS = ["model_knowledge", "remote", "notes", "llm_cache"]
 BUILD_OPTIONS = ["--force"]
 TAG_OPTIONS = ["--max"]
 EXPORT_FORMATS = ["bibtex", "zotero"]
+MEMORY_SUBCOMMANDS = ["candidates", "promote", "reject", "ttl"]
 def get_commands(context: ContextType) -> Dict[str, str]:
     """
     Get available commands for a context.
@@ -188,6 +191,17 @@ def _get_argument_completions(
         matches = [opt for opt in options if opt.startswith(arg)]
         return matches
 
+    if cmd == "/memory":
+        parts = arg.split()
+        if not parts:
+            return list(MEMORY_SUBCOMMANDS)
+        if len(parts) == 1:
+            return [item for item in MEMORY_SUBCOMMANDS if item.startswith(parts[0])]
+        if len(parts) == 2 and parts[0] == "candidates":
+            statuses = ["pending", "promoted", "rejected", "all"]
+            return [status for status in statuses if status.startswith(parts[1])]
+        return []
+
     # Build command
     if cmd == "/build":
         matches = [o for o in BUILD_OPTIONS if o.startswith(arg)]
@@ -249,6 +263,7 @@ def format_command_help(context: ContextType) -> str:
         "Exploration": ["/explore", "/show", "/search", "/tags"],
         "Operations": ["/build", "/tag", "/wipe", "/load"],
         "Query": ["/mode", "/show", "/expand", "/open", "/note", "/notes"],
+        "Agents": ["/agent", "/memory"],
         "Providers": [
             "/providers", "/provider-status", "/model", "/models",
             "/vectordb-providers", "/vectordb-status",

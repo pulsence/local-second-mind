@@ -40,7 +40,7 @@ from lsm.remote import get_registered_providers
 from lsm.query.citations import export_citations_from_note, export_citations_from_sources
 from lsm.query.notes import get_note_filename, generate_note_content, resolve_notes_dir
 from lsm.ui.tui.widgets.status import StatusBar
-from lsm.ui.shell.commands.agents import handle_agent_command
+from lsm.ui.shell.commands.agents import handle_agent_command, handle_memory_command
 
 if TYPE_CHECKING:
     from lsm.query.session import Candidate
@@ -895,6 +895,10 @@ class QueryScreen(Widget):
                 output = handle_agent_command(q, self.app)
                 return CommandResult(output=output)
 
+            if cmd == "/memory":
+                output = handle_memory_command(q, self.app)
+                return CommandResult(output=output)
+
             if cmd in {"/note", "/notes"}:
                 if not self.app.query_state.last_question:
                     return CommandResult(output="No query to save. Run a query first.\n")
@@ -1292,6 +1296,12 @@ Agents
 /agent resume                Resume active agent
 /agent stop                  Stop active agent
 /agent log                   Show active agent logs
+
+Memory
+/memory candidates [status]  List memory candidates (default: pending)
+/memory promote <id>         Promote memory candidate
+/memory reject <id>          Reject memory candidate
+/memory ttl <id> <days>      Edit candidate TTL in days
 
 Results
 /show S#                      Show the cited chunk (e.g., /show S2)

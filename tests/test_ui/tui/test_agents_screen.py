@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from types import SimpleNamespace
 
 from lsm.ui.tui.screens.agents import AgentsScreen
@@ -44,6 +45,9 @@ class _RichLog:
 class _Manager:
     def __init__(self) -> None:
         self.started = None
+        self.promoted = None
+        self.rejected = None
+        self.ttl_updated = None
 
     def start(self, app, name: str, topic: str) -> str:
         self.started = (name, topic)
@@ -63,6 +67,48 @@ class _Manager:
 
     def log(self) -> str:
         return "Agent log line\n"
+
+    def get_memory_candidates(self, app, status="pending", limit=200):
+        _ = app, status, limit
+        memory = SimpleNamespace(
+            id="mem-1",
+            key="writing_style",
+            type="task_state",
+            scope="agent",
+            confidence=0.9,
+            tags=["style"],
+            created_at=datetime.now(timezone.utc),
+            last_used_at=datetime.now(timezone.utc),
+            expires_at=None,
+            source_run_id="run-1",
+            value={"tone": "concise"},
+        )
+        return [
+            SimpleNamespace(
+                id="cand-1",
+                memory=memory,
+                status="pending",
+                rationale="Common preference",
+            )
+        ]
+
+    def promote_memory_candidate(self, app, candidate_id: str) -> str:
+        _ = app
+        self.promoted = candidate_id
+        return f"Promoted memory candidate '{candidate_id}'.\n"
+
+    def reject_memory_candidate(self, app, candidate_id: str) -> str:
+        _ = app
+        self.rejected = candidate_id
+        return f"Rejected memory candidate '{candidate_id}'.\n"
+
+    def edit_memory_candidate_ttl(self, app, candidate_id: str, ttl_days: int) -> str:
+        _ = app
+        self.ttl_updated = (candidate_id, ttl_days)
+        return (
+            f"Updated TTL for memory candidate '{candidate_id}' "
+            f"to {ttl_days} day(s).\n"
+        )
 
 
 class _TestableAgentsScreen(AgentsScreen):
@@ -85,23 +131,29 @@ class _TestableAgentsScreen(AgentsScreen):
 
 
 def _screen(context: str = "agents"):
-    app = SimpleNamespace(current_context=context)
+    app = SimpleNamespace(current_context=context, config=SimpleNamespace())
     screen = _TestableAgentsScreen(app)
     screen.widgets["#agents-select"] = _Select("")
     screen.widgets["#agents-topic-input"] = _Input("", "agents-topic-input")
     screen.widgets["#agents-status-output"] = _Static()
+    screen.widgets["#agents-memory-select"] = _Select("", "agents-memory-select")
+    screen.widgets["#agents-memory-ttl-input"] = _Input("", "agents-memory-ttl-input")
+    screen.widgets["#agents-memory-output"] = _Static()
     screen.widgets["#agents-log"] = _RichLog()
     return screen
 
 
 def test_on_mount_populates_options_and_focus(monkeypatch) -> None:
     screen = _screen()
+    monkeypatch.setattr("lsm.ui.tui.screens.agents.get_agent_runtime_manager", lambda: _Manager())
     monkeypatch.setattr("lsm.ui.tui.screens.agents.AgentRegistry", lambda: SimpleNamespace(list_agents=lambda: ["research"]))
     screen.on_mount()
     select = screen.widgets["#agents-select"]
     assert ("research", "research") in select.options
     assert select.value == "research"
     assert screen.widgets["#agents-topic-input"].focused is True
+    memory_select = screen.widgets["#agents-memory-select"]
+    assert memory_select.value == "cand-1"
 
 
 def test_start_status_and_controls(monkeypatch) -> None:
@@ -133,6 +185,19 @@ def test_start_status_and_controls(monkeypatch) -> None:
     screen._show_log()
     assert "Agent log line" in "".join(screen.widgets["#agents-log"].lines)
 
+    screen._approve_memory_candidate()
+    assert manager.promoted == "cand-1"
+    assert "Promoted memory candidate" in screen.widgets["#agents-memory-output"].last
+
+    screen._reject_memory_candidate()
+    assert manager.rejected == "cand-1"
+    assert "Rejected memory candidate" in screen.widgets["#agents-memory-output"].last
+
+    screen.widgets["#agents-memory-ttl-input"].value = "30"
+    screen._edit_memory_candidate_ttl()
+    assert manager.ttl_updated == ("cand-1", 30)
+    assert "Updated TTL for memory candidate" in screen.widgets["#agents-memory-output"].last
+
 
 def test_button_press_routes_to_actions(monkeypatch) -> None:
     screen = _screen()
@@ -149,8 +214,10 @@ def test_button_press_routes_to_actions(monkeypatch) -> None:
         "agents-resume-button",
         "agents-stop-button",
         "agents-log-button",
+        "agents-memory-refresh-button",
+        "agents-memory-approve-button",
+        "agents-memory-reject-button",
     ):
         screen.on_button_pressed(SimpleNamespace(button=SimpleNamespace(id=button_id)))
 
     assert manager.started == ("research", "topic")
-

@@ -43,6 +43,14 @@ All notable changes to Local Second Mind are documented here.
   - `tests/test_agents/test_curator_memory_mode.py`
   - `tests/test_agents/test_harness.py`
   - `tests/test_agents/test_harness_allowlist.py`
+- Memory UI/command surfaces:
+  - `/memory` command handler in `lsm/ui/shell/commands/agents.py` with candidate listing, promote/reject, and TTL editing
+  - Memory command routing in `lsm/ui/tui/screens/query.py`
+  - Memory candidates panel in `lsm/ui/tui/screens/agents.py` with refresh/approve/reject/edit TTL actions
+  - Query command completion support for `/memory` in `lsm/ui/tui/completions.py`
+- Memory UI test coverage:
+  - `tests/test_ui/shell/test_memory_commands.py`
+  - `tests/test_ui/tui/test_memory_screen.py`
 - Base provider message transport interface in `BaseLLMProvider` with `_send_message(...)` and `_send_streaming_message(...)`.
 - Shared fallback answer helper on `BaseLLMProvider` to replace per-provider `_fallback_answer()` duplication.
 - Shared provider JSON schema constants in `lsm/providers/helpers.py`:
@@ -73,6 +81,7 @@ All notable changes to Local Second Mind are documented here.
 - `BaseMemoryStore` now supports `mark_used(memory_ids, used_at=...)` to update `last_used_at` for injected memories.
 - `AgentHarness` now injects a separate standing-memory context block before each LLM turn when memory context is available.
 - `AgentHarness` action-loop flow now records permission decisions and tool execution telemetry for run-summary generation.
+- Query/TUI command handling now supports `/memory` command workflows in addition to `/agent`.
 - `create_default_tool_registry()` now registers memory tools when memory is enabled and a memory store is supplied; shell agent startup initializes and injects the configured memory backend.
 - Moved shared LLM business logic into `BaseLLMProvider` concrete methods:
   - `rerank(...)`
