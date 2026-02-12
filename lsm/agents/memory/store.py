@@ -11,7 +11,7 @@ from contextlib import contextmanager
 from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Optional, Sequence
+from typing import Any, Dict, List, Optional, Sequence
 from uuid import uuid4
 
 from lsm.config.models.agents import AgentConfig, MemoryConfig
@@ -87,6 +87,17 @@ class BaseMemoryStore(ABC):
     ) -> List[Memory]:
         """
         Search promoted memories.
+        """
+
+    @abstractmethod
+    def mark_used(
+        self,
+        memory_ids: Sequence[str],
+        *,
+        used_at: Optional[datetime] = None,
+    ) -> int:
+        """
+        Update `last_used_at` for memory IDs and return updated row count.
         """
 
     @abstractmethod
@@ -396,6 +407,28 @@ class SQLiteMemoryStore(BaseMemoryStore):
                 )
             )
         return candidates
+
+    def mark_used(
+        self,
+        memory_ids: Sequence[str],
+        *,
+        used_at: Optional[datetime] = None,
+    ) -> int:
+        normalized_ids = [str(item).strip() for item in memory_ids if str(item).strip()]
+        if not normalized_ids:
+            return 0
+        timestamp = (used_at or now_utc()).isoformat()
+        placeholders = ", ".join(["?"] * len(normalized_ids))
+        cursor = self._conn.execute(
+            f"""
+            UPDATE memories
+            SET last_used_at = ?
+            WHERE id IN ({placeholders})
+            """,
+            (timestamp, *normalized_ids),
+        )
+        self._conn.commit()
+        return int(cursor.rowcount or 0)
 
     def close(self) -> None:
         self._conn.close()
@@ -720,6 +753,30 @@ class PostgreSQLMemoryStore(BaseMemoryStore):
                 )
             )
         return candidates
+
+    def mark_used(
+        self,
+        memory_ids: Sequence[str],
+        *,
+        used_at: Optional[datetime] = None,
+    ) -> int:
+        self._ensure_schema()
+        normalized_ids = [str(item).strip() for item in memory_ids if str(item).strip()]
+        if not normalized_ids:
+            return 0
+        placeholders = ", ".join(["%s"] * len(normalized_ids))
+        timestamp = used_at or now_utc()
+        with self._conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    f"""
+                    UPDATE {self.memories_table}
+                    SET last_used_at = %s
+                    WHERE id IN ({placeholders})
+                    """,
+                    (timestamp, *normalized_ids),
+                )
+                return int(cur.rowcount or 0)
 
     @staticmethod
     def _memory_from_row(row: Dict[str, Any]) -> Memory:

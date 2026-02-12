@@ -20,6 +20,13 @@ All notable changes to Local Second Mind are documented here.
   - CRUD, promotion/rejection lifecycle, expiry cleanup
   - TTL cap enforcement and backend auto-selection
   - store-to-store migration behavior
+- Memory API module `lsm/agents/memory/api.py` with:
+  - `memory_put_candidate()`, `memory_promote()`, `memory_expire()`
+  - `memory_search()` ranking by recency + pin weighting
+- Memory standing-context builder in `lsm/agents/memory/context_builder.py` for pre-LLM prompt injection.
+- Memory API/context integration tests:
+  - `tests/test_agents/test_memory_api.py`
+  - `tests/test_agents/test_memory_context_builder.py`
 - Base provider message transport interface in `BaseLLMProvider` with `_send_message(...)` and `_send_streaming_message(...)`.
 - Shared fallback answer helper on `BaseLLMProvider` to replace per-provider `_fallback_answer()` duplication.
 - Shared provider JSON schema constants in `lsm/providers/helpers.py`:
@@ -47,6 +54,8 @@ All notable changes to Local Second Mind are documented here.
 
 - Agent config loader/serializer now round-trips `agents.memory` settings via `build_memory_config(...)` and `config_to_raw(...)`.
 - Relative `agents.memory.sqlite_path` values now resolve under resolved `agents_folder` (which itself resolves under `global_folder` when configured).
+- `BaseMemoryStore` now supports `mark_used(memory_ids, used_at=...)` to update `last_used_at` for injected memories.
+- `AgentHarness` now injects a separate standing-memory context block before each LLM turn when memory context is available.
 - Moved shared LLM business logic into `BaseLLMProvider` concrete methods:
   - `rerank(...)`
   - `synthesize(...)`

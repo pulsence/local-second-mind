@@ -122,7 +122,8 @@
 
 #### AI Providers
 - Add support for OpenRouter
-- Analyze how to best specify which LLM to use for different features.
+- Analyze how to best specify which LLM to use for different features. Something like tiered
+  configuration based upon how advanced an AI is needed for a particular service/feature.
 
 #### Remote Source Providers
 - Generic RSS Reader that can cache past reads and download latest items

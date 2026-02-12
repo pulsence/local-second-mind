@@ -30,6 +30,8 @@ Built-in agent:
 - `lsm/agents/memory/models.py`: memory and memory-candidate dataclasses
 - `lsm/agents/memory/store.py`: memory store abstraction + SQLite/PostgreSQL backends
 - `lsm/agents/memory/migrations.py`: SQLite <-> PostgreSQL migration helpers
+- `lsm/agents/memory/api.py`: memory lifecycle operations and ranked retrieval helpers
+- `lsm/agents/memory/context_builder.py`: standing-context builder for memory prompt injection
 
 Tooling:
 
@@ -134,6 +136,14 @@ Lifecycle model:
 - Candidates can be `promoted` or `rejected`
 - Promoted memories are searchable
 - Expired memories are removed via TTL cleanup
+- `memory_search()` applies recency scoring with pin weighting
+- `last_used_at` is updated only for memories actually injected into standing context
+
+Runtime integration:
+
+- `MemoryContextBuilder` runs before each LLM call in `AgentHarness`
+- Standing memory context is injected as a separate prompt block (not merged into tool definitions)
+- Zero-memory injection is valid and simply omits the standing-context block
 
 Migration helpers are provided in `lsm/agents/memory/migrations.py` for SQLite-to-PostgreSQL and PostgreSQL-to-SQLite moves.
 
@@ -166,7 +176,7 @@ Default tool registry (`create_default_tool_registry`) includes:
 
 `AgentHarness` loop:
 
-1. Prepare context + filtered tool definitions (`tool_allowlist` when provided)
+1. Prepare standing memory context (if available) + filtered tool definitions (`tool_allowlist` when provided)
 2. Call LLM
 3. Parse strict JSON action response
 4. Execute tool via sandbox when requested (reject unlisted tools)

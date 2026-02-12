@@ -839,7 +839,7 @@ Bidirectional migration between SQLite and PostgreSQL memory stores.
 
 **Post-block:** `tests/test_agents/test_memory_store.py` (CRUD, TTL, search, promotion), run tests, update docs, commit.
 
-### 4.2: Memory API and Harness Integration
+### 4.2: Memory API and Harness Integration (COMPLETED)
 
 #### 4.2.1: Core Memory Operations
 

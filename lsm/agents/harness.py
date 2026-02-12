@@ -11,12 +11,13 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, Optional, Set
 
-from lsm.config.models import AgentConfig, LLMRegistryConfig
+from lsm.config.models import AgentConfig, LLMRegistryConfig, VectorDBConfig
 from lsm.logging import get_logger
 from lsm.providers.factory import create_provider
 
 from .log_redactor import redact_secrets
 from .base import AgentState, AgentStatus
+from .memory import BaseMemoryStore, MemoryContextBuilder, create_memory_store
 from .models import AgentContext, AgentLogEntry, ToolResponse
 from .tools.base import ToolRegistry
 from .tools.sandbox import ToolSandbox
@@ -37,6 +38,9 @@ class AgentHarness:
         sandbox: ToolSandbox,
         agent_name: str = "agent",
         tool_allowlist: Optional[Set[str]] = None,
+        vectordb_config: Optional[VectorDBConfig] = None,
+        memory_store: Optional[BaseMemoryStore] = None,
+        memory_context_builder: Optional[MemoryContextBuilder] = None,
     ) -> None:
         self.agent_config = agent_config
         self.tool_registry = tool_registry
@@ -44,15 +48,20 @@ class AgentHarness:
         self.sandbox = sandbox
         self.agent_name = agent_name
         self.tool_allowlist = self._normalize_allowlist(tool_allowlist)
+        self.vectordb_config = vectordb_config
 
         self.state = AgentState()
         self.context: Optional[AgentContext] = None
+        self.memory_store: Optional[BaseMemoryStore] = memory_store
+        self.memory_context_builder: Optional[MemoryContextBuilder] = None
         self._state_path: Optional[Path] = None
         self._run_root: Optional[Path] = None
         self._workspace_path: Optional[Path] = None
         self._thread: Optional[threading.Thread] = None
         self._stop_event = threading.Event()
         self._lock = threading.Lock()
+
+        self._initialize_memory_context_builder(memory_context_builder)
 
     def run(self, initial_context: AgentContext) -> AgentState:
         """
@@ -98,9 +107,13 @@ class AgentHarness:
                     break
 
                 self.context.budget_tracking["iterations"] += 1
+                standing_context_block = self._build_standing_context_block()
                 messages_for_llm = self._prepare_messages(self.context)
                 raw_response = llm_provider.synthesize(
-                    question=self._messages_to_prompt(messages_for_llm),
+                    question=self._messages_to_prompt(
+                        messages_for_llm,
+                        standing_context_block=standing_context_block,
+                    ),
                     context=self._tools_context_block(),
                     mode="insight",
                 )
@@ -305,8 +318,18 @@ class AgentHarness:
             action_arguments=action_arguments,
         )
 
-    def _messages_to_prompt(self, messages: list[Dict[str, Any]]) -> str:
+    def _messages_to_prompt(
+        self,
+        messages: list[Dict[str, Any]],
+        *,
+        standing_context_block: str = "",
+    ) -> str:
         lines = []
+        if standing_context_block:
+            lines.append(
+                "SYSTEM: Use the following standing context from persistent agent memory."
+            )
+            lines.append(standing_context_block)
         for message in messages:
             role = str(message.get("role", "user")).upper()
             content = str(message.get("content", ""))
@@ -391,3 +414,67 @@ class AgentHarness:
         if self.tool_allowlist is None:
             return True
         return str(tool_name).strip() in self.tool_allowlist
+
+    def _initialize_memory_context_builder(
+        self,
+        memory_context_builder: Optional[MemoryContextBuilder],
+    ) -> None:
+        if not self.agent_config.memory.enabled:
+            self.memory_context_builder = None
+            return
+
+        if memory_context_builder is not None:
+            self.memory_context_builder = memory_context_builder
+            if self.memory_store is None:
+                self.memory_store = memory_context_builder.store
+            return
+
+        if self.memory_store is None and self.vectordb_config is not None:
+            try:
+                self.memory_store = create_memory_store(
+                    self.agent_config,
+                    self.vectordb_config,
+                )
+            except Exception as exc:
+                logger.warning(
+                    "Failed to initialize memory store for harness '%s': %s",
+                    self.agent_name,
+                    exc,
+                )
+                self.memory_store = None
+
+        if self.memory_store is not None:
+            self.memory_context_builder = MemoryContextBuilder(self.memory_store)
+
+    def _build_standing_context_block(self) -> str:
+        if self.context is None or self.memory_context_builder is None:
+            return ""
+        topic = self._extract_topic(self.context)
+        memory_token_budget = max(
+            200,
+            min(2000, int(self.agent_config.max_tokens_budget // 8)),
+        )
+        try:
+            return self.memory_context_builder.build(
+                agent_name=self.agent_name,
+                topic=topic,
+                limit=8,
+                token_budget=memory_token_budget,
+            )
+        except Exception as exc:
+            logger.warning(
+                "Failed to build memory context block for harness '%s': %s",
+                self.agent_name,
+                exc,
+            )
+            return ""
+
+    @staticmethod
+    def _extract_topic(context: AgentContext) -> str:
+        for message in reversed(context.messages):
+            if str(message.get("role", "")).strip().lower() != "user":
+                continue
+            content = str(message.get("content", "")).strip()
+            if content:
+                return content
+        return ""
