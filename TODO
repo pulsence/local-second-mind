@@ -53,18 +53,6 @@
 - Need to create a test harness to check test how agents and tools improve or regress based
   upon feature changes.
 
-#### Ingest
-- Research graphs on embeddings and way to improve information discover in embeddings.
-- Store graphs of files embedded to help with search/discovery.
-- When a text document has subheadings the user should be able to define how many subheadings
-  deep should be considered when creating chunk boundaries by headings. Otherwise the ingest
-  should intellegently use subheadings based upon the follow criteria:
-    - When a heading is larger than the max chunk size and contains sub-headings,
-      then the section should be chunked along the sub-heading boundaries. The meta-data
-      in the chunk should indicate the heirarchy of headings: heading::sub-heading
-    - This process should repeat into nested subheadings so long as the current heading
-      level is larger than the target max chunk size.
-
 #### Agents and Tools
 - Default Agent Workspace:
   - Each Agent by default has read/write access to their workspace.
@@ -159,7 +147,18 @@
     - Market data
     - Federal/Government API data
 
-### v0.8.0: Refactor and Dog Food
+### v0.8.0: Embedding Retrevial Improvments
+#### Document Headings Improvement
+- When a text document has subheadings the user should be able to define how many subheadings
+  deep should be considered when creating chunk boundaries by headings. Otherwise the ingest
+  should intellegently use subheadings based upon the follow criteria:
+    - When a heading is larger than the max chunk size and contains sub-headings,
+      then the section should be chunked along the sub-heading boundaries. The meta-data
+      in the chunk should indicate the heirarchy of headings: heading::sub-heading
+    - This process should repeat into nested subheadings so long as the current heading
+      level is larger than the target max chunk size.
+
+### v0.9.0: Refactor and Dog Food
 #### Code Quality
 - Do a checking for large files that could be refactored into small files.
 - Check overly complicated code paths or redundant code.
@@ -174,16 +173,16 @@
 - Create clear install instructions
 - Explore creating docker images
 
-### v0.9.0: Extra Control Paths
+### v0.10.0: Extra Control Paths
 - Add ability to send email/txt notifications
 - Add ability to create RSS Feed from for example the News Agent
 - Add ability to launch commands by txt/email
 
-### v0.10.0: UI
+### v0.11.0: UI
 - Add Web interface (mobile and desktop browsers)
 - Add desktop UI
 
-### v0.11.0: Intergrations
+### v0.12.0: Intergrations
 - Add Zotero itegrations
 - Complete Obsidian integration
   - Create obsidian plugin that connects to the LSM server used by the Web UI to allow

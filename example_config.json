@@ -156,6 +156,10 @@
         "enabled": true,
         "max_iterations": 30,
         "default_remote_provider": "arxiv"
+      },
+      "writing": {
+        "enabled": true,
+        "max_iterations": 20
       }
     }
   },

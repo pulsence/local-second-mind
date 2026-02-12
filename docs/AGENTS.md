@@ -12,6 +12,7 @@ The agent runtime is implemented in `lsm/agents/` and integrated into both:
 Built-in agent:
 
 - `research`
+- `writing`
 
 ## Architecture
 
@@ -138,6 +139,12 @@ State is persisted under the same run folder as:
 The `research` agent decomposes a topic, queries available sources/tools, iteratively synthesizes findings, and writes structured output.
 
 Use when you need multi-step retrieval + synthesis rather than a single query turn.
+
+## Writing Agent
+
+The `writing` agent gathers grounding evidence from local tools, builds an outline, drafts prose, self-reviews, and writes a final markdown deliverable.
+
+Use when you need a polished grounded write-up from your local knowledge base.
 
 ## TUI Usage
 

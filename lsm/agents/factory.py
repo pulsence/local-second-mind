@@ -5,12 +5,13 @@ Agent factory and registry.
 from __future__ import annotations
 
 from dataclasses import replace
-from typing import Callable, Dict, Optional, Type
+from typing import Callable, Dict, Optional
 
 from lsm.config.models import AgentConfig, LLMRegistryConfig
 
 from .base import BaseAgent
 from .research import ResearchAgent
+from .writing import WritingAgent
 from .tools.base import ToolRegistry
 from .tools.sandbox import ToolSandbox
 
@@ -29,6 +30,7 @@ class AgentRegistry:
     def __init__(self) -> None:
         self._builders: Dict[str, AgentBuilder] = {}
         self.register("research", self._build_research_agent)
+        self.register("writing", self._build_writing_agent)
 
     def register(self, name: str, builder: AgentBuilder) -> None:
         normalized = str(name).strip().lower()
@@ -83,6 +85,26 @@ class AgentRegistry:
             agent_overrides=overrides,
         )
 
+    @staticmethod
+    def _build_writing_agent(
+        llm_registry: LLMRegistryConfig,
+        tool_registry: ToolRegistry,
+        sandbox: ToolSandbox,
+        agent_config: AgentConfig,
+        overrides: Optional[dict],
+    ) -> BaseAgent:
+        if overrides and "enabled" in overrides and not bool(overrides["enabled"]):
+            raise ValueError("Agent 'writing' is disabled by configuration override")
+        if overrides and "max_iterations" in overrides:
+            agent_config = replace(agent_config, max_iterations=int(overrides["max_iterations"]))
+        return WritingAgent(
+            llm_registry=llm_registry,
+            tool_registry=tool_registry,
+            sandbox=sandbox,
+            agent_config=agent_config,
+            agent_overrides=overrides,
+        )
+
 
 _DEFAULT_REGISTRY = AgentRegistry()
 
@@ -104,4 +126,3 @@ def create_agent(
         sandbox=sandbox,
         agent_config=agent_config,
     )
-
