@@ -1,1197 +1,996 @@
-# Local Second Mind v0.5.0 Development Plan
+# Local Second Mind v0.6.0 Development Plan: TUI Improvements
 
 ## Context
 
-v0.5.0 focuses on three pillars: (1) eliminating ~1500 lines of duplicated LLM provider code, (2) building a rock-solid test framework with real data and live service tests, and (3) hardening the agent sandbox with comprehensive security testing and framework flexibility for future agents and tools.
+v0.5.0 delivered a comprehensive agent system, but the TUI has accumulated significant technical debt:
+the Settings screen is a 1,310-line monolith mixing UI rendering with config mutation; the Agent screen
+has no mechanism for interactive agent communication (permission prompts crash the agent); CSS sizing is
+too large for standard Windows command prompts; and only one agent can run at a time. This version
+addresses all of these issues plus several additional UX improvements.
 
-**Ordering rationale**: LLM providers are refactored first so tests written afterward don't need rewriting. The test framework comes second to establish the validation infrastructure the agent security hardening depends on.
-
-**Mock policy**: Real tests are the primary suite. A small set of fast "smoke" tests using lightweight fakes (not full mocks) are kept for CI speed. All integration and live tests use real services.
-
-**Docker policy**: Primary focus on hardening the LocalRunner. A preliminary DockerRunner foundation is created for future high-risk tools/agents, but no tools or agents requiring Docker are built in this version.
+**Ordering rationale**: CSS/scaling fixes come first since they affect every screen and are
+low-risk. Settings MVC refactoring is second as it's the largest structural change but doesn't affect
+runtime behavior. The interactive agent system is third because it requires changes to the harness,
+sandbox, runtime manager, and TUI simultaneously. Additional improvements are last as polish items.
 
 ---
 
-## Phase 1: LLM Provider Refactoring (COMPLETED)
+## Phase 1: UI Scaling & Compact Layout
 
-Five providers (OpenAI 569 LOC, Azure OpenAI 432, Anthropic 344, Gemini 288, Local 262) independently implement identical business logic for `rerank()`, `synthesize()`, `stream_synthesize()`, and `generate_tags()`. The only differences are API call mechanics and response extraction. This phase consolidates shared logic into `BaseLLMProvider` and reduces each provider to its API-specific core.
+The TUI uses oversized defaults (3-line tabs, 3-line min-height fields, generous padding) that consume
+too much vertical space on a standard 24-30 row Windows command prompt. This phase reduces element sizes
+and adds a compact layout mode.
 
-### 1.1: Define Base Message Interface (COMPLETED)
+### 1.1: Audit and Reduce Default Sizes
 
-Add two abstract methods and one concrete helper to `BaseLLMProvider`.
+Reduce the size of all oversized elements in the CSS. The goal is to make the TUI comfortably usable in
+an 80x24 terminal window.
 
 **Tasks:**
-- Add `_send_message(system, user, temperature, max_tokens, **kwargs) -> str` as abstract method. Each provider implements this with its own SDK/HTTP client. Must set `self.last_response_id` if provider supports it. The `**kwargs` carry provider-specific extras: `reasoning_effort`, `enable_server_cache`, `previous_response_id`, `prompt_cache_key`, `json_schema`.
-- Add `_send_streaming_message(system, user, temperature, max_tokens, **kwargs) -> Iterable[str]` as abstract method. Same signature, yields text chunks.
-- Move `_fallback_answer()` from each provider to base class as concrete method using `self.name`.
+- Reduce `ContentTabs` height from `3` to `2`
+- Reduce `Tab` height from `3` to `2`, reduce padding from `1 2` to `0 2`
+- Reduce `TabPane` padding from `1 2` to `0 1`
+- Reduce `.settings-field` min-height from `3` to `2`
+- Reduce `.settings-field Input` height from `3` to `1`
+- Reduce `.settings-field Select` height from `3` to `1`
+- Reduce `.settings-actions` height from `3` to `auto`
+- Reduce `CommandInput` min-height from `3` to `1`
+- Reduce `#query-command-input` min-height from `3` to `1`
+- Reduce `#settings-screen` padding from `2` to `1`
+- Reduce `.settings-panel` padding from `1 2` to `0 1`
+- Reduce `.settings-section` margin-bottom from `2` to `1`, padding from `1` to `0 1`
+- Reduce `.command-input` min-height from `3` to `1`
+- Reduce `.bottom-pane` min-height from `3` to `1`
+- Reduce `ProgressBar` padding from `1` to `0 1`
+- Reduce `#remote-controls Input` and `Select` height from `3` to `1`
+- Scope compact `height: 1` rules to compact containers/classes only (do not apply globally)
+- Verify Textual minimum widget sizes don't conflict (some widgets need at least height 3
+  for border rendering — test each change)
 
 **Files to modify:**
-- `lsm/providers/base.py`
+- `lsm/ui/tui/styles.tcss`
 
-**Post-block:** tests in `tests/test_providers/test_base.py`, run `pytest tests/ -v`, update `docs/`, commit.
+**Post-block:** Manual testing on 80x24 terminal, adjust any clipping. Tests in
+`tests/test_ui/tui/test_compact_layout.py`, run `pytest tests/ -v`, update docs, commit.
 
-### 1.2: Move Business Logic to Base Class as Concrete Methods (COMPLETED)
+### 1.1.1: Add Density Mode (Compact vs Comfortable vs Auto)
 
-Convert `rerank()`, `synthesize()`, `stream_synthesize()`, `generate_tags()` from abstract to concrete in `BaseLLMProvider`. They format prompts using existing `helpers.py` utilities and delegate to `_send_message` / `_send_streaming_message`.
+The plan should provide a true mode toggle, not only hard-coded compact defaults.
 
-#### 1.2.1: Concrete rerank()
-
-- Remove `@abstractmethod`
-- Call `prepare_candidates_for_rerank()`, format `RERANK_INSTRUCTIONS`, build JSON payload
-- Call `self._send_message(system=instructions, user=json.dumps(payload), temperature=0.2, max_tokens=400, json_schema=RERANK_SCHEMA)`
-- Parse with `parse_json_payload()` and `parse_ranking_response()`
-- Record success/failure, fall back to `candidates[:k]` on error
-
-#### 1.2.2: Concrete synthesize()
-
-- Get instructions via `get_synthesis_instructions(mode)`, build user content via `format_user_content()`
-- Call `self._send_message(system=instructions, user=user_content, temperature, max_tokens, **kwargs)`
-- Record success, fallback on error
-
-#### 1.2.3: Concrete stream_synthesize()
-
-- Same setup as synthesize, calls `_send_streaming_message()`, yields chunks
-
-#### 1.2.4: Concrete generate_tags()
-
-- Get instructions via `get_tag_instructions()`, user content is `f"Text:\n{text[:2000]}"`
-- Call `_send_message()` with `max_tokens=min(max_tokens, 200)`, `json_schema=TAGS_SCHEMA`
-- Parse JSON response, clean and return tags
+**Tasks:**
+- Add a density setting (`auto` | `compact` | `comfortable`) for TUI layout behavior
+- Support runtime toggle command (for example `/ui density auto|compact|comfortable`)
+- In `auto` mode, detect terminal size and apply compact mode when dimensions are below thresholds
+  (for example width <= 100 or height <= 32), otherwise use comfortable mode
+- Re-evaluate density on terminal resize events with hysteresis/debounce to avoid rapid flip-flopping
+- Persist density selection in config (or explicitly document it as session-only if not persisted)
+- Apply compact-only size reductions through a root class/state, leaving comfortable defaults available
+- Ensure manual mode selection (`compact`/`comfortable`) overrides auto-detection until switched back to `auto`
+- Add terminal width/height breakpoint rules for narrow terminals (single-column fallback where needed)
 
 **Files to modify:**
-- `lsm/providers/base.py`
-- `lsm/providers/helpers.py` (add `RERANK_JSON_SCHEMA` and `TAGS_JSON_SCHEMA` constants)
+- `lsm/ui/tui/app.py`
+- `lsm/ui/tui/styles.tcss` (or split style files after Phase 1.3)
+- `lsm/config/models/` and `lsm/config/loader.py` (if persisted)
+- `example_config.json` (if persisted)
 
-**Post-block:** tests for each concrete method in `tests/test_providers/test_base.py` using a minimal test provider subclass, run `pytest tests/ -v`, update docs, commit.
+**Post-block:** Add tests for density toggle, auto-detection, resize behavior, and responsive fallback,
+run `pytest tests/ -v`, commit.
 
-### 1.3: Refactor Each Provider (COMPLETED)
+### 1.2: Add CSS for Agents Screen
 
-Each provider is reduced to: `__init__`, `name`, `model`, `is_available()`, `list_models()`, `get_model_pricing()`, `_send_message()`, `_send_streaming_message()`, and provider-specific helpers. All duplicated `rerank/synthesize/stream_synthesize/generate_tags/_fallback_answer` implementations are deleted.
+The agents screen currently has no dedicated CSS section in `styles.tcss` (unlike query, ingest,
+settings, remote which all have sections). This causes reliance on generic styles and inconsistent
+appearance.
 
-#### 1.3.1: Refactor OpenAIProvider
-
-`_send_message()` builds request_args with `model`, `reasoning`, `instructions`, `input`, `max_output_tokens`. Handles `UnsupportedParamTracker` for temperature, `text.format` for structured output, server caching via `previous_response_id`. Calls `self._call_responses()`.
-
-`_send_streaming_message()` similar but creates stream, yields deltas.
-
-**Expected reduction:** ~569 -> ~180 lines.
-
-#### 1.3.2: Refactor AzureOpenAIProvider
-
-Mirrors OpenAI but uses `self.deployment_name` as model and `AzureOpenAI` client.
-
-**Expected reduction:** ~432 -> ~150 lines.
-
-#### 1.3.3: Refactor AnthropicProvider
-
-`_send_message()` handles `cache_control` system payload, calls `client.messages.create()`, extracts via `_extract_text()`. Streaming uses `client.messages.stream()`.
-
-**Expected reduction:** ~344 -> ~120 lines.
-
-#### 1.3.4: Refactor GeminiProvider
-
-`_send_message()` concatenates system+user, calls `client.models.generate_content()` with `_build_config()`. Already has `_generate()` helper that maps directly.
-
-**Expected reduction:** ~288 -> ~100 lines.
-
-#### 1.3.5: Refactor LocalProvider
-
-Already has `_chat()` and `_chat_stream()` that map directly to the new interface. Mostly renaming.
-
-**Expected reduction:** ~262 -> ~100 lines.
+**Tasks:**
+- Add `#agents-layout`, `#agents-top`, `#agents-left`, `#agents-control-panel` layout rules
+- Add `#agents-log-panel` styling (match `#query-log-panel` pattern)
+- Add `.agents-section-title`, `.agents-label` styling
+- Add `#agents-buttons`, `#agents-schedule-buttons`, `#agents-memory-buttons`, `#agents-meta-buttons`
+  button row styling (horizontal layout, compact height)
+- Add `#agents-status-panel`, `#agents-meta-panel`, `#agents-schedule-panel`,
+  `#agents-memory-panel` section styling
+- Add DataTable styling for schedule and meta tables
+- Size the left panel (control/schedule/memory) at `1fr` and log panel at `2fr`
+  with `min-width` constraints
 
 **Files to modify:**
-- `lsm/providers/openai.py`
-- `lsm/providers/azure_openai.py`
-- `lsm/providers/anthropic.py`
-- `lsm/providers/gemini.py`
-- `lsm/providers/local.py`
+- `lsm/ui/tui/styles.tcss`
 
-**Post-block:** Update all provider test files, run `pytest tests/ -v`, update docs, commit.
+**Post-block:** Visual verification, tests, commit.
 
-### 1.4: Validation and Cleanup (COMPLETED)
+### 1.3: Split CSS into Per-Screen Files
 
-- Verify provider factory creates all providers correctly
-- Ensure no backward-compatible code remains in provider implementations
-- Run full test suite, fix regressions
-- Verify `lsm/providers/__init__.py` exports
+The monolithic 960-line `styles.tcss` makes it hard to find and modify screen-specific styles.
+Split into modular files that are loaded by the main app.
 
-**Post-block:** run `pytest tests/ -v`, commit.
+**Tasks:**
+- Create `lsm/ui/tui/styles/` directory
+- Extract global/shared styles to `lsm/ui/tui/styles/base.tcss`
+- Extract query styles to `lsm/ui/tui/styles/query.tcss`
+- Extract ingest styles to `lsm/ui/tui/styles/ingest.tcss`
+- Extract settings styles to `lsm/ui/tui/styles/settings.tcss`
+- Extract remote styles to `lsm/ui/tui/styles/remote.tcss`
+- Extract agents styles to `lsm/ui/tui/styles/agents.tcss`
+- Extract widget styles to `lsm/ui/tui/styles/widgets.tcss`
+- Update `LSMApp.CSS_PATH` in `app.py` to load all split files (Textual supports
+  `CSS_PATH` as a list of paths)
+- Delete original `styles.tcss` after migration
+- Verify no style regressions
+
+**Files to create:**
+- `lsm/ui/tui/styles/base.tcss`
+- `lsm/ui/tui/styles/query.tcss`
+- `lsm/ui/tui/styles/ingest.tcss`
+- `lsm/ui/tui/styles/settings.tcss`
+- `lsm/ui/tui/styles/remote.tcss`
+- `lsm/ui/tui/styles/agents.tcss`
+- `lsm/ui/tui/styles/widgets.tcss`
+
+**Files to modify:**
+- `lsm/ui/tui/app.py` — update CSS loading
+
+**Files to delete:**
+- `lsm/ui/tui/styles.tcss`
+
+**Post-block:** Visual verification on all screens, tests, commit.
+
+### 1.4: Phase 1 Changelog
+
+Summarize Phase 1 changes into `docs/development/CHANGELOG.md`.
 
 ---
 
-## Phase 2: Improved Test Framework (COMPLETED)
+## Phase 2: Settings Screen MVC Refactoring
 
-Current state: 119 test files, ~1128 tests, almost entirely mock-based. Minimal test data (4 small files). No live service tests, no custom test config, no smoke/live tier separation.
+The Settings screen is a 1,310-line monolith that directly mutates config objects from UI event handlers.
+This phase breaks it into an MVC architecture:
+- **Model**: Existing config dataclasses (`GlobalConfig`, `IngestConfig`, etc.) — no changes needed
+- **Controller**: `SettingsScreen` (slimmed) — routes events, coordinates tabs, manages save/reset
+- **Views**: 8 separate tab widget files — each handles composing and refreshing its own fields
 
-### 2.1: Test Infrastructure and Configuration (COMPLETED)
+### 2.1: Create Settings Utilities Module
 
-#### 2.1.1: Create Test Configuration System
+Extract shared field-creation helpers and widget-query utilities from `settings.py` into a reusable
+module that all tab widgets will import.
 
-Load test configuration from `tests/.env.test` (gitignored) and environment variables with `LSM_TEST_` prefix. Configuration options:
-
-- `LSM_TEST_CONFIG` - path to custom config.json for test suite
-- `LSM_TEST_OPENAI_API_KEY`, `LSM_TEST_ANTHROPIC_API_KEY`, `LSM_TEST_GOOGLE_API_KEY` - provider credentials
-- `LSM_TEST_OLLAMA_BASE_URL` - Ollama URL for local model tests
-- `LSM_TEST_BRAVE_API_KEY` - Brave Search API key
-- `LSM_TEST_SEMANTIC_SCHOLAR_API_KEY` - Semantic Scholar API key (optional, higher rate limits)
-- `LSM_TEST_CORE_API_KEY` - CORE API key
-- `LSM_TEST_EMBED_MODEL` - embedding model (default: `sentence-transformers/all-MiniLM-L6-v2`)
-- `LSM_TEST_TIER` - default tier: `smoke` | `integration` | `live` (default: `smoke`)
+**Tasks:**
+- Extract `_field()` (creates Input or Switch based on type)
+- Extract `_select_field()` (creates Select dropdown)
+- Extract `_set_input()`, `_set_switch()`, `_set_select_value()`, `_set_select_options()`
+- Extract `_save_reset_row()` (creates Save/Reset button pair)
+- Extract `_replace_container_children()` (mounts/remounts dynamic widgets)
+- Create a `BaseSettingsTab` class (extends `Widget`) with:
+  - Common field helpers inherited from above
+  - Abstract `refresh_fields(config)` method
+  - Abstract `apply_update(field_id, value, config)` method
+  - `_is_refreshing` guard logic
+  - Status message posting via parent controller
 
 **Files to create:**
-- `tests/test_config.py` - test configuration loader
-- `tests/.env.test.example` - template
+- `lsm/ui/tui/widgets/settings_base.py` — `BaseSettingsTab` class + field helpers
 
-#### 2.1.2: Define Test Markers and Tiers
+**Post-block:** Tests for `BaseSettingsTab` utilities, run `pytest tests/ -v`, commit.
+
+### 2.2: Create Tab Widget Files (Views)
+
+Extract each tab's compose and refresh logic into its own widget file. Each tab widget:
+- Extends `BaseSettingsTab`
+- Implements `compose()` for its field layout
+- Implements `refresh_fields(config)` to populate values from config
+- Implements `apply_update(field_id, value, config)` for live config mutation
+- Handles its own dynamic list management (roots, providers, services, chains)
+
+**Tasks:**
+- Create `GlobalSettingsTab` — 5 text inputs (embed_model, device, batch_size,
+  embedding_dimension, global_folder)
+- Create `IngestSettingsTab` — 14 inputs + 7 switches + 1 select + dynamic roots list
+  (add/remove root, per-root path/tags/content_type)
+- Create `QuerySettingsTab` — 12 inputs + 3 switches + 2 selects
+- Create `LLMSettingsTab` — dynamic providers list + dynamic services dict
+  (add/remove/rename with cascading updates)
+- Create `VectorDBSettingsTab` — 10 inputs + 1 select (show/hide provider-specific fields)
+- Create `ModesSettingsTab` — 4 read-only displays (mode browser)
+- Create `RemoteSettingsTab` — dynamic providers + chains with nested links
+- Create `ChatsNotesSettingsTab` — 8 inputs + 4 switches (two sub-configs)
+
+**Files to create:**
+- `lsm/ui/tui/widgets/settings_global.py`
+- `lsm/ui/tui/widgets/settings_ingest.py`
+- `lsm/ui/tui/widgets/settings_query.py`
+- `lsm/ui/tui/widgets/settings_llm.py`
+- `lsm/ui/tui/widgets/settings_vectordb.py`
+- `lsm/ui/tui/widgets/settings_modes.py`
+- `lsm/ui/tui/widgets/settings_remote.py`
+- `lsm/ui/tui/widgets/settings_chats_notes.py`
+
+**Post-block:** Per-tab tests in `tests/test_ui/tui/test_settings_tabs.py`, run `pytest tests/ -v`,
+commit.
+
+### 2.3: Refactor SettingsScreen as Controller
+
+Slim `settings.py` down to ~150-200 lines. It becomes the controller that:
+- Composes the `TabbedContent` with 8 tab widgets
+- Routes `on_input_changed`, `on_switch_changed`, `on_select_changed` events to the active tab's
+  `apply_update()`
+- Handles cross-tab synchronization (mode change updates Modes tab, provider rename cascades)
+- Manages Save/Reset by delegating to config loader
+- Posts status messages from tab validation errors
+
+**Tasks:**
+- Remove all tab-specific compose logic (delegated to tab widgets)
+- Remove `_refresh_settings()` monolith (each tab has `refresh_fields()`)
+- Remove `_apply_live_update_inner()` giant if/elif chain (each tab has `apply_update()`)
+- Remove dynamic list management methods (moved to respective tabs)
+- Keep: tab activation routing, save/reset orchestration, cross-tab sync, status display
+- Wire up tab widget events to controller dispatch
 
 **Files to modify:**
-- `pyproject.toml` - add markers
+- `lsm/ui/tui/screens/settings.py` — major rewrite (1,310 → ~150-200 lines)
 
-New markers:
-- `smoke` - Fast tests, no live services, lightweight fakes OK. Default tier.
-- `integration` - Real embeddings, real ChromaDB, real file parsing. No network.
-- `live` - Actual API calls to LLM providers and remote sources.
-- `live_llm` - Subset: LLM API calls specifically.
-- `live_remote` - Subset: remote provider calls specifically.
-- `docker` - Requires Docker.
+**Post-block:** Update `tests/test_ui/tui/test_settings_screen.py` to test controller behavior
+with tab widgets, run `pytest tests/ -v`, commit.
 
-Update `addopts` to default exclude `live` and `docker`: `-m "not live and not docker"`.
+### 2.5: AppState/ViewModel for Settings + Global UI State
 
-Invocations:
-```
-pytest tests/ -v                              # smoke + integration (no live/docker)
-pytest tests/ -v -m "live"                    # only live tests
-pytest tests/ -v -m ""                        # everything
-pytest tests/ -v -m "live_llm"               # only live LLM tests
-```
+Introduce a typed UI state layer so screens render from immutable snapshots/state transitions
+instead of directly mutating runtime config objects.
 
-#### 2.1.3: Create Tier-Aware Conftest Fixtures
+**Tasks:**
+- Create `SettingsViewModel` with explicit state buckets:
+  - `persisted_config` (last loaded/saved state)
+  - `draft_config` (editable working copy)
+  - `dirty_fields`/`dirty_tabs`
+  - `validation_errors`
+- Add typed update actions (`update_field`, `add_item`, `remove_item`, `rename_key`, `reset_tab`,
+  `reset_all`, `save`) with centralized validation and normalization
+- Ensure Settings tabs dispatch actions to ViewModel; tabs should not mutate config dataclasses directly
+- Make `SettingsScreen` render from ViewModel state snapshots
+- Add global UI state container for cross-screen concerns (active context, density mode, notifications,
+  selected agent id) with typed read/write APIs
+- Keep save boundary explicit: only ViewModel/controller writes through config loader/serializer
+
+**Files to create:**
+- `lsm/ui/tui/state/settings_view_model.py`
+- `lsm/ui/tui/state/app_state.py`
 
 **Files to modify:**
-- `tests/conftest.py`
+- `lsm/ui/tui/screens/settings.py`
+- `lsm/ui/tui/widgets/settings_base.py`
+- `lsm/ui/tui/app.py`
+- `lsm/config/loader.py` (integration points for explicit save/serialize boundaries)
 
-New fixtures:
-- `test_config` (session-scoped) - loaded from `tests/test_config.py`
-- `real_embedder` (session-scoped) - loads actual `all-MiniLM-L6-v2`, cached across session
-- `real_chromadb_provider(tmp_path)` - real ChromaDB against temp dir
-- `real_openai_provider(test_config)` - real OpenAI, `pytest.skip()` if no key
-- `real_anthropic_provider(test_config)` - same pattern
-- `real_gemini_provider(test_config)` - same pattern
-- `real_local_provider(test_config)` - same pattern
-- `populated_chromadb(real_chromadb_provider, real_embedder, rich_test_corpus)` - ChromaDB with ingested test data
+**Post-block:** Add tests for ViewModel action flows, validation, dirty tracking, save/reset,
+and cross-tab synchronization. Run `pytest tests/ -v`, commit.
 
-**Post-block:** `tests/test_infrastructure/test_test_config.py`, run tests, update `docs/development/TESTING.md`, commit.
+### 2.6: Phase 2 Changelog
 
-### 2.2: Build Comprehensive Test Data Corpus (COMPLETED)
-
-Current fixtures: 4 tiny files. Need rich, diverse data for realistic testing.
-
-#### 2.2.1: Create Text Document Corpus
-
-**Files to create in `tests/fixtures/synthetic_data/documents/`:**
-- `philosophy_essay.txt` - ~2000 words, multi-paragraph, clear themes (epistemology/knowledge management, thematically relevant to LSM)
-- `research_paper.md` - ~3000 words, proper Markdown: H2/H3 headings, bullet lists, code block, inline citations `[1]`, references section
-- `technical_manual.html` - ~1500 words, nested divs, tables, lists, headings, bold/italic
-
-#### 2.2.2: Create Edge Case Documents
-
-- `short_note.txt` - 2 sentences
-- `empty_with_whitespace.txt` - only whitespace characters
-- `unicode_content.txt` - mixed scripts (Greek, Chinese, Arabic) with paragraph structure
-- `large_document.md` - ~10000 words for chunking stress tests
-
-#### 2.2.3: Create Folder Structure Test Data
-
-```
-documents/nested/
-  .lsm_tags.json          -> {"tags": ["philosophy", "notes"]}
-  subfolder_a/
-    .lsm_tags.json        -> {"tags": ["epistemology"]}
-    notes_a1.md
-    notes_a2.txt
-  subfolder_b/
-    notes_b1.md
-```
-
-#### 2.2.4: Create Duplicate Detection Test Data
-
-- `duplicate_content_1.txt` and `duplicate_content_2.txt` - identical content
-- `near_duplicate.txt` - same content with minor word changes
-
-#### 2.2.5: Create Test Configuration Files
-
-**Files to create in `tests/fixtures/synthetic_data/configs/`:**
-- `test_config_openai.json` - full config using OpenAI
-- `test_config_local.json` - full config using Ollama
-- `test_config_minimal.json` - minimal valid config
-
-**Post-block:** `tests/test_fixtures/test_synthetic_data.py` verifying all fixture files exist/readable, run tests, update docs, commit.
-
-### 2.3: Migrate Core Tests from Mocked to Real (COMPLETED)
-
-Systematically replace mock-based tests with real implementations. Keep lightweight fakes only in smoke-tier tests.
-
-#### 2.3.1: Migrate Parser Tests
-
-Enhance `tests/test_ingest/test_parsers.py` to use the rich corpus. Verify text extraction quality, metadata, error handling, empty files.
-
-#### 2.3.2: Migrate Chunking Tests
-
-Update `tests/test_ingest/test_chunking.py` and `tests/test_ingest/test_structure_chunking.py` to chunk research paper (verify heading detection), large document (verify count/overlap), HTML after parsing, page number tracking.
-
-#### 2.3.3: Create Real Embedding Tests
-
-**File to create:** `tests/test_ingest/test_real_embeddings.py`
-
-Marked `@pytest.mark.integration`:
-- Load real `all-MiniLM-L6-v2`, embed actual text chunks
-- Verify dimensions (384), semantically similar texts have lower cosine distance
-- Verify batch embedding consistency
-
-#### 2.3.4: Create Real ChromaDB Tests
-
-**File to create:** `tests/test_vectordb/test_real_chromadb.py`
-
-Marked `@pytest.mark.integration`:
-- Create real collection in tmp_path, add real chunks with real embeddings
-- Query, filter, update, delete, paginate, count
-- Test with 100+ chunks
-
-#### 2.3.5: Create Live LLM Provider Tests
-
-**Files to create:**
-- `tests/test_providers/test_live_openai.py`
-- `tests/test_providers/test_live_anthropic.py`
-- `tests/test_providers/test_live_gemini.py`
-- `tests/test_providers/test_live_local.py`
-
-Each marked `@pytest.mark.live_llm`, auto-skip if no key:
-- Test `_send_message()`, `_send_streaming_message()`, `synthesize()`, `generate_tags()`, `rerank()`, `is_available()`, `health_check()`
-
-#### 2.3.6: Create Live Remote Provider Tests
-
-All 10 remote providers need live tests. **Files to create:**
-- `tests/test_providers/remote/test_live_brave.py` (needs `LSM_TEST_BRAVE_API_KEY`)
-- `tests/test_providers/remote/test_live_wikipedia.py` (no key needed)
-- `tests/test_providers/remote/test_live_arxiv.py` (no key needed)
-- `tests/test_providers/remote/test_live_semantic_scholar.py` (optional `LSM_TEST_SEMANTIC_SCHOLAR_API_KEY`)
-- `tests/test_providers/remote/test_live_core.py` (needs `LSM_TEST_CORE_API_KEY`)
-- `tests/test_providers/remote/test_live_oai_pmh.py` (no key needed)
-- `tests/test_providers/remote/test_live_philpapers.py` (no key needed)
-- `tests/test_providers/remote/test_live_ixtheo.py` (no key needed)
-- `tests/test_providers/remote/test_live_openalex.py` (no key needed)
-- `tests/test_providers/remote/test_live_crossref.py` (no key needed)
-
-Each marked `@pytest.mark.live_remote`, auto-skip if required key is missing.
-
-Each file tests:
-- Search with a known query, verify result structure (title, url, snippet/abstract)
-- Empty/nonsense query handling
-- Rate limiting / timeout behavior
-- Provider-specific features (e.g., arXiv categories, Crossref DOI lookup, Semantic Scholar fields)
-
-**Post-block:** run all tiers, update docs, commit.
-
-### 2.4: Full Integration Test Suite (COMPLETED)
-
-**Files to create:**
-- `tests/test_integration/test_full_pipeline.py`
-
-#### 2.4.1: End-to-End Integration Test (no network)
-
-Marked `@pytest.mark.integration`:
-- Build real config, create document root with fixture files
-- Run real ingest pipeline (parse -> chunk -> embed -> store to real ChromaDB)
-- Verify manifest, run real query retrieval, verify candidates with correct metadata
-
-#### 2.4.2: Full Live Pipeline Test
-
-Marked `@pytest.mark.live`:
-- Everything from 2.4.1 plus real LLM reranking, real LLM synthesis
-- Verify synthesized answer has inline citations and is coherent
-
-#### 2.4.3: Performance/Scale Test
-
-Marked `@pytest.mark.performance`:
-- Ingest 100+ chunks from large_document.md, measure query latency
-
-**Post-block:** run tests at each tier, update docs, commit.
-
-### 2.5: Clean Up Legacy Mock Tests (COMPLETED)
-
-#### 2.5.1: Audit All Mock Usage
-
-Survey every test file for `Mock`, `MagicMock`, `patch`, `mocker`. Categorize:
-- **Replace** - covered by new real tests
-- **Convert to lightweight fake** - keep for smoke speed but use simple fake classes (like existing `FakeSentenceTransformer`), not `unittest.mock`
-- **Keep** - testing error paths not reproducible with real services (document why)
-
-#### 2.5.2: Execute Migration
-
-Replace/remove/convert per audit. For kept mocks, add comment explaining necessity.
-
-#### 2.5.3: Clean Up Conftest
-
-Remove `mock_openai_client`, `mock_embedder`, `mock_chroma_collection` fixtures from `conftest.py` after verifying no remaining dependents. Replace with real equivalents.
-
-**Post-block:** run full suite, update docs, commit.
+Summarize Phase 2 changes into `docs/development/CHANGELOG.md`.
 
 ---
 
-## Phase 3: Solid Agent System with Sandbox Security (COMPLETED)
-
-Current state: functional framework (BaseAgent, AgentHarness, 9 tools, ToolSandbox with path canonicalization, ResearchAgent), but only ~13 tests, no security hardening beyond basic path checks, no environment scrubbing, no log redaction, no permission gates, no runner abstraction.
-
-**Threat Profile:** The agent sandbox executes LLM-directed tool calls on behalf of the user. The primary threat actors are: (1) prompt injection via untrusted document content that manipulates agent behavior, (2) malicious or hallucinated tool arguments from the LLM attempting to escape sandbox boundaries, and (3) information leakage of API keys and secrets through agent logs or tool outputs. The STRIDE framework structures our security testing:
-
-- **S**poofing: Tool identity verification, registry integrity
-- **T**ampering: Path traversal, symlink escape, write path enforcement
-- **R**epudiation: Agent action logging, artifact tracking
-- **I**nformation Disclosure: Secret leakage via env vars, logs, tool output
-- **D**enial of Service: Iteration caps, token budgets, output truncation
-- **E**levation of Privilege: Permission gates, risk-level policies, sandbox monotonicity
-
-**Security testing regime:** All security tests are adversarial — they actively attempt to break out of the sandbox using known attack patterns (path traversal, null byte injection, UNC paths, symlink escape, prompt injection, etc.). Tests must verify that defenses reject attacks rather than merely testing that normal operations succeed. New tools and agents must include security test coverage before merge. The security test suite runs as part of the default `pytest` invocation (no special markers required for path/permission/injection tests).
-
-**Security documentation:** Phase 3 produces `docs/development/SECURITY.md` documenting the full threat model, STRIDE categories, attack surface inventory, testing methodology, and instructions for extending coverage when adding new tools or agents.
-
-### 3.1: Tool Risk Metadata and Registry Enhancements (COMPLETED)
-
-#### 3.1.1: Add Risk Metadata to BaseTool
-
-Add class attributes to `BaseTool`:
-```python
-risk_level: str = "read_only"    # "read_only" | "writes_workspace" | "network" | "exec"
-preferred_runner: str = "local"  # "local" | "docker"
-needs_network: bool = False
-```
-
-Update `get_definition()` to include risk fields.
-
-#### 3.1.2: Tag All Existing Tools
-
-- `read_file`, `read_folder`, `query_embeddings` -> `risk_level="read_only"`
-- `write_file`, `create_folder` -> `risk_level="writes_workspace"`, `needs_network=False`
-- `load_url`, `query_llm`, `query_remote`, `query_remote_chain` -> `risk_level="network"`, `needs_network=True`
-
-#### 3.1.3: Add Registry Query Methods
-
-- `list_by_risk(risk_level) -> List[BaseTool]`
-- `list_network_tools() -> List[BaseTool]`
-
-**Files to modify:**
-- `lsm/agents/tools/base.py`
-- All tool files in `lsm/agents/tools/`
-
-**Post-block:** `tests/test_agents/test_tool_risk_metadata.py`, run tests, update `docs/AGENTS.md`, commit.
-
-### 3.2: Sandbox Security Hardening (COMPLETED)
-
-#### 3.2.1: Harden Path Canonicalization
-
-Add `_canonicalize_path(path: Path) -> Path` to `ToolSandbox`:
-- `path.expanduser().resolve()`
-- Detect symlinks pointing outside allowed paths via `path.is_symlink()`
-- Reject null bytes in path strings
-- On Windows: reject UNC paths (`\\\\server\\share`), alternate data streams (`:` in filename)
-- Reject `..` appearing after path normalization
-
-**Files to modify:**
-- `lsm/agents/tools/sandbox.py`
-
-#### 3.2.2: Add Environment Scrubbing
-
-**File to create:** `lsm/agents/tools/env_scrubber.py`
-
-`scrub_environment() -> Dict[str, str]`:
-- Start with minimal env (PATH, HOME/USERPROFILE, TEMP/TMP, LANG)
-- Exclude all `*_API_KEY`, `*_SECRET*`, `*_TOKEN*`, `*_PASSWORD*` patterns
-- Return clean dict
-
-#### 3.2.3: Add Log Redaction
-
-**File to create:** `lsm/agents/log_redactor.py`
-
-`redact_secrets(text: str) -> str`:
-- Detect API key patterns (`sk-...`, `key_...`, base64 blobs)
-- Replace with `[REDACTED]`
-- Apply to all `AgentLogEntry.content` before persistence
-
-**Files to modify:**
-- `lsm/agents/log_formatter.py` - apply redaction before saving
-- `lsm/agents/harness.py` - apply redaction to tool output before logging
-
-#### 3.2.4: Add Interactive Permission Gates
-
-**File to create:** `lsm/agents/permission_gate.py`
-
-`PermissionGate` class with `check(tool, args) -> PermissionDecision`:
-
-Precedence:
-1. Per-tool explicit override in `sandbox.require_user_permission`
-2. Per-risk-level policy in `sandbox.require_permission_by_risk`
-3. Tool's `requires_permission` default
-4. Allow (safe default for read-only tools)
-
-`PermissionDecision` dataclass: `allowed`, `reason`, `requires_confirmation`, `tool_name`, `risk_level`
-
-**Files to modify:**
-- `lsm/config/models/agents.py` - add `require_permission_by_risk: Dict[str, bool]` to `SandboxConfig`
-- `lsm/agents/tools/sandbox.py` - integrate `PermissionGate`
-
-**Post-block:** tests, run suite, update `docs/AGENTS.md` and `example_config.json`, commit.
-
-### 3.3: Comprehensive Security Test Suite (COMPLETED)
-
-Tests covering all STRIDE threat categories. These tests actively attempt to break out of the sandbox.
-
-#### 3.3.1: T1 - Arbitrary File Access (10 tests)
-
-**File to create:** `tests/test_agents/test_security_paths.py`
-
-- Relative path traversal: `read_file("../secrets.txt")` -> blocked
-- Absolute paths outside allowlist: `/etc/passwd`, `C:\Windows\System32` -> blocked
-- Symlink escape: symlink inside allowed dir pointing outside -> blocked
-- Windows UNC path: `\\server\share\file` -> blocked
-- Null byte injection: `"allowed/file\x00.txt"` -> blocked
-- Deeply nested traversal: `a/b/c/../../../../outside` -> blocked
-- Empty path -> rejected
-- Write path traversal: `write_file("../../outside.txt")` -> blocked
-- Case sensitivity edge cases on Windows
-- `..` components remaining after resolution -> blocked
-
-#### 3.3.2: T2+T3 - Command Execution & Privilege Escalation (8 tests)
-
-**File to create:** `tests/test_agents/test_security_permissions.py`
-
-- Unknown tool name rejected by registry
-- Tool schema enforced (extra fields rejected)
-- Permission gate blocks tools requiring permission
-- Per-risk permission policy enforced
-- Per-tool override takes precedence over risk policy
-- Write tools blocked when write paths empty
-- Network tools blocked when `allow_url_access=False`
-- Local sandbox cannot exceed global sandbox
-
-#### 3.3.3: T4 - Network Abuse (5 tests)
-
-**File to create:** `tests/test_agents/test_security_network.py`
-
-- `load_url` blocked when `allow_url_access=False`
-- `query_remote` blocked when `allow_url_access=False`
-- `query_remote_chain` blocked when `allow_url_access=False`
-- Network tools allowed when `allow_url_access=True`
-- Non-network tools unaffected by url_access setting
-
-#### 3.3.4: T5 - Resource Exhaustion (5 tests)
-
-**File to create:** `tests/test_agents/test_security_resources.py`
-
-- Iteration cap enforced in harness
-- Token budget exhaustion stops execution
-- Budget tracking accuracy
-- Large tool output handled (truncation)
-- Graceful stop when budget reached mid-iteration
-
-#### 3.3.5: T6 - Data Integrity (4 tests)
-
-**File to create:** `tests/test_agents/test_security_integrity.py`
-
-- Write tools only write to allowed paths
-- Parent directory creation is safe
-- Overwrite requires permission
-- Artifacts tracked in agent state
-
-#### 3.3.6: T7 - Prompt Injection (7 tests)
-
-**File to create:** `tests/test_agents/test_security_injection.py`
-
-- Non-JSON LLM response doesn't trigger tool execution
-- Malformed JSON (missing action field) doesn't trigger execution
-- Unknown tool name in action raises KeyError
-- Embedded JSON in user content doesn't leak to action parsing
-- Tool argument validation against schema
-- "DONE" action terminates without tool execution
-- Empty action string terminates loop
-
-#### 3.3.7: T8 - Secret Leakage (8 tests)
-
-**File to create:** `tests/test_agents/test_security_secrets.py`
-
-- Env scrubber removes `*_API_KEY` variables
-- Env scrubber removes `*_SECRET*`, `*_TOKEN*`, `*_PASSWORD*`
-- Env scrubber preserves PATH, HOME, TEMP
-- Log redactor masks API key patterns
-- Log redactor masks base64 blobs
-- Redacted logs contain no original secret values
-- Tool output containing secrets is redacted before logging
-- Agent state file contains no secrets
-
-**Post-block:** run full suite, update `docs/development/TESTING.md`, commit.
-
-#### 3.3.8: Write Security Documentation
-
-**File to create:** `docs/development/SECURITY.md`
-
-Document the full agent sandbox security posture:
-
-- **Threat model:** Describe the three primary threat actors (prompt injection, hallucinated arguments, secret leakage) and why LLM-directed execution requires defense-in-depth.
-- **Attack surface inventory:** Enumerate every entry point where untrusted data reaches the sandbox (LLM tool call arguments, document content read by tools, URL fetches, user-supplied paths).
-- **STRIDE coverage matrix:** Table mapping each STRIDE category to the specific defenses implemented and the test files that verify them (T1–T8 from section 3.3).
-- **Testing methodology:** Explain the adversarial testing approach — tests attempt to break out, not just confirm happy paths. Include instructions for running the security suite (`pytest tests/test_agents/test_security_*.py -v`).
-- **Extending coverage:** Step-by-step guide for adding security tests when creating new tools or agents, including which threat categories to consider and test templates to follow.
-- **Permission gate reference:** Document the permission precedence chain (per-tool override > per-risk policy > tool default > allow) with examples.
-
-**Post-block:** run tests, commit.
-
-### 3.4: Runner Abstraction and Sandbox Config Extensions (COMPLETED)
-
-#### 3.4.1: Create Runner Abstraction
-
-**File to create:** `lsm/agents/tools/runner.py`
-
-```python
-@dataclass
-class ToolExecutionResult:
-    stdout: str
-    stderr: str = ""
-    runner_used: str = "local"
-    runtime_ms: float = 0.0
-    artifacts: List[str] = field(default_factory=list)
-
-class BaseRunner(ABC):
-    def run(self, tool, args, env) -> ToolExecutionResult: ...
-
-class LocalRunner(BaseRunner):
-    # Execute tool.execute(args) with timeout, output truncation, metric tracking
-```
-
-#### 3.4.2: Extend SandboxConfig
-
-Add to `SandboxConfig`:
-- `execution_mode: str = "local_only"` - `"local_only"` | `"prefer_docker"`
-- `require_permission_by_risk: Dict[str, bool]`
-- `limits: Dict[str, Any]` - `timeout_s_default`, `max_stdout_kb`, `max_file_write_mb`
-- `docker: Dict[str, Any]` - `enabled`, `image`, `network_default`, `cpu_limit`, `mem_limit_mb`, `read_only_root`
-
-#### 3.4.3: Integrate Runner into Sandbox
-
-Update `ToolSandbox.execute()`:
-1. Run permission gate checks
-2. Select runner based on `execution_mode` and tool `risk_level`
-3. Scrub environment
-4. Execute via selected runner
-5. Apply log redaction to output
-6. Return result
-
-**Files to modify:**
-- `lsm/agents/tools/sandbox.py`
-- `lsm/agents/harness.py`
-- `lsm/config/models/agents.py`
-
-**Post-block:** `tests/test_agents/test_runner.py`, run tests, update docs and `example_config.json`, commit.
-
-### 3.5: Docker Sandbox Foundation (COMPLETED)
-
-Preliminary DockerRunner for future high-risk tools. No agents or tools require it in v0.5.0.
-
-#### 3.5.1: Create DockerRunner
-
-**File to create:** `lsm/agents/tools/docker_runner.py`
-
-Uses `subprocess` to invoke `docker run`:
-- Mounts workspace as RW, read paths as RO
-- Sets `--network=none`, CPU/memory/pids limits
-- Serializes tool+args as JSON via stdin
-- Python entrypoint inside container executes tool
-- Captures stdout, enforces timeout
-
-#### 3.5.2: Create Sandbox Docker Image
+## Phase 3: Interactive Agent System
+
+Currently, when an agent needs user permission, `ToolSandbox._enforce_tool_permissions()` raises
+`PermissionError` and the agent crashes. The `WAITING_USER` status exists in `AgentStatus` but is
+never used. This phase adds bidirectional communication and multi-agent support.
+
+### 3.1: Create Interaction Channel
+
+A thread-safe communication channel between the agent harness (background thread) and the UI
+(main thread). The harness posts requests; the UI posts responses.
+
+**Tasks:**
+- Create `InteractionRequest` dataclass: `request_id`, `request_type` (`"permission"` | `"clarification"` |
+  `"feedback"` | `"confirmation"`), `tool_name`, `risk_level`, `reason`, `args_summary`, `prompt`,
+  `timestamp`
+- Create `InteractionResponse` dataclass: `request_id`, `decision` (`"approve"` | `"deny"` |
+  `"approve_session"` | `"reply"`), `user_message`
+- Create `InteractionChannel` class:
+  - `post_request(request) -> InteractionResponse` - blocks calling thread until response arrives
+    (with configurable timeout)
+  - `get_pending_request() -> Optional[InteractionRequest]` - non-blocking, for UI polling
+  - `post_response(response)` - UI thread sends decision
+  - `has_pending() -> bool` - quick check for UI
+  - `cancel_pending(reason)` - unblocks waiters when agent is stopped or app is shutting down
+  - `shutdown(reason)` - marks channel closed and safely rejects new waits
+  - Thread-safe via `threading.Event` and `threading.Lock`
+  - Stores session-level approvals (tool_name set) so repeated approvals are not needed
+- Add `timeout_seconds` parameter (default `300`) for request expiry
+- Add `timeout_action` parameter (default `"deny"`) configurable via `agents.interaction`.
+  When timeout expires: `"deny"` raises `PermissionError` (safe default), `"approve"` auto-approves
+- Add `InteractionConfig` dataclass to `lsm/config/models/agents.py`:
+  `timeout_seconds: int = 300`, `timeout_action: str = "deny"`
+- Add `max_concurrent: int = 5` to `AgentConfig`
+- Add config loader/serializer support for `agents.interaction` and `agents.max_concurrent`
+  (parse + `config_to_raw(...)` round-trip)
+- Update `example_config.json` with interaction and concurrency examples
 
 **Files to create:**
-- `Dockerfile.sandbox` - minimal Python 3.12-slim, non-root user, read-only root
-- `lsm/agents/tools/_docker_entrypoint.py` - reads tool name + args from stdin, executes, prints result
-
-#### 3.5.3: Add Runner Selection Policy
-
-Update `ToolSandbox._select_runner()`:
-- `read_only` and `writes_workspace` -> always LocalRunner
-- `network` and `exec` -> DockerRunner if available, else require permission confirmation
-- Log runner selection decisions
-
-**Post-block:** `tests/test_agents/test_docker_runner.py` (marked `@pytest.mark.docker`), `tests/test_agents/test_runner_policy.py`, run tests, update docs, commit.
-
-### 3.6: New Agent Tools (MVP Set) (COMPLETED)
-
-Six tools needed by the planned Writing, Synthesis, and Curator agents.
-
-#### 3.6.1: extract_snippets
-
-**File to create:** `lsm/agents/tools/extract_snippets.py`
-
-`risk_level="read_only"`. Input: `query`, `paths[]`, `max_snippets`, `max_chars_per_snippet`. Uses existing `lsm/query/retrieval.py` retrieval functions filtered to specific paths. Returns JSON array of `{source_path, snippet, score}`.
-
-#### 3.6.2: file_metadata
-
-**File to create:** `lsm/agents/tools/file_metadata.py`
-
-`risk_level="read_only"`. Input: `paths[]`. Returns `[{path, size_bytes, mtime_iso, ext}]`.
-
-#### 3.6.3: hash_file
-
-**File to create:** `lsm/agents/tools/hash_file.py`
-
-`risk_level="read_only"`. Input: `path`. Returns `{path, sha256}`.
-
-#### 3.6.4: similarity_search
-
-**File to create:** `lsm/agents/tools/similarity_search.py`
-
-`risk_level="read_only"`. Input: `chunk_ids|paths`, `top_k`, `threshold`. Queries embeddings, returns pairs with similarity scores above threshold.
-
-#### 3.6.5: source_map
-
-**File to create:** `lsm/agents/tools/source_map.py`
-
-`risk_level="read_only"`. Input: evidence list. Returns `{source_path: {count, top_snippets}}`.
-
-#### 3.6.6: append_file
-
-**File to create:** `lsm/agents/tools/append_file.py`
-
-`risk_level="writes_workspace"`, `requires_permission=True`. Input: `path`, `content`. Appends to existing file.
-
-#### 3.6.7: Register in Factory
-
-Update `lsm/agents/tools/__init__.py` `create_default_tool_registry()`.
-
-**Post-block:** `tests/test_agents/test_new_tools.py`, run tests, update `docs/AGENTS.md`, commit.
-
-### 3.7: Agent Framework Flexibility (COMPLETED)
-
-Make it easy to create new agents by extracting common patterns.
-
-#### 3.7.1: Extract Common Helpers to BaseAgent
-
-Move from `ResearchAgent` to `BaseAgent`:
-- `_log(content, actor, ...)` - structured logging helper
-- `_parse_json(value) -> Any` - safe JSON parsing
-- `_consume_tokens(text)` - budget tracking
-- `_budget_exhausted() -> bool` - budget check
-
-Also need to pass descriptions and arguments to the LLM so that they
-can select. Right now only the names of the tool and so do not have enough
-information on what the tool does or what kind of arguement to return.
-
-This tool formatted and response parsing should be handled by the BaseAgent as
-a helper so all future agents can use the same code.
+- `lsm/agents/interaction.py` - `InteractionChannel`, `InteractionRequest`, `InteractionResponse`
 
 **Files to modify:**
-- `lsm/agents/base.py`
-- `lsm/agents/research.py` - delegate to base
+- `lsm/config/models/agents.py` - add `InteractionConfig` and `max_concurrent` to `AgentConfig`
+- `lsm/config/loader.py` - parse/serialize interaction + concurrency fields
+- `example_config.json` - document interaction + concurrency defaults
 
-#### 3.7.2: Add Tool Allowlist to Harness
+**Post-block:** `tests/test_agents/test_interaction_channel.py` (thread safety, timeout,
+session approvals, cancellation/shutdown), plus config round-trip tests in
+`tests/test_config/test_agents_config.py`, run `pytest tests/ -v`, commit.
 
-Allow agents to declare which tools they use:
-```python
-class AgentHarness:
-    def __init__(self, ..., tool_allowlist: Optional[Set[str]] = None):
-```
+### 3.2: Integrate Channel into Sandbox, Harness, and Clarification Flow
 
-Filters tool definitions sent to LLM and refuses execution of unlisted tools.
+When `requires_confirmation=True`, instead of raising `PermissionError`, the sandbox pauses and
+sends a request through the channel.
 
-#### 3.7.3: Automatic Per-Run Workspace
+**Tasks:**
+- Add `interaction_channel: Optional[InteractionChannel]` parameter to `ToolSandbox.__init__()`
+- Modify `_enforce_tool_permissions()`:
+  - When `decision.requires_confirmation` and channel exists:
+    1. Check session approvals first (skip prompt if already approved for this tool)
+    2. Post `InteractionRequest` to channel
+    3. Block until response (or timeout)
+    4. If approved, record session approval and continue
+    5. If denied, raise `PermissionError` with user's reason
+  - When `decision.requires_confirmation` and no channel: raise `PermissionError` (existing behavior)
+- Add `interaction_channel` parameter to `AgentHarness.__init__()`
+- Pass channel through to sandbox
+- Set `AgentStatus.WAITING_USER` while waiting for response, restore `RUNNING` after
+- Ensure channel is propagated to sub-agent sandboxes (for meta-agent)
+- Add stop-safe behavior: stopping an agent while waiting must cancel pending requests and unblock
+  waiting calls deterministically
+- Add app-shutdown-safe behavior: runtime manager shutdown cancels all pending requests before joining threads
+- Implement clarification flow for all agents:
+  - Create a built-in `ask_user` tool that raises a `"clarification"` interaction request and returns user reply text
+  - Register `ask_user` in the default tool registry for all agents
+  - Ensure harness/system allowlist handling never strips `ask_user` (always available)
 
-Harness creates `<agents_folder>/<agent_name>_<timestamp>/workspace/` and passes path in agent context.
+**Files to create:**
+- `lsm/agents/tools/ask_user.py` - clarification interaction tool implementation
 
 **Files to modify:**
-- `lsm/agents/base.py`
-- `lsm/agents/harness.py`
+- `lsm/agents/tools/sandbox.py` - add channel integration to `_enforce_tool_permissions()`
+- `lsm/agents/harness.py` - accept/pass channel and manage `WAITING_USER` transitions
+- `lsm/agents/tools/__init__.py` - register `ask_user` by default
+- `lsm/agents/base.py` and/or `lsm/agents/tools/base.py` - ensure `ask_user` is always available to agents
 
-**Post-block:** `tests/test_agents/test_agent_helpers.py`, `tests/test_agents/test_harness_allowlist.py`, run tests, update docs, commit.
+**Post-block:** `tests/test_agents/test_sandbox_interaction.py` (approval flow, denial flow,
+timeout, session approval caching, stop/shutdown cancellation), plus
+`tests/test_agents/test_ask_user_tool.py` for clarification flow, security tests still pass,
+run `pytest tests/ -v`, commit.
 
-### 3.8: Writing Agent (COMPLETED)
+### 3.3: Multi-Agent Runtime Manager
 
-**File to create:** `lsm/agents/writing.py`
+Replace the single-agent tracking in `AgentRuntimeManager` with a dictionary-based registry
+that can track multiple concurrent agents.
 
-```python
-class WritingAgent(BaseAgent):
-    name = "writing"
-    description = "Generate grounded written deliverables from the knowledge base."
-```
+**Tasks:**
+- Replace `_active_agent`, `_active_thread`, `_active_name` with
+  `_agents: Dict[str, AgentRunEntry]` where `AgentRunEntry` is a dataclass holding:
+  `agent_id` (uuid), `agent_name`, `agent`, `thread`, `harness`, `channel`, `started_at`, `topic`
+- Enforce configurable max concurrent agents (default 5) via `agents.max_concurrent` config field.
+  Reject start if limit reached with clear message.
+- `start()` generates unique agent_id, creates `InteractionChannel`, passes to harness,
+  stores entry, returns agent_id in output message
+- `status(agent_id=None)` — if no id, show all agents; if id, show specific
+- `pause(agent_id)`, `resume(agent_id)`, `stop(agent_id)` — target specific agent
+- `log(agent_id)` — get log for specific agent
+- `list_running()` returns list of `AgentRunEntry` summaries
+- `get_pending_interactions()` returns all agents with pending interaction requests
+- `respond_to_interaction(agent_id, response)` forwards response to channel
+- Keep backward compatibility: if only one agent running, commands without agent_id target it
+- Clean up completed agent entries after configurable retention (default: keep last 10)
+- Add deterministic lifecycle handling:
+  - stop path cancels pending interaction and joins agent thread with timeout
+  - shutdown path cancels all pending interactions before joining all active threads
+  - completed-run pruning keeps bounded history and removes stale queues/channels
+  - race-safe transitions for start/stop/cleanup under lock
 
-Workflow: parse input -> grounding retrieval via `query_embeddings` -> build outline from evidence -> draft prose -> self-review -> persist `deliverable.md`.
+**Files to modify:**
+- `lsm/ui/shell/commands/agents.py` — refactor `AgentRuntimeManager`
+- `lsm/config/models/agents.py` - add `max_concurrent: int = 5` to `AgentConfig` (if not done in 3.1)
 
-Tool allowlist: `query_embeddings`, `read_file`, `read_folder`, `write_file`, `extract_snippets`, `source_map`.
+**Post-block:** `tests/test_ui/shell/test_multi_agent_manager.py` including stop/shutdown/join race cases, run `pytest tests/ -v`, commit.
 
-Register in `lsm/agents/factory.py`.
+### 3.4: Agent Interaction UI in TUI
 
-**Post-block:** `tests/test_agents/test_writing_agent.py`, run tests, update docs and `example_config.json`, commit.
+Add UI elements to the Agents screen for handling interaction requests and showing running agents.
 
-### 3.9: Synthesis Agent (COMPLETED)
+**Tasks:**
+- Add "Running Agents" DataTable at top of agents-left panel:
+  - Columns: ID (short), Agent, Topic, Status, Duration
+  - Row selection changes which agent's log is displayed
+  - Auto-refresh via timer (every 2 seconds)
+- Add "Interaction Request" panel (initially hidden, shown when pending):
+  - Displays: request type, tool name (if applicable), risk level, reason/description, args summary
+  - Permission requests: "Approve", "Approve for Session", "Deny" buttons + optional deny reason
+  - Clarification/feedback requests: text reply input + "Send Reply" action
+  - Panel highlights with warning color when active
+  - Auto-polls for pending requests via timer
+- Add notification badge/indicator when interaction is pending (visual urgency)
+- Wire agent selection to log panel (clicking agent row shows its log)
+- Update Start button to not block if another agent is running
+- Update Status to show all agents summary
+- Add keyboard shortcuts for interaction actions (approve/deny/reply) and running-agent row navigation
 
-**File to create:** `lsm/agents/synthesis.py`
+**Files to modify:**
+- `lsm/ui/tui/screens/agents.py` - add running agents table, interaction panel, timers, and keyboard actions
+- `lsm/ui/tui/styles/agents.tcss` - styling for new panels and urgency states
 
-```python
-class SynthesisAgent(BaseAgent):
-    name = "synthesis"
-    description = "Distill multiple documents into compact summaries."
-```
+**Post-block:** `tests/test_ui/tui/test_agent_interaction.py`, run `pytest tests/ -v`, commit.
 
-Workflow: scope selection -> candidate sources via `read_folder` -> evidence retrieval -> synthesize to target format (bullets/outline/narrative/QA) -> tighten to length -> coverage check -> persist `synthesis.md` and `source_map.md`.
+### 3.5: Agent Interaction CLI Commands
 
-Tool allowlist: `read_folder`, `query_embeddings`, `read_file`, `write_file`, `extract_snippets`, `source_map`.
+Add CLI commands for responding to agent interaction requests.
 
-Register in factory.
+**Tasks:**
+- Add `/agent list` - show all running agents with status
+- Add `/agent interact` - show pending interaction requests
+- Add `/agent approve <agent_id>` - approve pending request for agent
+- Add `/agent deny <agent_id> [reason]` - deny pending request
+- Add `/agent approve-session <agent_id>` - approve and remember for session
+- Add `/agent reply <agent_id> <message>` - respond to clarification/feedback request
+- Add `/agent select <agent_id>` - set active agent for status/log/stop commands
+- Update existing commands to work with multi-agent (use selected or only agent)
 
-**Post-block:** `tests/test_agents/test_synthesis_agent.py`, run tests, update docs, commit.
+**Files to modify:**
+- `lsm/ui/shell/commands/agents.py` - add interaction commands
+- `lsm/ui/tui/completions.py` - add completion for new commands
 
-### 3.10: Curator Agent (COMPLETED)
+**Post-block:** `tests/test_ui/shell/test_agent_interaction_commands.py`, run `pytest tests/ -v`, commit.
 
-**File to create:** `lsm/agents/curator.py`
+### 3.6: Real-Time Agent Log Streaming
 
-```python
-class CuratorAgent(BaseAgent):
-    name = "curator"
-    description = "Maintain corpus quality with actionable reports."
-```
+Currently the agent log is only visible when explicitly refreshed. Add a streaming mechanism
+so the UI shows log entries as they happen.
 
-Workflow: inventory via `read_folder` -> metadata via `file_metadata` -> exact duplicates via `hash_file` -> near-duplicates via `similarity_search` -> staleness/quality heuristics -> generate recommendations -> persist `curation_report.md`.
+**Tasks:**
+- Add `log_callback: Optional[Callable[[AgentLogEntry], None]]` to `AgentHarness.__init__()`
+- Call callback in `_append_log()` after appending entry
+- In `AgentRuntimeManager.start()`, wire callback to push entries to a thread-safe queue per agent
+- In `AgentsScreen`, add a Textual timer (every 500ms) that drains the log queue and appends to `RichLog`
+- Add bounded queue/backpressure policy for each agent log stream (default max entries), with
+  dropped-message counter and truncation notice in UI
+- Format log entries with actor-colored prefixes: `[LLM]`, `[TOOL]`, `[AGENT]`, `[USER]`
+- Show tool execution in real-time: tool name + args summary -> result summary
 
-Tool allowlist: `read_folder`, `file_metadata`, `hash_file`, `query_embeddings`, `similarity_search`, `write_file`. Read-only by default.
+**Files to modify:**
+- `lsm/agents/harness.py` - add log callback
+- `lsm/ui/shell/commands/agents.py` - wire callback in manager
+- `lsm/ui/tui/screens/agents.py` - add streaming timer and queue drain
+- `lsm/config/models/agents.py` and `lsm/config/loader.py` - optional log queue limit config
+- `example_config.json` - optional log queue limit example
 
-Register in factory.
+**Post-block:** Tests for log streaming and queue pressure handling, run pytest tests/ -v, commit.
 
-**Post-block:** `tests/test_agents/test_curator_agent.py`, run tests, update docs, commit.
+### 3.7: Phase 3 Changelog
+
+Summarize Phase 3 changes into `docs/development/CHANGELOG.md`.
 
 ---
 
-## Phase 4: Memory System (COMPLETED)
+## Phase 4: TUI UX and Interaction Polish
 
-Persistent agent posture and preferences. Memories affect *how* an agent works, not *what it knows*. Lifecycle: Candidate -> Promoted -> Expired. Memories are not automatically injected; they are retrieved selectively.
+This phase focuses on user-facing usability and interaction improvements that directly affect
+day-to-day TUI operation.
 
-### 4.1: Memory Storage Backend (COMPLETED)
+### 4.1: Toast Notification System
 
-#### 4.1.1: Create Memory Data Model
+Add a non-blocking notification system for background events (agent started/completed,
+ingest finished, errors).
 
-**File to create:** `lsm/agents/memory/models.py`
+**Tasks:**
+- Leverage Textual's built-in `self.notify()` method (available since Textual 0.40+)
+- Add notifications for:
+  - Agent started / completed / failed
+  - Agent waiting for user interaction (high priority)
+  - Ingest build completed
+  - Config saved successfully
+  - Schedule triggered
+- Add notification severity levels: info, warning, error
+- Configure notification timeout (default 5s, errors 10s)
 
-```python
-@dataclass
-class Memory:
-    id: str
-    type: str          # "pinned" | "project_fact" | "task_state" | "cache"
-    key: str
-    value: Any         # JSON-serializable
-    scope: str         # "global" | "agent" | "project"
-    tags: List[str]
-    confidence: float  # 0.0 - 1.0
-    created_at: datetime
-    last_used_at: datetime
-    expires_at: Optional[datetime]
-    source_run_id: str
+**Files to modify:**
+- `lsm/ui/tui/app.py` - add `notify_event()` helper method
+- `lsm/ui/tui/screens/agents.py` - emit notifications on agent events
+- `lsm/ui/tui/screens/ingest.py` - emit notification on build complete
+- `lsm/ui/tui/screens/settings.py` - emit notification on save
 
-@dataclass
-class MemoryCandidate:
-    id: str
-    memory: Memory
-    provenance: str    # Which agent/run proposed it
-    rationale: str     # Why it was proposed
-    status: str        # "pending" | "promoted" | "rejected"
-```
+**Post-block:** Tests, run `pytest tests/ -v`, commit.
 
-#### 4.1.2: Create Storage Abstraction
+### 4.2: Context-Sensitive Help
+
+Replace the static help modal with context-sensitive help that shows commands relevant to the
+active tab.
+
+**Tasks:**
+- Modify `HelpScreen` to accept a `context` parameter ("query", "ingest", "remote", "agents",
+  "settings")
+- Show only commands relevant to current context, with "All Commands" expandable section
+- Add keyboard shortcut hints inline (show keybinding next to action)
+- Add a "What's New in v0.6.0" section highlighting new agent interaction features
+
+**Files to modify:**
+- `lsm/ui/tui/screens/help.py` — context-aware rendering
+- `lsm/ui/tui/app.py` — pass current context to help modal
+
+**Post-block:** Tests, run `pytest tests/ -v`, commit.
+
+### 4.3: UI Command Helpers Extraction
+
+The query screen is 1,515 lines with a massive command dispatch handler. Extract command
+parsing/dispatch helpers into a shared UI helpers package so command behavior is reusable and
+consistent across TUI and shell surfaces.
+
+**Tasks:**
+- Create `lsm/ui/helpers/commands/` as the standard command-helper package in `lsm.ui`
+- Add `lsm/ui/helpers/commands/query.py` with handler functions for each query command group:
+  - `handle_mode_commands()` - mode get/set/list
+  - `handle_model_commands()` - model, models, providers, provider-status
+  - `handle_results_commands()` - show, expand, open, export-citations
+  - `handle_agent_commands()` - agent, memory (delegates to shell commands)
+  - `handle_filter_commands()` - set, clear, load, context
+  - `handle_cost_commands()` - costs, budget, cost-estimate
+  - `handle_remote_commands()` - remote-search, remote-providers
+  - `handle_note_commands()` - note, notes
+- Add shared parsing/validation helpers in `lsm/ui/helpers/commands/common.py` for tokenization,
+  argument normalization, and error formatting
+- Make query screen `_execute_query_command()` a thin dispatcher that delegates to helper handlers
+- Reuse command helpers from shell paths where appropriate to reduce parser drift
 
 **Files to create:**
-- `lsm/agents/memory/store.py` - `BaseMemoryStore` ABC with SQLite and PostgreSQL implementations
-- `lsm/agents/memory/__init__.py`
-
-Use PostgreSQL when VectorDB is PostgreSQL, SQLite when VectorDB is ChromaDB. Create `memories` and `memory_candidates` tables.
-
-Operations:
-- `put_candidate(memory, provenance, rationale) -> str` (returns candidate ID)
-- `promote(candidate_id) -> Memory`
-- `reject(candidate_id)`
-- `expire() -> int` (TTL cleanup, returns count expired)
-- `get(memory_id) -> Memory`
-- `delete(memory_id)`
-- `search(scope, tags, type, limit, token_budget) -> List[Memory]`
-
-#### 4.1.3: Enforce TTL Caps Per Memory Type
-
-Default TTLs:
-- `pinned`: no expiry
-- `project_fact`: 90 days
-- `task_state`: 7 days
-- `cache`: 24 hours
-
-Configurable via `agents.memory` config section.
-
-#### 4.1.4: Create Migration Tool
-
-**File to create:** `lsm/agents/memory/migrations.py`
-
-Bidirectional migration between SQLite and PostgreSQL memory stores.
+- `lsm/ui/helpers/__init__.py`
+- `lsm/ui/helpers/commands/__init__.py`
+- `lsm/ui/helpers/commands/common.py`
+- `lsm/ui/helpers/commands/query.py`
 
 **Files to modify:**
-- `lsm/config/models/agents.py` - add `MemoryConfig` dataclass with TTL settings, storage backend
+- `lsm/ui/tui/screens/query.py` - slim down from ~1,515 to ~600-700 lines
+- `lsm/ui/shell/commands/agents.py` - reuse shared parser/error helpers where applicable
+- `lsm/ui/tui/completions.py` - align completion behavior with helper-level parser contracts
 
-**Post-block:** `tests/test_agents/test_memory_store.py` (CRUD, TTL, search, promotion), run tests, update docs, commit.
+**Post-block:** All existing query tests pass, command-contract tests stay green, run `pytest tests/ -v`, commit.
 
-### 4.2: Memory API and Harness Integration (COMPLETED)
+### 4.4: Agent Panel Refresh Controls and Log Following
 
-#### 4.2.1: Core Memory Operations
+Improve usability and performance by giving users explicit control over refresh behavior.
 
-**File to create:** `lsm/agents/memory/api.py`
-
-Functions:
-- `memory_put_candidate(store, memory, provenance, rationale)`
-- `memory_promote(store, candidate_id)` - user or curator approved
-- `memory_expire(store)` - cleanup expired memories
-- `memory_search(store, scope, tags, type, limit, token_budget)` - with recency scoring and pin weighting
-
-Update `last_used_at` only for memories actually injected into agent context.
-
-#### 4.2.2: Memory Context Builder
-
-**File to create:** `lsm/agents/memory/context_builder.py`
-
-`MemoryContextBuilder` class:
-- Invoked before LLM call in harness
-- Retrieves relevant memories for the current agent/scope
-- Builds structured "Standing Context" block
-- Injects memory block separately from tool descriptions
-- Zero-memory injection is valid (no error)
-
-#### 4.2.3: Integrate into AgentHarness
-
-**Files to modify:**
-- `lsm/agents/harness.py` - invoke `MemoryContextBuilder` before each LLM call, append standing context to system prompt
-
-**Post-block:** `tests/test_agents/test_memory_api.py`, `tests/test_agents/test_memory_context_builder.py`, run tests, update docs, commit.
-
-### 4.3: Memory Agent Tools (COMPLETED)
-
-#### 4.3.1: Create memory_put Tool
-
-**File to create:** `lsm/agents/tools/memory_put.py`
-
-`risk_level="writes_workspace"`, `requires_permission=True`. Agents can propose memory candidates during execution. Input: `key`, `value`, `type`, `scope`, `tags`, `rationale`.
-
-#### 4.3.2: Create memory_search Tool
-
-**File to create:** `lsm/agents/tools/memory_search.py`
-
-`risk_level="read_only"`. Agents can query existing memories. Input: `scope`, `tags`, `type`, `limit`.
-
-Register both in `create_default_tool_registry()`.
-
-**Post-block:** `tests/test_agents/test_memory_tools.py`, run tests, update docs, commit.
-
-### 4.4: Curator Memory Distillation (COMPLETED)
-
-#### 4.4.1: Add Run Summaries to Harness
-
-**Files to modify:**
-- `lsm/agents/harness.py` - emit `run_summary.json` at end of each run
-
-Summary includes: agent name, topic, tools used, approvals/denials, artifacts created, run outcome, duration, token usage.
-
-#### 4.4.2: Add Memory Mode to Curator Agent
-
-**Files to modify:**
-- `lsm/agents/curator.py` - add `--mode memory` support
-
-In memory mode, Curator:
-- Scans recent run summaries
-- Extracts candidate memories from repeated tool patterns, repeated constraints, user approvals/denials
-- Emits `memory_candidates.md` and `memory_candidates.json`
-
-**Post-block:** `tests/test_agents/test_curator_memory_mode.py`, run tests, update docs, commit.
-
-### 4.5: Memory TUI (COMPLETED)
-
-#### 4.5.1: TUI Memory View
-
-**Files to modify:**
-- `lsm/ui/tui/screens/agents.py` - add memory candidates panel
-
-View: list of memory candidates with approve/reject/edit TTL actions.
-
-**Post-block:** `tests/test_ui/shell/test_memory_commands.py`, `tests/test_ui/tui/test_memory_screen.py`, run tests, update docs and `example_config.json`, commit.
-
----
-
-## Phase 5: Agent Scheduler (COMPLETED)
-
-Time-based and cyclic agent execution. Preserves local-first philosophy. Safety-first for unattended runs.
-
-### 5.1: Scheduler Configuration (COMPLETED)
-
-#### 5.1.1: Define ScheduleConfig
-
-**Files to modify:**
-- `lsm/config/models/agents.py`
-
-```python
-@dataclass
-class ScheduleConfig:
-    agent_name: str
-    params: Dict[str, Any] = field(default_factory=dict)
-    interval: str = "daily"        # "hourly" | "daily" | "weekly" | "3600s" | cron syntax
-    enabled: bool = True
-    concurrency_policy: str = "skip"   # "skip" | "queue" | "cancel"
-    confirmation_mode: str = "auto"    # "auto" | "confirm" | "deny"
-```
-
-Add `schedules: List[ScheduleConfig]` to `AgentConfig`.
-
-**Post-block:** `tests/test_config/test_schedule_config.py`, run tests, update docs, commit.
-
-### 5.2: Scheduler Engine (COMPLETED)
-
-#### 5.2.1: Implement AgentScheduler Service
-
-**File to create:** `lsm/agents/scheduler.py`
-
-`AgentScheduler` class:
-- Persistent state in `<agents_folder>/schedules.json`
-- Threaded tick loop (checks every 60s)
-- For each due schedule: check concurrency policy, create agent, run via harness
-- Track `last_run_at`, `next_run_at`, `last_status`, `last_error`
-- Skip/queue/cancel logic for overlapping runs
-- Graceful shutdown on stop signal
-
-#### 5.2.2: Execution Safety Defaults
-
-Scheduled agents default to:
-- Read-only tools only (no `write_file`, `create_folder`, `load_url`)
-- No network access (`allow_url_access=False`)
-- Require explicit opt-in for writes or network via schedule `params`
-- Use DockerRunner for any tools with `risk_level="network"` or `"exec"` (when Docker available)
-
-**Post-block:** `tests/test_agents/test_scheduler.py` (schedule persistence, no overlaps, safe defaults, tick logic), run tests, update docs, commit.
-
-### 5.3: Scheduler CLI/TUI (COMPLETED)
-
-#### 5.3.1: CLI Commands
-
-**Files to modify:**
-- `lsm/ui/shell/commands/agents.py`
-
-Commands:
-- `/agent schedule add <agent_name> <interval> [--params '{"topic": "..."}']`
-- `/agent schedule list`
-- `/agent schedule enable|disable <schedule_id>`
-- `/agent schedule remove <schedule_id>`
-- `/agent schedule status` - show last run info for all schedules
-
-#### 5.3.2: TUI Scheduler View
-
-**Files to modify:**
-- `lsm/ui/tui/screens/agents.py` - add scheduled agents panel
-
-View: table of schedules with name, interval, last run, next run, status. Enable/disable toggle.
-
-**Post-block:** `tests/test_ui/shell/test_schedule_commands.py`, `tests/test_ui/tui/test_schedule_screen.py`, run tests, update docs and `example_config.json`, commit.
-
----
-
-## Phase 6: Meta-Agent (Orchestrator)
-
-Coordinate multiple agents toward a single goal. Deterministic orchestration over freeform dialogue. Sub-agents run with equal or tighter permissions (monotone sandbox). Shared artifacts, not shared context.
-
-### 6.1: Meta-Agent Core (COMPLETED)
-
-#### 6.1.1: Implement MetaAgent Subclass
-
-**File to create:** `lsm/agents/meta.py`
-
-```python
-class MetaAgent(BaseAgent):
-    name = "meta"
-    description = "Orchestrate multiple agents toward a single goal."
-```
-
-MetaAgent converts user goal into a task graph:
-- Each task specifies: agent name, parameters, expected artifacts, dependencies
-- Sequential execution (v1) following dependency order
-- MetaAgent plans but does not execute domain work itself
-
-#### 6.1.2: Task Graph Model
-
-**File to create:** `lsm/agents/task_graph.py`
-
-```python
-@dataclass
-class AgentTask:
-    id: str
-    agent_name: str
-    params: Dict[str, Any]
-    expected_artifacts: List[str]
-    depends_on: List[str] = field(default_factory=list)
-    status: str = "pending"  # "pending" | "running" | "completed" | "failed"
-
-@dataclass
-class TaskGraph:
-    goal: str
-    tasks: List[AgentTask]
-    # Methods: topological_sort(), next_ready(), mark_complete(), is_done()
-```
-
-Register MetaAgent in `lsm/agents/factory.py`.
-
-**Post-block:** `tests/test_agents/test_meta_agent.py`, `tests/test_agents/test_task_graph.py`, run tests, update docs, commit.
-
-### 6.2: Meta-Agent System Tools (COMPLETED)
-
-#### 6.2.1: Create Orchestration Tools
-
-**Files to create:**
-- `lsm/agents/tools/spawn_agent.py` - `spawn_agent(name, params)` starts sub-agent
-- `lsm/agents/tools/await_agent.py` - `await_agent(agent_id)` blocks until completion
-- `lsm/agents/tools/collect_artifacts.py` - `collect_artifacts(agent_id, pattern)` gathers outputs
-
-All `risk_level="exec"`, `requires_permission=True`.
-
-#### 6.2.2: Enforce Sandbox Downgrades
-
-Sub-agent sandbox must be a subset of meta-agent sandbox. Implement in `AgentHarness`:
-- When spawning sub-agent, derive sandbox from parent
-- Validate monotone restriction (sub <= parent)
-- Per sub-agent controlled write areas within shared workspace
-
-**Files to modify:**
-- `lsm/agents/harness.py`
-- `lsm/agents/tools/sandbox.py`
-
-**Post-block:** `tests/test_agents/test_meta_tools.py`, `tests/test_agents/test_sandbox_monotone.py`, run tests, update docs, commit.
-
-### 6.3: Shared Workspace and Synthesis (COMPLETED)
-
-#### 6.3.1: Per-Meta-Run Workspace
-
-Create workspace structure:
-```
-<agents_folder>/meta_<timestamp>/
-  workspace/           # shared artifacts
-  sub_agents/
-    research_001/      # sub-agent workspace
-    writing_002/
-  final_result.md
-  meta_log.md
-```
-
-Sub-agents get read access to shared `workspace/` and write access to their own `sub_agents/<name>/` directory.
-
-#### 6.3.2: Final Synthesis
-
-MetaAgent collects sub-agent outputs, optionally runs final synthesis via LLM, persists `final_result.md` and `meta_log.md` with full execution trace.
-
-**Post-block:** `tests/test_agents/test_meta_workspace.py`, `tests/test_agents/test_meta_synthesis.py`, run tests, update docs, commit.
-
-### 6.4: Meta-Agent UI/CLI (COMPLETED)
-
-#### 6.4.1: CLI Commands
-
-**Files to modify:**
-- `lsm/ui/shell/commands/agents.py`
-
-Commands:
-- `/agent meta start <goal>` - start meta-agent with goal description
-- `/agent meta status` - show task graph progress
-- `/agent meta log` - show meta-agent execution log
-
-#### 6.4.2: TUI Meta-Agent View
+**Tasks:**
+- Add refresh toggle and interval controls for running-agents and interaction polling timers
+- Add "follow selected agent log" toggle in Agents screen
+- Add unread log counters per running agent when not selected
+- Reset unread counters when an agent is selected or manually cleared
 
 **Files to modify:**
 - `lsm/ui/tui/screens/agents.py`
+- `lsm/ui/tui/styles/agents.tcss`
 
-View: meta-agent run visualization with sub-agent status tree, task graph progress, artifact list.
+**Post-block:** `tests/test_ui/tui/test_agent_interaction.py` updates for refresh/follow/unread behavior, run `pytest tests/ -v`, commit.
 
-**Post-block:** `tests/test_ui/shell/test_meta_commands.py`, `tests/test_ui/tui/test_meta_screen.py`, run tests, update docs and `example_config.json`, commit.
+### 4.5: Responsive Layout Fallbacks for Narrow Terminals
 
----
+Strengthen terminal compatibility with explicit breakpoint behavior.
 
-## Phase 7: Documentation and Changelog (COMPLETED)
-
-### 7.1: Final Documentation and Version Updates (COMPLETED)
-
-**Version bump (0.4.0 -> 0.5.0):**
-- `pyproject.toml` - `version = "0.5.0"`
-- `lsm/__init__.py` - `__version__ = "0.5.0"`
+**Tasks:**
+- Add breakpoint-based layout fallbacks for narrow terminals (for example 80x24 and smaller)
+- Collapse split panes to single-column flow when width is constrained
+- Ensure focused input and primary action controls remain reachable without deep scrolling
 
 **Files to modify:**
-- `docs/README.md` - Update with v0.5.0 features
-- `docs/AGENTS.md` - Comprehensive update: new agents, tools, sandbox, memory, scheduler, meta-agent
-- `docs/architecture/PROVIDERS.md` - Updated provider architecture
-- `docs/development/TESTING.md` - Complete testing guide with tiers
-- `docs/development/CHANGELOG.md` - v0.5.0 changelog entry
+- `lsm/ui/tui/styles/base.tcss` and per-screen style files (or `styles.tcss` before split)
+- `lsm/ui/tui/screens/agents.py`
+- `lsm/ui/tui/screens/query.py`
+- `lsm/ui/tui/screens/ingest.py`
 
-#### 7.1.1: Write CHANGELOG Entry
+**Post-block:** Manual verification in Windows command prompt and tests for narrow-layout behavior.
 
-Summarize all changes across all 7 phases:
-- LLM Provider Refactoring (~1500 lines removed)
-- Test Framework Overhaul (tiered execution, real data, live tests for all 10 remote providers)
-- Agent Sandbox Hardening (STRIDE coverage, 47+ security tests)
-- New Tools (8: extract_snippets, file_metadata, hash_file, similarity_search, source_map, append_file, memory_put, memory_search)
-- New Agents (3: Writing, Synthesis, Curator)
-- Memory System (storage, API, context builder, curator distillation, UI/CLI)
-- Agent Scheduler (config, engine, safety defaults, UI/CLI)
-- Meta-Agent Orchestrator (task graphs, system tools, shared workspace, synthesis)
-- Runner abstraction and Docker foundation
+### 4.6: Phase 4 Changelog
 
-#### 7.1.2: Update CLAUDE.md
-
-Update Architecture section, Key Files table, Important Notes, Commands section with all v0.5.0 changes.
-
-**Post-block:** run `pytest tests/ -v` final validation, commit.
+Summarize Phase 4 changes into `docs/development/CHANGELOG.md`.
 
 ---
 
-## Verification Plan  (COMPLETED)
+## Phase 5: TUI Reliability and Architecture
 
-1. **After Phase 1**: Run full test suite. All existing tests pass. Provider factory creates all 5 providers. `synthesize()`, `rerank()`, `generate_tags()`, `stream_synthesize()` work identically to before refactoring.
-   - Update `docs/development/CHANGELOG.md` with changes in Phase 1
+This phase hardens runtime safety and evolves the UI architecture for maintainability.
 
-2. **After Phase 2**: Run each tier independently:
-   - `pytest tests/ -v` (smoke + integration) - all pass, fast (<60s)
-   - `pytest tests/ -v -m integration` - real embeddings and ChromaDB
-   - `pytest tests/ -v -m live_llm` (with API keys) - real LLM calls succeed
-   - `pytest tests/ -v -m live_remote` - all 10 remote providers tested
-   - `pytest tests/ -v -m live` - full live pipeline end-to-end
-   - Update `docs/development/CHANGELOG.md` with changes in Phase 2
+### 5.1: TUI Structural Regression Tests
 
-3. **After Phase 3**: Run security tests explicitly:
-   - `pytest tests/test_agents/test_security_*.py -v` - all 47+ security tests pass
-   - Verify no path escapes succeed
-   - Verify secret redaction in logs
-   - Verify permission gates block unauthorized tools
-   - Test each new agent with `@pytest.mark.integration` tests
-   - Update `docs/development/CHANGELOG.md` with changes in Phase 3
+Add lightweight structural assertions to catch UI regressions early.
 
-4. **After Phase 4**: Memory system verification:
-   - Memory CRUD operations (SQLite and PostgreSQL backends)
-   - TTL enforcement and expiry
-   - MemoryContextBuilder injects standing context
-   - Curator memory distillation produces valid candidates
-   - CLI/TUI memory commands functional
-   - Update `docs/development/CHANGELOG.md` with changes in Phase 4
+**Tasks:**
+- Add tests asserting key widgets/IDs exist for each major screen
+- Add lightweight snapshot/golden tests for key screen structures and command output formatting
+- Add tests for timer lifecycle safety (start/stop without leaks)
+- Add smoke tests for interaction panel mode switching (permission vs clarification)
 
-5. **After Phase 5**: Scheduler verification:
-   - Schedule persistence across restarts
-   - No overlapping runs (concurrency policy)
-   - Safe defaults enforced (read-only, no network)
-   - Tick loop timing accuracy
-   - Update `docs/development/CHANGELOG.md` with changes in Phase 5
+**Files to create:**
+- `tests/test_ui/tui/test_layout_structure.py`
 
-6. **After Phase 6**: Meta-agent verification:
-   - Task graph topological sort and execution order
-   - Sub-agent sandbox monotonicity (sub <= parent permissions)
-   - Artifact handoff between sub-agents
-   - Failure isolation (one sub-agent fails, others unaffected)
-   - Final synthesis collects all outputs
-   - Update `docs/development/CHANGELOG.md` with changes in Phase 6
+**Files to modify:**
+- `tests/test_ui/tui/test_agent_interaction.py`
+- `tests/test_ui/tui/test_schedule_screen.py`
+- `tests/test_ui/tui/test_meta_screen.py`
+- `tests/test_ui/tui/test_completions.py`
 
-7. **Final**: Full suite green at smoke+integration tier. Live tier passes with configured credentials.
+**Post-block:** Run `pytest tests/ -v`, commit.
+
+### 5.2: Thread-Safe UI Event Model
+
+Ensure all background work communicates with the UI through a single event/message pattern.
+
+**Tasks:**
+- Define typed UI event/message models for background -> UI communication
+- Ensure background workers and manager threads never mutate widgets directly
+- Route all UI changes through main-thread handlers (`post_message`/queued events)
+- Add debug assertions/helpers to detect unsafe off-thread widget mutation
+
+**Files to modify:**
+- `lsm/ui/tui/app.py`
+- `lsm/ui/tui/screens/agents.py`
+- `lsm/ui/shell/commands/agents.py`
+
+**Post-block:** Add thread-safety tests for event-driven updates, run `pytest tests/ -v`, commit.
+
+### 5.3: Worker Lifecycle Standards
+
+Standardize long-running operation handling across TUI surfaces.
+
+**Tasks:**
+- Create a consistent worker lifecycle wrapper (start, cancel, timeout, join)
+- Require cancellation support for all long-running TUI-triggered operations
+- Ensure app shutdown and screen unmount cancel/join outstanding workers deterministically
+- Add timeout defaults and explicit timeout error handling paths
+
+**Files to modify:**
+- `lsm/ui/tui/app.py`
+- `lsm/ui/tui/screens/agents.py`
+- `lsm/ui/tui/screens/ingest.py`
+- `lsm/ui/tui/screens/query.py`
+
+**Post-block:** Add worker timeout/cancel tests, run `pytest tests/ -v`, commit.
+
+### 5.4: Timer Lifecycle Safety
+
+Prevent leaked timers and duplicate polling loops.
+
+**Tasks:**
+- Add timer registration helpers with idempotent start/stop semantics
+- Ensure each screen starts timers in mount and stops them in unmount
+- Add duplicate-timer guards for repeated context switches
+- Add tests for timer lifecycle and teardown under rapid screen changes
+
+**Files to modify:**
+- `lsm/ui/tui/app.py`
+- `lsm/ui/tui/screens/agents.py`
+- `lsm/ui/tui/screens/query.py`
+- `lsm/ui/tui/screens/ingest.py`
+
+**Post-block:** Add timer lifecycle tests, run `pytest tests/ -v`, commit.
+
+### 5.5: UI Error Boundary and Recovery
+
+Keep the TUI resilient to screen-level exceptions.
+
+**Tasks:**
+- Add a global UI error boundary to catch non-fatal screen exceptions
+- Render a recoverable error state/panel instead of terminating the app
+- Add "Return to safe screen" action (for example Query/Main)
+- Ensure full traceback is logged while user-facing message stays concise
+
+**Files to modify:**
+- `lsm/ui/tui/app.py`
+- `lsm/ui/tui/screens/help.py`
+- `lsm/logging.py`
+
+**Post-block:** Add tests for recoverable screen errors, run `pytest tests/ -v`, commit.
+
+### 5.6: Dirty-State and Unsaved-Change Guards
+
+Prevent accidental configuration/data loss during navigation.
+
+**Tasks:**
+- Track dirty state per Settings tab and screen-level aggregate dirty status
+- Add dirty indicators in tab labels/status area
+- Prompt for confirmation on tab/context/app exit when unsaved changes exist
+- Add explicit save/discard flow for bulk reset actions
+
+**Files to modify:**
+- `lsm/ui/tui/screens/settings.py`
+- `lsm/ui/tui/widgets/settings_base.py`
+- `lsm/ui/tui/styles/settings.tcss`
+
+**Post-block:** Add tests for dirty-state transitions and confirmation prompts, run `pytest tests/ -v`, commit.
+
+### 5.7: Keyboard-First Interaction Parity
+
+Ensure all major TUI workflows are fully keyboard operable.
+
+**Tasks:**
+- Audit all primary actions and add keybinding parity for non-mouse operation
+- Add bindings for agent interaction actions (approve/deny/reply/focus panels)
+- Add bindings for schedule/memory panel actions and row navigation
+- Update help screen to display action-level keyboard shortcuts
+
+**Files to modify:**
+- `lsm/ui/tui/screens/agents.py`
+- `lsm/ui/tui/screens/query.py`
+- `lsm/ui/tui/screens/settings.py`
+- `lsm/ui/tui/screens/help.py`
+
+**Post-block:** Add keybinding coverage tests, run `pytest tests/ -v`, commit.
+
+### 5.8: TUI Performance Budgets and Polling Guardrails
+
+Keep refresh loops performant and bounded under load.
+
+**Tasks:**
+- Define polling/refresh budget defaults (max frequency, max rows per tick, queue caps)
+- Add adaptive refresh backoff when no updates are pending
+- Cap per-tick render work to prevent UI stalls under high event volume
+- Add debug counters for drops/backpressure/render lag
+
+**Files to modify:**
+- `lsm/ui/tui/app.py`
+- `lsm/ui/tui/screens/agents.py`
+- `lsm/ui/tui/screens/query.py`
+- `lsm/config/models/agents.py` and `lsm/config/loader.py` (if exposed as config)
+
+**Post-block:** Add performance guardrail tests, run `pytest tests/ -v`, commit.
+
+### 5.9: Command Parsing Contract Tests
+
+Stabilize command behavior while refactoring handlers.
+
+**Tasks:**
+- Add command grammar/contract tests for `/agent`, `/memory`, `/ui`, and query command groups
+- Assert consistent parse/validation/error-message behavior across CLI and TUI command paths
+- Add completion-contract tests to keep autocomplete aligned with parser behavior
+
+**Files to create:**
+- `tests/test_ui/shell/test_command_contracts.py`
+
+**Files to modify:**
+- `tests/test_ui/tui/test_completions.py`
+- `lsm/ui/helpers/commands/query.py`
+- `lsm/ui/shell/commands/agents.py`
+
+**Post-block:** Run command-contract suite + full tests, `pytest tests/ -v`, commit.
+
+### 5.10: TUI Architecture Guideline Documentation
+
+Document architectural conventions so future TUI work remains consistent.
+
+**Tasks:**
+- Create a TUI architecture guide covering state, events, workers, timers, errors, and testing
+- Define explicit "do/don't" rules for thread access and widget mutation
+- Document lifecycle expectations (mount/unmount, worker cancellation, timer teardown)
+- Link the guide from contributor/dev documentation
+
+**Files to create:**
+- `docs/development/TUI_ARCHITECTURE.md`
+
+**Files to modify:**
+- `CONTRIBUTING.md`
+- `CLAUDE.md`
+- `docs/development/TESTING.md`
+
+**Post-block:** Documentation review and consistency pass, commit.
+
+### 5.11: Screen Presenter/Controller Decomposition
+
+Reduce large screen complexity by splitting rendering, action handling, and async coordination into
+focused collaborators.
+
+**Tasks:**
+- For large screens (`query`, `agents`, `settings`), split logic into:
+  - screen container (composition + routing)
+  - panel presenters/controllers (per-panel rendering + interaction logic)
+  - service adapters (calls into shell/runtime/config operations)
+- Move per-panel refresh and state-derivation logic out of screen classes
+- Keep screen classes focused on navigation, message routing, and high-level orchestration
+- Add clear ownership boundaries so each panel can be tested independently
+
+**Files to create:**
+- `lsm/ui/tui/presenters/query/` (presenter modules for query panels)
+- `lsm/ui/tui/presenters/agents/` (presenter modules for agents panels)
+- `lsm/ui/tui/presenters/settings/` (presenter modules for settings panels)
+
+**Files to modify:**
+- `lsm/ui/tui/screens/query.py`
+- `lsm/ui/tui/screens/agents.py`
+- `lsm/ui/tui/screens/settings.py`
+
+**Post-block:** Add focused presenter/controller tests and regression checks, run `pytest tests/ -v`, commit.
+
+### 5.12: Shared Base Screen and UI Helpers Layer
+
+Create shared screen scaffolding so lifecycle, status, notifications, worker wiring, and timer wiring
+are implemented once and reused consistently.
+
+**Tasks:**
+- Add a base TUI screen abstraction with standardized hooks for:
+  - timer registration/teardown
+  - worker registration/cancel/join
+  - status + notification publishing
+  - common error-handling wrapper
+- Move repeated screen helper logic into `lsm/ui/helpers/` modules
+- Ensure concrete screens override minimal extension points instead of duplicating plumbing
+- Add guidance for when logic belongs in screen vs presenter vs helper
+
+**Files to create:**
+- `lsm/ui/tui/screens/base.py`
+- `lsm/ui/helpers/lifecycle.py`
+- `lsm/ui/helpers/notifications.py`
+
+**Files to modify:**
+- `lsm/ui/tui/screens/query.py`
+- `lsm/ui/tui/screens/agents.py`
+- `lsm/ui/tui/screens/ingest.py`
+- `lsm/ui/tui/screens/settings.py`
+- `lsm/ui/tui/app.py`
+
+**Post-block:** Add tests for shared lifecycle helpers and base-screen behavior, run `pytest tests/ -v`, commit.
+
+### 5.13: UI Test Architecture and Reusable Fixtures
+
+Align UI tests with TUI module boundaries and reduce duplicate setup logic.
+
+**Tasks:**
+- Mirror UI module structure in tests (screen/presenter/helper level separation)
+- Add shared fixture/harness utilities for mounting app/screens and driving timer/worker events
+- Separate contract tests (command parsing), structure tests (widget layout), and behavior tests
+  (interaction and workflows) into clear test modules
+- Add explicit naming conventions for UI tests to make coverage gaps obvious
+
+**Files to create:**
+- `tests/test_ui/tui/fixtures/` (shared app/screen harness fixtures)
+- `tests/test_ui/tui/presenters/` (presenter-focused tests)
+- `tests/test_ui/helpers/` (helper-level tests)
+
+**Files to modify:**
+- `tests/test_ui/tui/test_layout_structure.py`
+- `tests/test_ui/shell/test_command_contracts.py`
+- `docs/development/TESTING.md`
+
+**Post-block:** Run full UI test suite + full project tests, `pytest tests/ -v`, commit.
+
+### 5.14: Phase 5 Changelog
+
+Summarize Phase 5 changes into `docs/development/CHANGELOG.md`.
+
+---
+
+## Phase 6: TUI Startup and Performance
+
+This phase enforces startup stability and a measurable startup performance budget.
+
+### 6.1: TUI Startup Smoke Test (Home Screen)
+
+Add a startup smoke test that launches the TUI and verifies it reaches the default home screen
+(Query) without crashing.
+
+**Tasks:**
+- Add an app-launch smoke test that mounts `LSMApp`, runs initial startup lifecycle, and verifies:
+  - no unhandled exception during startup
+  - active/default screen is Query/Home
+  - command input and core Query widgets are present
+- Add a regression test for known crash paths during early startup initialization
+- Ensure smoke test runs in the default test suite (not live-only) so crashes are caught quickly
+
+**Files to create:**
+- `tests/test_ui/tui/test_startup_smoke.py`
+
+**Files to modify:**
+- `tests/test_ui/tui/fixtures/` (startup/mount helper reuse)
+- `tests/test_ui/tui/test_layout_structure.py`
+
+**Post-block:** Run `pytest tests/test_ui/tui/test_startup_smoke.py -v` and full suite `pytest tests/ -v`, commit.
+
+### 6.2: TUI Startup Performance Budget and Lazy Background Loading
+
+Enforce fast perceived startup by loading into Query/Home in under one second and deferring
+non-critical initialization to background workers.
+
+**Tasks:**
+- Define startup performance SLA:
+  - TUI reaches Query/Home interactive state in `< 1.0s` (measured from app start to Query screen ready)
+- Instrument startup timing with explicit milestones:
+  - app process start
+  - first screen mounted
+  - Query/Home interactive ready
+  - background initialization completed
+- Move non-critical startup work to background loading after first render:
+  - provider status refresh
+  - schedule status/persistence sync
+  - memory/agent auxiliary panel preloads
+  - other non-blocking metadata loads
+- Ensure background loading reports progress/non-fatal errors via notifications or status area without blocking UI
+- Add startup performance tests/benchmarks:
+  - smoke perf test for Query/Home readiness budget
+  - regression benchmark for startup milestones
+  - configurable threshold override for constrained environments while default remains `< 1.0s`
+
+**Files to modify:**
+- `lsm/ui/tui/app.py`
+- `lsm/ui/tui/screens/query.py`
+- `lsm/ui/tui/screens/agents.py`
+- `lsm/ui/helpers/lifecycle.py`
+- `tests/test_ui/tui/test_startup_smoke.py`
+- `tests/test_ui/tui/test_performance.py` (create if absent)
+- `docs/development/TESTING.md`
+
+**Post-block:** Run startup smoke + performance test group and full tests, `pytest tests/ -v`, commit.
+
+### 6.3: Phase 6 Changelog
+
+Summarize Phase 6 changes into `docs/development/CHANGELOG.md`.
+
+---
+
+## Phase 7: Documentation and Version Updates
+
+### 7.1: Final Documentation and Version Updates
+
+**Version bump (0.5.0 -> 0.6.0):**
+- `pyproject.toml` — `version = "0.6.0"`
+- `lsm/__init__.py` — `__version__ = "0.6.0"`
+
+**Files to modify:**
+- `README.md` — Update root project README with v0.6.0 highlights
+- `docs/README.md` — Update with v0.6.0 TUI improvements
+- `docs/AGENTS.md` — Document interactive agent sessions, multi-agent, interaction channel
+- `docs/development/CHANGELOG.md` — Complete v0.6.0 changelog entry
+- `example_config.json` — Update any new config options
+- Update CLAUDE.md with new file locations and architecture notes
+
+**Post-block:** Run `pytest tests/ -v` final validation, commit.
+
+---
+
+## Verification Plan
+
+1. **After Phase 1**: Visual verification on 80x24 terminal. All screens usable without scrolling
+   to reach input fields. Agent screen has proper CSS styling. CSS split loads correctly with no
+   style regressions. `auto` density selects compact on small terminals and comfortable on larger
+   terminals, and responds correctly to terminal resize.
+
+2. **After Phase 2**: Settings screen MVC working end-to-end. Each tab renders independently.
+   Live updates propagate to config objects. Cross-tab synchronization works (provider rename,
+   mode change). Save/Reset per section works. ViewModel tracks dirty state and validation errors
+   correctly, and save boundaries go only through loader/serializer paths. All existing settings
+   tests pass or are updated.
+
+3. **After Phase 3**:
+   - Interactive permission flow: Start agent with permission-requiring tool -> agent pauses ->
+     interaction panel appears -> approve/deny -> agent resumes/stops
+   - Clarification flow: Agent issues `ask_user` request -> user replies in TUI or CLI ->
+     agent receives reply and continues
+   - Multi-agent: Start 2+ agents simultaneously -> running agents table shows both ->
+     select agent to view its log -> stop individual agent
+   - Real-time logs: Start agent -> log entries appear in real-time without manual refresh
+   - Backpressure: sustained log volume does not grow memory unbounded; drop counters are visible
+   - Shutdown safety: stopping agent/app while waiting for input does not deadlock; waits are canceled
+   - Security: All existing security tests pass. Permission gate still blocks unauthorized
+     tools. Interaction channel does not weaken sandbox (timeout = deny).
+   - Run `pytest tests/test_agents/test_security_*.py -v` explicitly
+
+4. **After Phase 4**: Toast notifications appear for agent events. Help modal shows
+   context-relevant commands. Query screen is slimmer with command helpers extracted under
+   `lsm/ui/helpers/commands/`. Agents panel supports refresh controls, follow-log mode, unread
+   counters, and narrow-terminal fallbacks.
+
+5. **After Phase 5**: Structural regression tests are green, thread-safe event messaging is
+   enforced, worker/timer lifecycle protections prevent leaks, recoverable UI error handling works,
+   dirty-state prompts prevent data loss, keyboard parity is complete, performance guardrails are
+   active, command contract tests are green, presenter/controller decomposition is in place for
+   large screens, base-screen/shared-helper patterns are adopted, and TUI architecture/testing
+   documentation is published.
+
+6. **After Phase 6**: Startup smoke tests verify crash-free launch into Query/Home. Startup-to-Query
+   load time meets `< 1.0s`, and non-critical initialization is deferred to background loading with
+   observable progress/error reporting.
+
+7. **Final**: Full test suite green, documentation/version updates complete, and manual walkthrough
+   of all TUI screens on Windows command prompt at 80x24 passes.

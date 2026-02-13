@@ -15,7 +15,6 @@
 
 ## Future Items (INGORE ALL THE FOLLOWING FOR PLANNING)
 
-
 ### v0.7.0: Agents and Remote Sources
 #### Architecture
 - Create lsm.utils module for common utility code like logger
@@ -201,6 +200,7 @@
   the different AI Providers, DBs, etc. work with each other.
 - Make sure that different DB migration tests truly load complete DBs and successfully migrate
   in both directions SQLite <-> PG, and Chroma <-> PG
+- Expand performance test suite beyond the TUI startup SLA
 
 ### v0.10.0: Extra Control Paths
 - Add ability to send email/txt notifications
@@ -217,3 +217,22 @@
   - Create obsidian plugin that connects to the LSM server used by the Web UI to allow
     the user to interact with LSM via the API requests
 - Complete logseq integration
+
+### v1.0.0: First Release
+#### General
+- Dogfood everything again
+- Check for code refactors and test usage
+- Confirm installation process
+- Create clear documentation/examples API/Configs with testing to track backwards
+  compatability.
+- Ensure the start up times are as fast as possible.
+- Look for code optimization points (both in terms of memory usage and execution time).
+
+#### TUI
+- Ensure TUI is rock solid and following the best practices
+
+#### Web
+- Ensure Web interface is rock solid and following the best practices
+
+#### Remote Controlers
+- Ensure Txt and Email notifications and control messanges are rock solid
