@@ -12,6 +12,7 @@ The agent runtime is implemented in `lsm/agents/` and integrated into both:
 Built-in agent:
 
 - `curator`
+- `meta`
 - `research`
 - `writing`
 - `synthesis`
@@ -28,6 +29,8 @@ Built-in agent:
 - `lsm/agents/synthesis.py`: built-in synthesis workflow agent
 - `lsm/agents/curator.py`: built-in corpus curation workflow agent
 - `lsm/agents/scheduler.py`: recurring schedule engine for harness-driven agent runs
+- `lsm/agents/task_graph.py`: task graph datamodels and dependency-order helpers for meta orchestration
+- `lsm/agents/meta.py`: built-in meta-agent orchestration planner
 - `lsm/agents/memory/models.py`: memory and memory-candidate dataclasses
 - `lsm/agents/memory/store.py`: memory store abstraction + SQLite/PostgreSQL backends
 - `lsm/agents/memory/migrations.py`: SQLite <-> PostgreSQL migration helpers
@@ -250,6 +253,16 @@ Curator also supports memory distillation mode via `--mode memory` in the topic 
 
 - `memory_candidates.md`
 - `memory_candidates.json`
+
+## Meta Agent
+
+The `meta` agent converts a high-level goal into a dependency-aware task graph for sub-agents (`research`, `writing`, `synthesis`, `curator`), validates ordering, and records a deterministic execution plan.
+
+Core (Phase 6.1) behavior:
+
+- plans orchestration graph only (does not execute sub-agent domain work directly)
+- supports structured JSON goals with explicit tasks/dependencies
+- supports deterministic fallback planning from plain-text goals
 
 ## TUI Usage
 

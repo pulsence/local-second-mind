@@ -119,6 +119,11 @@ All notable changes to Local Second Mind are documented here.
 - Sandbox runner policy now supports `sandbox.force_docker`:
   - all tool risks (`read_only`, `writes_workspace`, `network`, `exec`) require Docker when enabled
   - execution is blocked with `PermissionError` when Docker is unavailable
+- Meta-agent core orchestration foundation:
+  - new `TaskGraph` + `AgentTask` models in `lsm/agents/task_graph.py` with dependency validation, topological sorting, ready-task selection, and status transitions
+  - new `MetaAgent` in `lsm/agents/meta.py` that converts user goals into deterministic task graphs and dependency-ordered execution plans (planning-only core mode)
+  - `meta` agent registration in `lsm/agents/factory.py` and framework exports in `lsm/agents/__init__.py`
+  - coverage in `tests/test_agents/test_task_graph.py` and `tests/test_agents/test_meta_agent.py`
 
 ### Changed
 

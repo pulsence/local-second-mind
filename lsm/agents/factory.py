@@ -11,6 +11,7 @@ from lsm.config.models import AgentConfig, LLMRegistryConfig
 
 from .base import BaseAgent
 from .curator import CuratorAgent
+from .meta import MetaAgent
 from .research import ResearchAgent
 from .synthesis import SynthesisAgent
 from .writing import WritingAgent
@@ -32,6 +33,7 @@ class AgentRegistry:
     def __init__(self) -> None:
         self._builders: Dict[str, AgentBuilder] = {}
         self.register("curator", self._build_curator_agent)
+        self.register("meta", self._build_meta_agent)
         self.register("research", self._build_research_agent)
         self.register("synthesis", self._build_synthesis_agent)
         self.register("writing", self._build_writing_agent)
@@ -142,6 +144,26 @@ class AgentRegistry:
         if overrides and "max_iterations" in overrides:
             agent_config = replace(agent_config, max_iterations=int(overrides["max_iterations"]))
         return CuratorAgent(
+            llm_registry=llm_registry,
+            tool_registry=tool_registry,
+            sandbox=sandbox,
+            agent_config=agent_config,
+            agent_overrides=overrides,
+        )
+
+    @staticmethod
+    def _build_meta_agent(
+        llm_registry: LLMRegistryConfig,
+        tool_registry: ToolRegistry,
+        sandbox: ToolSandbox,
+        agent_config: AgentConfig,
+        overrides: Optional[dict],
+    ) -> BaseAgent:
+        if overrides and "enabled" in overrides and not bool(overrides["enabled"]):
+            raise ValueError("Agent 'meta' is disabled by configuration override")
+        if overrides and "max_iterations" in overrides:
+            agent_config = replace(agent_config, max_iterations=int(overrides["max_iterations"]))
+        return MetaAgent(
             llm_registry=llm_registry,
             tool_registry=tool_registry,
             sandbox=sandbox,
