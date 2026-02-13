@@ -930,6 +930,7 @@ ResultItem.-selected {
     height: 100%;
     width: 100%;
     layout: vertical;
+    overflow: hidden;
 }
 
 #agents-top {
@@ -939,8 +940,8 @@ ResultItem.-selected {
 
 #agents-left {
     width: 1fr;
-    min-width: 36;
-    max-width: 50%;
+    min-width: 34;
+    max-width: 48%;
     layout: vertical;
     overflow-y: auto;
     overflow-x: hidden;
@@ -949,8 +950,8 @@ ResultItem.-selected {
 
 #agents-log-panel {
     width: 2fr;
-    min-width: 38;
-    padding: 0 1;
+    min-width: 44;
+    padding: 1;
     border: round $primary-darken-2;
     background: $surface-darken-1;
     layout: vertical;
@@ -985,22 +986,27 @@ ResultItem.-selected {
 
 #agents-control-panel {
     height: auto;
+    layout: vertical;
 }
 
 #agents-status-panel {
     height: auto;
+    layout: vertical;
 }
 
 #agents-meta-panel {
     height: auto;
+    layout: vertical;
 }
 
 #agents-schedule-panel {
     height: auto;
+    layout: vertical;
 }
 
 #agents-memory-panel {
     height: auto;
+    layout: vertical;
 }
 
 .agents-section-title {
@@ -1030,15 +1036,33 @@ ResultItem.-selected {
 #agents-meta-runs-table,
 #agents-schedule-table {
     height: 8;
+    min-height: 6;
     margin-bottom: 1;
+    border: round $primary-darken-2;
+    background: $surface;
+}
+
+#agents-left DataTable {
+    color: $text;
+}
+
+#agents-meta-task-table:focus,
+#agents-meta-runs-table:focus,
+#agents-schedule-table:focus {
+    border: round $primary;
 }
 
 #agents-buttons,
 #agents-schedule-buttons,
 #agents-memory-buttons,
 #agents-meta-buttons {
+    layout: vertical;
     height: auto;
     margin-top: 1;
+}
+
+#agents-meta-buttons {
+    layout: horizontal;
 }
 
 .agents-button-row {

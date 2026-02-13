@@ -77,7 +77,7 @@ The plan should provide a true mode toggle, not only hard-coded compact defaults
 **Post-block:** Add tests for density toggle, auto-detection, resize behavior, and responsive fallback,
 run `pytest tests/ -v`, commit.
 
-### 1.2: Add CSS for Agents Screen
+### 1.2: Add CSS for Agents Screen (COMPLETED)
 
 The agents screen currently has no dedicated CSS section in `styles.tcss` (unlike query, ingest,
 settings, remote which all have sections). This causes reliance on generic styles and inconsistent
