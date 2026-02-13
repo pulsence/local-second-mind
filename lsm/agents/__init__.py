@@ -9,6 +9,7 @@ from .harness import AgentHarness
 from .log_formatter import format_agent_log, load_agent_log, save_agent_log
 from .models import AgentContext, AgentLogEntry, ToolResponse
 from .research import ResearchAgent
+from .scheduler import AgentScheduler
 from .synthesis import SynthesisAgent
 from .writing import WritingAgent
 
@@ -20,6 +21,7 @@ __all__ = [
     "ResearchAgent",
     "SynthesisAgent",
     "WritingAgent",
+    "AgentScheduler",
     "AgentRegistry",
     "create_agent",
     "AgentHarness",

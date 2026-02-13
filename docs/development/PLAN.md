@@ -949,7 +949,7 @@ Add `schedules: List[ScheduleConfig]` to `AgentConfig`.
 
 **Post-block:** `tests/test_config/test_schedule_config.py`, run tests, update docs, commit.
 
-### 5.2: Scheduler Engine
+### 5.2: Scheduler Engine (COMPLETED)
 
 #### 5.2.1: Implement AgentScheduler Service
 

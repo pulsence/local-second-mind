@@ -87,6 +87,22 @@ All notable changes to Local Second Mind are documented here.
   - `example_config.json` includes `agents.schedules` example
   - `docs/AGENTS.md` agent config reference now documents schedules
 - Scheduler config tests in `tests/test_config/test_schedule_config.py` covering model validation, normalization, loader parsing, and serialization.
+- `AgentScheduler` engine in `lsm/agents/scheduler.py`:
+  - persistent schedule runtime state at `<agents_folder>/schedules.json`
+  - threaded tick loop with due-schedule execution and graceful stop handling
+  - overlap policies: `skip`, `queue`, `cancel`
+  - schedule status metadata (`last_run_at`, `next_run_at`, `last_status`, `last_error`)
+  - interval parsing for aliases (`hourly`, `daily`, `weekly`), seconds (`<n>s`), and cron syntax
+- Scheduled-run safety policy enforcement in scheduler:
+  - read-only tools only by default
+  - network disabled by default
+  - explicit schedule `params` opt-in for writes/network/exec
+  - network/exec runs force sandbox `execution_mode="prefer_docker"`
+- Scheduler test coverage in `tests/test_agents/test_scheduler.py`:
+  - persistence/reload behavior
+  - no-overlap guarantees and concurrency-policy behavior
+  - safe-default and explicit-opt-in tool/sandbox behavior
+  - due-tick execution logic
 
 ### Changed
 

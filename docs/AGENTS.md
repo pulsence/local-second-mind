@@ -27,6 +27,7 @@ Built-in agent:
 - `lsm/agents/writing.py`: built-in grounded writing workflow agent
 - `lsm/agents/synthesis.py`: built-in synthesis workflow agent
 - `lsm/agents/curator.py`: built-in corpus curation workflow agent
+- `lsm/agents/scheduler.py`: recurring schedule engine for harness-driven agent runs
 - `lsm/agents/memory/models.py`: memory and memory-candidate dataclasses
 - `lsm/agents/memory/store.py`: memory store abstraction + SQLite/PostgreSQL backends
 - `lsm/agents/memory/migrations.py`: SQLite <-> PostgreSQL migration helpers
@@ -271,6 +272,27 @@ Open the **Agents** tab:
 - `/memory promote <candidate_id>`
 - `/memory reject <candidate_id>`
 - `/memory ttl <candidate_id> <days>`
+
+## Scheduler Engine
+
+`AgentScheduler` (`lsm/agents/scheduler.py`) executes configured `agents.schedules` entries on an interval and persists runtime status in:
+
+- `<agents_folder>/schedules.json`
+
+Tracked fields include `last_run_at`, `next_run_at`, `last_status`, and `last_error`.
+
+Concurrency handling per schedule:
+
+- `skip`: skip overlapping due runs
+- `queue`: queue one or more follow-up runs
+- `cancel`: request stop on current run and queue a replacement run
+
+Safety defaults for scheduled runs:
+
+- read-only tool risk only by default
+- network disabled (`allow_url_access=false`)
+- write/network/exec risks require explicit schedule param opt-in (`allow_writes`, `allow_network`, `allow_exec`)
+- when network or exec is allowed, sandbox execution mode is forced to `prefer_docker`
 
 ## Notes
 
