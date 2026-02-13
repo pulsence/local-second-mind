@@ -63,6 +63,8 @@
 - Default Agent Workspace:
   - Each Agent by default has read/write access to their workspace.
   - Agent logs by default save in their workspace.
+- Agent logs output to plain text instead of json and add the ability to produce
+  normal/verbose/debug logs
 - When an agent requires the user to approve an action it should pause until the user
   gives the approval.
   - The user should be able to approve the action for this session, for this agent, for

@@ -767,7 +767,7 @@ Register in factory.
 
 ---
 
-## Phase 4: Memory System
+## Phase 4: Memory System (COMPLETED)
 
 Persistent agent posture and preferences. Memories affect *how* an agent works, not *what it knows*. Lifecycle: Candidate -> Promoted -> Expired. Memories are not automatically injected; they are retrieved selectively.
 

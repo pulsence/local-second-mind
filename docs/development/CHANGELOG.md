@@ -51,6 +51,10 @@ All notable changes to Local Second Mind are documented here.
 - Memory UI test coverage:
   - `tests/test_ui/shell/test_memory_commands.py`
   - `tests/test_ui/tui/test_memory_screen.py`
+- Live PostgreSQL memory backend coverage in `tests/test_agents/test_live_memory_store_postgresql.py`:
+  - CRUD/promotion/search/delete on `PostgreSQLMemoryStore`
+  - reject/expire/TTL-cap behavior
+  - PostgreSQL -> SQLite memory migration validation
 - Base provider message transport interface in `BaseLLMProvider` with `_send_message(...)` and `_send_streaming_message(...)`.
 - Shared fallback answer helper on `BaseLLMProvider` to replace per-provider `_fallback_answer()` duplication.
 - Shared provider JSON schema constants in `lsm/providers/helpers.py`:
