@@ -30,7 +30,7 @@ Built-in agent:
 - `lsm/agents/curator.py`: built-in corpus curation workflow agent
 - `lsm/agents/scheduler.py`: recurring schedule engine for harness-driven agent runs
 - `lsm/agents/task_graph.py`: task graph datamodels and dependency-order helpers for meta orchestration
-- `lsm/agents/meta.py`: built-in meta-agent orchestration planner
+- `lsm/agents/meta.py`: built-in meta-agent orchestrator with shared-workspace execution and final synthesis
 - `lsm/agents/memory/models.py`: memory and memory-candidate dataclasses
 - `lsm/agents/memory/store.py`: memory store abstraction + SQLite/PostgreSQL backends
 - `lsm/agents/memory/migrations.py`: SQLite <-> PostgreSQL migration helpers
@@ -262,11 +262,11 @@ Curator also supports memory distillation mode via `--mode memory` in the topic 
 
 ## Meta Agent
 
-The `meta` agent converts a high-level goal into a dependency-aware task graph for sub-agents (`research`, `writing`, `synthesis`, `curator`), validates ordering, and records a deterministic execution plan.
+The `meta` agent converts a high-level goal into a dependency-aware task graph for sub-agents (`research`, `writing`, `synthesis`, `curator`), executes that graph, and writes consolidated run artifacts.
 
 Core (Phase 6.1) behavior:
 
-- plans orchestration graph only (does not execute sub-agent domain work directly)
+- builds deterministic orchestration graphs with dependency-safe ordering
 - supports structured JSON goals with explicit tasks/dependencies
 - supports deterministic fallback planning from plain-text goals
 
@@ -276,6 +276,16 @@ Meta-system tooling (Phase 6.2):
 - `await_agent` blocks on sub-agent completion
 - `collect_artifacts` returns sub-agent artifact paths (optionally filtered by glob)
 - sub-agent sandboxes are derived as monotone subsets of the parent sandbox (paths, network, permission gates, runner policy, and limits cannot be widened)
+
+Shared workspace + synthesis (Phase 6.3):
+
+- per-run layout:
+  - `<agents_folder>/meta_<timestamp>/workspace/` (shared read workspace)
+  - `<agents_folder>/meta_<timestamp>/sub_agents/<agent_name>_<NNN>/` (per-sub-agent write workspace)
+  - `<agents_folder>/meta_<timestamp>/final_result.md`
+  - `<agents_folder>/meta_<timestamp>/meta_log.md`
+- sub-agents can read the shared `workspace/` and write only to their own `sub_agents/<agent_name>_<NNN>/` directory
+- final synthesis attempts an LLM-generated consolidated result and falls back to a deterministic markdown summary when synthesis is unavailable
 
 ## TUI Usage
 

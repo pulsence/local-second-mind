@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from lsm.agents.base import AgentStatus, BaseAgent
 from lsm.agents.factory import AgentRegistry, create_agent
 from lsm.agents.meta import MetaAgent
 from lsm.agents.models import AgentContext
@@ -47,7 +48,49 @@ def _base_raw(tmp_path: Path) -> dict:
     }
 
 
-def test_meta_agent_builds_default_dependency_order(tmp_path: Path) -> None:
+def _patch_meta_execution(monkeypatch) -> None:
+    class FakeProvider:
+        name = "fake"
+        model = "fake-model"
+
+        def synthesize(self, question, context, mode="insight", **kwargs):
+            _ = question, context, mode, kwargs
+            return "# Final Result\n\nConsolidated sub-agent output.\n"
+
+    class FakeChildAgent(BaseAgent):
+        def __init__(self, name: str, agent_config) -> None:
+            super().__init__(name=name, description=f"Fake {name} agent")
+            self.agent_config = agent_config
+
+        def run(self, initial_context: AgentContext):
+            run_workspace = str(initial_context.run_workspace or "").strip()
+            output_dir = (
+                Path(run_workspace)
+                if run_workspace
+                else Path(self.agent_config.agents_folder)
+            )
+            output_dir.mkdir(parents=True, exist_ok=True)
+            output_path = output_dir / f"{self.name}_output.md"
+            output_path.write_text(
+                f"# {self.name.title()} Output\n\n"
+                f"Topic: {initial_context.messages[-1]['content']}\n",
+                encoding="utf-8",
+            )
+            self.state.add_artifact(str(output_path))
+            self._log(f"Created fake artifact at {output_path}")
+            self.state.set_status(AgentStatus.COMPLETED)
+            return self.state
+
+    def _fake_create_agent(name, llm_registry, tool_registry, sandbox, agent_config):
+        _ = llm_registry, tool_registry, sandbox
+        return FakeChildAgent(str(name), agent_config)
+
+    monkeypatch.setattr("lsm.agents.meta.create_provider", lambda cfg: FakeProvider())
+    monkeypatch.setattr("lsm.agents.factory.create_agent", _fake_create_agent)
+
+
+def test_meta_agent_builds_default_dependency_order(monkeypatch, tmp_path: Path) -> None:
+    _patch_meta_execution(monkeypatch)
     config = build_config_from_raw(_base_raw(tmp_path), tmp_path / "config.json")
     registry = ToolRegistry()
     sandbox = ToolSandbox(config.agents.sandbox)
@@ -75,7 +118,8 @@ def test_meta_agent_builds_default_dependency_order(tmp_path: Path) -> None:
     assert any("Planned task graph" in entry.content for entry in state.log_entries)
 
 
-def test_meta_agent_accepts_structured_goal_json(tmp_path: Path) -> None:
+def test_meta_agent_accepts_structured_goal_json(monkeypatch, tmp_path: Path) -> None:
+    _patch_meta_execution(monkeypatch)
     config = build_config_from_raw(_base_raw(tmp_path), tmp_path / "config.json")
     registry = ToolRegistry()
     sandbox = ToolSandbox(config.agents.sandbox)
@@ -113,7 +157,8 @@ def test_meta_agent_accepts_structured_goal_json(tmp_path: Path) -> None:
     assert agent.last_execution_order == ["research_a", "synthesis_a"]
 
 
-def test_meta_agent_uses_curator_pipeline_for_curation_goals(tmp_path: Path) -> None:
+def test_meta_agent_uses_curator_pipeline_for_curation_goals(monkeypatch, tmp_path: Path) -> None:
+    _patch_meta_execution(monkeypatch)
     config = build_config_from_raw(_base_raw(tmp_path), tmp_path / "config.json")
     registry = ToolRegistry()
     sandbox = ToolSandbox(config.agents.sandbox)
@@ -138,4 +183,3 @@ def test_agent_factory_registers_meta_agent(tmp_path: Path) -> None:
     built = create_agent("meta", config.llm, registry, sandbox, config.agents)
     assert isinstance(built, MetaAgent)
     assert "meta" in AgentRegistry().list_agents()
-

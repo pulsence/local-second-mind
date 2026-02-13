@@ -46,7 +46,8 @@
     the Settting Screen itself serves as the Controler and the tabbed widgets that dispaly the 
     config values serve as the Views.
 - Agent Screen:
-  - User needs to be able to interact with the agent (like when it requests permission)
+  - User needs to be able to interact with the agent like when it requests permission or needs
+    feedback from the user.
   - There should be a list of agents running
 
 ### v0.7.0: Agents and Remote Sources
@@ -60,6 +61,10 @@
   data.
 
 #### Agents and Tools
+- All agents should have the ability to ask the user a question for clarification. This can be
+  exposed as a tool to all agents no matter how they are configured.
+    - Provide ability to config ignore request the request and respond "continue with work."
+      or something like that.
 - Default Agent Workspace:
   - Each Agent by default has read/write access to their workspace.
   - Agent logs by default save in their workspace.

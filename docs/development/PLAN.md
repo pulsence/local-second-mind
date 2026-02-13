@@ -1068,7 +1068,7 @@ Sub-agent sandbox must be a subset of meta-agent sandbox. Implement in `AgentHar
 
 **Post-block:** `tests/test_agents/test_meta_tools.py`, `tests/test_agents/test_sandbox_monotone.py`, run tests, update docs, commit.
 
-### 6.3: Shared Workspace and Synthesis
+### 6.3: Shared Workspace and Synthesis (COMPLETED)
 
 #### 6.3.1: Per-Meta-Run Workspace
 

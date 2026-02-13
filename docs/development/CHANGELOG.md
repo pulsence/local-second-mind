@@ -132,6 +132,17 @@ All notable changes to Local Second Mind are documented here.
 - Meta-agent phase 6.2 coverage:
   - `tests/test_agents/test_meta_tools.py`
   - `tests/test_agents/test_sandbox_monotone.py`
+- Meta-agent phase 6.3 shared-workspace execution:
+  - `MetaAgent` now initializes per-run workspace roots with:
+    - `<agents_folder>/meta_<timestamp>/workspace/`
+    - `<agents_folder>/meta_<timestamp>/sub_agents/<agent_name>_<NNN>/`
+    - `final_result.md` and `meta_log.md`
+  - sub-agent sandboxes are scoped so shared workspace is readable and each sub-agent workspace is the only writable path
+  - final synthesis writes `final_result.md` via provider when available, with deterministic fallback output
+  - meta log output includes task trace plus structured agent log entries
+- Meta-agent phase 6.3 coverage:
+  - `tests/test_agents/test_meta_workspace.py`
+  - `tests/test_agents/test_meta_synthesis.py`
 
 ### Changed
 
