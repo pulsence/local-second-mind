@@ -225,12 +225,19 @@ def build_global_config(raw: Dict[str, Any]) -> GlobalConfig:
         else None
     )
 
+    tui_density_mode_raw = global_raw.get(
+        "tui_density_mode", GlobalConfig.tui_density_mode
+    )
+    if tui_density_mode_raw is None:
+        tui_density_mode_raw = GlobalConfig.tui_density_mode
+
     return GlobalConfig(
         global_folder=global_folder,
         embed_model=global_raw.get("embed_model", GlobalConfig.embed_model),
         device=global_raw.get("device", GlobalConfig.device),
         batch_size=int(global_raw.get("batch_size", GlobalConfig.batch_size)),
         embedding_dimension=embedding_dimension,
+        tui_density_mode=str(tui_density_mode_raw).lower(),
     )
 
 
@@ -1111,6 +1118,7 @@ def config_to_raw(config: LSMConfig) -> Dict[str, Any]:
             "device": gs.device,
             "batch_size": gs.batch_size,
             "embedding_dimension": gs.embedding_dimension,
+            "tui_density_mode": gs.tui_density_mode,
         },
         "ingest": {
             "roots": [

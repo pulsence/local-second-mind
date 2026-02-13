@@ -58,6 +58,8 @@ class _LLM:
 
 class _FakeApp:
     def __init__(self) -> None:
+        self._density_mode = "auto"
+        self._effective_density = "comfortable"
         self.config = SimpleNamespace(
             llm=_LLM(),
             vectordb=SimpleNamespace(provider="chromadb", collection="kb"),
@@ -116,6 +118,22 @@ class _FakeApp:
 
     def exit(self):
         self.exited = True
+
+    def set_density_mode(self, mode: str):
+        normalized = mode.strip().lower()
+        if normalized not in {"auto", "compact", "comfortable"}:
+            return (False, "Invalid density mode. Use: auto, compact, comfortable.")
+        self._density_mode = normalized
+        self._effective_density = "compact" if normalized == "compact" else "comfortable"
+        return (True, self.density_status_text())
+
+    def density_status_text(self) -> str:
+        return (
+            f"TUI density mode: {self._density_mode}\n"
+            f"Active density: {self._effective_density}\n"
+            "Terminal size: 120x40\n"
+            "Auto thresholds: compact when width <= 100 or height <= 32."
+        )
 
     def call_from_thread(self, fn):
         fn()
@@ -306,6 +324,25 @@ def test_execute_routes_agent_and_memory_commands(monkeypatch: pytest.MonkeyPatc
 
     assert out_agent == "agent:/agent status"
     assert out_memory == "memory:/memory candidates"
+
+
+def test_execute_ui_density_commands() -> None:
+    screen = _screen()
+
+    status = screen._execute_query_command("/ui").output
+    assert "TUI density mode" in status
+
+    status2 = screen._execute_query_command("/ui density").output
+    assert "Active density" in status2
+
+    set_compact = screen._execute_query_command("/ui density compact").output
+    assert "TUI density mode: compact" in set_compact
+
+    bad_mode = screen._execute_query_command("/ui density invalid").output
+    assert "Invalid density mode" in bad_mode
+
+    bad_usage = screen._execute_query_command("/ui bad").output
+    assert "Usage: /ui density" in bad_usage
 
 
 def test_show_citation_expand_and_actions(monkeypatch: pytest.MonkeyPatch) -> None:

@@ -899,6 +899,35 @@ class QueryScreen(Widget):
                 output = handle_memory_command(q, self.app)
                 return CommandResult(output=output)
 
+            if cmd == "/ui":
+                if len(parts) == 1:
+                    status = getattr(self.app, "density_status_text", None)
+                    if callable(status):
+                        return CommandResult(output=f"{status()}\n")
+                    return CommandResult(output="UI status is unavailable.\n")
+
+                subcommand = parts[1].strip().lower()
+                if subcommand != "density":
+                    return CommandResult(output="Usage: /ui density [auto|compact|comfortable]\n")
+
+                if len(parts) == 2:
+                    status = getattr(self.app, "density_status_text", None)
+                    if callable(status):
+                        return CommandResult(output=f"{status()}\n")
+                    return CommandResult(output="UI density status is unavailable.\n")
+
+                if len(parts) > 3:
+                    return CommandResult(output="Usage: /ui density [auto|compact|comfortable]\n")
+
+                setter = getattr(self.app, "set_density_mode", None)
+                if not callable(setter):
+                    return CommandResult(output="UI density control is unavailable.\n")
+
+                success, message = setter(parts[2])
+                if not success:
+                    return CommandResult(output=f"{message}\n")
+                return CommandResult(output=f"{message}\n")
+
             if cmd in {"/note", "/notes"}:
                 if not self.app.query_state.last_question:
                     return CommandResult(output="No query to save. Run a query first.\n")
@@ -1308,6 +1337,11 @@ Memory
 /memory promote <id>         Promote memory candidate
 /memory reject <id>          Reject memory candidate
 /memory ttl <id> <days>      Edit candidate TTL in days
+
+UI
+/ui                          Show UI status
+/ui density                  Show density mode and active density
+/ui density <mode>           Set density mode: auto|compact|comfortable
 
 Results
 /show S#                      Show the cited chunk (e.g., /show S2)

@@ -19,6 +19,7 @@ def test_global_config_defaults() -> None:
     assert cfg.embed_model == "sentence-transformers/all-MiniLM-L6-v2"
     assert cfg.device == "cpu"
     assert cfg.batch_size == 32
+    assert cfg.tui_density_mode == "auto"
     assert cfg.global_folder is not None
     assert isinstance(cfg.global_folder, Path)
 
@@ -29,10 +30,12 @@ def test_global_config_custom_values() -> None:
         embed_model="custom-model",
         device="cuda:0",
         batch_size=64,
+        tui_density_mode="compact",
     )
     assert cfg.embed_model == "custom-model"
     assert cfg.device == "cuda:0"
     assert cfg.batch_size == 64
+    assert cfg.tui_density_mode == "compact"
 
 
 def test_global_config_string_path_conversion() -> None:
@@ -94,4 +97,10 @@ def test_global_config_validate_invalid_batch_size() -> None:
 def test_global_config_validate_negative_batch_size() -> None:
     cfg = GlobalConfig(batch_size=-1)
     with pytest.raises(ValueError, match="batch_size must be positive"):
+        cfg.validate()
+
+
+def test_global_config_validate_invalid_tui_density_mode() -> None:
+    cfg = GlobalConfig(tui_density_mode="invalid")
+    with pytest.raises(ValueError, match="tui_density_mode must be one of"):
         cfg.validate()

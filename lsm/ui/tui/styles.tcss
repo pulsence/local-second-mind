@@ -41,11 +41,11 @@ TabbedContent {
 
 ContentTabs {
     background: $surface-darken-1;
-    height: 2;
+    height: 3;
 }
 
 TabPane {
-    padding: 0 1;
+    padding: 1 2;
     height: 1fr;
 }
 
@@ -53,8 +53,8 @@ TabPane {
 Tab {
     background: $surface-darken-1;
     color: $text;
-    padding: 0 2;
-    height: 2;
+    padding: 1 2;
+    height: 3;
     width: auto;
     min-width: 10;
     content-align: center middle;
@@ -119,7 +119,7 @@ Underline > .underline--bar {
 
 .bottom-pane {
     height: auto;
-    min-height: 1;
+    min-height: 3;
     max-height: 15;
 }
 
@@ -130,7 +130,7 @@ Underline > .underline--bar {
 .command-input {
     dock: bottom;
     height: auto;
-    min-height: 1;
+    min-height: 3;
     max-height: 10;
     background: $surface-darken-1;
     border: tall $primary-darken-1;
@@ -275,7 +275,7 @@ DirectoryTree > .directory-tree--file {
  * ============================================================================ */
 
 ProgressBar {
-    padding: 0 1;
+    padding: 1;
 }
 
 ProgressBar > .bar--bar {
@@ -327,12 +327,12 @@ ProgressBar > .bar--complete {
  * ============================================================================ */
 
 .settings-panel {
-    padding: 0 1;
+    padding: 1 2;
 }
 
 .settings-section {
-    margin-bottom: 1;
-    padding: 0 1;
+    margin-bottom: 2;
+    padding: 1;
     background: $surface-darken-1;
     border: round $primary-darken-2;
 }
@@ -569,7 +569,7 @@ Switch {
  * ============================================================================ */
 
 #settings-screen {
-    padding: 1;
+    padding: 2;
     layout: vertical;
     height: 100%;
     width: 100%;
@@ -588,7 +588,7 @@ Switch {
 .settings-field {
     layout: horizontal;
     height: auto;
-    min-height: 2;
+    min-height: 3;
     margin: 0 0 1 0;
     width: 100%;
     align: left middle;
@@ -601,7 +601,7 @@ Switch {
 
 .settings-field Input {
     width: 1fr;
-    height: 1;
+    height: 3;
     margin: 0;
 }
 
@@ -612,7 +612,7 @@ Switch {
 
 .settings-field Select {
     width: 1fr;
-    height: 1;
+    height: 3;
     margin: 0;
 }
 
@@ -698,7 +698,7 @@ StatusBar > Horizontal {
 
 CommandInput {
     height: auto;
-    min-height: 1;
+    min-height: 3;
     max-height: 10;
     background: $surface-darken-1;
     border: tall $primary-darken-1;
@@ -815,11 +815,11 @@ ResultItem.-selected {
 
 #query-command-input {
     height: auto;
-    min-height: 1;
+    min-height: 3;
 }
 
 #query-command-input Input {
-    height: 1;
+    height: 3;
 }
 
 #query-results-panel {
@@ -914,12 +914,12 @@ ResultItem.-selected {
 
 #remote-controls Input {
     width: 1fr;
-    height: 1;
+    height: 3;
 }
 
 #remote-controls Select {
     width: 1fr;
-    height: 1;
+    height: 3;
 }
 
 /* ============================================================================
@@ -1096,4 +1096,127 @@ ResultItem.-selected {
     background: $surface;
     border: round $primary-darken-1;
     padding: 1;
+}
+
+/* ============================================================================
+ * Density: Compact Overrides
+ * ============================================================================ */
+
+.density-compact ContentTabs {
+    height: 2;
+}
+
+.density-compact TabPane {
+    padding: 0 1;
+}
+
+.density-compact Tab {
+    padding: 0 2;
+    height: 2;
+}
+
+.density-compact .settings-panel {
+    padding: 0 1;
+}
+
+.density-compact .settings-section {
+    margin-bottom: 1;
+    padding: 0 1;
+}
+
+.density-compact #settings-screen {
+    padding: 1;
+}
+
+.density-compact .settings-field {
+    min-height: 2;
+}
+
+.density-compact .settings-field Input {
+    height: 1;
+}
+
+.density-compact .settings-field Select {
+    height: 1;
+}
+
+.density-compact .bottom-pane {
+    min-height: 1;
+}
+
+.density-compact .command-input {
+    min-height: 1;
+}
+
+.density-compact CommandInput {
+    min-height: 1;
+}
+
+.density-compact #query-command-input {
+    min-height: 1;
+}
+
+.density-compact #query-command-input Input {
+    height: 1;
+}
+
+.density-compact ProgressBar {
+    padding: 0 1;
+}
+
+.density-compact #remote-controls Input {
+    height: 1;
+}
+
+.density-compact #remote-controls Select {
+    height: 1;
+}
+
+/* ============================================================================
+ * Responsive: Narrow Terminal Fallback
+ * ============================================================================ */
+
+.density-narrow #query-top {
+    layout: vertical;
+}
+
+.density-narrow #query-results-panel {
+    width: 1fr;
+}
+
+.density-narrow #query-log-panel {
+    width: 1fr;
+    max-width: 100%;
+    margin-top: 1;
+}
+
+.density-narrow #remote-top {
+    layout: vertical;
+}
+
+.density-narrow #remote-left {
+    width: 1fr;
+    min-width: 0;
+}
+
+.density-narrow #remote-results-panel {
+    width: 1fr;
+    margin-top: 1;
+}
+
+.density-narrow #agents-top {
+    layout: vertical;
+}
+
+.density-narrow #agents-left {
+    width: 1fr;
+    min-width: 0;
+    max-width: 100%;
+    padding-right: 0;
+}
+
+.density-narrow #agents-log-panel {
+    width: 1fr;
+    min-width: 0;
+    margin-top: 1;
 }

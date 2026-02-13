@@ -68,6 +68,7 @@ QUERY_COMMANDS: Dict[str, str] = {
     "/clear": "Clear session filter",
     "/agent": "Run or inspect agent workflows",
     "/memory": "Manage agent memory candidates",
+    "/ui": "Inspect or change TUI UI settings",
 }
 
 # Subcommand completions
@@ -80,6 +81,10 @@ MEMORY_SUBCOMMANDS = ["candidates", "promote", "reject", "ttl"]
 AGENT_SUBCOMMANDS = ["start", "status", "pause", "resume", "stop", "log", "schedule", "meta"]
 AGENT_SCHEDULE_SUBCOMMANDS = ["add", "list", "enable", "disable", "remove", "status"]
 AGENT_META_SUBCOMMANDS = ["start", "status", "log"]
+UI_SUBCOMMANDS = ["density"]
+UI_DENSITY_VALUES = ["auto", "compact", "comfortable"]
+
+
 def get_commands(context: ContextType) -> Dict[str, str]:
     """
     Get available commands for a context.
@@ -244,6 +249,18 @@ def _get_argument_completions(
                 return ["<goal>"]
         return []
 
+    if cmd == "/ui":
+        parts = arg.split()
+        if has_trailing_space and arg:
+            parts.append("")
+        if not parts:
+            return list(UI_SUBCOMMANDS)
+        if len(parts) == 1:
+            return [item for item in UI_SUBCOMMANDS if item.startswith(parts[0])]
+        if parts[0] == "density" and len(parts) == 2:
+            return [mode for mode in UI_DENSITY_VALUES if mode.startswith(parts[1])]
+        return []
+
     # Build command
     if cmd == "/build":
         matches = [o for o in BUILD_OPTIONS if o.startswith(arg)]
@@ -306,6 +323,7 @@ def format_command_help(context: ContextType) -> str:
         "Operations": ["/build", "/tag", "/wipe", "/load"],
         "Query": ["/mode", "/show", "/expand", "/open", "/note", "/notes"],
         "Agents": ["/agent", "/memory"],
+        "UI": ["/ui"],
         "Providers": [
             "/providers", "/provider-status", "/model", "/models",
             "/vectordb-providers", "/vectordb-status",

@@ -1,4 +1,4 @@
-"""Compact layout regression tests for TUI CSS sizing."""
+"""Density layout regression tests for TUI CSS sizing."""
 
 from __future__ import annotations
 
@@ -30,48 +30,86 @@ def _assert_selector_has(css: str, selector: str, expected_line: str) -> None:
     )
 
 
-def test_compact_tab_and_pane_sizes() -> None:
-    """Tab controls should use compact heights and padding."""
+def test_comfortable_tab_and_pane_sizes_are_default() -> None:
+    """Comfortable mode should be the base/default tab sizing."""
     css = _styles_text()
-    _assert_selector_has(css, "ContentTabs", "height: 2;")
-    _assert_selector_has(css, "TabPane", "padding: 0 1;")
-    _assert_selector_has(css, "Tab", "padding: 0 2;")
-    _assert_selector_has(css, "Tab", "height: 2;")
+    _assert_selector_has(css, "ContentTabs", "height: 3;")
+    _assert_selector_has(css, "TabPane", "padding: 1 2;")
+    _assert_selector_has(css, "Tab", "padding: 1 2;")
+    _assert_selector_has(css, "Tab", "height: 3;")
 
 
-def test_compact_settings_dimensions() -> None:
-    """Settings screen fields should use compact spacing."""
+def test_compact_tab_and_pane_sizes_are_scoped() -> None:
+    """Compact tab sizing should only apply under density-compact root class."""
     css = _styles_text()
-    _assert_selector_has(css, "#settings-screen", "padding: 1;")
-    _assert_selector_has(css, ".settings-panel", "padding: 0 1;")
-    _assert_selector_has(css, ".settings-section", "margin-bottom: 1;")
-    _assert_selector_has(css, ".settings-section", "padding: 0 1;")
-    _assert_selector_has(css, ".settings-actions", "height: auto;")
-    _assert_selector_has(css, ".settings-field", "min-height: 2;")
-    _assert_selector_has(css, ".settings-field Input", "height: 1;")
-    _assert_selector_has(css, ".settings-field Select", "height: 1;")
+    _assert_selector_has(css, ".density-compact ContentTabs", "height: 2;")
+    _assert_selector_has(css, ".density-compact TabPane", "padding: 0 1;")
+    _assert_selector_has(css, ".density-compact Tab", "padding: 0 2;")
+    _assert_selector_has(css, ".density-compact Tab", "height: 2;")
 
 
-def test_compact_command_and_bottom_pane_dimensions() -> None:
-    """Command input containers should use compact minimum heights."""
+def test_comfortable_settings_dimensions_are_default() -> None:
+    """Settings screen should use comfortable spacing by default."""
     css = _styles_text()
-    _assert_selector_has(css, ".bottom-pane", "min-height: 1;")
-    _assert_selector_has(css, ".command-input", "min-height: 1;")
-    _assert_selector_has(css, "CommandInput", "min-height: 1;")
-    _assert_selector_has(css, "#query-command-input", "min-height: 1;")
-    _assert_selector_has(css, "#query-command-input Input", "height: 1;")
+    _assert_selector_has(css, "#settings-screen", "padding: 2;")
+    _assert_selector_has(css, ".settings-panel", "padding: 1 2;")
+    _assert_selector_has(css, ".settings-section", "margin-bottom: 2;")
+    _assert_selector_has(css, ".settings-section", "padding: 1;")
+    _assert_selector_has(css, ".settings-field", "min-height: 3;")
+    _assert_selector_has(css, ".settings-field Input", "height: 3;")
+    _assert_selector_has(css, ".settings-field Select", "height: 3;")
 
 
-def test_compact_progress_and_remote_controls() -> None:
-    """Progress bar and remote controls should use compact sizing."""
+def test_compact_settings_dimensions_are_scoped() -> None:
+    """Compact settings spacing should only apply under density-compact."""
     css = _styles_text()
-    _assert_selector_has(css, "ProgressBar", "padding: 0 1;")
-    _assert_selector_has(css, "#remote-controls Input", "height: 1;")
-    _assert_selector_has(css, "#remote-controls Select", "height: 1;")
+    _assert_selector_has(css, ".density-compact #settings-screen", "padding: 1;")
+    _assert_selector_has(css, ".density-compact .settings-panel", "padding: 0 1;")
+    _assert_selector_has(css, ".density-compact .settings-section", "margin-bottom: 1;")
+    _assert_selector_has(css, ".density-compact .settings-section", "padding: 0 1;")
+    _assert_selector_has(css, ".density-compact .settings-field", "min-height: 2;")
+    _assert_selector_has(css, ".density-compact .settings-field Input", "height: 1;")
+    _assert_selector_has(css, ".density-compact .settings-field Select", "height: 1;")
+
+
+def test_comfortable_and_compact_command_dimensions() -> None:
+    """Command/bottom pane dimensions should have comfortable defaults and compact overrides."""
+    css = _styles_text()
+    _assert_selector_has(css, ".bottom-pane", "min-height: 3;")
+    _assert_selector_has(css, ".command-input", "min-height: 3;")
+    _assert_selector_has(css, "CommandInput", "min-height: 3;")
+    _assert_selector_has(css, "#query-command-input", "min-height: 3;")
+    _assert_selector_has(css, "#query-command-input Input", "height: 3;")
+
+    _assert_selector_has(css, ".density-compact .bottom-pane", "min-height: 1;")
+    _assert_selector_has(css, ".density-compact .command-input", "min-height: 1;")
+    _assert_selector_has(css, ".density-compact CommandInput", "min-height: 1;")
+    _assert_selector_has(css, ".density-compact #query-command-input", "min-height: 1;")
+    _assert_selector_has(css, ".density-compact #query-command-input Input", "height: 1;")
+
+
+def test_progress_and_remote_control_compact_overrides_are_scoped() -> None:
+    """Progress and remote controls should only use compact heights under compact class."""
+    css = _styles_text()
+    _assert_selector_has(css, "ProgressBar", "padding: 1;")
+    _assert_selector_has(css, "#remote-controls Input", "height: 3;")
+    _assert_selector_has(css, "#remote-controls Select", "height: 3;")
+
+    _assert_selector_has(css, ".density-compact ProgressBar", "padding: 0 1;")
+    _assert_selector_has(css, ".density-compact #remote-controls Input", "height: 1;")
+    _assert_selector_has(css, ".density-compact #remote-controls Select", "height: 1;")
+
+
+def test_narrow_breakpoint_rules_exist() -> None:
+    """Narrow-terminal layout fallbacks should be present."""
+    css = _styles_text()
+    _assert_selector_has(css, ".density-narrow #query-top", "layout: vertical;")
+    _assert_selector_has(css, ".density-narrow #remote-top", "layout: vertical;")
+    _assert_selector_has(css, ".density-narrow #agents-top", "layout: vertical;")
 
 
 def test_global_input_and_select_do_not_force_compact_height() -> None:
-    """Global input/select selectors should not force height=1."""
+    """Global input/select selectors should not force compact height=1."""
     css = _styles_text()
     input_bodies = _selector_bodies(css, "Input")
     select_bodies = _selector_bodies(css, "Select")
@@ -87,8 +125,8 @@ def test_global_input_and_select_do_not_force_compact_height() -> None:
     )
 
 
-def test_command_input_default_css_uses_compact_min_height() -> None:
-    """Widget default CSS should match compact CommandInput minimum height."""
+def test_command_input_default_css_uses_comfortable_min_height() -> None:
+    """Widget default CSS should use comfortable minimum height."""
     from lsm.ui.tui.widgets.input import CommandInput
 
-    assert "min-height: 1;" in CommandInput.DEFAULT_CSS
+    assert "min-height: 3;" in CommandInput.DEFAULT_CSS

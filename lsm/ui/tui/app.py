@@ -10,14 +10,16 @@ Provides a rich terminal interface using Textual with:
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Optional, Literal, TYPE_CHECKING
+from typing import Optional, Literal, TYPE_CHECKING, cast
 import logging
 import sys
 
 from textual.app import App, ComposeResult
 from textual.binding import Binding
+from textual import events
 from textual.widgets import Header, Footer, TabbedContent, TabPane, RichLog
 from textual.reactive import reactive
+from textual.timer import Timer
 
 from lsm.logging import get_logger
 from lsm.ui.tui.widgets.status import StatusBar
@@ -29,6 +31,8 @@ logger = get_logger(__name__)
 
 # Type alias for context
 ContextType = Literal["ingest", "query", "settings", "remote", "agents"]
+DensityMode = Literal["auto", "compact", "comfortable"]
+EffectiveDensity = Literal["compact", "comfortable"]
 
 
 class LSMApp(App):
@@ -42,6 +46,13 @@ class LSMApp(App):
     SUB_TITLE = "Personal Knowledge Management"
 
     CSS_PATH = "styles.tcss"
+
+    _DENSITY_AUTO_COMPACT_MAX_WIDTH = 100
+    _DENSITY_AUTO_COMPACT_MAX_HEIGHT = 32
+    _DENSITY_AUTO_COMFORTABLE_MIN_WIDTH = 106
+    _DENSITY_AUTO_COMFORTABLE_MIN_HEIGHT = 34
+    _DENSITY_NARROW_MAX_WIDTH = 100
+    _DENSITY_RESIZE_DEBOUNCE_SECONDS = 0.15
 
     BINDINGS = [
         Binding("ctrl+n", "switch_ingest", "Ingest", show=False),
@@ -83,6 +94,17 @@ class LSMApp(App):
         self._query_provider = None
         self._query_state = None
 
+        configured_density = cast(
+            str,
+            getattr(getattr(self.config, "global_settings", None), "tui_density_mode", "auto"),
+        ).strip().lower()
+        if configured_density not in {"auto", "compact", "comfortable"}:
+            configured_density = "auto"
+        self._density_mode: DensityMode = cast(DensityMode, configured_density)
+        self._effective_density: EffectiveDensity = "comfortable"
+        self._pending_resize_dimensions: tuple[int, int] | None = None
+        self._density_resize_timer: Timer | None = None
+
     def compose(self) -> ComposeResult:
         """Compose the application layout."""
         yield Header(show_clock=True, icon="")
@@ -123,6 +145,9 @@ class LSMApp(App):
             self.current_context = "query"
         except Exception:
             pass
+        width, height = self._terminal_size()
+        self._update_responsive_classes(width, height)
+        self._apply_density_mode(force=True)
         self._setup_tui_logging()
         logger.info("Query context initialization is lazy and will run on first query.")
 
@@ -190,6 +215,161 @@ class LSMApp(App):
                 callback()
                 return
             raise
+
+    # -------------------------------------------------------------------------
+    # Density and Responsive Layout
+    # -------------------------------------------------------------------------
+
+    @property
+    def density_mode(self) -> DensityMode:
+        """Configured density mode (auto, compact, comfortable)."""
+        return self._density_mode
+
+    @property
+    def effective_density(self) -> EffectiveDensity:
+        """Effective runtime density (compact or comfortable)."""
+        return self._effective_density
+
+    def density_status_text(self) -> str:
+        """Return a human-readable status summary for density settings."""
+        width, height = self._terminal_size()
+        return (
+            f"TUI density mode: {self._density_mode}\n"
+            f"Active density: {self._effective_density}\n"
+            f"Terminal size: {width}x{height}\n"
+            "Auto thresholds: compact when width <= 100 or height <= 32."
+        )
+
+    def set_density_mode(self, mode: str) -> tuple[bool, str]:
+        """
+        Set the configured TUI density mode.
+
+        Args:
+            mode: One of auto, compact, comfortable.
+
+        Returns:
+            Tuple of success flag and status message.
+        """
+        normalized = mode.strip().lower()
+        if normalized not in {"auto", "compact", "comfortable"}:
+            return (
+                False,
+                "Invalid density mode. Use: auto, compact, comfortable.",
+            )
+
+        self._density_mode = cast(DensityMode, normalized)
+
+        # Keep config in sync so save operations persist the latest mode choice.
+        global_settings = getattr(self.config, "global_settings", None)
+        if global_settings is not None and hasattr(global_settings, "tui_density_mode"):
+            global_settings.tui_density_mode = self._density_mode
+
+        if self._density_mode != "auto":
+            if self._density_resize_timer is not None:
+                self._density_resize_timer.stop()
+                self._density_resize_timer = None
+            self._pending_resize_dimensions = None
+
+        self._apply_density_mode(force=True)
+        return (True, self.density_status_text())
+
+    def on_resize(self, event: events.Resize) -> None:
+        """Handle terminal resize events for responsive layout and auto density."""
+        width = int(getattr(event.size, "width", 0))
+        height = int(getattr(event.size, "height", 0))
+        self._update_responsive_classes(width, height)
+        if self._density_mode == "auto":
+            self._schedule_auto_density_recalc(width, height)
+
+    def _schedule_auto_density_recalc(self, width: int, height: int) -> None:
+        """Debounce auto-density updates while the terminal is being resized."""
+        self._pending_resize_dimensions = (width, height)
+        if self._density_resize_timer is not None:
+            self._density_resize_timer.stop()
+        self._density_resize_timer = self.set_timer(
+            self._DENSITY_RESIZE_DEBOUNCE_SECONDS,
+            self._apply_pending_auto_density,
+        )
+
+    def _apply_pending_auto_density(self) -> None:
+        """Apply auto density using the most recent pending terminal size."""
+        self._density_resize_timer = None
+        if self._density_mode != "auto":
+            self._pending_resize_dimensions = None
+            return
+        width, height = self._pending_resize_dimensions or self._terminal_size()
+        self._pending_resize_dimensions = None
+        self._apply_density_mode(width=width, height=height)
+
+    def _apply_density_mode(
+        self,
+        *,
+        width: int | None = None,
+        height: int | None = None,
+        force: bool = False,
+    ) -> None:
+        """Compute and apply the effective density class."""
+        if width is None or height is None:
+            width, height = self._terminal_size()
+
+        if self._density_mode == "auto":
+            effective = self._resolve_auto_density(width, height)
+        else:
+            effective = cast(EffectiveDensity, self._density_mode)
+
+        self._set_effective_density(effective, force=force)
+
+    def _resolve_auto_density(self, width: int, height: int) -> EffectiveDensity:
+        """
+        Resolve auto density from terminal dimensions with hysteresis.
+
+        Hysteresis behavior:
+        - Enter compact when width <= 100 or height <= 32.
+        - Exit compact only when width >= 106 and height >= 34.
+        """
+        if self._effective_density == "compact":
+            if (
+                width >= self._DENSITY_AUTO_COMFORTABLE_MIN_WIDTH
+                and height >= self._DENSITY_AUTO_COMFORTABLE_MIN_HEIGHT
+            ):
+                return "comfortable"
+            return "compact"
+
+        if (
+            width <= self._DENSITY_AUTO_COMPACT_MAX_WIDTH
+            or height <= self._DENSITY_AUTO_COMPACT_MAX_HEIGHT
+        ):
+            return "compact"
+        return "comfortable"
+
+    def _set_effective_density(self, density: EffectiveDensity, *, force: bool = False) -> None:
+        """Apply effective density by toggling root CSS classes."""
+        if not force and density == self._effective_density:
+            return
+
+        self._effective_density = density
+        self.remove_class("density-compact")
+        self.remove_class("density-comfortable")
+        self.add_class(f"density-{density}")
+
+    def _terminal_size(self) -> tuple[int, int]:
+        """Return current terminal width/height with safe defaults."""
+        size = getattr(self, "size", None)
+        width = int(getattr(size, "width", 0) or 0)
+        height = int(getattr(size, "height", 0) or 0)
+        if width <= 0 or height <= 0:
+            return (
+                self._DENSITY_AUTO_COMPACT_MAX_WIDTH + 1,
+                self._DENSITY_AUTO_COMPACT_MAX_HEIGHT + 1,
+            )
+        return (width, height)
+
+    def _update_responsive_classes(self, width: int, _height: int) -> None:
+        """Apply responsive breakpoint classes for narrow terminals."""
+        if width <= self._DENSITY_NARROW_MAX_WIDTH:
+            self.add_class("density-narrow")
+        else:
+            self.remove_class("density-narrow")
 
     # -------------------------------------------------------------------------
     # Provider Initialization (lazy, async-friendly)

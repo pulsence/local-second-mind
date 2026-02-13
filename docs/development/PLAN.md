@@ -21,7 +21,7 @@ The TUI uses oversized defaults (3-line tabs, 3-line min-height fields, generous
 too much vertical space on a standard 24-30 row Windows command prompt. This phase reduces element sizes
 and adds a compact layout mode.
 
-### 1.1: Audit and Reduce Default Sizes
+### 1.1: Audit and Reduce Default Sizes (COMPLETED)
 
 Reduce the size of all oversized elements in the CSS. The goal is to make the TUI comfortably usable in
 an 80x24 terminal window.
@@ -53,7 +53,7 @@ an 80x24 terminal window.
 **Post-block:** Manual testing on 80x24 terminal, adjust any clipping. Tests in
 `tests/test_ui/tui/test_compact_layout.py`, run `pytest tests/ -v`, update docs, commit.
 
-### 1.1.1: Add Density Mode (Compact vs Comfortable vs Auto)
+### 1.1.1: Add Density Mode (Compact vs Comfortable vs Auto) (COMPLETED)
 
 The plan should provide a true mode toggle, not only hard-coded compact defaults.
 

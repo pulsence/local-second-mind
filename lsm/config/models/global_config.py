@@ -9,7 +9,7 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Literal
 
 from lsm.paths import get_global_folder
 
@@ -43,6 +43,9 @@ class GlobalConfig:
 
     embedding_dimension: Optional[int] = None
     """Embedding vector dimension. Auto-detected from well-known models if None."""
+
+    tui_density_mode: Literal["auto", "compact", "comfortable"] = "auto"
+    """TUI layout density mode: auto, compact, or comfortable."""
 
     def __post_init__(self):
         """Normalize paths and load environment variable overrides."""
@@ -89,4 +92,9 @@ class GlobalConfig:
         if device_base not in valid_devices:
             raise ValueError(
                 f"device must start with one of {valid_devices}, got '{self.device}'"
+            )
+
+        if self.tui_density_mode not in {"auto", "compact", "comfortable"}:
+            raise ValueError(
+                "tui_density_mode must be one of {'auto', 'compact', 'comfortable'}"
             )

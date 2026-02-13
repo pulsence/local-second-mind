@@ -547,3 +547,71 @@ class TestLSMAppBehavior:
 
         monkeypatch.setattr(LSMApp, "run", lambda self: None)
         assert run_tui(_build_config(tmp_path)) == 0
+
+
+class TestLSMAppDensity:
+    def test_defaults_to_auto_density_mode(self, tmp_path: Path):
+        from lsm.ui.tui.app import LSMApp
+
+        app = LSMApp(_build_config(tmp_path))
+        assert app.density_mode == "auto"
+        assert app.effective_density in {"compact", "comfortable"}
+
+    def test_reads_configured_density_mode(self, tmp_path: Path):
+        from lsm.ui.tui.app import LSMApp
+
+        cfg = _build_config(tmp_path)
+        cfg.global_settings = SimpleNamespace(tui_density_mode="compact")
+        app = LSMApp(cfg)
+        app._apply_density_mode(force=True)
+
+        assert app.density_mode == "compact"
+        assert app.effective_density == "compact"
+
+    def test_set_density_mode_updates_effective_density_and_config(self, tmp_path: Path):
+        from lsm.ui.tui.app import LSMApp
+
+        cfg = _build_config(tmp_path)
+        cfg.global_settings = SimpleNamespace(tui_density_mode="auto")
+        app = LSMApp(cfg)
+
+        success, _ = app.set_density_mode("comfortable")
+        assert success is True
+        assert app.density_mode == "comfortable"
+        assert app.effective_density == "comfortable"
+        assert cfg.global_settings.tui_density_mode == "comfortable"
+
+        success, message = app.set_density_mode("invalid")
+        assert success is False
+        assert "Invalid density mode" in message
+
+    def test_auto_density_hysteresis_logic(self, tmp_path: Path):
+        from lsm.ui.tui.app import LSMApp
+
+        app = LSMApp(_build_config(tmp_path))
+        app._effective_density = "comfortable"
+        assert app._resolve_auto_density(99, 40) == "compact"
+
+        app._effective_density = "compact"
+        # Hysteresis should retain compact until both dimensions are above exit thresholds.
+        assert app._resolve_auto_density(104, 40) == "compact"
+        assert app._resolve_auto_density(120, 33) == "compact"
+        assert app._resolve_auto_density(110, 40) == "comfortable"
+
+    def test_on_resize_updates_narrow_class_and_auto_density(self, tmp_path: Path):
+        from lsm.ui.tui.app import LSMApp
+
+        app = LSMApp(_build_config(tmp_path))
+        app.set_density_mode("auto")
+
+        called = {"count": 0}
+        app._schedule_auto_density_recalc = lambda _w, _h: called.__setitem__("count", called["count"] + 1)  # type: ignore[assignment]
+        event = SimpleNamespace(size=SimpleNamespace(width=90, height=40))
+
+        app.on_resize(event)
+        assert called["count"] == 1
+        assert app.has_class("density-narrow")
+
+        event_wide = SimpleNamespace(size=SimpleNamespace(width=120, height=40))
+        app.on_resize(event_wide)
+        assert app.has_class("density-narrow") is False

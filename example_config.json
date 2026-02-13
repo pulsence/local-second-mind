@@ -7,7 +7,8 @@
     "embed_model": "sentence-transformers/all-MiniLM-L6-v2",
     "device": "cpu",
     "batch_size": 32,
-    "embedding_dimension": null
+    "embedding_dimension": null,
+    "tui_density_mode": "auto"
   },
 
   "_comment_ingest": "Ingest pipeline configuration",

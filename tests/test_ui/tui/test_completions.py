@@ -42,6 +42,7 @@ class TestGetCommands:
         commands = get_commands("query")
         assert "/mode" in commands
         assert "/memory" in commands
+        assert "/ui" in commands
         assert "/show" in commands
         assert "/expand" in commands
         assert "/costs" in commands
@@ -128,6 +129,18 @@ class TestGetCompletions:
         assert "promote" in completions
         assert "reject" in completions
         assert "ttl" in completions
+
+    def test_ui_command_suggests_density_subcommand(self):
+        """UI command should suggest available UI subcommands."""
+        completions = get_completions("/ui ", "query")
+        assert "density" in completions
+
+    def test_ui_density_suggests_modes(self):
+        """UI density should suggest valid density modes."""
+        completions = get_completions("/ui density ", "query")
+        assert "auto" in completions
+        assert "compact" in completions
+        assert "comfortable" in completions
 
     def test_agent_command_suggests_schedule_subcommands(self):
         """Agent command should suggest scheduler subcommands."""

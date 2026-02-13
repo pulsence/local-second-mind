@@ -76,6 +76,7 @@ def test_build_global_config_defaults() -> None:
     assert cfg.embed_model == "sentence-transformers/all-MiniLM-L6-v2"
     assert cfg.device == "cpu"
     assert cfg.batch_size == 32
+    assert cfg.tui_density_mode == "auto"
 
 
 def test_build_global_config_custom_values() -> None:
@@ -85,11 +86,13 @@ def test_build_global_config_custom_values() -> None:
             "embed_model": "custom-model",
             "device": "cuda:0",
             "batch_size": 64,
+            "tui_density_mode": "compact",
         }
     })
     assert cfg.embed_model == "custom-model"
     assert cfg.device == "cuda:0"
     assert cfg.batch_size == 64
+    assert cfg.tui_density_mode == "compact"
     assert isinstance(cfg.global_folder, Path)
 
 
@@ -111,12 +114,14 @@ def test_build_config_reads_global_settings(tmp_path: Path) -> None:
     raw["global"]["embed_model"] = "custom-model"
     raw["global"]["device"] = "cuda:0"
     raw["global"]["batch_size"] = 128
+    raw["global"]["tui_density_mode"] = "comfortable"
 
     config = build_config_from_raw(raw, tmp_path / "config.json")
 
     assert config.global_settings.embed_model == "custom-model"
     assert config.global_settings.device == "cuda:0"
     assert config.global_settings.batch_size == 128
+    assert config.global_settings.tui_density_mode == "comfortable"
     # Shortcut properties delegate to global_settings
     assert config.embed_model == "custom-model"
     assert config.device == "cuda:0"
@@ -182,6 +187,7 @@ def test_config_to_raw_uses_global_and_ingest_sections(tmp_path: Path) -> None:
     assert "device" in serialized["global"]
     assert "batch_size" in serialized["global"]
     assert "global_folder" in serialized["global"]
+    assert "tui_density_mode" in serialized["global"]
 
     # Ingest section exists with expected fields
     assert "ingest" in serialized
