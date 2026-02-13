@@ -124,6 +124,14 @@ All notable changes to Local Second Mind are documented here.
   - new `MetaAgent` in `lsm/agents/meta.py` that converts user goals into deterministic task graphs and dependency-ordered execution plans (planning-only core mode)
   - `meta` agent registration in `lsm/agents/factory.py` and framework exports in `lsm/agents/__init__.py`
   - coverage in `tests/test_agents/test_task_graph.py` and `tests/test_agents/test_meta_agent.py`
+- Meta-agent system tools:
+  - new `spawn_agent` tool in `lsm/agents/tools/spawn_agent.py` for launching sub-agent runs
+  - new `await_agent` tool in `lsm/agents/tools/await_agent.py` for blocking until a spawned run completes
+  - new `collect_artifacts` tool in `lsm/agents/tools/collect_artifacts.py` for retrieving spawned-run artifacts by glob pattern
+  - default tool registry registration and exports for all three tools
+- Meta-agent phase 6.2 coverage:
+  - `tests/test_agents/test_meta_tools.py`
+  - `tests/test_agents/test_sandbox_monotone.py`
 
 ### Changed
 
@@ -134,6 +142,13 @@ All notable changes to Local Second Mind are documented here.
 - `AgentHarness` action-loop flow now records permission decisions and tool execution telemetry for run-summary generation.
 - Query/TUI command handling now supports `/memory` command workflows in addition to `/agent`.
 - `create_default_tool_registry()` now registers memory tools when memory is enabled and a memory store is supplied; shell agent startup initializes and injects the configured memory backend.
+- `AgentHarness` now supports spawned sub-agent execution with runtime tracking (`spawn_sub_agent`, `await_sub_agent`, `collect_sub_agent_artifacts`) and per-sub-agent scoped work areas.
+- `ToolSandbox` global-subset validation now enforces monotonicity across:
+  - `allow_url_access`
+  - `force_docker`
+  - `execution_mode`
+  - `require_user_permission` and `require_permission_by_risk` gates
+  - runtime limits (`timeout_s_default`, `max_stdout_kb`, `max_file_write_mb`)
 - Moved shared LLM business logic into `BaseLLMProvider` concrete methods:
   - `rerank(...)`
   - `synthesize(...)`

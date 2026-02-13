@@ -89,6 +89,11 @@
     It's also just a nicer cat for codebases.
     ```
   - Leverage file grapher in finding sections and editing sections.
+  - All of this is fundamentally a more advanced version of str_replace/apply_patch designed around the
+    unique characteristics of LLMs.
+  - Edit should fail if it cannot find the place to replace. On an edit fail it should let the LLM know
+    in a descriptive way so it can more intellegently retry.
+  - Extensive testing needs to be done to see if this is more effecient than replace()
   - Find_File tool should file by name or content in file
   - Find_Section tool should find section in specified file or find file with related sections
 - Enable Meta-Agent to decide when to run sub agents in parallel instead
@@ -132,6 +137,16 @@
 - Add support for OpenRouter
 - Analyze how to best specify which LLM to use for different features. Something like tiered
   configuration based upon how advanced an AI is needed for a particular service/feature.
+  - For example: quick, normal, complex. For each tier a model can be specified, and then a
+    whenever an LLM needs to be used, the particular service/tool/agent/usage case first
+    check is a model has been explicitly set for its usage, or otherwise selects the model
+    from the tier that it needs.
+  - So tagging and rerank would use "quick" is they did not have a model set in the services
+    config model.
+  - This can be baked in the config loading, where after the tiers and services are loaded,
+    whichever services are left undefined then the tiered models are mapped to the services.
+  - The pre-baking of service models requires that every loaded tool/agent/etc. that uses
+    a model to also specify in advance what tier level they need. 
 
 #### Remote Source Providers
 - Generic RSS Reader that can cache past reads and download latest items

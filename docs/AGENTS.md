@@ -43,6 +43,9 @@ Tooling:
 - `lsm/agents/tools/sandbox.py`: `ToolSandbox` permission enforcement + runner policy
 - `lsm/agents/tools/runner.py`: base runner interface + `LocalRunner`
 - `lsm/agents/tools/docker_runner.py`: `DockerRunner` foundation
+- `lsm/agents/tools/spawn_agent.py`: meta-system tool for sub-agent spawning
+- `lsm/agents/tools/await_agent.py`: meta-system tool for sub-agent completion waits
+- `lsm/agents/tools/collect_artifacts.py`: meta-system tool for sub-agent artifact collection
 - `lsm/agents/tools/*.py`: built-in tool implementations
 - Tool metadata includes `risk_level`, `preferred_runner`, and `needs_network`
 
@@ -189,6 +192,9 @@ Default tool registry (`create_default_tool_registry`) includes:
 - `query_remote` (`risk_level=network`, `needs_network=true`)
 - `query_remote_chain` (`risk_level=network`, `needs_network=true`)
 - `memory_search` (`risk_level=read_only`) (registered when memory is enabled and a memory backend is provided to the default registry)
+- `spawn_agent` (`risk_level=exec`, `requires_permission=true`)
+- `await_agent` (`risk_level=exec`, `requires_permission=true`)
+- `collect_artifacts` (`risk_level=exec`, `requires_permission=true`)
 
 `ToolRegistry` also supports risk-based inspection with:
 
@@ -263,6 +269,13 @@ Core (Phase 6.1) behavior:
 - plans orchestration graph only (does not execute sub-agent domain work directly)
 - supports structured JSON goals with explicit tasks/dependencies
 - supports deterministic fallback planning from plain-text goals
+
+Meta-system tooling (Phase 6.2):
+
+- `spawn_agent` starts sub-agent harness runs
+- `await_agent` blocks on sub-agent completion
+- `collect_artifacts` returns sub-agent artifact paths (optionally filtered by glob)
+- sub-agent sandboxes are derived as monotone subsets of the parent sandbox (paths, network, permission gates, runner policy, and limits cannot be widened)
 
 ## TUI Usage
 

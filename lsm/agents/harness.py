@@ -4,25 +4,45 @@ Agent runtime harness for executing tool-using agent loops.
 
 from __future__ import annotations
 
+import fnmatch
 import json
 import threading
 import time
+from dataclasses import dataclass, replace
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, Optional, Set
 
 from lsm.config.models import AgentConfig, LLMRegistryConfig, VectorDBConfig
+from lsm.config.models.agents import SandboxConfig
 from lsm.logging import get_logger
 from lsm.providers.factory import create_provider
 
 from .log_redactor import redact_secrets
 from .base import AgentState, AgentStatus
+from .factory import create_agent
 from .memory import BaseMemoryStore, MemoryContextBuilder, create_memory_store
 from .models import AgentContext, AgentLogEntry, ToolResponse
 from .tools.base import ToolRegistry
 from .tools.sandbox import ToolSandbox
 
 logger = get_logger(__name__)
+
+
+@dataclass
+class _SubAgentRun:
+    """
+    In-memory tracking record for a spawned sub-agent.
+    """
+
+    agent_id: str
+    agent_name: str
+    params: Dict[str, Any]
+    harness: AgentHarness
+    thread: threading.Thread
+    created_at: datetime
+    completed_at: Optional[datetime] = None
+    error: Optional[str] = None
 
 
 class AgentHarness:
@@ -63,8 +83,12 @@ class AgentHarness:
         self._tool_usage_counts: Dict[str, int] = {}
         self._tool_sequence: list[str] = []
         self._permission_events: list[Dict[str, Any]] = []
+        self._sub_agent_runs: Dict[str, _SubAgentRun] = {}
+        self._sub_agent_counter = 0
+        self._meta_tool_names = {"spawn_agent", "await_agent", "collect_artifacts"}
 
         self._initialize_memory_context_builder(memory_context_builder)
+        self._bind_runtime_tools()
 
     def run(self, initial_context: AgentContext) -> AgentState:
         """
@@ -254,6 +278,15 @@ class AgentHarness:
     def stop(self) -> None:
         """Stop execution and persist state."""
         self._stop_event.set()
+        for run in list(self._sub_agent_runs.values()):
+            try:
+                run.harness.stop()
+            except Exception:
+                logger.exception(
+                    "Failed to stop spawned sub-agent '%s' (%s)",
+                    run.agent_name,
+                    run.agent_id,
+                )
         self.state.set_status(AgentStatus.COMPLETED)
         self.save_state()
 
@@ -264,6 +297,181 @@ class AgentHarness:
     def get_workspace_path(self) -> Optional[Path]:
         """Return the per-run workspace path."""
         return self._workspace_path
+
+    def spawn_sub_agent(self, agent_name: str, params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        """
+        Start a sub-agent run in a background thread.
+
+        Args:
+            agent_name: Registered sub-agent name.
+            params: Optional run parameters.
+
+        Returns:
+            Spawn record payload with run identifier and state.
+        """
+        normalized_name = str(agent_name or "").strip().lower()
+        if not normalized_name:
+            raise ValueError("agent_name is required")
+        normalized_params = dict(params or {})
+
+        with self._lock:
+            self._ensure_state_path()
+            if self._run_root is None or self._workspace_path is None:
+                raise RuntimeError("Harness run paths are not initialized")
+            self._sub_agent_counter += 1
+            agent_id = f"{normalized_name}_{self._sub_agent_counter:03d}"
+            sub_root = self._run_root / "sub_agents" / agent_id
+
+        sub_root.mkdir(parents=True, exist_ok=True)
+
+        child_sandbox = self._build_sub_agent_sandbox(
+            sub_root=sub_root,
+            shared_workspace=self._workspace_path,
+            params=normalized_params,
+        )
+        child_registry = self._build_sub_agent_tool_registry()
+        child_agent_config = replace(self.agent_config, agents_folder=sub_root)
+        child_agent = create_agent(
+            name=normalized_name,
+            llm_registry=self.llm_registry,
+            tool_registry=child_registry,
+            sandbox=child_sandbox,
+            agent_config=child_agent_config,
+        )
+        effective_agent_config = getattr(child_agent, "agent_config", child_agent_config)
+        child_allowlist = self._derive_sub_agent_allowlist(
+            child_registry=child_registry,
+            child_agent=child_agent,
+            params=normalized_params,
+            child_sandbox=child_sandbox,
+        )
+
+        child_harness = AgentHarness(
+            effective_agent_config,
+            child_registry,
+            self.llm_registry,
+            child_sandbox,
+            agent_name=normalized_name,
+            tool_allowlist=child_allowlist,
+            vectordb_config=self.vectordb_config,
+            memory_store=self.memory_store,
+            memory_context_builder=self.memory_context_builder,
+        )
+        topic = str(
+            normalized_params.get("topic", normalized_params.get("goal", ""))
+        ).strip() or f"Sub-agent run: {normalized_name}"
+        context = AgentContext(
+            messages=[{"role": "user", "content": topic}],
+            budget_tracking={
+                "tokens_used": 0,
+                "max_tokens_budget": int(effective_agent_config.max_tokens_budget),
+                "iterations": 0,
+                "started_at": datetime.utcnow().isoformat(),
+                "spawned_by": self.agent_name,
+                "spawn_parent_state": str(self._state_path) if self._state_path else None,
+            },
+        )
+
+        thread = threading.Thread(
+            target=self._run_sub_agent_thread,
+            args=(agent_id, child_harness, context),
+            daemon=True,
+            name=f"SubAgent-{agent_id}",
+        )
+        run_record = _SubAgentRun(
+            agent_id=agent_id,
+            agent_name=normalized_name,
+            params=normalized_params,
+            harness=child_harness,
+            thread=thread,
+            created_at=datetime.utcnow(),
+        )
+        with self._lock:
+            self._sub_agent_runs[agent_id] = run_record
+
+        thread.start()
+        self.state.add_artifact(str(sub_root))
+        return {
+            "agent_id": agent_id,
+            "agent_name": normalized_name,
+            "status": "running",
+            "sub_agent_root": str(sub_root),
+            "topic": topic,
+        }
+
+    def await_sub_agent(
+        self,
+        agent_id: str,
+        *,
+        timeout_seconds: Optional[float] = None,
+    ) -> Dict[str, Any]:
+        """
+        Wait for a spawned sub-agent run to finish.
+
+        Args:
+            agent_id: Spawned run identifier.
+            timeout_seconds: Optional wait timeout.
+
+        Returns:
+            Completion payload with status and artifact summary.
+        """
+        run = self._get_sub_agent_run(agent_id)
+        timeout = None if timeout_seconds is None else max(0.001, float(timeout_seconds))
+        run.thread.join(timeout=timeout)
+        done = not run.thread.is_alive()
+
+        state = run.harness.state
+        status_value = (
+            str(state.status.value) if hasattr(state.status, "value") else str(state.status)
+        )
+        if not done:
+            status_value = "running"
+
+        artifacts = list(state.artifacts) if done else []
+        if done:
+            for artifact in artifacts:
+                self.state.add_artifact(str(artifact))
+
+        return {
+            "agent_id": run.agent_id,
+            "agent_name": run.agent_name,
+            "done": done,
+            "status": status_value,
+            "error": run.error,
+            "created_at": run.created_at.isoformat(),
+            "completed_at": run.completed_at.isoformat() if run.completed_at else None,
+            "artifacts": artifacts,
+            "state_path": (
+                str(run.harness.get_state_path())
+                if run.harness.get_state_path() is not None
+                else None
+            ),
+        }
+
+    def collect_sub_agent_artifacts(self, agent_id: str, *, pattern: str = "*") -> list[str]:
+        """
+        Collect artifacts produced by a spawned sub-agent.
+
+        Args:
+            agent_id: Spawned run identifier.
+            pattern: Optional glob for filtering artifact paths.
+
+        Returns:
+            Matching artifact paths.
+        """
+        run = self._get_sub_agent_run(agent_id)
+        glob = str(pattern or "*").strip() or "*"
+        artifacts = list(run.harness.state.artifacts)
+        filtered: list[str] = []
+        for artifact in artifacts:
+            value = str(artifact).strip()
+            if not value:
+                continue
+            path = Path(value)
+            if fnmatch.fnmatch(value, glob) or fnmatch.fnmatch(path.name, glob):
+                filtered.append(value)
+                self.state.add_artifact(value)
+        return filtered
 
     def save_state(self) -> Optional[Path]:
         """
@@ -495,6 +703,166 @@ class AgentHarness:
         summary_path.write_text(json.dumps(summary, indent=2), encoding="utf-8")
         self.state.add_artifact(str(summary_path))
         return summary_path
+
+    def _bind_runtime_tools(self) -> None:
+        for tool in self.tool_registry.list_tools():
+            binder = getattr(tool, "bind_harness", None)
+            if callable(binder):
+                binder(self)
+
+    def _run_sub_agent_thread(
+        self,
+        agent_id: str,
+        sub_harness: AgentHarness,
+        context: AgentContext,
+    ) -> None:
+        error: Optional[str] = None
+        try:
+            sub_harness.run(context)
+        except Exception as exc:
+            error = str(exc)
+            logger.exception("Spawned sub-agent run '%s' failed", agent_id)
+        finally:
+            with self._lock:
+                run = self._sub_agent_runs.get(agent_id)
+                if run is not None:
+                    run.completed_at = datetime.utcnow()
+                    run.error = error
+
+    def _get_sub_agent_run(self, agent_id: str) -> _SubAgentRun:
+        normalized = str(agent_id or "").strip()
+        if not normalized:
+            raise ValueError("agent_id is required")
+        with self._lock:
+            run = self._sub_agent_runs.get(normalized)
+        if run is None:
+            raise KeyError(f"Unknown sub-agent run id: {normalized}")
+        return run
+
+    def _build_sub_agent_tool_registry(self) -> ToolRegistry:
+        registry = ToolRegistry()
+        for tool in self.tool_registry.list_tools():
+            if str(tool.name).strip() in self._meta_tool_names:
+                continue
+            registry.register(tool)
+        return registry
+
+    def _derive_sub_agent_allowlist(
+        self,
+        *,
+        child_registry: ToolRegistry,
+        child_agent: Any,
+        params: Dict[str, Any],
+        child_sandbox: ToolSandbox,
+    ) -> set[str]:
+        allow_network = bool(params.get("allow_network", False))
+        allow_exec = bool(params.get("allow_exec", False))
+        allowed_risks = {"read_only", "writes_workspace"}
+        if allow_network and child_sandbox.config.allow_url_access:
+            allowed_risks.add("network")
+        if allow_exec:
+            allowed_risks.add("exec")
+
+        allowlist = {
+            str(definition.get("name", "")).strip()
+            for definition in child_registry.list_definitions()
+            if str(definition.get("name", "")).strip()
+            and str(definition.get("risk_level", "read_only")).strip() in allowed_risks
+        }
+
+        agent_allowlist = getattr(child_agent, "tool_allowlist", None)
+        if agent_allowlist:
+            normalized = {
+                str(name).strip() for name in agent_allowlist if str(name).strip()
+            }
+            allowlist &= normalized
+
+        explicit_allowlist = params.get("tool_allowlist")
+        if isinstance(explicit_allowlist, list):
+            requested = {
+                str(name).strip() for name in explicit_allowlist if str(name).strip()
+            }
+            allowlist &= requested
+
+        return allowlist
+
+    def _build_sub_agent_sandbox(
+        self,
+        *,
+        sub_root: Path,
+        shared_workspace: Path,
+        params: Dict[str, Any],
+    ) -> ToolSandbox:
+        parent = self.sandbox.config
+        sub_root = sub_root.expanduser().resolve(strict=False)
+        shared_workspace = shared_workspace.expanduser().resolve(strict=False)
+
+        if not self._path_allowed_by_parent(sub_root, action="write"):
+            raise PermissionError(
+                f"Sub-agent workspace '{sub_root}' is outside parent writable sandbox paths"
+            )
+        if not self._path_allowed_by_parent(sub_root, action="read"):
+            raise PermissionError(
+                f"Sub-agent workspace '{sub_root}' is outside parent readable sandbox paths"
+            )
+
+        read_paths: list[Path] = []
+        for candidate in self.sandbox.effective_read_paths():
+            if self._path_allowed_by_parent(candidate, action="read"):
+                read_paths.append(candidate)
+        if self._path_allowed_by_parent(shared_workspace, action="read"):
+            read_paths.append(shared_workspace)
+        if self._path_allowed_by_parent(sub_root, action="read"):
+            read_paths.append(sub_root)
+
+        # Preserve declaration order while deduplicating.
+        deduped_read_paths: list[Path] = []
+        seen_read: set[str] = set()
+        for path in read_paths:
+            marker = str(path)
+            if marker in seen_read:
+                continue
+            seen_read.add(marker)
+            deduped_read_paths.append(path)
+        if not deduped_read_paths:
+            raise PermissionError("Parent sandbox provides no readable paths for sub-agent run")
+
+        allow_network = bool(params.get("allow_network", False)) or bool(
+            params.get("allow_url_access", False)
+        )
+        force_docker = parent.force_docker or bool(params.get("force_docker", False))
+        execution_mode = "local_only"
+        if parent.execution_mode == "prefer_docker" or force_docker or allow_network:
+            execution_mode = "prefer_docker"
+
+        child_config = SandboxConfig(
+            allowed_read_paths=deduped_read_paths,
+            allowed_write_paths=[sub_root],
+            allow_url_access=bool(parent.allow_url_access and allow_network),
+            require_user_permission=dict(parent.require_user_permission),
+            require_permission_by_risk=dict(parent.require_permission_by_risk),
+            execution_mode=execution_mode,
+            force_docker=force_docker,
+            limits=dict(parent.limits),
+            docker=dict(parent.docker),
+            tool_llm_assignments=dict(parent.tool_llm_assignments),
+        )
+        return ToolSandbox(
+            child_config,
+            global_sandbox=parent,
+            local_runner=self.sandbox.local_runner,
+            docker_runner=self.sandbox.docker_runner,
+        )
+
+    def _path_allowed_by_parent(self, path: Path, *, action: str) -> bool:
+        try:
+            if action == "read":
+                self.sandbox.check_read_path(path)
+            else:
+                self.sandbox.check_write_path(path)
+            return True
+        except (PermissionError, ValueError):
+            return False
 
     @staticmethod
     def _normalize_allowlist(tool_allowlist: Optional[Set[str]]) -> Optional[Set[str]]:

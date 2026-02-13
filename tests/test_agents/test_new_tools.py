@@ -227,6 +227,9 @@ def test_default_tool_registry_registers_new_tools_with_dependency_rules(tmp_pat
     assert "hash_file" in no_vectors_names
     assert "source_map" in no_vectors_names
     assert "append_file" in no_vectors_names
+    assert "spawn_agent" in no_vectors_names
+    assert "await_agent" in no_vectors_names
+    assert "collect_artifacts" in no_vectors_names
     assert "similarity_search" not in no_vectors_names
     assert "extract_snippets" not in no_vectors_names
 
@@ -240,3 +243,6 @@ def test_default_tool_registry_registers_new_tools_with_dependency_rules(tmp_pat
     assert "similarity_search" in with_vectors_names
     assert "query_embeddings" in with_vectors_names
     assert "extract_snippets" in with_vectors_names
+    assert "spawn_agent" in with_vectors_names
+    assert "await_agent" in with_vectors_names
+    assert "collect_artifacts" in with_vectors_names

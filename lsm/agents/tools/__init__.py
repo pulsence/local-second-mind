@@ -24,6 +24,9 @@ from .source_map import SourceMapTool
 from .memory_put import MemoryPutTool
 from .memory_search import MemorySearchTool
 from .memory_remove import MemoryRemoveTool
+from .spawn_agent import SpawnAgentTool
+from .await_agent import AwaitAgentTool
+from .collect_artifacts import CollectArtifactsTool
 from .docker_runner import DockerRunner
 from .runner import BaseRunner, LocalRunner, ToolExecutionResult
 
@@ -54,6 +57,9 @@ __all__ = [
     "MemoryPutTool",
     "MemorySearchTool",
     "MemoryRemoveTool",
+    "SpawnAgentTool",
+    "AwaitAgentTool",
+    "CollectArtifactsTool",
     "DockerRunner",
     "BaseRunner",
     "LocalRunner",
@@ -123,4 +129,7 @@ def create_default_tool_registry(
         registry.register(MemoryPutTool(memory_store))
         registry.register(MemoryRemoveTool(memory_store))
         registry.register(MemorySearchTool(memory_store))
+    registry.register(SpawnAgentTool())
+    registry.register(AwaitAgentTool())
+    registry.register(CollectArtifactsTool())
     return registry

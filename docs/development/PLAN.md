@@ -1002,7 +1002,7 @@ View: table of schedules with name, interval, last run, next run, status. Enable
 
 Coordinate multiple agents toward a single goal. Deterministic orchestration over freeform dialogue. Sub-agents run with equal or tighter permissions (monotone sandbox). Shared artifacts, not shared context.
 
-### 6.1: Meta-Agent Core
+### 6.1: Meta-Agent Core (COMPLETED)
 
 #### 6.1.1: Implement MetaAgent Subclass
 
@@ -1044,7 +1044,7 @@ Register MetaAgent in `lsm/agents/factory.py`.
 
 **Post-block:** `tests/test_agents/test_meta_agent.py`, `tests/test_agents/test_task_graph.py`, run tests, update docs, commit.
 
-### 6.2: Meta-Agent System Tools
+### 6.2: Meta-Agent System Tools (COMPLETED)
 
 #### 6.2.1: Create Orchestration Tools
 

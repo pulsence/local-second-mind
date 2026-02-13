@@ -87,6 +87,18 @@ class ToolSandbox:
         """
         self._check_path(path, self._effective_write_paths(), "write")
 
+    def effective_read_paths(self) -> list[Path]:
+        """
+        Return read paths after applying global-sandbox restriction.
+        """
+        return list(self._effective_read_paths())
+
+    def effective_write_paths(self) -> list[Path]:
+        """
+        Return write paths after applying global-sandbox restriction.
+        """
+        return list(self._effective_write_paths())
+
     def _enforce_tool_permissions(self, tool: BaseTool, args: Dict[str, Any]) -> None:
         decision = self.permission_gate.check(tool, args)
         if decision.requires_confirmation:
@@ -197,6 +209,32 @@ class ToolSandbox:
             self.global_sandbox.allowed_write_paths,
             "allowed_write_paths",
         )
+        if self.config.allow_url_access and not self.global_sandbox.allow_url_access:
+            raise ValueError(
+                "sandbox.allow_url_access cannot be enabled when disabled in global sandbox"
+            )
+        if self.global_sandbox.force_docker and not self.config.force_docker:
+            raise ValueError(
+                "sandbox.force_docker cannot be disabled relative to global sandbox"
+            )
+        if (
+            self.global_sandbox.execution_mode == "prefer_docker"
+            and self.config.execution_mode != "prefer_docker"
+        ):
+            raise ValueError(
+                "sandbox.execution_mode cannot be relaxed from global 'prefer_docker'"
+            )
+        self._validate_permission_subset(
+            self.config.require_user_permission,
+            self.global_sandbox.require_user_permission,
+            "require_user_permission",
+        )
+        self._validate_permission_subset(
+            self.config.require_permission_by_risk,
+            self.global_sandbox.require_permission_by_risk,
+            "require_permission_by_risk",
+        )
+        self._validate_limits_subset(self.config.limits, self.global_sandbox.limits)
 
     def _validate_subset(
         self,
@@ -211,6 +249,48 @@ class ToolSandbox:
                 raise ValueError(
                     f"sandbox.{field_name} includes path outside global sandbox: {local_resolved}"
                 )
+
+    def _validate_permission_subset(
+        self,
+        local_flags: Dict[str, bool],
+        global_flags: Dict[str, bool],
+        field_name: str,
+    ) -> None:
+        for key, parent_requires in global_flags.items():
+            if not bool(parent_requires):
+                continue
+            if not bool(local_flags.get(key, False)):
+                raise ValueError(
+                    f"sandbox.{field_name}['{key}'] cannot be disabled relative to global sandbox"
+                )
+
+    def _validate_limits_subset(
+        self,
+        local_limits: Dict[str, Any],
+        global_limits: Dict[str, Any],
+    ) -> None:
+        try:
+            local_timeout = float(local_limits.get("timeout_s_default", 30.0))
+            global_timeout = float(global_limits.get("timeout_s_default", 30.0))
+            local_stdout = int(local_limits.get("max_stdout_kb", 256))
+            global_stdout = int(global_limits.get("max_stdout_kb", 256))
+            local_write_mb = float(local_limits.get("max_file_write_mb", 10.0))
+            global_write_mb = float(global_limits.get("max_file_write_mb", 10.0))
+        except (TypeError, ValueError) as exc:
+            raise ValueError("sandbox.limits values must be numeric") from exc
+
+        if local_timeout > global_timeout:
+            raise ValueError(
+                "sandbox.limits.timeout_s_default cannot exceed global sandbox limit"
+            )
+        if local_stdout > global_stdout:
+            raise ValueError(
+                "sandbox.limits.max_stdout_kb cannot exceed global sandbox limit"
+            )
+        if local_write_mb > global_write_mb:
+            raise ValueError(
+                "sandbox.limits.max_file_write_mb cannot exceed global sandbox limit"
+            )
 
     def _canonicalize_path(self, path: Path) -> Path:
         """

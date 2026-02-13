@@ -3,7 +3,9 @@ from __future__ import annotations
 import pytest
 
 from lsm.agents.tools import (
+    AwaitAgentTool,
     AppendFileTool,
+    CollectArtifactsTool,
     CreateFolderTool,
     ExtractSnippetsTool,
     FileMetadataTool,
@@ -20,6 +22,7 @@ from lsm.agents.tools import (
     ReadFolderTool,
     SimilaritySearchTool,
     SourceMapTool,
+    SpawnAgentTool,
     WriteFileTool,
 )
 from lsm.agents.tools.base import BaseTool, ToolRegistry
@@ -70,6 +73,9 @@ def test_base_tool_definition_includes_risk_metadata_defaults() -> None:
         (QueryLLMTool, "network", True),
         (QueryRemoteTool, "network", True),
         (QueryRemoteChainTool, "network", True),
+        (SpawnAgentTool, "exec", False),
+        (AwaitAgentTool, "exec", False),
+        (CollectArtifactsTool, "exec", False),
     ],
 )
 def test_builtin_tool_classes_have_expected_risk_metadata(
