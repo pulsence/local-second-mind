@@ -77,6 +77,16 @@ All notable changes to Local Second Mind are documented here.
   - live ChromaDB->PostgreSQL migration tests (`tests/test_vectordb/test_live_migration_chromadb_to_postgres.py`)
 - Full live pipeline coverage using PostgreSQL/pgvector as the backing vector store (`@pytest.mark.live` + `@pytest.mark.live_vectordb` path in `tests/test_integration/test_full_pipeline.py`).
 - Mock-cleanup guardrail test (`tests/test_infrastructure/test_mock_audit.py`) to prevent reintroduction of removed legacy shared mock fixtures in core integration suites.
+- Scheduler configuration model in `lsm/config/models/agents.py`:
+  - added `ScheduleConfig` (`agent_name`, `params`, `interval`, `enabled`, `concurrency_policy`, `confirmation_mode`)
+  - added `AgentConfig.schedules` for typed schedule entries
+- Scheduler config loader/serializer support in `lsm/config/loader.py`:
+  - parses `agents.schedules` from raw config
+  - round-trips schedules through `config_to_raw(...)`
+- Scheduler config documentation/examples:
+  - `example_config.json` includes `agents.schedules` example
+  - `docs/AGENTS.md` agent config reference now documents schedules
+- Scheduler config tests in `tests/test_config/test_schedule_config.py` covering model validation, normalization, loader parsing, and serialization.
 
 ### Changed
 

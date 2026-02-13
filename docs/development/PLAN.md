@@ -927,7 +927,7 @@ View: list of memory candidates with approve/reject/edit TTL actions.
 
 Time-based and cyclic agent execution. Preserves local-first philosophy. Safety-first for unattended runs.
 
-### 5.1: Scheduler Configuration
+### 5.1: Scheduler Configuration (COMPLETED)
 
 #### 5.1.1: Define ScheduleConfig
 

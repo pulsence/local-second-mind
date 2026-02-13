@@ -74,7 +74,17 @@ Agents are configured in top-level `agents`:
     "research": {
       "max_iterations": 30
     }
-  }
+  },
+  "schedules": [
+    {
+      "agent_name": "curator",
+      "params": {"topic": "--mode memory"},
+      "interval": "daily",
+      "enabled": false,
+      "concurrency_policy": "skip",
+      "confirmation_mode": "auto"
+    }
+  ]
 }
 ```
 
@@ -87,6 +97,7 @@ Agents are configured in top-level `agents`:
 - `context_window_strategy`: `compact` or `fresh`
 - `memory`: persistent memory backend config and TTL caps
 - `agent_configs`: per-agent overrides
+- `schedules`: optional scheduled runs (`hourly`, `daily`, `weekly`, `<seconds>s`, or cron intervals)
 
 ## Sandbox Model
 

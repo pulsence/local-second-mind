@@ -25,6 +25,9 @@ _DEFAULT_SANDBOX_DOCKER = {
     "read_only_root": True,
 }
 _VALID_MEMORY_BACKENDS = {"auto", "sqlite", "postgresql"}
+_VALID_SCHEDULE_CONCURRENCY_POLICIES = {"skip", "queue", "cancel"}
+_VALID_SCHEDULE_CONFIRMATION_MODES = {"auto", "confirm", "deny"}
+_SCHEDULE_INTERVAL_ALIASES = {"hourly", "daily", "weekly"}
 
 
 @dataclass
@@ -199,6 +202,66 @@ class MemoryConfig:
 
 
 @dataclass
+class ScheduleConfig:
+    """
+    Agent scheduler entry configuration.
+    """
+
+    agent_name: str
+    """Registered agent name to execute on schedule."""
+
+    params: Dict[str, Any] = field(default_factory=dict)
+    """Arbitrary schedule parameters passed to the scheduled run."""
+
+    interval: str = "daily"
+    """Run interval: alias (`hourly|daily|weekly`), seconds (`3600s`), or cron syntax."""
+
+    enabled: bool = True
+    """Whether this schedule is active."""
+
+    concurrency_policy: str = "skip"
+    """Overlap policy: `skip`, `queue`, or `cancel`."""
+
+    confirmation_mode: str = "auto"
+    """Approval mode for scheduled actions: `auto`, `confirm`, or `deny`."""
+
+    def __post_init__(self) -> None:
+        self.agent_name = str(self.agent_name or "").strip()
+        self.interval = str(self.interval or "").strip().lower()
+        self.concurrency_policy = str(self.concurrency_policy or "skip").strip().lower()
+        self.confirmation_mode = str(self.confirmation_mode or "auto").strip().lower()
+        if self.params is None:
+            self.params = {}
+
+    def validate(self) -> None:
+        """Validate schedule configuration."""
+        if not self.agent_name:
+            raise ValueError("agent_name must be a non-empty string")
+        if not isinstance(self.params, dict):
+            raise ValueError("params must be an object")
+        if not self.interval:
+            raise ValueError("interval must be non-empty")
+
+        if self.interval in _SCHEDULE_INTERVAL_ALIASES:
+            pass
+        elif self.interval.endswith("s") and self.interval[:-1].isdigit():
+            if int(self.interval[:-1]) < 1:
+                raise ValueError("interval seconds value must be >= 1")
+        else:
+            # Cron support is syntax-agnostic at config layer; parsing is scheduler-engine responsibility.
+            parts = self.interval.split()
+            if len(parts) not in {5, 6}:
+                raise ValueError(
+                    "interval must be one of: hourly, daily, weekly, '<seconds>s', or cron syntax"
+                )
+
+        if self.concurrency_policy not in _VALID_SCHEDULE_CONCURRENCY_POLICIES:
+            raise ValueError("concurrency_policy must be one of: skip, queue, cancel")
+        if self.confirmation_mode not in _VALID_SCHEDULE_CONFIRMATION_MODES:
+            raise ValueError("confirmation_mode must be one of: auto, confirm, deny")
+
+
+@dataclass
 class AgentConfig:
     """
     Top-level configuration for the agent system.
@@ -228,9 +291,21 @@ class AgentConfig:
     agent_configs: Dict[str, Dict[str, Any]] = field(default_factory=dict)
     """Per-agent overrides keyed by agent name."""
 
+    schedules: List[ScheduleConfig] = field(default_factory=list)
+    """Configured scheduled agent runs."""
+
     def __post_init__(self) -> None:
         self.agents_folder = Path(self.agents_folder).expanduser()
         self.context_window_strategy = (self.context_window_strategy or "compact").strip().lower()
+        normalized_schedules: List[ScheduleConfig] = []
+        for entry in self.schedules or []:
+            if isinstance(entry, ScheduleConfig):
+                normalized_schedules.append(entry)
+            elif isinstance(entry, dict):
+                normalized_schedules.append(ScheduleConfig(**entry))
+            else:
+                raise ValueError("agents.schedules entries must be objects")
+        self.schedules = normalized_schedules
 
     def validate(self) -> None:
         """Validate agent configuration."""
@@ -242,5 +317,14 @@ class AgentConfig:
             raise ValueError("agents.context_window_strategy must be 'compact' or 'fresh'")
         if not isinstance(self.agent_configs, dict):
             raise ValueError("agents.agent_configs must be a dict")
+        if not isinstance(self.schedules, list):
+            raise ValueError("agents.schedules must be a list")
+        for idx, schedule in enumerate(self.schedules):
+            if not isinstance(schedule, ScheduleConfig):
+                raise ValueError(f"agents.schedules[{idx}] must be an object")
+            try:
+                schedule.validate()
+            except ValueError as exc:
+                raise ValueError(f"agents.schedules[{idx}] {exc}") from exc
         self.sandbox.validate()
         self.memory.validate()

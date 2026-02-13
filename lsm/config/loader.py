@@ -17,6 +17,7 @@ from dotenv import load_dotenv
 from .models import (
     LSMConfig,
     AgentConfig,
+    ScheduleConfig,
     MemoryConfig,
     SandboxConfig,
     GlobalConfig,
@@ -509,6 +510,64 @@ def build_memory_config(raw: Dict[str, Any]) -> MemoryConfig:
     )
 
 
+def build_schedule_config(raw: Dict[str, Any]) -> ScheduleConfig:
+    """
+    Build ScheduleConfig from raw configuration.
+
+    Args:
+        raw: Raw schedule config dictionary.
+
+    Returns:
+        ScheduleConfig instance.
+
+    Raises:
+        ValueError: If schedule config has invalid structure.
+    """
+    if not isinstance(raw, dict):
+        raise ValueError("schedule entry must be an object")
+    params = raw.get("params", {})
+    if params is None:
+        params = {}
+    if not isinstance(params, dict):
+        raise ValueError("schedule params must be an object")
+    return ScheduleConfig(
+        agent_name=str(raw.get("agent_name", "")),
+        params=dict(params),
+        interval=str(raw.get("interval", "daily")),
+        enabled=bool(raw.get("enabled", True)),
+        concurrency_policy=str(raw.get("concurrency_policy", "skip")),
+        confirmation_mode=str(raw.get("confirmation_mode", "auto")),
+    )
+
+
+def build_schedule_configs(raw: Any) -> list[ScheduleConfig]:
+    """
+    Build list of ScheduleConfig from raw configuration.
+
+    Args:
+        raw: Raw schedules value.
+
+    Returns:
+        Parsed schedule list.
+    """
+    if raw is None:
+        return []
+    if not isinstance(raw, list):
+        warnings.warn("agents.schedules must be a list. Ignoring invalid value.")
+        return []
+
+    schedules: list[ScheduleConfig] = []
+    for idx, schedule_raw in enumerate(raw):
+        try:
+            if isinstance(schedule_raw, ScheduleConfig):
+                schedules.append(schedule_raw)
+                continue
+            schedules.append(build_schedule_config(schedule_raw))
+        except Exception as exc:
+            warnings.warn(f"Skipping agents.schedules[{idx}] due to error: {exc}")
+    return schedules
+
+
 def build_agent_config(raw: Dict[str, Any] | None) -> AgentConfig | None:
     """
     Build AgentConfig from raw configuration.
@@ -534,6 +593,7 @@ def build_agent_config(raw: Dict[str, Any] | None) -> AgentConfig | None:
         sandbox=build_sandbox_config(raw.get("sandbox", {})),
         memory=build_memory_config(raw.get("memory", {})),
         agent_configs=dict(raw.get("agent_configs", {})),
+        schedules=build_schedule_configs(raw.get("schedules")),
     )
 
 
@@ -1030,6 +1090,17 @@ def config_to_raw(config: LSMConfig) -> Dict[str, Any]:
                 "ttl_cache_hours": config.agents.memory.ttl_cache_hours,
             },
             "agent_configs": dict(config.agents.agent_configs),
+            "schedules": [
+                {
+                    "agent_name": schedule.agent_name,
+                    "params": dict(schedule.params),
+                    "interval": schedule.interval,
+                    "enabled": schedule.enabled,
+                    "concurrency_policy": schedule.concurrency_policy,
+                    "confirmation_mode": schedule.confirmation_mode,
+                }
+                for schedule in config.agents.schedules
+            ],
         }
     return {
         "global": {

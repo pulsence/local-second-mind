@@ -186,7 +186,20 @@
         "near_duplicate_threshold": 0.9,
         "top_near_duplicates": 25
       }
-    }
+    },
+    "_comment_schedules": "Optional scheduled agent runs. interval supports hourly|daily|weekly|<seconds>s|cron syntax.",
+    "schedules": [
+      {
+        "agent_name": "curator",
+        "params": {
+          "topic": "--mode memory"
+        },
+        "interval": "daily",
+        "enabled": false,
+        "concurrency_policy": "skip",
+        "confirmation_mode": "auto"
+      }
+    ]
   },
 
   "_comment_modes": "Query mode definitions (grounded/insight/hybrid built-in, add custom modes here)",
