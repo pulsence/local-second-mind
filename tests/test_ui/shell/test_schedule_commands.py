@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
 from types import SimpleNamespace
 
 from lsm.config.models import ScheduleConfig
@@ -59,6 +60,7 @@ def _app(enabled: bool = True):
                 schedules=[],
             ),
             batch_size=32,
+            config_path=None,
         ),
         query_provider=None,
         query_embedder=None,
@@ -71,13 +73,16 @@ def test_schedule_commands_add_list_toggle_remove_and_status(monkeypatch) -> Non
     app = _app(enabled=True)
 
     add_out = agent_commands.handle_agent_command(
-        '/agent schedule add research daily --params \'{"topic":"daily summary","allow_network":true}\'',
+        '/agent schedule add research daily --params \'{"topic":"daily summary","allow_network":true}\' '
+        "--concurrency_policy queue --confirmation_mode confirm",
         app,
     )
     assert "Added schedule '0:research'" in add_out
     assert len(app.config.agents.schedules) == 1
     assert app.config.agents.schedules[0].params["topic"] == "daily summary"
     assert app.config.agents.schedules[0].params["allow_network"] is True
+    assert app.config.agents.schedules[0].concurrency_policy == "queue"
+    assert app.config.agents.schedules[0].confirmation_mode == "confirm"
 
     list_out = agent_commands.handle_agent_command("/agent schedule list", app)
     assert "Schedules: 1" in list_out
@@ -129,6 +134,28 @@ def test_schedule_commands_require_agents_enabled(monkeypatch) -> None:
     out = agent_commands.handle_agent_command("/agent schedule add research daily", app)
     assert "Failed to add schedule" in out
     assert "Agents are disabled" in out
+
+
+def test_schedule_commands_persist_config_when_config_path_is_set(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.setattr(agent_commands, "_MANAGER", agent_commands.AgentRuntimeManager())
+    monkeypatch.setattr(agent_commands, "AgentScheduler", _FakeScheduler)
+    persisted: list[Path] = []
+
+    def _fake_save(config, path):
+        _ = config
+        persisted.append(Path(path))
+
+    monkeypatch.setattr(agent_commands, "save_config_to_file", _fake_save)
+    app = _app(enabled=True)
+    app.config.config_path = tmp_path / "config.json"
+
+    out = agent_commands.handle_agent_command("/agent schedule add research daily", app)
+    assert "Added schedule '0:research'" in out
+    assert persisted == [tmp_path / "config.json"]
+
+    out2 = agent_commands.handle_agent_command("/agent schedule disable 0:research", app)
+    assert "Disabled schedule '0:research'" in out2
+    assert persisted[-1] == tmp_path / "config.json"
 
 
 def test_schedule_config_objects_roundtrip_in_fake_scheduler(monkeypatch) -> None:

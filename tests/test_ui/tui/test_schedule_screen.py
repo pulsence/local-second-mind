@@ -24,6 +24,39 @@ class _Select:
         self.options = options
 
 
+class _DataTable:
+    def __init__(self, widget_id: str = "") -> None:
+        self.id = widget_id
+        self.columns = []
+        self.rows = []
+        self.cursor_row = 0
+        self.cursor_type = None
+        self.zebra_stripes = False
+
+    @property
+    def column_count(self) -> int:
+        return len(self.columns)
+
+    def add_columns(self, *columns) -> None:
+        self.columns.extend(columns)
+
+    def clear(self, *, columns: bool = False) -> None:
+        self.rows = []
+        if columns:
+            self.columns = []
+
+    def add_row(self, *row_values) -> None:
+        self.rows.append(tuple(row_values))
+
+    def move_cursor(self, *, row: int, column: int = 0) -> None:
+        _ = column
+        self.cursor_row = row
+
+    @property
+    def cursor_coordinate(self):
+        return SimpleNamespace(row=self.cursor_row, column=0)
+
+
 class _Static:
     def __init__(self) -> None:
         self.last = ""
@@ -43,23 +76,64 @@ class _RichLog:
 class _Manager:
     def __init__(self) -> None:
         self.last_toggle = None
-
-    def list_schedules(self, app):
-        _ = app
-        return [
+        self.rows = [
             {
                 "id": "0:research",
                 "agent_name": "research",
                 "interval": "daily",
                 "enabled": True,
+                "last_status": "idle",
+                "next_run_at": "2026-02-13T12:00:00+00:00",
+                "last_run_at": None,
             }
         ]
+
+    def list_schedules(self, app):
+        _ = app
+        return list(self.rows)
 
     def set_schedule_enabled(self, app, schedule_id: str, *, enabled: bool) -> str:
         _ = app
         self.last_toggle = (schedule_id, enabled)
+        for row in self.rows:
+            if row["id"] == schedule_id:
+                row["enabled"] = bool(enabled)
+                break
         action = "Enabled" if enabled else "Disabled"
         return f"{action} schedule '{schedule_id}'.\n"
+
+    def add_schedule(
+        self,
+        app,
+        *,
+        agent_name: str,
+        interval: str,
+        params: dict | None = None,
+        concurrency_policy: str = "skip",
+        confirmation_mode: str = "auto",
+    ) -> str:
+        _ = app, params, concurrency_policy, confirmation_mode
+        schedule_id = f"{len(self.rows)}:{agent_name}"
+        self.rows.append(
+            {
+                "id": schedule_id,
+                "agent_name": agent_name,
+                "interval": interval,
+                "enabled": True,
+                "last_status": "idle",
+                "next_run_at": "2026-02-13T13:00:00+00:00",
+                "last_run_at": None,
+            }
+        )
+        return f"Added schedule '{schedule_id}' for agent '{agent_name}'.\n"
+
+    def remove_schedule(self, app, schedule_id: str) -> str:
+        _ = app
+        before = len(self.rows)
+        self.rows = [row for row in self.rows if row["id"] != schedule_id]
+        if len(self.rows) == before:
+            return f"Schedule not found: {schedule_id}\n"
+        return f"Removed schedule '{schedule_id}'.\n"
 
     def format_schedule_status(self, app) -> str:
         _ = app
@@ -95,7 +169,12 @@ def _screen():
     screen.widgets["#agents-select"] = _Select("", "agents-select")
     screen.widgets["#agents-topic-input"] = _Input("", "agents-topic-input")
     screen.widgets["#agents-status-output"] = _Static()
-    screen.widgets["#agents-schedule-select"] = _Select("", "agents-schedule-select")
+    screen.widgets["#agents-schedule-table"] = _DataTable("agents-schedule-table")
+    screen.widgets["#agents-schedule-agent-input"] = _Input("", "agents-schedule-agent-input")
+    screen.widgets["#agents-schedule-interval-input"] = _Input("", "agents-schedule-interval-input")
+    screen.widgets["#agents-schedule-params-input"] = _Input("", "agents-schedule-params-input")
+    screen.widgets["#agents-schedule-concurrency-select"] = _Select("skip", "agents-schedule-concurrency-select")
+    screen.widgets["#agents-schedule-confirmation-select"] = _Select("auto", "agents-schedule-confirmation-select")
     screen.widgets["#agents-schedule-output"] = _Static()
     screen.widgets["#agents-memory-select"] = _Select("", "agents-memory-select")
     screen.widgets["#agents-memory-ttl-input"] = _Input("", "agents-memory-ttl-input")
@@ -117,9 +196,8 @@ def test_schedule_panel_refresh_toggle_and_status(monkeypatch) -> None:
     )
 
     screen.on_mount()
-    schedule_select = screen.widgets["#agents-schedule-select"]
-    assert schedule_select.value == "0:research"
-    assert len(schedule_select.options) == 1
+    schedule_table = screen.widgets["#agents-schedule-table"]
+    assert len(schedule_table.rows) == 1
     assert "Loaded 1 schedule(s)." in screen.widgets["#agents-schedule-output"].last
 
     screen._disable_selected_schedule()
@@ -132,6 +210,32 @@ def test_schedule_panel_refresh_toggle_and_status(monkeypatch) -> None:
 
     screen._show_schedule_status()
     assert "Scheduler status (1 schedule(s))" in screen.widgets["#agents-schedule-output"].last
+
+
+def test_schedule_panel_add_and_remove(monkeypatch) -> None:
+    screen = _screen()
+    manager = _Manager()
+    monkeypatch.setattr(
+        "lsm.ui.tui.screens.agents.AgentRegistry",
+        lambda: SimpleNamespace(list_agents=lambda: ["research"]),
+    )
+    monkeypatch.setattr(
+        "lsm.ui.tui.screens.agents.get_agent_runtime_manager",
+        lambda: manager,
+    )
+
+    screen.on_mount()
+    screen.widgets["#agents-schedule-agent-input"].value = "curator"
+    screen.widgets["#agents-schedule-interval-input"].value = "weekly"
+    screen.widgets["#agents-schedule-params-input"].value = '{"topic":"--mode memory"}'
+    screen._add_schedule()
+    assert any(row[1] == "curator" for row in screen.widgets["#agents-schedule-table"].rows)
+    assert "Added schedule" in screen.widgets["#agents-schedule-output"].last
+
+    screen.widgets["#agents-schedule-table"].move_cursor(row=1, column=0)
+    screen._remove_selected_schedule()
+    assert not any(row[1] == "curator" for row in screen.widgets["#agents-schedule-table"].rows)
+    assert "Removed schedule" in screen.widgets["#agents-schedule-output"].last
 
 
 def test_schedule_panel_refresh_handles_error(monkeypatch) -> None:

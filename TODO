@@ -91,6 +91,8 @@
   - Leverage file grapher in finding sections and editing sections.
   - Find_File tool should file by name or content in file
   - Find_Section tool should find section in specified file or find file with related sections
+- Enable Meta-Agent to decide when to run sub agents in parallel instead
+  of just in series.
 - Fully implement Docker runner.
   - Explore hot loading docker and then launching in the docker instance vs launching a docker
     instance whenever it is needed.

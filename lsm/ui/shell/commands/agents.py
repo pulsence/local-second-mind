@@ -16,6 +16,7 @@ from lsm.agents.memory import Memory, MemoryCandidate, create_memory_store
 from lsm.agents.memory.models import now_utc
 from lsm.agents.models import AgentContext
 from lsm.agents.tools import ToolSandbox, create_default_tool_registry
+from lsm.config.loader import save_config_to_file
 from lsm.config.models import ScheduleConfig
 
 
@@ -186,6 +187,8 @@ class AgentRuntimeManager:
         agent_name: str,
         interval: str,
         params: Optional[dict[str, Any]] = None,
+        concurrency_policy: str = "skip",
+        confirmation_mode: str = "auto",
     ) -> str:
         normalized_params = dict(params or {})
         schedule = ScheduleConfig(
@@ -193,19 +196,21 @@ class AgentRuntimeManager:
             params=normalized_params,
             interval=str(interval).strip(),
             enabled=True,
-            concurrency_policy="skip",
-            confirmation_mode="auto",
+            concurrency_policy=str(concurrency_policy).strip(),
+            confirmation_mode=str(confirmation_mode).strip(),
         )
         schedule.validate()
 
         agent_cfg = self._require_agent_config(app)
         agent_cfg.schedules.append(schedule)
         scheduler = self._rebuild_scheduler(app, start=True)
+        self._persist_config_if_possible(app)
         snapshots = scheduler.list_schedules()
         schedule_id = snapshots[-1]["id"] if snapshots else f"{len(agent_cfg.schedules)-1}:{schedule.agent_name}"
         return (
             f"Added schedule '{schedule_id}' for agent '{schedule.agent_name}' "
-            f"(interval={schedule.interval}).\n"
+            f"(interval={schedule.interval}, concurrency_policy={schedule.concurrency_policy}, "
+            f"confirmation_mode={schedule.confirmation_mode}).\n"
         )
 
     def set_schedule_enabled(
@@ -226,6 +231,7 @@ class AgentRuntimeManager:
             return f"Schedule not found: {schedule_id}\n"
         agent_cfg.schedules[index].enabled = bool(enabled)
         self._rebuild_scheduler(app, start=True)
+        self._persist_config_if_possible(app)
         action = "Enabled" if enabled else "Disabled"
         return f"{action} schedule '{snapshots[index]['id']}'.\n"
 
@@ -241,6 +247,7 @@ class AgentRuntimeManager:
             return f"Schedule not found: {schedule_id}\n"
         removed = agent_cfg.schedules.pop(index)
         self._rebuild_scheduler(app, start=True)
+        self._persist_config_if_possible(app)
         return (
             f"Removed schedule '{snapshots[index]['id']}' "
             f"(agent={removed.agent_name}, interval={removed.interval}).\n"
@@ -262,35 +269,61 @@ class AgentRuntimeManager:
             return self.format_schedule_status(app)
         if action == "add":
             if len(parts) < 5:
-                return "Usage: /agent schedule add <agent_name> <interval> [--params '{\"topic\":\"...\"}']\n"
+                return (
+                    "Usage: /agent schedule add <agent_name> <interval> "
+                    "[--params '{\"topic\":\"...\"}'] "
+                    "[--concurrency_policy skip|queue|cancel] "
+                    "[--confirmation_mode auto|confirm|deny]\n"
+                )
             agent_name = parts[3].strip()
             interval = parts[4].strip()
             params: dict[str, Any] = {}
+            concurrency_policy = "skip"
+            confirmation_mode = "auto"
             idx = 5
             while idx < len(parts):
                 token = parts[idx].strip().lower()
-                if token != "--params":
-                    return (
-                        "Usage: /agent schedule add <agent_name> <interval> "
-                        "[--params '{\"topic\":\"...\"}']\n"
-                    )
-                idx += 1
-                if idx >= len(parts):
-                    return "Missing value for --params.\n"
-                try:
-                    parsed = json.loads(parts[idx])
-                except json.JSONDecodeError as exc:
-                    return f"Invalid --params JSON: {exc}\n"
-                if not isinstance(parsed, dict):
-                    return "--params must decode to a JSON object.\n"
-                params = parsed
-                idx += 1
+                if token == "--params":
+                    idx += 1
+                    if idx >= len(parts):
+                        return "Missing value for --params.\n"
+                    try:
+                        parsed = json.loads(parts[idx])
+                    except json.JSONDecodeError as exc:
+                        return f"Invalid --params JSON: {exc}\n"
+                    if not isinstance(parsed, dict):
+                        return "--params must decode to a JSON object.\n"
+                    params = parsed
+                    idx += 1
+                    continue
+                if token in {"--concurrency_policy", "--concurrency-policy"}:
+                    idx += 1
+                    if idx >= len(parts):
+                        return "Missing value for --concurrency_policy.\n"
+                    concurrency_policy = parts[idx].strip().lower()
+                    idx += 1
+                    continue
+                if token in {"--confirmation_mode", "--confirmation-mode"}:
+                    idx += 1
+                    if idx >= len(parts):
+                        return "Missing value for --confirmation_mode.\n"
+                    confirmation_mode = parts[idx].strip().lower()
+                    idx += 1
+                    continue
+                return (
+                    "Usage: /agent schedule add <agent_name> <interval> "
+                    "[--params '{\"topic\":\"...\"}'] "
+                    "[--concurrency_policy skip|queue|cancel] "
+                    "[--confirmation_mode auto|confirm|deny]\n"
+                )
             try:
                 return self.add_schedule(
                     app,
                     agent_name=agent_name,
                     interval=interval,
                     params=params,
+                    concurrency_policy=concurrency_policy,
+                    confirmation_mode=confirmation_mode,
                 )
             except Exception as exc:
                 return f"Failed to add schedule: {exc}\n"
@@ -361,6 +394,19 @@ class AgentRuntimeManager:
             embedder=getattr(app, "query_embedder", None),
             batch_size=getattr(cfg, "batch_size", 32),
         )
+
+    @staticmethod
+    def _persist_config_if_possible(app: Any) -> None:
+        cfg = getattr(app, "config", None)
+        if cfg is None:
+            return
+        config_path = getattr(cfg, "config_path", None)
+        if config_path in {None, ""}:
+            return
+        try:
+            save_config_to_file(cfg, config_path)
+        except Exception as exc:
+            raise RuntimeError(f"Failed to persist config to '{config_path}': {exc}") from exc
 
     @staticmethod
     def _resolve_schedule_index(
@@ -677,7 +723,8 @@ def _agent_help() -> str:
         "  /agent pause\n"
         "  /agent resume\n"
         "  /agent log\n"
-        "  /agent schedule add <agent_name> <interval> [--params '{\"topic\":\"...\"}']\n"
+        "  /agent schedule add <agent_name> <interval> [--params '{\"topic\":\"...\"}'] "
+        "[--concurrency_policy skip|queue|cancel] [--confirmation_mode auto|confirm|deny]\n"
         "  /agent schedule list\n"
         "  /agent schedule enable|disable <schedule_id>\n"
         "  /agent schedule remove <schedule_id>\n"
@@ -698,7 +745,8 @@ def _memory_help() -> str:
 def _schedule_help() -> str:
     return (
         "Agent schedule commands:\n"
-        "  /agent schedule add <agent_name> <interval> [--params '{\"topic\":\"...\"}']\n"
+        "  /agent schedule add <agent_name> <interval> [--params '{\"topic\":\"...\"}'] "
+        "[--concurrency_policy skip|queue|cancel] [--confirmation_mode auto|confirm|deny]\n"
         "  /agent schedule list\n"
         "  /agent schedule enable <schedule_id>\n"
         "  /agent schedule disable <schedule_id>\n"

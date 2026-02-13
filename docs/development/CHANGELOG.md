@@ -107,9 +107,12 @@ All notable changes to Local Second Mind are documented here.
 - Scheduler shell command management in `lsm/ui/shell/commands/agents.py`:
   - `/agent schedule add|list|enable|disable|remove|status`
   - schedule JSON params parsing via `--params '{...}'`
+  - `--concurrency_policy` and `--confirmation_mode` support on `schedule add`
+  - schedule edits persist to `config.json`/`config.yaml` when `config_path` is available
   - runtime manager wiring to create/rebuild scheduler state from command changes
 - Agents TUI schedule panel in `lsm/ui/tui/screens/agents.py`:
-  - schedule list, refresh, enable/disable controls, and runtime status output
+  - table-based schedule list with refresh, add/remove, and enable/disable controls
+  - runtime status output from scheduler state
 - Scheduler UI test coverage:
   - `tests/test_ui/shell/test_schedule_commands.py`
   - `tests/test_ui/tui/test_schedule_screen.py`

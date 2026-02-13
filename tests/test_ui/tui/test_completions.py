@@ -139,6 +139,13 @@ class TestGetCompletions:
         assert "remove" in completions
         assert "status" in completions
 
+    def test_agent_schedule_add_suggests_flags(self):
+        """Agent schedule add should suggest supported optional flags."""
+        completions = get_completions("/agent schedule add research daily ", "query")
+        assert "--params" in completions
+        assert "--concurrency_policy" in completions
+        assert "--confirmation_mode" in completions
+
     def test_remote_provider_suggests_actions(self):
         """Remote provider command should suggest current command name."""
         completions = get_completions("/remote-provider ", "query")

@@ -27,7 +27,7 @@ logger = get_logger(__name__)
 
 
 def _utcnow() -> datetime:
-    return datetime.utcnow().replace(tzinfo=timezone.utc)
+    return datetime.now(timezone.utc)
 
 
 def _parse_datetime(value: Any) -> Optional[datetime]:
@@ -713,14 +713,96 @@ class AgentScheduler:
         month_values, month_any = self._parse_cron_field(mon_field, 1, 12, allow_seven=False)
         dow_values, dow_any = self._parse_cron_field(dow_field, 0, 6, allow_seven=True)
 
+        sorted_seconds = sorted(second_values)
+        sorted_minutes = sorted(minute_values)
+        sorted_hours = sorted(hour_values)
+        sorted_months = sorted(month_values)
+
+        min_second = sorted_seconds[0]
+        min_minute = sorted_minutes[0]
+        min_hour = sorted_hours[0]
+
         base = from_time.astimezone(timezone.utc).replace(microsecond=0)
-        step = timedelta(seconds=1 if has_seconds else 60)
-        candidate = base + step
-        if not has_seconds:
-            candidate = candidate.replace(second=0)
-        upper_bound = base + timedelta(days=366)
+        if has_seconds:
+            candidate = base + timedelta(seconds=1)
+        else:
+            candidate = (base + timedelta(minutes=1)).replace(second=0)
+        # Keep the search bounded for impossible expressions while still allowing
+        # sparse valid schedules like leap-day rules (e.g., "0 0 29 2 *").
+        upper_bound = base + timedelta(days=3660)
 
         while candidate <= upper_bound:
+            if not month_any and candidate.month not in month_values:
+                candidate = self._advance_to_next_month(
+                    candidate,
+                    sorted_months,
+                    min_hour=min_hour,
+                    min_minute=min_minute,
+                    min_second=min_second,
+                )
+                continue
+
+            if not self._cron_day_matches(
+                candidate,
+                dom_values=dom_values,
+                dom_any=dom_any,
+                dow_values=dow_values,
+                dow_any=dow_any,
+            ):
+                candidate = self._advance_to_next_day(
+                    candidate,
+                    min_hour=min_hour,
+                    min_minute=min_minute,
+                    min_second=min_second,
+                )
+                continue
+
+            next_hour = self._next_allowed_value(sorted_hours, candidate.hour)
+            if next_hour is None:
+                candidate = self._advance_to_next_day(
+                    candidate,
+                    min_hour=min_hour,
+                    min_minute=min_minute,
+                    min_second=min_second,
+                )
+                continue
+            if next_hour != candidate.hour:
+                candidate = candidate.replace(
+                    hour=next_hour,
+                    minute=min_minute,
+                    second=min_second,
+                    microsecond=0,
+                )
+                continue
+
+            next_minute = self._next_allowed_value(sorted_minutes, candidate.minute)
+            if next_minute is None:
+                candidate = self._advance_to_next_hour(
+                    candidate,
+                    min_minute=min_minute,
+                    min_second=min_second,
+                )
+                continue
+            if next_minute != candidate.minute:
+                candidate = candidate.replace(
+                    minute=next_minute,
+                    second=min_second,
+                    microsecond=0,
+                )
+                continue
+
+            if has_seconds:
+                next_second = self._next_allowed_value(sorted_seconds, candidate.second)
+                if next_second is None:
+                    candidate = self._advance_to_next_minute(
+                        candidate,
+                        min_second=min_second,
+                    )
+                    continue
+                if next_second != candidate.second:
+                    candidate = candidate.replace(second=next_second, microsecond=0)
+                    continue
+
             if self._cron_candidate_matches(
                 candidate,
                 second_values=second_values,
@@ -737,8 +819,12 @@ class AgentScheduler:
                 dow_any=dow_any,
             ):
                 return candidate
-            candidate += step
-        raise ValueError(f"No matching cron run time found within one year for '{expression}'")
+
+            if has_seconds:
+                candidate = candidate + timedelta(seconds=1)
+            else:
+                candidate = (candidate + timedelta(minutes=1)).replace(second=0, microsecond=0)
+        raise ValueError(f"No matching cron run time found within ten years for '{expression}'")
 
     @staticmethod
     def _cron_candidate_matches(
@@ -766,6 +852,23 @@ class AgentScheduler:
         if not month_any and candidate.month not in month_values:
             return False
 
+        return AgentScheduler._cron_day_matches(
+            candidate,
+            dom_values=dom_values,
+            dom_any=dom_any,
+            dow_values=dow_values,
+            dow_any=dow_any,
+        )
+
+    @staticmethod
+    def _cron_day_matches(
+        candidate: datetime,
+        *,
+        dom_values: set[int],
+        dom_any: bool,
+        dow_values: set[int],
+        dow_any: bool,
+    ) -> bool:
         dom_matches = candidate.day in dom_values
         cron_dow = (candidate.weekday() + 1) % 7
         dow_matches = cron_dow in dow_values
@@ -777,6 +880,81 @@ class AgentScheduler:
         if dow_any:
             return dom_matches
         return dom_matches or dow_matches
+
+    @staticmethod
+    def _next_allowed_value(values: Sequence[int], current: int) -> Optional[int]:
+        for value in values:
+            if value >= current:
+                return value
+        return None
+
+    @staticmethod
+    def _advance_to_next_month(
+        candidate: datetime,
+        months: Sequence[int],
+        *,
+        min_hour: int,
+        min_minute: int,
+        min_second: int,
+    ) -> datetime:
+        for month in months:
+            if month > candidate.month:
+                return candidate.replace(
+                    month=month,
+                    day=1,
+                    hour=min_hour,
+                    minute=min_minute,
+                    second=min_second,
+                    microsecond=0,
+                )
+        return candidate.replace(
+            year=candidate.year + 1,
+            month=months[0],
+            day=1,
+            hour=min_hour,
+            minute=min_minute,
+            second=min_second,
+            microsecond=0,
+        )
+
+    @staticmethod
+    def _advance_to_next_day(
+        candidate: datetime,
+        *,
+        min_hour: int,
+        min_minute: int,
+        min_second: int,
+    ) -> datetime:
+        return (candidate + timedelta(days=1)).replace(
+            hour=min_hour,
+            minute=min_minute,
+            second=min_second,
+            microsecond=0,
+        )
+
+    @staticmethod
+    def _advance_to_next_hour(
+        candidate: datetime,
+        *,
+        min_minute: int,
+        min_second: int,
+    ) -> datetime:
+        return (candidate + timedelta(hours=1)).replace(
+            minute=min_minute,
+            second=min_second,
+            microsecond=0,
+        )
+
+    @staticmethod
+    def _advance_to_next_minute(
+        candidate: datetime,
+        *,
+        min_second: int,
+    ) -> datetime:
+        return (candidate + timedelta(minutes=1)).replace(
+            second=min_second,
+            microsecond=0,
+        )
 
     @staticmethod
     def _parse_cron_field(

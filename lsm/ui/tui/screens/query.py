@@ -1296,7 +1296,7 @@ Agents
 /agent resume                Resume active agent
 /agent stop                  Stop active agent
 /agent log                   Show active agent logs
-/agent schedule add <name> <interval> [--params '{"topic":"..."}']
+/agent schedule add <name> <interval> [--params '{"topic":"..."}'] [--concurrency_policy ...] [--confirmation_mode ...]
 /agent schedule list         List configured schedules
 /agent schedule enable <id>  Enable a schedule
 /agent schedule disable <id> Disable a schedule

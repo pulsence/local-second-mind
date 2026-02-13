@@ -4,10 +4,12 @@ Agents screen for launching and monitoring agent runs.
 
 from __future__ import annotations
 
+import json
+
 from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Container, Vertical, Horizontal, ScrollableContainer
-from textual.widgets import Static, Input, Button, Select, RichLog
+from textual.widgets import Static, Input, Button, Select, RichLog, DataTable
 from textual.widget import Widget
 
 from lsm.agents.factory import AgentRegistry
@@ -26,6 +28,11 @@ class AgentsScreen(Widget):
         Binding("tab", "focus_next", "Next", show=False),
         Binding("shift+tab", "focus_previous", "Previous", show=False),
     ]
+
+    def __init__(self, *args, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
+        self._schedule_ids: list[str] = []
+        self._schedule_row_index: int = 0
 
     def compose(self) -> ComposeResult:
         with Vertical(id="agents-layout"):
@@ -52,8 +59,41 @@ class AgentsScreen(Widget):
                         yield Static("No active agent.", id="agents-status-output", markup=False)
                     with Container(id="agents-schedule-panel"):
                         yield Static("Schedules", classes="agents-section-title")
-                        yield Select([], id="agents-schedule-select")
+                        yield DataTable(id="agents-schedule-table")
+                        yield Static("Add Schedule", classes="agents-label")
+                        yield Input(
+                            placeholder="Agent name (e.g., research)",
+                            id="agents-schedule-agent-input",
+                        )
+                        yield Input(
+                            placeholder="Interval (daily|hourly|weekly|3600s|cron)",
+                            id="agents-schedule-interval-input",
+                        )
+                        yield Input(
+                            placeholder='Params JSON (optional, e.g. {"topic":"daily"})',
+                            id="agents-schedule-params-input",
+                        )
+                        yield Static("Concurrency", classes="agents-label")
+                        yield Select(
+                            [
+                                ("skip", "skip"),
+                                ("queue", "queue"),
+                                ("cancel", "cancel"),
+                            ],
+                            id="agents-schedule-concurrency-select",
+                        )
+                        yield Static("Confirmation", classes="agents-label")
+                        yield Select(
+                            [
+                                ("auto", "auto"),
+                                ("confirm", "confirm"),
+                                ("deny", "deny"),
+                            ],
+                            id="agents-schedule-confirmation-select",
+                        )
                         with Horizontal(id="agents-schedule-buttons"):
+                            yield Button("Add", id="agents-schedule-add-button", variant="primary")
+                            yield Button("Remove", id="agents-schedule-remove-button", variant="error")
                             yield Button("Refresh", id="agents-schedule-refresh-button")
                             yield Button("Enable", id="agents-schedule-enable-button")
                             yield Button("Disable", id="agents-schedule-disable-button")
@@ -89,6 +129,7 @@ class AgentsScreen(Widget):
     def on_mount(self) -> None:
         """Initialize agent select options and focus."""
         self._refresh_agent_options()
+        self._initialize_schedule_controls()
         self._refresh_schedule_entries()
         self._refresh_memory_candidates()
         self._focus_default_input()
@@ -113,6 +154,12 @@ class AgentsScreen(Widget):
             return
         if button_id == "agents-log-button":
             self._show_log()
+            return
+        if button_id == "agents-schedule-add-button":
+            self._add_schedule()
+            return
+        if button_id == "agents-schedule-remove-button":
+            self._remove_selected_schedule()
             return
         if button_id == "agents-schedule-refresh-button":
             self._refresh_schedule_entries()
@@ -142,6 +189,14 @@ class AgentsScreen(Widget):
     def on_input_submitted(self, event: Input.Submitted) -> None:
         if event.input.id == "agents-topic-input":
             self._start_agent()
+
+    def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:
+        table = getattr(event, "data_table", None)
+        if table is None or table.id != "agents-schedule-table":
+            return
+        row_index = getattr(event, "cursor_row", None)
+        if isinstance(row_index, int) and row_index >= 0:
+            self._schedule_row_index = row_index
 
     def _refresh_agent_options(self) -> None:
         agent_select = self.query_one("#agents-select", Select)
@@ -193,6 +248,31 @@ class AgentsScreen(Widget):
         output = manager.log()
         self._append_log(output)
 
+    def _initialize_schedule_controls(self) -> None:
+        try:
+            schedule_table = self.query_one("#agents-schedule-table", DataTable)
+        except Exception:
+            return
+        if schedule_table.column_count == 0:
+            schedule_table.add_columns(
+                "ID",
+                "Agent",
+                "Interval",
+                "Enabled",
+                "Status",
+                "Next Run",
+                "Last Run",
+            )
+        schedule_table.cursor_type = "row"
+        schedule_table.zebra_stripes = True
+        try:
+            concurrency_select = self.query_one("#agents-schedule-concurrency-select", Select)
+            concurrency_select.value = "skip"
+            confirmation_select = self.query_one("#agents-schedule-confirmation-select", Select)
+            confirmation_select.value = "auto"
+        except Exception:
+            return
+
     def _refresh_memory_candidates(self) -> None:
         try:
             candidate_select = self.query_one("#agents-memory-select", Select)
@@ -230,7 +310,7 @@ class AgentsScreen(Widget):
 
     def _refresh_schedule_entries(self) -> None:
         try:
-            schedule_select = self.query_one("#agents-schedule-select", Select)
+            schedule_table = self.query_one("#agents-schedule-table", DataTable)
             output_widget = self.query_one("#agents-schedule-output", Static)
         except Exception:
             return
@@ -239,24 +319,109 @@ class AgentsScreen(Widget):
         try:
             schedules = manager.list_schedules(self.app)
         except Exception as exc:
-            schedule_select.set_options([])
+            schedule_table.clear(columns=False)
+            self._schedule_ids = []
+            self._schedule_row_index = 0
             output_widget.update(str(exc))
             return
 
-        options = []
+        schedule_table.clear(columns=False)
+        self._schedule_ids = []
         for row in schedules:
-            label = (
-                f"{row['id']} | {row['agent_name']} | {row['interval']} "
-                f"| {'enabled' if row['enabled'] else 'disabled'}"
+            enabled = "yes" if row.get("enabled") else "no"
+            status = str(row.get("last_status", "idle"))
+            next_run = str(row.get("next_run_at") or "-")
+            last_run = str(row.get("last_run_at") or "-")
+            schedule_table.add_row(
+                str(row["id"]),
+                str(row["agent_name"]),
+                str(row["interval"]),
+                enabled,
+                status,
+                next_run,
+                last_run,
             )
-            options.append((label, row["id"]))
+            self._schedule_ids.append(str(row["id"]))
 
-        schedule_select.set_options(options)
-        if options:
-            schedule_select.value = options[0][1]
-            output_widget.update(f"Loaded {len(options)} schedule(s).")
+        if self._schedule_ids:
+            self._schedule_row_index = min(self._schedule_row_index, len(self._schedule_ids) - 1)
+            try:
+                schedule_table.move_cursor(row=self._schedule_row_index, column=0)
+            except Exception:
+                pass
+            output_widget.update(f"Loaded {len(self._schedule_ids)} schedule(s).")
             return
         output_widget.update("No schedules configured.")
+
+    def _add_schedule(self) -> None:
+        agent_input = self.query_one("#agents-schedule-agent-input", Input)
+        interval_input = self.query_one("#agents-schedule-interval-input", Input)
+        params_input = self.query_one("#agents-schedule-params-input", Input)
+        concurrency_select = self.query_one("#agents-schedule-concurrency-select", Select)
+        confirmation_select = self.query_one("#agents-schedule-confirmation-select", Select)
+
+        agent_name = agent_input.value.strip()
+        interval = interval_input.value.strip()
+        if not agent_name:
+            self._set_schedule_status("Enter an agent name before adding a schedule.")
+            return
+        if not interval:
+            self._set_schedule_status("Enter an interval before adding a schedule.")
+            return
+
+        params_text = params_input.value.strip()
+        params: dict = {}
+        if params_text:
+            try:
+                parsed = json.loads(params_text)
+            except json.JSONDecodeError as exc:
+                self._set_schedule_status(f"Invalid params JSON: {exc}")
+                return
+            if not isinstance(parsed, dict):
+                self._set_schedule_status("Params JSON must decode to an object.")
+                return
+            params = parsed
+
+        concurrency = (
+            str(concurrency_select.value).strip().lower()
+            if isinstance(concurrency_select.value, str)
+            else "skip"
+        )
+        confirmation = (
+            str(confirmation_select.value).strip().lower()
+            if isinstance(confirmation_select.value, str)
+            else "auto"
+        )
+
+        manager = get_agent_runtime_manager()
+        try:
+            output = manager.add_schedule(
+                self.app,
+                agent_name=agent_name,
+                interval=interval,
+                params=params,
+                concurrency_policy=concurrency,
+                confirmation_mode=confirmation,
+            )
+        except Exception as exc:
+            output = f"Failed to add schedule: {exc}\n"
+        self._refresh_schedule_entries()
+        self._set_schedule_status(output.strip())
+        self._append_log(output)
+
+    def _remove_selected_schedule(self) -> None:
+        schedule_id = self._selected_schedule_id()
+        if not schedule_id:
+            self._set_schedule_status("Select a schedule first.")
+            return
+        manager = get_agent_runtime_manager()
+        try:
+            output = manager.remove_schedule(self.app, schedule_id)
+        except Exception as exc:
+            output = f"Failed to remove schedule: {exc}\n"
+        self._refresh_schedule_entries()
+        self._set_schedule_status(output.strip())
+        self._append_log(output)
 
     def _enable_selected_schedule(self) -> None:
         schedule_id = self._selected_schedule_id()
@@ -264,7 +429,10 @@ class AgentsScreen(Widget):
             self._set_schedule_status("Select a schedule first.")
             return
         manager = get_agent_runtime_manager()
-        output = manager.set_schedule_enabled(self.app, schedule_id, enabled=True)
+        try:
+            output = manager.set_schedule_enabled(self.app, schedule_id, enabled=True)
+        except Exception as exc:
+            output = f"Failed to enable schedule: {exc}\n"
         self._refresh_schedule_entries()
         self._set_schedule_status(output.strip())
         self._append_log(output)
@@ -275,14 +443,20 @@ class AgentsScreen(Widget):
             self._set_schedule_status("Select a schedule first.")
             return
         manager = get_agent_runtime_manager()
-        output = manager.set_schedule_enabled(self.app, schedule_id, enabled=False)
+        try:
+            output = manager.set_schedule_enabled(self.app, schedule_id, enabled=False)
+        except Exception as exc:
+            output = f"Failed to disable schedule: {exc}\n"
         self._refresh_schedule_entries()
         self._set_schedule_status(output.strip())
         self._append_log(output)
 
     def _show_schedule_status(self) -> None:
         manager = get_agent_runtime_manager()
-        output = manager.format_schedule_status(self.app)
+        try:
+            output = manager.format_schedule_status(self.app)
+        except Exception as exc:
+            output = f"Failed to load schedule status: {exc}\n"
         self._set_schedule_status(output.strip())
         self._append_log(output)
 
@@ -342,11 +516,22 @@ class AgentsScreen(Widget):
         return value.strip()
 
     def _selected_schedule_id(self) -> str:
-        schedule_select = self.query_one("#agents-schedule-select", Select)
-        value = schedule_select.value
-        if not isinstance(value, str):
+        if not self._schedule_ids:
             return ""
-        return value.strip()
+        try:
+            schedule_table = self.query_one("#agents-schedule-table", DataTable)
+            coordinate = getattr(schedule_table, "cursor_coordinate", None)
+            if coordinate is not None and hasattr(coordinate, "row"):
+                row_index = int(coordinate.row)
+            else:
+                row_index = int(self._schedule_row_index)
+        except Exception:
+            row_index = int(self._schedule_row_index)
+
+        if row_index < 0 or row_index >= len(self._schedule_ids):
+            return ""
+        self._schedule_row_index = row_index
+        return self._schedule_ids[row_index].strip()
 
     def _set_status(self, message: str) -> None:
         self.query_one("#agents-status-output", Static).update(message)

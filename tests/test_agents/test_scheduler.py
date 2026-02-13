@@ -432,3 +432,58 @@ def test_scheduler_tick_logic_only_runs_due_schedules(tmp_path: Path) -> None:
         assert second_due > first_due
     finally:
         scheduler.stop()
+
+
+def test_scheduler_runs_due_cron_schedule(tmp_path: Path) -> None:
+    clock = FakeClock(datetime(2026, 2, 13, 12, 0, 0, tzinfo=timezone.utc))
+    scheduler = _create_scheduler(
+        tmp_path,
+        {
+            "agent_name": "research",
+            "params": {"topic": "cron cadence"},
+            "interval": "*/5 * * * * *",
+            "enabled": True,
+            "concurrency_policy": "skip",
+            "confirmation_mode": "auto",
+        },
+        clock,
+    )
+    try:
+        initial = scheduler.list_schedules()[0]
+        first_due = datetime.fromisoformat(initial["next_run_at"])
+        assert first_due == datetime(2026, 2, 13, 12, 0, 5, tzinfo=timezone.utc)
+
+        scheduler.run_pending_once(now=first_due - timedelta(seconds=1))
+        assert FakeHarness.total_runs == 0
+
+        scheduler.run_pending_once(now=first_due)
+        assert scheduler.wait_until_idle(timeout_s=2.0)
+        assert FakeHarness.total_runs == 1
+    finally:
+        scheduler.stop()
+
+
+def test_scheduler_cron_leap_day_expression_computes_next_run(tmp_path: Path) -> None:
+    clock = FakeClock(datetime(2026, 3, 1, 0, 0, 0, tzinfo=timezone.utc))
+    scheduler = _create_scheduler(
+        tmp_path,
+        {
+            "agent_name": "research",
+            "params": {"topic": "leap day"},
+            "interval": "0 0 29 2 *",
+            "enabled": True,
+            "concurrency_policy": "skip",
+            "confirmation_mode": "auto",
+        },
+        clock,
+    )
+    try:
+        initial = scheduler.list_schedules()[0]
+        leap_due = datetime.fromisoformat(initial["next_run_at"])
+        assert leap_due == datetime(2028, 2, 29, 0, 0, 0, tzinfo=timezone.utc)
+
+        scheduler.run_pending_once(now=leap_due)
+        assert scheduler.wait_until_idle(timeout_s=2.0)
+        assert FakeHarness.total_runs == 1
+    finally:
+        scheduler.stop()

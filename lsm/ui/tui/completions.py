@@ -133,7 +133,13 @@ def get_completions(
         cmd_is_complete = cmd in commands
 
         if len(parts) > 1 or (cmd_is_complete and has_trailing_space):
-            return _get_argument_completions(cmd, arg, context, candidates)
+            return _get_argument_completions(
+                cmd,
+                arg,
+                context,
+                candidates,
+                has_trailing_space=has_trailing_space,
+            )
 
         # Suggest matching commands
         matches = [c for c in commands.keys() if c.startswith(cmd)]
@@ -152,6 +158,8 @@ def _get_argument_completions(
     arg: str,
     context: ContextType,
     candidates: Optional[List[str]] = None,
+    *,
+    has_trailing_space: bool = False,
 ) -> List[str]:
     """
     Get completions for command arguments.
@@ -206,6 +214,8 @@ def _get_argument_completions(
 
     if cmd == "/agent":
         parts = arg.split()
+        if has_trailing_space and arg:
+            parts.append("")
         if not parts:
             return list(AGENT_SUBCOMMANDS)
         if len(parts) == 1:
@@ -222,7 +232,8 @@ def _get_argument_completions(
             if len(parts) == 4 and parts[1] == "add":
                 return ["hourly", "daily", "weekly", "3600s"]
             if len(parts) >= 5 and parts[1] == "add":
-                return ["--params"]
+                flags = ["--params", "--concurrency_policy", "--confirmation_mode"]
+                return [flag for flag in flags if flag.startswith(parts[-1])] if parts[-1].startswith("--") else flags
         return []
 
     # Build command
