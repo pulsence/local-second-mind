@@ -146,6 +146,18 @@ class TestGetCompletions:
         assert "--concurrency_policy" in completions
         assert "--confirmation_mode" in completions
 
+    def test_agent_command_suggests_meta_subcommands(self):
+        """Agent meta command should suggest meta subcommands."""
+        completions = get_completions("/agent meta ", "query")
+        assert "start" in completions
+        assert "status" in completions
+        assert "log" in completions
+
+    def test_agent_meta_start_suggests_goal_placeholder(self):
+        """Agent meta start should prompt for goal argument."""
+        completions = get_completions("/agent meta start ", "query")
+        assert "<goal>" in completions
+
     def test_remote_provider_suggests_actions(self):
         """Remote provider command should suggest current command name."""
         completions = get_completions("/remote-provider ", "query")

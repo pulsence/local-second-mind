@@ -184,8 +184,6 @@
 - Read .claude_files/INGEST_FUTURE.md for an outline of how to create a plan to improve the 
   ingest and embedding retrevial pipeline.
 
-####
-
 #### Document Headings Improvement
 - When a text document has subheadings the user should be able to define how many subheadings
   deep should be considered when creating chunk boundaries by headings. Otherwise the ingest
@@ -210,11 +208,26 @@
 - Look for places where module boundaries are not properly respected and abstractions
   have started to leak and reinforce module boundaries and consider refactoring if
   abstractions have become too leaky.
-- Check Tests to make sure there is not artifical duplication.
+- Check Tests to make sure there is no artifical duplication.
+- Review for any legacy/backwards-capatability/dead-code and review it.
 
 #### Deployment
 - Create clear install instructions
 - Explore creating docker images
+
+#### Testing
+- Ensure that the complete security strategy in SECURITY.md is being followed. Pay particular
+  attention to the testing of the Meta agent to make sure that it is thoroughly tested.
+    - The security tests of the whole agent system should test every way to break out of the
+      sandbox.
+- Review the test suite to make sure that live services are tested and there are no stubs
+  or "auto-pass" tests.
+- Ensure that the test suite is properly structured to match the actual project module structure
+  and the tests are properly named.
+- Ensure that there are full integration tests uses the different configurations to make sure that
+  the different AI Providers, DBs, etc. work with each other.
+- Make sure that different DB migration tests truly load complete DBs and successfully migrate
+  in both directions SQLite <-> PG, and Chroma <-> PG
 
 ### v0.10.0: Extra Control Paths
 - Add ability to send email/txt notifications

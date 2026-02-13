@@ -143,6 +143,21 @@ All notable changes to Local Second Mind are documented here.
 - Meta-agent phase 6.3 coverage:
   - `tests/test_agents/test_meta_workspace.py`
   - `tests/test_agents/test_meta_synthesis.py`
+- Meta-agent phase 6.4 UI/CLI:
+  - shell commands in `lsm/ui/shell/commands/agents.py`:
+    - `/agent meta start <goal>`
+    - `/agent meta status`
+    - `/agent meta log`
+  - `AgentRuntimeManager` meta snapshot/status/log helpers for task graph, sub-agent run state, and persisted meta log access
+  - Agents TUI meta panel in `lsm/ui/tui/screens/agents.py`:
+    - task-graph progress table
+    - sub-agent run status/workspace table
+    - artifact list with `final_result.md` and `meta_log.md` paths
+  - query command autocomplete support for `/agent meta ...` in `lsm/ui/tui/completions.py`
+- Meta-agent phase 6.4 coverage:
+  - `tests/test_ui/shell/test_meta_commands.py`
+  - `tests/test_ui/tui/test_meta_screen.py`
+  - updated `tests/test_ui/tui/test_completions.py`
 
 ### Changed
 

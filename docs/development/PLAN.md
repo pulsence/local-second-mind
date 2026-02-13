@@ -1091,7 +1091,7 @@ MetaAgent collects sub-agent outputs, optionally runs final synthesis via LLM, p
 
 **Post-block:** `tests/test_agents/test_meta_workspace.py`, `tests/test_agents/test_meta_synthesis.py`, run tests, update docs, commit.
 
-### 6.4: Meta-Agent UI/CLI
+### 6.4: Meta-Agent UI/CLI (COMPLETED)
 
 #### 6.4.1: CLI Commands
 

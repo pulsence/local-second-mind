@@ -8,6 +8,7 @@ import json
 import shlex
 import threading
 from datetime import datetime, timedelta
+from pathlib import Path
 from typing import Any, Optional
 
 from lsm.agents import AgentScheduler, create_agent
@@ -105,6 +106,124 @@ class AgentRuntimeManager:
             f"Thread alive: {alive}\n"
             f"Logs: {len(self._active_agent.state.log_entries)} entries\n"
         )
+
+    def start_meta(self, app: Any, goal: str) -> str:
+        normalized_goal = str(goal or "").strip()
+        if not normalized_goal:
+            return "Usage: /agent meta start <goal>\n"
+        return self.start(app, "meta", normalized_goal)
+
+    def get_meta_snapshot(self) -> dict[str, Any]:
+        active_name = str(self._active_name or "").strip().lower()
+        if active_name != "meta" or self._active_agent is None:
+            return {
+                "available": False,
+                "status": "idle",
+                "thread_alive": False,
+                "goal": "",
+                "execution_order": [],
+                "tasks": [],
+                "task_runs": [],
+                "artifacts": [],
+                "final_result_path": None,
+                "meta_log_path": None,
+            }
+
+        agent = self._active_agent
+        alive = bool(self._active_thread and self._active_thread.is_alive())
+        status = str(getattr(agent.state.status, "value", agent.state.status))
+        result = getattr(agent, "last_result", None)
+        graph = getattr(result, "task_graph", None)
+
+        tasks: list[dict[str, Any]] = []
+        if graph is not None:
+            for task in getattr(graph, "tasks", []):
+                tasks.append(
+                    {
+                        "id": str(getattr(task, "id", "")),
+                        "agent_name": str(getattr(task, "agent_name", "")),
+                        "status": str(getattr(task, "status", "")),
+                        "depends_on": list(getattr(task, "depends_on", [])),
+                    }
+                )
+
+        task_runs: list[dict[str, Any]] = []
+        for run in list(getattr(result, "task_runs", []) if result is not None else []):
+            task_runs.append(
+                {
+                    "task_id": str(getattr(run, "task_id", "")),
+                    "agent_name": str(getattr(run, "agent_name", "")),
+                    "status": str(getattr(run, "status", "")),
+                    "sub_agent_dir": str(getattr(run, "sub_agent_dir", "")),
+                    "artifacts": list(getattr(run, "artifacts", [])),
+                    "error": getattr(run, "error", None),
+                }
+            )
+
+        return {
+            "available": True,
+            "status": status,
+            "thread_alive": alive,
+            "goal": str(getattr(result, "goal", "")),
+            "execution_order": list(
+                getattr(result, "execution_order", getattr(agent, "last_execution_order", []))
+            ),
+            "tasks": tasks,
+            "task_runs": task_runs,
+            "artifacts": list(getattr(agent.state, "artifacts", [])),
+            "final_result_path": str(getattr(result, "final_result_path", "") or ""),
+            "meta_log_path": str(getattr(result, "meta_log_path", "") or ""),
+        }
+
+    def format_meta_status(self) -> str:
+        snapshot = self.get_meta_snapshot()
+        if not snapshot.get("available"):
+            return "No active meta-agent.\n"
+
+        tasks = list(snapshot.get("tasks", []))
+        completed = sum(1 for task in tasks if str(task.get("status")) == "completed")
+        failed = sum(1 for task in tasks if str(task.get("status")) == "failed")
+        lines = [
+            "Meta Agent Status:",
+            f"- Status: {snapshot.get('status')}",
+            f"- Thread alive: {snapshot.get('thread_alive')}",
+        ]
+        goal = str(snapshot.get("goal") or "").strip()
+        if goal:
+            lines.append(f"- Goal: {goal}")
+        lines.append(
+            f"- Tasks: {len(tasks)} total, {completed} completed, {failed} failed"
+        )
+        execution_order = list(snapshot.get("execution_order", []))
+        if execution_order:
+            lines.append("- Execution order: " + ", ".join(str(item) for item in execution_order))
+        task_runs = list(snapshot.get("task_runs", []))
+        if task_runs:
+            lines.append("- Sub-agent runs:")
+            for run in task_runs:
+                lines.append(
+                    f"  {run.get('task_id')} ({run.get('agent_name')}): "
+                    f"{run.get('status')} artifacts={len(run.get('artifacts', []))}"
+                )
+        lines.append("")
+        return "\n".join(lines)
+
+    def meta_log(self) -> str:
+        snapshot = self.get_meta_snapshot()
+        if not snapshot.get("available"):
+            return "No active meta-agent.\n"
+
+        meta_log_path = str(snapshot.get("meta_log_path") or "").strip()
+        if meta_log_path:
+            path = Path(meta_log_path)
+            if path.exists() and path.is_file():
+                try:
+                    text = path.read_text(encoding="utf-8")
+                except OSError as exc:
+                    return f"Failed to read meta log '{path}': {exc}\n"
+                if text.strip():
+                    return text if text.endswith("\n") else text + "\n"
+        return self.log()
 
     def stop(self) -> str:
         if self._active_agent is None:
@@ -682,6 +801,9 @@ def handle_agent_command(command: str, app: Any) -> str:
     - `/agent pause`
     - `/agent resume`
     - `/agent log`
+    - `/agent meta start <goal...>`
+    - `/agent meta status`
+    - `/agent meta log`
     """
     text = command.strip()
     parts = text.split()
@@ -700,6 +822,22 @@ def handle_agent_command(command: str, app: Any) -> str:
         return manager.start(app, name, topic)
     if action == "status":
         return manager.status()
+    if action == "meta":
+        if len(parts) < 3:
+            return _meta_help()
+        subaction = parts[2].strip().lower()
+        if subaction == "start":
+            if len(parts) < 4:
+                return "Usage: /agent meta start <goal>\n"
+            goal = text.split(maxsplit=3)[3].strip()
+            if not goal:
+                return "Usage: /agent meta start <goal>\n"
+            return manager.start_meta(app, goal)
+        if subaction == "status":
+            return manager.format_meta_status()
+        if subaction == "log":
+            return manager.meta_log()
+        return _meta_help()
     if action == "schedule":
         return manager.handle_schedule_command(app, text)
     if action == "stop":
@@ -723,12 +861,24 @@ def _agent_help() -> str:
         "  /agent pause\n"
         "  /agent resume\n"
         "  /agent log\n"
+        "  /agent meta start <goal>\n"
+        "  /agent meta status\n"
+        "  /agent meta log\n"
         "  /agent schedule add <agent_name> <interval> [--params '{\"topic\":\"...\"}'] "
         "[--concurrency_policy skip|queue|cancel] [--confirmation_mode auto|confirm|deny]\n"
         "  /agent schedule list\n"
         "  /agent schedule enable|disable <schedule_id>\n"
         "  /agent schedule remove <schedule_id>\n"
         "  /agent schedule status\n"
+    )
+
+
+def _meta_help() -> str:
+    return (
+        "Meta-agent commands:\n"
+        "  /agent meta start <goal>\n"
+        "  /agent meta status\n"
+        "  /agent meta log\n"
     )
 
 

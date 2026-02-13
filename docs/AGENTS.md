@@ -295,6 +295,9 @@ Open the **Agents** tab:
 - enter a topic
 - start/pause/resume/stop
 - inspect live status/log output
+- review the Meta panel task graph table
+- review per-sub-agent run status/workspaces in the Meta panel
+- inspect meta artifact paths (`final_result.md`, `meta_log.md`) from the Meta panel
 - review schedules in a table with runtime status
 - add/remove schedules from the panel
 - enable/disable schedules from the panel
@@ -310,6 +313,9 @@ Open the **Agents** tab:
 - `/agent resume`
 - `/agent stop`
 - `/agent log`
+- `/agent meta start <goal>`
+- `/agent meta status`
+- `/agent meta log`
 - `/agent schedule add <agent_name> <interval> [--params '{"topic":"..."}'] [--concurrency_policy skip|queue|cancel] [--confirmation_mode auto|confirm|deny]`
 - `/agent schedule list`
 - `/agent schedule enable <schedule_id>`

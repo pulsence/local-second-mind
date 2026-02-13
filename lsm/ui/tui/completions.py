@@ -77,8 +77,9 @@ BUILD_OPTIONS = ["--force"]
 TAG_OPTIONS = ["--max"]
 EXPORT_FORMATS = ["bibtex", "zotero"]
 MEMORY_SUBCOMMANDS = ["candidates", "promote", "reject", "ttl"]
-AGENT_SUBCOMMANDS = ["start", "status", "pause", "resume", "stop", "log", "schedule"]
+AGENT_SUBCOMMANDS = ["start", "status", "pause", "resume", "stop", "log", "schedule", "meta"]
 AGENT_SCHEDULE_SUBCOMMANDS = ["add", "list", "enable", "disable", "remove", "status"]
+AGENT_META_SUBCOMMANDS = ["start", "status", "log"]
 def get_commands(context: ContextType) -> Dict[str, str]:
     """
     Get available commands for a context.
@@ -221,6 +222,8 @@ def _get_argument_completions(
         if len(parts) == 1:
             if parts[0] == "schedule":
                 return list(AGENT_SCHEDULE_SUBCOMMANDS)
+            if parts[0] == "meta":
+                return list(AGENT_META_SUBCOMMANDS)
             return [item for item in AGENT_SUBCOMMANDS if item.startswith(parts[0])]
         if parts[0] == "schedule":
             if len(parts) == 2:
@@ -234,6 +237,11 @@ def _get_argument_completions(
             if len(parts) >= 5 and parts[1] == "add":
                 flags = ["--params", "--concurrency_policy", "--confirmation_mode"]
                 return [flag for flag in flags if flag.startswith(parts[-1])] if parts[-1].startswith("--") else flags
+        if parts[0] == "meta":
+            if len(parts) == 2:
+                return [item for item in AGENT_META_SUBCOMMANDS if item.startswith(parts[1])]
+            if len(parts) == 3 and parts[1] == "start":
+                return ["<goal>"]
         return []
 
     # Build command

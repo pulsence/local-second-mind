@@ -57,6 +57,15 @@ class AgentsScreen(Widget):
                     with Container(id="agents-status-panel"):
                         yield Static("Status", classes="agents-section-title")
                         yield Static("No active agent.", id="agents-status-output", markup=False)
+                    with Container(id="agents-meta-panel"):
+                        yield Static("Meta Agent", classes="agents-section-title")
+                        yield DataTable(id="agents-meta-task-table")
+                        yield DataTable(id="agents-meta-runs-table")
+                        with Horizontal(id="agents-meta-buttons"):
+                            yield Button("Refresh Meta", id="agents-meta-refresh-button")
+                            yield Button("Meta Log", id="agents-meta-log-button")
+                        yield Static("No active meta-agent.", id="agents-meta-output", markup=False)
+                        yield Static("No meta artifacts.", id="agents-meta-artifacts-output", markup=False)
                     with Container(id="agents-schedule-panel"):
                         yield Static("Schedules", classes="agents-section-title")
                         yield DataTable(id="agents-schedule-table")
@@ -129,6 +138,8 @@ class AgentsScreen(Widget):
     def on_mount(self) -> None:
         """Initialize agent select options and focus."""
         self._refresh_agent_options()
+        self._initialize_meta_controls()
+        self._refresh_meta_panel()
         self._initialize_schedule_controls()
         self._refresh_schedule_entries()
         self._refresh_memory_candidates()
@@ -154,6 +165,12 @@ class AgentsScreen(Widget):
             return
         if button_id == "agents-log-button":
             self._show_log()
+            return
+        if button_id == "agents-meta-refresh-button":
+            self._refresh_meta_panel()
+            return
+        if button_id == "agents-meta-log-button":
+            self._show_meta_log()
             return
         if button_id == "agents-schedule-add-button":
             self._add_schedule()
@@ -224,11 +241,13 @@ class AgentsScreen(Widget):
         output = manager.start(self.app, agent_name, topic)
         self._set_status(output.strip())
         self._append_log(output)
+        self._refresh_meta_panel()
 
     def _show_status(self) -> None:
         manager = get_agent_runtime_manager()
         output = manager.status()
         self._set_status(output.strip())
+        self._refresh_meta_panel()
 
     def _run_control_action(self, action: str) -> None:
         manager = get_agent_runtime_manager()
@@ -242,11 +261,115 @@ class AgentsScreen(Widget):
             output = "Unsupported control action."
         self._set_status(output.strip())
         self._append_log(output)
+        self._refresh_meta_panel()
 
     def _show_log(self) -> None:
         manager = get_agent_runtime_manager()
         output = manager.log()
         self._append_log(output)
+        self._refresh_meta_panel()
+
+    def _show_meta_log(self) -> None:
+        manager = get_agent_runtime_manager()
+        if not hasattr(manager, "meta_log"):
+            self._set_meta_status("Meta log is unavailable in this runtime.")
+            return
+        output = manager.meta_log()
+        self._append_log(output)
+        self._refresh_meta_panel()
+
+    def _initialize_meta_controls(self) -> None:
+        try:
+            task_table = self.query_one("#agents-meta-task-table", DataTable)
+            run_table = self.query_one("#agents-meta-runs-table", DataTable)
+        except Exception:
+            return
+        if task_table.column_count == 0:
+            task_table.add_columns("Task", "Agent", "Status", "Depends On")
+        if run_table.column_count == 0:
+            run_table.add_columns("Task", "Sub-Agent", "Status", "Workspace", "Artifacts")
+        task_table.cursor_type = "row"
+        task_table.zebra_stripes = True
+        run_table.cursor_type = "row"
+        run_table.zebra_stripes = True
+
+    def _refresh_meta_panel(self) -> None:
+        try:
+            task_table = self.query_one("#agents-meta-task-table", DataTable)
+            run_table = self.query_one("#agents-meta-runs-table", DataTable)
+            status_widget = self.query_one("#agents-meta-output", Static)
+            artifacts_widget = self.query_one("#agents-meta-artifacts-output", Static)
+        except Exception:
+            return
+
+        manager = get_agent_runtime_manager()
+        snapshot_fn = getattr(manager, "get_meta_snapshot", None)
+        if not callable(snapshot_fn):
+            task_table.clear(columns=False)
+            run_table.clear(columns=False)
+            status_widget.update("Meta status is unavailable in this runtime.")
+            artifacts_widget.update("No meta artifacts.")
+            return
+
+        try:
+            snapshot = dict(snapshot_fn() or {})
+        except Exception as exc:
+            task_table.clear(columns=False)
+            run_table.clear(columns=False)
+            status_widget.update(f"Failed to load meta status: {exc}")
+            artifacts_widget.update("No meta artifacts.")
+            return
+
+        task_table.clear(columns=False)
+        run_table.clear(columns=False)
+        if not bool(snapshot.get("available")):
+            status_widget.update("No active meta-agent.")
+            artifacts_widget.update("No meta artifacts.")
+            return
+
+        tasks = list(snapshot.get("tasks", []))
+        for task in tasks:
+            depends_on = ",".join(str(item) for item in task.get("depends_on", []))
+            task_table.add_row(
+                str(task.get("id", "")),
+                str(task.get("agent_name", "")),
+                str(task.get("status", "")),
+                depends_on or "-",
+            )
+
+        task_runs = list(snapshot.get("task_runs", []))
+        for run in task_runs:
+            run_table.add_row(
+                str(run.get("task_id", "")),
+                str(run.get("agent_name", "")),
+                str(run.get("status", "")),
+                str(run.get("sub_agent_dir", "")),
+                str(len(run.get("artifacts", []))),
+            )
+
+        completed = sum(1 for task in tasks if str(task.get("status")) == "completed")
+        failed = sum(1 for task in tasks if str(task.get("status")) == "failed")
+        status_widget.update(
+            (
+                f"Meta status={snapshot.get('status')} | "
+                f"thread_alive={snapshot.get('thread_alive')} | "
+                f"tasks={len(tasks)} completed={completed} failed={failed}"
+            )
+        )
+
+        artifact_lines = []
+        final_result_path = str(snapshot.get("final_result_path", "")).strip()
+        if final_result_path:
+            artifact_lines.append(f"final_result: {final_result_path}")
+        meta_log_path = str(snapshot.get("meta_log_path", "")).strip()
+        if meta_log_path:
+            artifact_lines.append(f"meta_log: {meta_log_path}")
+        for value in list(snapshot.get("artifacts", [])):
+            artifact_lines.append(str(value))
+        if not artifact_lines:
+            artifacts_widget.update("No meta artifacts recorded yet.")
+            return
+        artifacts_widget.update("\n".join(artifact_lines[:25]))
 
     def _initialize_schedule_controls(self) -> None:
         try:
@@ -541,6 +664,12 @@ class AgentsScreen(Widget):
 
     def _set_schedule_status(self, message: str) -> None:
         self.query_one("#agents-schedule-output", Static).update(message)
+
+    def _set_meta_status(self, message: str) -> None:
+        try:
+            self.query_one("#agents-meta-output", Static).update(message)
+        except Exception:
+            return
 
     def _append_log(self, message: str) -> None:
         if not message:
