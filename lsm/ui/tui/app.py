@@ -45,7 +45,15 @@ class LSMApp(App):
     TITLE = "Local Second Mind"
     SUB_TITLE = "Personal Knowledge Management"
 
-    CSS_PATH = "styles.tcss"
+    CSS_PATH = [
+        "styles/base.tcss",
+        "styles/widgets.tcss",
+        "styles/query.tcss",
+        "styles/ingest.tcss",
+        "styles/settings.tcss",
+        "styles/remote.tcss",
+        "styles/agents.tcss",
+    ]
 
     _DENSITY_AUTO_COMPACT_MAX_WIDTH = 100
     _DENSITY_AUTO_COMPACT_MAX_HEIGHT = 32

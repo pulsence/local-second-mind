@@ -16,7 +16,7 @@ lsm
 lsm/gui/shell/tui/
 |-- __init__.py           # Module exports (LSMApp, run_tui)
 |-- app.py                # Main LSMApp class
-|-- styles.tcss           # Textual CSS styling
+|-- styles/               # Split Textual CSS files (base + per-screen + widgets)
 |-- completions.py        # Autocomplete logic
 |-- screens/
 |   |-- main.py           # Main layout screen

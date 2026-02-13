@@ -1,0 +1,591 @@
+/*
+ * LSM TUI Styles - Base
+ * Global/shared styles and cross-screen responsive overrides.
+ */
+
+/* ============================================================================
+ * Global Styles
+ * ============================================================================ */
+
+Screen {
+    background: $surface;
+}
+
+/* ============================================================================
+ * Header and Footer
+ * ============================================================================ */
+
+Header {
+    dock: top;
+    background: $primary;
+    color: $text;
+}
+
+/* Hide the header icon/button area */
+Header > HeaderIcon {
+    display: none;
+}
+
+Footer {
+    dock: bottom;
+    background: $primary-darken-2;
+}
+
+/* ============================================================================
+ * Tabbed Content
+ * ============================================================================ */
+
+TabbedContent {
+    height: 1fr;
+}
+
+ContentTabs {
+    background: $surface-darken-1;
+    height: 3;
+}
+
+TabPane {
+    padding: 1 2;
+    height: 1fr;
+}
+
+/* Tab styling */
+Tab {
+    background: $surface-darken-1;
+    color: $text;
+    padding: 1 2;
+    height: 3;
+    width: auto;
+    min-width: 10;
+    content-align: center middle;
+}
+
+Tab:hover {
+    background: $surface;
+    color: $text;
+}
+
+Tab.-active {
+    background: $primary;
+    color: $text;
+}
+
+Underline {
+    height: 1;
+}
+
+Underline > .underline--bar {
+    color: $primary;
+}
+
+/* ============================================================================
+ * Screen Containers
+ * ============================================================================ */
+
+.screen-container {
+    height: 100%;
+    width: 100%;
+}
+
+/* Split pane layout */
+.split-horizontal {
+    layout: horizontal;
+    height: 100%;
+}
+
+.split-vertical {
+    layout: vertical;
+    width: 100%;
+}
+
+/* Left/Right panes */
+.left-pane {
+    width: 1fr;
+    min-width: 40;
+    max-width: 60%;
+    border-right: solid $primary-darken-1;
+}
+
+.right-pane {
+    width: 2fr;
+    min-width: 50;
+}
+
+/* Top/Bottom panes */
+.top-pane {
+    height: 1fr;
+    border-bottom: solid $primary-darken-1;
+}
+
+.bottom-pane {
+    height: auto;
+    min-height: 3;
+    max-height: 15;
+}
+
+/* ============================================================================
+ * Input Widgets
+ * ============================================================================ */
+
+.command-input {
+    dock: bottom;
+    height: auto;
+    min-height: 3;
+    max-height: 10;
+    background: $surface-darken-1;
+    border: tall $primary-darken-1;
+    padding: 0 1;
+}
+
+.command-input:focus {
+    border: tall $primary;
+}
+
+Input {
+    background: $surface-darken-1;
+    border: tall $primary-darken-2;
+}
+
+Input:focus {
+    border: tall $primary;
+}
+
+TextArea {
+    background: $surface-darken-1;
+    border: tall $primary-darken-2;
+}
+
+TextArea:focus {
+    border: tall $primary;
+}
+
+Select {
+    width: 100%;
+    margin: 1 0;
+}
+
+Switch {
+    margin: 1 0;
+}
+
+/* ============================================================================
+ * Results Display
+ * ============================================================================ */
+
+.results-panel {
+    height: 100%;
+    background: $surface;
+    border: round $primary-darken-1;
+    padding: 1;
+}
+
+.results-panel:focus {
+    border: round $primary;
+}
+
+/* Individual result item */
+.result-item {
+    margin-bottom: 1;
+    padding: 1;
+    background: $surface-darken-1;
+    border: round $primary-darken-2;
+}
+
+.result-item:hover {
+    background: $surface-lighten-1;
+    border: round $primary;
+}
+
+.result-item.-selected {
+    background: $primary-darken-2;
+    border: round $primary;
+}
+
+/* Citation label */
+.citation-label {
+    color: $secondary;
+    text-style: bold;
+}
+
+/* Source path */
+.source-path {
+    color: $text-muted;
+    text-style: italic;
+}
+
+/* Chunk text */
+.chunk-text {
+    margin-top: 1;
+    padding: 1;
+    background: $surface-darken-2;
+}
+
+/* ============================================================================
+ * Status Bar Widget
+ * ============================================================================ */
+
+.status-bar {
+    dock: bottom;
+    height: 1;
+    background: $primary-darken-1;
+    padding: 0 1;
+}
+
+.status-item {
+    margin-right: 2;
+}
+
+.status-label {
+    color: $text-muted;
+}
+
+.status-value {
+    color: $text;
+    text-style: bold;
+}
+
+.status-mode {
+    color: $success;
+}
+
+.status-cost {
+    color: $warning;
+}
+
+.status-chunks {
+    color: $secondary;
+}
+
+/* ============================================================================
+ * File Tree (Ingest)
+ * ============================================================================ */
+
+DirectoryTree {
+    height: 100%;
+    background: $surface;
+    border: round $primary-darken-1;
+    padding: 1;
+}
+
+DirectoryTree:focus {
+    border: round $primary;
+}
+
+DirectoryTree > .directory-tree--folder {
+    color: $secondary;
+}
+
+DirectoryTree > .directory-tree--file {
+    color: $text;
+}
+
+/* ============================================================================
+ * Progress Indicators
+ * ============================================================================ */
+
+ProgressBar {
+    padding: 1;
+}
+
+ProgressBar > .bar--bar {
+    color: $primary;
+}
+
+ProgressBar > .bar--complete {
+    color: $success;
+}
+
+/* ============================================================================
+ * Stats Panel (Ingest)
+ * ============================================================================ */
+
+.stats-panel {
+    padding: 1;
+    background: $surface-darken-1;
+    border: round $primary-darken-2;
+    margin: 1 0;
+}
+
+#stats-content {
+    color: $text;
+}
+
+.stats-title {
+    text-style: bold;
+    color: $primary;
+    margin-bottom: 1;
+}
+
+.stat-row {
+    layout: horizontal;
+    height: auto;
+}
+
+.stat-label {
+    width: 20;
+    color: $text-muted;
+}
+
+.stat-value {
+    color: $text;
+    text-style: bold;
+}
+
+/* ============================================================================
+ * Help Modal
+ * ============================================================================ */
+
+.help-modal {
+    align: center middle;
+    width: 80%;
+    max-width: 100;
+    height: 80%;
+    max-height: 40;
+}
+
+.help-content {
+    padding: 2;
+    background: $surface;
+    border: double $primary;
+}
+
+.help-title {
+    text-style: bold;
+    color: $primary;
+    text-align: center;
+    margin-bottom: 2;
+}
+
+.help-section {
+    margin-bottom: 1;
+}
+
+.help-key {
+    color: $secondary;
+    text-style: bold;
+    width: 15;
+}
+
+.help-description {
+    color: $text;
+}
+
+/* ============================================================================
+ * Autocomplete Popup
+ * ============================================================================ */
+
+.autocomplete-popup {
+    layer: popup;
+    background: $surface;
+    border: round $primary;
+    padding: 0;
+    max-height: 10;
+}
+
+.autocomplete-item {
+    padding: 0 1;
+}
+
+.autocomplete-item:hover {
+    background: $primary-darken-2;
+}
+
+.autocomplete-item.-selected {
+    background: $primary;
+    color: $text;
+}
+
+/* ============================================================================
+ * Remote Search Results
+ * ============================================================================ */
+
+.remote-results {
+    margin-top: 1;
+    padding: 1;
+    background: $surface-darken-1;
+    border: round $warning-darken-2;
+}
+
+.remote-results-title {
+    color: $warning;
+    text-style: bold;
+    margin-bottom: 1;
+}
+
+.remote-result-item {
+    margin-bottom: 1;
+    padding: 0 1;
+}
+
+.remote-source {
+    color: $warning-darken-1;
+    text-style: italic;
+}
+
+/* ============================================================================
+ * Streaming Output
+ * ============================================================================ */
+
+.streaming-output {
+    padding: 1;
+    background: $surface-darken-1;
+    border: round $primary-darken-2;
+    height: auto;
+    min-height: 5;
+}
+
+.streaming-indicator {
+    color: $primary;
+    text-style: blink;
+}
+
+/* ============================================================================
+ * Error / Warning / Success Messages
+ * ============================================================================ */
+
+.message-error {
+    background: $error-darken-2;
+    color: $text;
+    padding: 1;
+    border: round $error;
+    margin: 1 0;
+}
+
+.message-warning {
+    background: $warning-darken-2;
+    color: $text;
+    padding: 1;
+    border: round $warning;
+    margin: 1 0;
+}
+
+.message-success {
+    background: $success-darken-2;
+    color: $text;
+    padding: 1;
+    border: round $success;
+    margin: 1 0;
+}
+
+/* ============================================================================
+ * Density: Compact Overrides
+ * ============================================================================ */
+
+.density-compact ContentTabs {
+    height: 2;
+}
+
+.density-compact TabPane {
+    padding: 0 1;
+}
+
+.density-compact Tab {
+    padding: 0 2;
+    height: 2;
+}
+
+.density-compact .settings-panel {
+    padding: 0 1;
+}
+
+.density-compact .settings-section {
+    margin-bottom: 1;
+    padding: 0 1;
+}
+
+.density-compact #settings-screen {
+    padding: 1;
+}
+
+.density-compact .settings-field {
+    min-height: 2;
+}
+
+.density-compact .settings-field Input {
+    height: 1;
+}
+
+.density-compact .settings-field Select {
+    height: 1;
+}
+
+.density-compact .bottom-pane {
+    min-height: 1;
+}
+
+.density-compact .command-input {
+    min-height: 1;
+}
+
+.density-compact CommandInput {
+    min-height: 1;
+}
+
+.density-compact #query-command-input {
+    min-height: 1;
+}
+
+.density-compact #query-command-input Input {
+    height: 1;
+}
+
+.density-compact ProgressBar {
+    padding: 0 1;
+}
+
+.density-compact #remote-controls Input {
+    height: 1;
+}
+
+.density-compact #remote-controls Select {
+    height: 1;
+}
+
+/* ============================================================================
+ * Responsive: Narrow Terminal Fallback
+ * ============================================================================ */
+
+.density-narrow #query-top {
+    layout: vertical;
+}
+
+.density-narrow #query-results-panel {
+    width: 1fr;
+}
+
+.density-narrow #query-log-panel {
+    width: 1fr;
+    max-width: 100%;
+    margin-top: 1;
+}
+
+.density-narrow #remote-top {
+    layout: vertical;
+}
+
+.density-narrow #remote-left {
+    width: 1fr;
+    min-width: 0;
+}
+
+.density-narrow #remote-results-panel {
+    width: 1fr;
+    margin-top: 1;
+}
+
+.density-narrow #agents-top {
+    layout: vertical;
+}
+
+.density-narrow #agents-left {
+    width: 1fr;
+    min-width: 0;
+    max-width: 100%;
+    padding-right: 0;
+}
+
+.density-narrow #agents-log-panel {
+    width: 1fr;
+    min-width: 0;
+    margin-top: 1;
+}

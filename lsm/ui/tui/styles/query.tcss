@@ -1,0 +1,68 @@
+/*
+ * LSM TUI Styles - Query Screen
+ */
+
+/* ============================================================================
+ * Query Screen Specific
+ * ============================================================================ */
+
+#query-screen {
+    layout: vertical;
+}
+
+.query-results-container {
+    height: 1fr;
+    padding: 1;
+}
+
+/* ============================================================================
+ * Query Layout
+ * ============================================================================ */
+
+#query-layout {
+    height: 100%;
+    layout: vertical;
+}
+
+#query-top {
+    height: 1fr;
+    layout: horizontal;
+}
+
+#query-log-panel {
+    width: 1fr;
+    max-width: 40%;
+    padding: 1;
+    border: round $primary-darken-2;
+    background: $surface-darken-1;
+    layout: vertical;
+}
+
+.log-panel-title {
+    color: $primary;
+    text-style: bold;
+    margin-bottom: 1;
+}
+
+#query-log {
+    height: 1fr;
+    background: $surface;
+    border: round $primary-darken-1;
+    padding: 1;
+    text-wrap: wrap;
+    overflow-x: hidden;
+    overflow-y: auto;
+}
+
+#query-command-input {
+    height: auto;
+    min-height: 3;
+}
+
+#query-command-input Input {
+    height: 3;
+}
+
+#query-results-panel {
+    width: 2fr;
+}

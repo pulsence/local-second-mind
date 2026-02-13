@@ -14,6 +14,14 @@ def _read(path: Path) -> str:
     return path.read_text(encoding="utf-8")
 
 
+def _styles_text() -> str:
+    styles_dir = _repo_root() / "lsm" / "ui" / "tui" / "styles"
+    return "\n\n".join(
+        css_file.read_text(encoding="utf-8")
+        for css_file in sorted(styles_dir.glob("*.tcss"))
+    )
+
+
 def _selector_bodies(css: str, selector: str) -> list[str]:
     pattern = rf"(?ms)^\s*{re.escape(selector)}\s*\{{(.*?)^\s*\}}"
     return re.findall(pattern, css)
@@ -29,7 +37,7 @@ def _assert_selector_has(css: str, selector: str, expected_line: str) -> None:
 
 def test_agents_left_column_is_scrollable_to_prevent_panel_clipping() -> None:
     """Agents left column should scroll vertically when panels exceed viewport height."""
-    css = _read(_repo_root() / "lsm" / "ui" / "tui" / "styles.tcss")
+    css = _styles_text()
     _assert_selector_has(css, "#agents-left", "width: 1fr;")
     _assert_selector_has(css, "#agents-left", "min-width: 34;")
     _assert_selector_has(css, "#agents-left", "overflow-y: auto;")
@@ -38,7 +46,7 @@ def test_agents_left_column_is_scrollable_to_prevent_panel_clipping() -> None:
 
 def test_agents_panels_use_auto_height_not_fractional_splitting() -> None:
     """Control/status/meta/schedule/memory panels should size to content."""
-    css = _read(_repo_root() / "lsm" / "ui" / "tui" / "styles.tcss")
+    css = _styles_text()
     for selector in (
         "#agents-control-panel",
         "#agents-status-panel",
@@ -51,7 +59,7 @@ def test_agents_panels_use_auto_height_not_fractional_splitting() -> None:
 
 def test_agents_log_panel_uses_two_fraction_width_with_min_constraint() -> None:
     """Log panel should own the larger right column with a minimum width."""
-    css = _read(_repo_root() / "lsm" / "ui" / "tui" / "styles.tcss")
+    css = _styles_text()
     _assert_selector_has(css, "#agents-log-panel", "width: 2fr;")
     _assert_selector_has(css, "#agents-log-panel", "min-width: 44;")
     _assert_selector_has(css, "#agents-log-panel", "border: round $primary-darken-2;")
@@ -59,7 +67,7 @@ def test_agents_log_panel_uses_two_fraction_width_with_min_constraint() -> None:
 
 def test_agents_datatables_have_dedicated_styling() -> None:
     """Meta and schedule DataTables should have explicit sizing and border styling."""
-    css = _read(_repo_root() / "lsm" / "ui" / "tui" / "styles.tcss")
+    css = _styles_text()
     grouped_selector = (
         "#agents-meta-task-table,\n"
         "#agents-meta-runs-table,\n"

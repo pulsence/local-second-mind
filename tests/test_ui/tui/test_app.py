@@ -76,7 +76,15 @@ class TestLSMAppInit:
     def test_app_has_css_path(self):
         """LSMApp should have CSS path defined."""
         from lsm.ui.tui.app import LSMApp
-        assert LSMApp.CSS_PATH == "styles.tcss"
+        assert LSMApp.CSS_PATH == [
+            "styles/base.tcss",
+            "styles/widgets.tcss",
+            "styles/query.tcss",
+            "styles/ingest.tcss",
+            "styles/settings.tcss",
+            "styles/remote.tcss",
+            "styles/agents.tcss",
+        ]
 
     def test_app_has_title(self):
         """LSMApp should have title defined."""

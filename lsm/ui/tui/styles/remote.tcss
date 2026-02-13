@@ -1,0 +1,99 @@
+/*
+ * LSM TUI Styles - Remote Screen
+ */
+
+/* ============================================================================
+ * Remote Screen Specific
+ * ============================================================================ */
+
+#remote-screen {
+    layout: vertical;
+    height: 100%;
+    width: 100%;
+}
+
+#remote-layout {
+    height: 100%;
+    layout: vertical;
+}
+
+#remote-top {
+    height: 1fr;
+    layout: horizontal;
+}
+
+#remote-left {
+    width: 1fr;
+    min-width: 30;
+    layout: vertical;
+}
+
+#remote-provider-panel {
+    height: 1fr;
+    padding: 1;
+    border: round $primary-darken-2;
+    background: $surface-darken-1;
+    layout: vertical;
+}
+
+#remote-log-panel {
+    height: 1fr;
+    margin-top: 1;
+    padding: 1;
+    border: round $primary-darken-2;
+    background: $surface-darken-1;
+}
+
+#remote-results-panel {
+    width: 2fr;
+    padding: 1;
+    border: round $primary-darken-2;
+    background: $surface-darken-1;
+    layout: vertical;
+}
+
+#remote-provider-list {
+    height: 1fr;
+}
+
+#remote-results-scroll {
+    height: 1fr;
+}
+
+#remote-log {
+    height: 1fr;
+    background: $surface;
+    border: round $primary-darken-1;
+    padding: 1;
+    text-wrap: wrap;
+    overflow-x: hidden;
+    overflow-y: auto;
+}
+
+#remote-controls {
+    layout: horizontal;
+    height: auto;
+    margin-top: 1;
+    align: left middle;
+}
+
+.remote-section-title {
+    text-style: bold;
+    color: $primary;
+    margin-bottom: 1;
+}
+
+.remote-label {
+    width: 10;
+    color: $text-muted;
+}
+
+#remote-controls Input {
+    width: 1fr;
+    height: 3;
+}
+
+#remote-controls Select {
+    width: 1fr;
+    height: 3;
+}

@@ -13,8 +13,11 @@ pytest.importorskip("textual")
 
 def _styles_text() -> str:
     repo_root = Path(__file__).resolve().parents[3]
-    style_path = repo_root / "lsm" / "ui" / "tui" / "styles.tcss"
-    return style_path.read_text(encoding="utf-8")
+    styles_dir = repo_root / "lsm" / "ui" / "tui" / "styles"
+    return "\n\n".join(
+        css_file.read_text(encoding="utf-8")
+        for css_file in sorted(styles_dir.glob("*.tcss"))
+    )
 
 
 def _selector_bodies(css: str, selector: str) -> list[str]:

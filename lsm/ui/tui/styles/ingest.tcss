@@ -1,0 +1,82 @@
+/*
+ * LSM TUI Styles - Ingest Screen
+ */
+
+/* ============================================================================
+ * Ingest Screen Specific
+ * ============================================================================ */
+
+#ingest-screen {
+    layout: horizontal;
+}
+
+.ingest-tree-container {
+    width: 0.5fr;
+    min-width: 24;
+    max-width: 35%;
+    border-right: solid $primary-darken-1;
+    padding: 1;
+}
+
+#ingest-right-pane {
+    width: 1.5fr;
+    padding: 1;
+    layout: vertical;
+}
+
+#ingest-info-container {
+    height: 1fr;
+    padding: 1;
+    border: round $primary-darken-2;
+    background: $surface-darken-1;
+    layout: vertical;
+}
+
+#ingest-common-commands {
+    margin-top: 1;
+    color: $text-muted;
+}
+
+.ingest-command-input {
+    dock: bottom;
+    height: 3;
+    padding: 0 1;
+    background: $surface-darken-1;
+    border-top: solid $primary-darken-1;
+}
+
+/* ============================================================================
+ * Ingest Layout
+ * ============================================================================ */
+
+#ingest-layout {
+    height: 100%;
+    layout: horizontal;
+}
+
+#ingest-output-container {
+    height: 3fr;
+    border: round $primary-darken-2;
+    padding: 1;
+}
+
+#ingest-command-status {
+    margin-top: 1;
+    color: $text-muted;
+}
+
+#ingest-selection-stats {
+    color: $text-muted;
+}
+
+#command-progress {
+    margin-top: 1;
+    height: 1;
+}
+
+#ingest-explore-tree {
+    height: 100%;
+    background: $surface;
+    border: round $primary-darken-1;
+    padding: 1;
+}
