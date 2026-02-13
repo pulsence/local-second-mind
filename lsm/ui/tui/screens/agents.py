@@ -50,6 +50,19 @@ class AgentsScreen(Widget):
                     with Container(id="agents-status-panel"):
                         yield Static("Status", classes="agents-section-title")
                         yield Static("No active agent.", id="agents-status-output", markup=False)
+                    with Container(id="agents-schedule-panel"):
+                        yield Static("Schedules", classes="agents-section-title")
+                        yield Select([], id="agents-schedule-select")
+                        with Horizontal(id="agents-schedule-buttons"):
+                            yield Button("Refresh", id="agents-schedule-refresh-button")
+                            yield Button("Enable", id="agents-schedule-enable-button")
+                            yield Button("Disable", id="agents-schedule-disable-button")
+                            yield Button("Status", id="agents-schedule-status-button")
+                        yield Static(
+                            "No schedules loaded.",
+                            id="agents-schedule-output",
+                            markup=False,
+                        )
                     with Container(id="agents-memory-panel"):
                         yield Static("Memory Candidates", classes="agents-section-title")
                         yield Select([], id="agents-memory-select")
@@ -76,6 +89,7 @@ class AgentsScreen(Widget):
     def on_mount(self) -> None:
         """Initialize agent select options and focus."""
         self._refresh_agent_options()
+        self._refresh_schedule_entries()
         self._refresh_memory_candidates()
         self._focus_default_input()
 
@@ -99,6 +113,18 @@ class AgentsScreen(Widget):
             return
         if button_id == "agents-log-button":
             self._show_log()
+            return
+        if button_id == "agents-schedule-refresh-button":
+            self._refresh_schedule_entries()
+            return
+        if button_id == "agents-schedule-enable-button":
+            self._enable_selected_schedule()
+            return
+        if button_id == "agents-schedule-disable-button":
+            self._disable_selected_schedule()
+            return
+        if button_id == "agents-schedule-status-button":
+            self._show_schedule_status()
             return
         if button_id == "agents-memory-refresh-button":
             self._refresh_memory_candidates()
@@ -202,6 +228,64 @@ class AgentsScreen(Widget):
             return
         output_widget.update("No pending memory candidates found.")
 
+    def _refresh_schedule_entries(self) -> None:
+        try:
+            schedule_select = self.query_one("#agents-schedule-select", Select)
+            output_widget = self.query_one("#agents-schedule-output", Static)
+        except Exception:
+            return
+
+        manager = get_agent_runtime_manager()
+        try:
+            schedules = manager.list_schedules(self.app)
+        except Exception as exc:
+            schedule_select.set_options([])
+            output_widget.update(str(exc))
+            return
+
+        options = []
+        for row in schedules:
+            label = (
+                f"{row['id']} | {row['agent_name']} | {row['interval']} "
+                f"| {'enabled' if row['enabled'] else 'disabled'}"
+            )
+            options.append((label, row["id"]))
+
+        schedule_select.set_options(options)
+        if options:
+            schedule_select.value = options[0][1]
+            output_widget.update(f"Loaded {len(options)} schedule(s).")
+            return
+        output_widget.update("No schedules configured.")
+
+    def _enable_selected_schedule(self) -> None:
+        schedule_id = self._selected_schedule_id()
+        if not schedule_id:
+            self._set_schedule_status("Select a schedule first.")
+            return
+        manager = get_agent_runtime_manager()
+        output = manager.set_schedule_enabled(self.app, schedule_id, enabled=True)
+        self._refresh_schedule_entries()
+        self._set_schedule_status(output.strip())
+        self._append_log(output)
+
+    def _disable_selected_schedule(self) -> None:
+        schedule_id = self._selected_schedule_id()
+        if not schedule_id:
+            self._set_schedule_status("Select a schedule first.")
+            return
+        manager = get_agent_runtime_manager()
+        output = manager.set_schedule_enabled(self.app, schedule_id, enabled=False)
+        self._refresh_schedule_entries()
+        self._set_schedule_status(output.strip())
+        self._append_log(output)
+
+    def _show_schedule_status(self) -> None:
+        manager = get_agent_runtime_manager()
+        output = manager.format_schedule_status(self.app)
+        self._set_schedule_status(output.strip())
+        self._append_log(output)
+
     def _approve_memory_candidate(self) -> None:
         candidate_id = self._selected_memory_candidate_id()
         if not candidate_id:
@@ -257,11 +341,21 @@ class AgentsScreen(Widget):
             return ""
         return value.strip()
 
+    def _selected_schedule_id(self) -> str:
+        schedule_select = self.query_one("#agents-schedule-select", Select)
+        value = schedule_select.value
+        if not isinstance(value, str):
+            return ""
+        return value.strip()
+
     def _set_status(self, message: str) -> None:
         self.query_one("#agents-status-output", Static).update(message)
 
     def _set_memory_status(self, message: str) -> None:
         self.query_one("#agents-memory-output", Static).update(message)
+
+    def _set_schedule_status(self, message: str) -> None:
+        self.query_one("#agents-schedule-output", Static).update(message)
 
     def _append_log(self, message: str) -> None:
         if not message:

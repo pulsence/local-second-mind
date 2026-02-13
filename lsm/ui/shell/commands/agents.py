@@ -4,16 +4,19 @@ Shell-level agent command helpers.
 
 from __future__ import annotations
 
+import json
+import shlex
 import threading
 from datetime import datetime, timedelta
 from typing import Any, Optional
 
-from lsm.agents import create_agent
+from lsm.agents import AgentScheduler, create_agent
 from lsm.agents.log_formatter import format_agent_log
 from lsm.agents.memory import Memory, MemoryCandidate, create_memory_store
 from lsm.agents.memory.models import now_utc
 from lsm.agents.models import AgentContext
 from lsm.agents.tools import ToolSandbox, create_default_tool_registry
+from lsm.config.models import ScheduleConfig
 
 
 class AgentRuntimeManager:
@@ -25,6 +28,7 @@ class AgentRuntimeManager:
         self._active_agent = None
         self._active_thread: Optional[threading.Thread] = None
         self._active_name: Optional[str] = None
+        self._scheduler: Optional[AgentScheduler] = None
         self._lock = threading.Lock()
 
     def start(self, app: Any, agent_name: str, topic: str) -> str:
@@ -130,6 +134,260 @@ class AgentRuntimeManager:
     def get_active_agent(self):
         """Return the active agent instance for UI screens."""
         return self._active_agent
+
+    def list_schedules(self, app: Any) -> list[dict[str, Any]]:
+        scheduler = self._ensure_scheduler(app, start=False)
+        return scheduler.list_schedules()
+
+    def format_schedules(self, app: Any) -> str:
+        try:
+            schedules = self.list_schedules(app)
+        except Exception as exc:
+            return f"{exc}\n"
+
+        if not schedules:
+            return "No schedules configured.\n"
+
+        lines = [f"Schedules: {len(schedules)}"]
+        for row in schedules:
+            lines.append(
+                f"- {row['id']} | enabled={row['enabled']} | agent={row['agent_name']} "
+                f"| interval={row['interval']} | policy={row['concurrency_policy']} "
+                f"| confirmation={row['confirmation_mode']}"
+            )
+        lines.append("")
+        return "\n".join(lines)
+
+    def format_schedule_status(self, app: Any) -> str:
+        try:
+            scheduler = self._ensure_scheduler(app, start=True)
+            rows = scheduler.list_schedules()
+        except Exception as exc:
+            return f"{exc}\n"
+
+        if not rows:
+            return "No schedules configured.\n"
+
+        lines = [f"Scheduler status ({len(rows)} schedule(s)):"]
+        for row in rows:
+            lines.append(
+                f"- {row['id']} | status={row['last_status']} | running={row['running']} "
+                f"| queued={row['queued_runs']} | next={row['next_run_at']} | last={row['last_run_at'] or '-'}"
+            )
+            if row.get("last_error"):
+                lines.append(f"  error={row['last_error']}")
+        lines.append("")
+        return "\n".join(lines)
+
+    def add_schedule(
+        self,
+        app: Any,
+        *,
+        agent_name: str,
+        interval: str,
+        params: Optional[dict[str, Any]] = None,
+    ) -> str:
+        normalized_params = dict(params or {})
+        schedule = ScheduleConfig(
+            agent_name=str(agent_name).strip(),
+            params=normalized_params,
+            interval=str(interval).strip(),
+            enabled=True,
+            concurrency_policy="skip",
+            confirmation_mode="auto",
+        )
+        schedule.validate()
+
+        agent_cfg = self._require_agent_config(app)
+        agent_cfg.schedules.append(schedule)
+        scheduler = self._rebuild_scheduler(app, start=True)
+        snapshots = scheduler.list_schedules()
+        schedule_id = snapshots[-1]["id"] if snapshots else f"{len(agent_cfg.schedules)-1}:{schedule.agent_name}"
+        return (
+            f"Added schedule '{schedule_id}' for agent '{schedule.agent_name}' "
+            f"(interval={schedule.interval}).\n"
+        )
+
+    def set_schedule_enabled(
+        self,
+        app: Any,
+        schedule_id: str,
+        *,
+        enabled: bool,
+    ) -> str:
+        scheduler = self._ensure_scheduler(app, start=False)
+        snapshots = scheduler.list_schedules()
+        index = self._resolve_schedule_index(schedule_id, snapshots)
+        if index is None:
+            return f"Schedule not found: {schedule_id}\n"
+
+        agent_cfg = self._require_agent_config(app)
+        if index >= len(agent_cfg.schedules):
+            return f"Schedule not found: {schedule_id}\n"
+        agent_cfg.schedules[index].enabled = bool(enabled)
+        self._rebuild_scheduler(app, start=True)
+        action = "Enabled" if enabled else "Disabled"
+        return f"{action} schedule '{snapshots[index]['id']}'.\n"
+
+    def remove_schedule(self, app: Any, schedule_id: str) -> str:
+        scheduler = self._ensure_scheduler(app, start=False)
+        snapshots = scheduler.list_schedules()
+        index = self._resolve_schedule_index(schedule_id, snapshots)
+        if index is None:
+            return f"Schedule not found: {schedule_id}\n"
+
+        agent_cfg = self._require_agent_config(app)
+        if index >= len(agent_cfg.schedules):
+            return f"Schedule not found: {schedule_id}\n"
+        removed = agent_cfg.schedules.pop(index)
+        self._rebuild_scheduler(app, start=True)
+        return (
+            f"Removed schedule '{snapshots[index]['id']}' "
+            f"(agent={removed.agent_name}, interval={removed.interval}).\n"
+        )
+
+    def handle_schedule_command(self, app: Any, command: str) -> str:
+        try:
+            parts = shlex.split(command)
+        except ValueError as exc:
+            return f"Invalid command syntax: {exc}\n"
+
+        if len(parts) < 3:
+            return _schedule_help()
+
+        action = parts[2].strip().lower()
+        if action == "list":
+            return self.format_schedules(app)
+        if action == "status":
+            return self.format_schedule_status(app)
+        if action == "add":
+            if len(parts) < 5:
+                return "Usage: /agent schedule add <agent_name> <interval> [--params '{\"topic\":\"...\"}']\n"
+            agent_name = parts[3].strip()
+            interval = parts[4].strip()
+            params: dict[str, Any] = {}
+            idx = 5
+            while idx < len(parts):
+                token = parts[idx].strip().lower()
+                if token != "--params":
+                    return (
+                        "Usage: /agent schedule add <agent_name> <interval> "
+                        "[--params '{\"topic\":\"...\"}']\n"
+                    )
+                idx += 1
+                if idx >= len(parts):
+                    return "Missing value for --params.\n"
+                try:
+                    parsed = json.loads(parts[idx])
+                except json.JSONDecodeError as exc:
+                    return f"Invalid --params JSON: {exc}\n"
+                if not isinstance(parsed, dict):
+                    return "--params must decode to a JSON object.\n"
+                params = parsed
+                idx += 1
+            try:
+                return self.add_schedule(
+                    app,
+                    agent_name=agent_name,
+                    interval=interval,
+                    params=params,
+                )
+            except Exception as exc:
+                return f"Failed to add schedule: {exc}\n"
+        if action in {"enable", "disable"}:
+            if len(parts) < 4:
+                return f"Usage: /agent schedule {action} <schedule_id>\n"
+            try:
+                return self.set_schedule_enabled(
+                    app,
+                    parts[3].strip(),
+                    enabled=action == "enable",
+                )
+            except Exception as exc:
+                return f"Failed to {action} schedule: {exc}\n"
+        if action == "remove":
+            if len(parts) < 4:
+                return "Usage: /agent schedule remove <schedule_id>\n"
+            try:
+                return self.remove_schedule(app, parts[3].strip())
+            except Exception as exc:
+                return f"Failed to remove schedule: {exc}\n"
+        return _schedule_help()
+
+    def _ensure_scheduler(self, app: Any, *, start: bool) -> AgentScheduler:
+        with self._lock:
+            scheduler = self._scheduler
+            if scheduler is None:
+                scheduler = self._build_scheduler(app)
+                self._scheduler = scheduler
+            if start and self._has_enabled_schedules(app):
+                scheduler.start()
+            return scheduler
+
+    def _rebuild_scheduler(self, app: Any, *, start: bool) -> AgentScheduler:
+        with self._lock:
+            existing = self._scheduler
+            if existing is not None:
+                existing.stop()
+            scheduler = self._build_scheduler(app)
+            self._scheduler = scheduler
+            if start and self._has_enabled_schedules(app):
+                scheduler.start()
+            return scheduler
+
+    @staticmethod
+    def _has_enabled_schedules(app: Any) -> bool:
+        agent_cfg = getattr(getattr(app, "config", None), "agents", None)
+        if agent_cfg is None:
+            return False
+        schedules = getattr(agent_cfg, "schedules", [])
+        return any(getattr(schedule, "enabled", False) for schedule in schedules)
+
+    @staticmethod
+    def _require_agent_config(app: Any) -> Any:
+        agent_cfg = getattr(getattr(app, "config", None), "agents", None)
+        if agent_cfg is None or not getattr(agent_cfg, "enabled", False):
+            raise RuntimeError("Agents are disabled. Enable `agents.enabled` in config.")
+        return agent_cfg
+
+    @staticmethod
+    def _build_scheduler(app: Any) -> AgentScheduler:
+        cfg = getattr(app, "config", None)
+        if cfg is None:
+            raise RuntimeError("Application config is required for scheduler commands.")
+        return AgentScheduler(
+            cfg,
+            collection=getattr(app, "query_provider", None),
+            embedder=getattr(app, "query_embedder", None),
+            batch_size=getattr(cfg, "batch_size", 32),
+        )
+
+    @staticmethod
+    def _resolve_schedule_index(
+        schedule_id: str,
+        snapshots: list[dict[str, Any]],
+    ) -> Optional[int]:
+        normalized = str(schedule_id or "").strip()
+        if not normalized:
+            return None
+
+        for row in snapshots:
+            if str(row.get("id", "")) == normalized:
+                return int(row.get("index", -1))
+
+        if normalized.isdigit():
+            idx = int(normalized)
+            if any(int(row.get("index", -1)) == idx for row in snapshots):
+                return idx
+            return None
+
+        if ":" in normalized:
+            prefix = normalized.split(":", 1)[0]
+            if prefix.isdigit():
+                idx = int(prefix)
+                if any(int(row.get("index", -1)) == idx for row in snapshots):
+                    return idx
+        return None
 
     def get_memory_candidates(
         self,
@@ -396,6 +654,8 @@ def handle_agent_command(command: str, app: Any) -> str:
         return manager.start(app, name, topic)
     if action == "status":
         return manager.status()
+    if action == "schedule":
+        return manager.handle_schedule_command(app, text)
     if action == "stop":
         return manager.stop()
     if action == "pause":
@@ -417,6 +677,11 @@ def _agent_help() -> str:
         "  /agent pause\n"
         "  /agent resume\n"
         "  /agent log\n"
+        "  /agent schedule add <agent_name> <interval> [--params '{\"topic\":\"...\"}']\n"
+        "  /agent schedule list\n"
+        "  /agent schedule enable|disable <schedule_id>\n"
+        "  /agent schedule remove <schedule_id>\n"
+        "  /agent schedule status\n"
     )
 
 
@@ -427,4 +692,16 @@ def _memory_help() -> str:
         "  /memory promote <candidate_id>\n"
         "  /memory reject <candidate_id>\n"
         "  /memory ttl <candidate_id> <days>\n"
+    )
+
+
+def _schedule_help() -> str:
+    return (
+        "Agent schedule commands:\n"
+        "  /agent schedule add <agent_name> <interval> [--params '{\"topic\":\"...\"}']\n"
+        "  /agent schedule list\n"
+        "  /agent schedule enable <schedule_id>\n"
+        "  /agent schedule disable <schedule_id>\n"
+        "  /agent schedule remove <schedule_id>\n"
+        "  /agent schedule status\n"
     )

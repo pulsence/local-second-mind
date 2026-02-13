@@ -259,6 +259,8 @@ Open the **Agents** tab:
 - enter a topic
 - start/pause/resume/stop
 - inspect live status/log output
+- review schedules with runtime status
+- enable/disable schedules from the panel
 - review pending memory candidates
 - approve/reject candidates
 - edit candidate TTL (days)
@@ -271,6 +273,12 @@ Open the **Agents** tab:
 - `/agent resume`
 - `/agent stop`
 - `/agent log`
+- `/agent schedule add <agent_name> <interval> [--params '{"topic":"..."}']`
+- `/agent schedule list`
+- `/agent schedule enable <schedule_id>`
+- `/agent schedule disable <schedule_id>`
+- `/agent schedule remove <schedule_id>`
+- `/agent schedule status`
 - `/memory candidates [pending|promoted|rejected|all]`
 - `/memory promote <candidate_id>`
 - `/memory reject <candidate_id>`

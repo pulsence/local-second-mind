@@ -104,6 +104,15 @@ All notable changes to Local Second Mind are documented here.
   - no-overlap guarantees and concurrency-policy behavior
   - safe-default and explicit-opt-in tool/sandbox behavior
   - due-tick execution logic
+- Scheduler shell command management in `lsm/ui/shell/commands/agents.py`:
+  - `/agent schedule add|list|enable|disable|remove|status`
+  - schedule JSON params parsing via `--params '{...}'`
+  - runtime manager wiring to create/rebuild scheduler state from command changes
+- Agents TUI schedule panel in `lsm/ui/tui/screens/agents.py`:
+  - schedule list, refresh, enable/disable controls, and runtime status output
+- Scheduler UI test coverage:
+  - `tests/test_ui/shell/test_schedule_commands.py`
+  - `tests/test_ui/tui/test_schedule_screen.py`
 - Sandbox runner policy now supports `sandbox.force_docker`:
   - all tool risks (`read_only`, `writes_workspace`, `network`, `exec`) require Docker when enabled
   - execution is blocked with `PermissionError` when Docker is unavailable

@@ -129,6 +129,16 @@ class TestGetCompletions:
         assert "reject" in completions
         assert "ttl" in completions
 
+    def test_agent_command_suggests_schedule_subcommands(self):
+        """Agent command should suggest scheduler subcommands."""
+        completions = get_completions("/agent schedule ", "query")
+        assert "add" in completions
+        assert "list" in completions
+        assert "enable" in completions
+        assert "disable" in completions
+        assert "remove" in completions
+        assert "status" in completions
+
     def test_remote_provider_suggests_actions(self):
         """Remote provider command should suggest current command name."""
         completions = get_completions("/remote-provider ", "query")

@@ -77,6 +77,8 @@ BUILD_OPTIONS = ["--force"]
 TAG_OPTIONS = ["--max"]
 EXPORT_FORMATS = ["bibtex", "zotero"]
 MEMORY_SUBCOMMANDS = ["candidates", "promote", "reject", "ttl"]
+AGENT_SUBCOMMANDS = ["start", "status", "pause", "resume", "stop", "log", "schedule"]
+AGENT_SCHEDULE_SUBCOMMANDS = ["add", "list", "enable", "disable", "remove", "status"]
 def get_commands(context: ContextType) -> Dict[str, str]:
     """
     Get available commands for a context.
@@ -200,6 +202,27 @@ def _get_argument_completions(
         if len(parts) == 2 and parts[0] == "candidates":
             statuses = ["pending", "promoted", "rejected", "all"]
             return [status for status in statuses if status.startswith(parts[1])]
+        return []
+
+    if cmd == "/agent":
+        parts = arg.split()
+        if not parts:
+            return list(AGENT_SUBCOMMANDS)
+        if len(parts) == 1:
+            if parts[0] == "schedule":
+                return list(AGENT_SCHEDULE_SUBCOMMANDS)
+            return [item for item in AGENT_SUBCOMMANDS if item.startswith(parts[0])]
+        if parts[0] == "schedule":
+            if len(parts) == 2:
+                return [item for item in AGENT_SCHEDULE_SUBCOMMANDS if item.startswith(parts[1])]
+            if len(parts) == 3 and parts[1] in {"enable", "disable", "remove"}:
+                return ["<schedule_id>"]
+            if len(parts) == 3 and parts[1] == "add":
+                return ["<agent_name>"]
+            if len(parts) == 4 and parts[1] == "add":
+                return ["hourly", "daily", "weekly", "3600s"]
+            if len(parts) >= 5 and parts[1] == "add":
+                return ["--params"]
         return []
 
     # Build command

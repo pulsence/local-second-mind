@@ -1296,6 +1296,12 @@ Agents
 /agent resume                Resume active agent
 /agent stop                  Stop active agent
 /agent log                   Show active agent logs
+/agent schedule add <name> <interval> [--params '{"topic":"..."}']
+/agent schedule list         List configured schedules
+/agent schedule enable <id>  Enable a schedule
+/agent schedule disable <id> Disable a schedule
+/agent schedule remove <id>  Remove a schedule
+/agent schedule status       Show schedule runtime status
 
 Memory
 /memory candidates [status]  List memory candidates (default: pending)

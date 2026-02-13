@@ -923,7 +923,7 @@ View: list of memory candidates with approve/reject/edit TTL actions.
 
 ---
 
-## Phase 5: Agent Scheduler
+## Phase 5: Agent Scheduler (COMPLETED)
 
 Time-based and cyclic agent execution. Preserves local-first philosophy. Safety-first for unattended runs.
 
@@ -973,7 +973,7 @@ Scheduled agents default to:
 
 **Post-block:** `tests/test_agents/test_scheduler.py` (schedule persistence, no overlaps, safe defaults, tick logic), run tests, update docs, commit.
 
-### 5.3: Scheduler CLI/TUI
+### 5.3: Scheduler CLI/TUI (COMPLETED)
 
 #### 5.3.1: CLI Commands
 
