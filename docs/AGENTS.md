@@ -59,6 +59,7 @@ Agents are configured in top-level `agents`:
     "allowed_write_paths": ["./notes", "./Agents"],
     "allow_url_access": false,
     "require_user_permission": {},
+    "force_docker": false,
     "tool_llm_assignments": {}
   },
   "memory": {
@@ -79,7 +80,7 @@ Agents are configured in top-level `agents`:
   "schedules": [
     {
       "agent_name": "curator",
-      "params": {"topic": "--mode memory"},
+      "params": {"topic": "--mode memory", "force_docker": true},
       "interval": "daily",
       "enabled": false,
       "concurrency_policy": "skip",
@@ -110,6 +111,7 @@ Sandbox rules are defined in `agents.sandbox` and enforced by `ToolSandbox`.
 - `require_user_permission`: per-tool interactive gate
 - `require_permission_by_risk`: per-risk interactive gate (`read_only`, `writes_workspace`, `network`, `exec`)
 - `execution_mode`: runner policy (`local_only` or `prefer_docker`)
+- `force_docker`: require Docker execution for all tool risks; block when Docker is unavailable
 - `limits`: execution limits (`timeout_s_default`, `max_stdout_kb`, `max_file_write_mb`)
 - `docker`: docker runner settings (`enabled`, `image`, `network_default`, `cpu_limit`, `mem_limit_mb`, `read_only_root`)
 - `tool_llm_assignments`: optional per-tool service mapping
@@ -120,8 +122,9 @@ Permission precedence is:
 Execution flow is:
 permission checks -> runner selection -> environment scrubbing -> runner execution -> output redaction.
 Runner selection policy is:
-`read_only`/`writes_workspace` -> local runner;
+`read_only`/`writes_workspace` -> local runner (unless `force_docker=true`);
 `network`/`exec` in `prefer_docker` mode -> docker runner when available, otherwise confirmation-required block.
+When `force_docker=true`, all risks require Docker and local fallback is blocked.
 
 ## Memory Storage
 
@@ -293,6 +296,7 @@ Safety defaults for scheduled runs:
 - network disabled (`allow_url_access=false`)
 - write/network/exec risks require explicit schedule param opt-in (`allow_writes`, `allow_network`, `allow_exec`)
 - when network or exec is allowed, sandbox execution mode is forced to `prefer_docker`
+- schedule param `force_docker=true` forces Docker execution for all tool risks in that run
 
 ## Notes
 

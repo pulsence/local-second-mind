@@ -80,6 +80,7 @@ def test_build_config_reads_agents_section(tmp_path: Path) -> None:
             "require_user_permission": {"write_file": True},
             "require_permission_by_risk": {"network": True},
             "execution_mode": "prefer_docker",
+            "force_docker": True,
             "limits": {
                 "timeout_s_default": 15,
                 "max_stdout_kb": 128,
@@ -111,6 +112,7 @@ def test_build_config_reads_agents_section(tmp_path: Path) -> None:
     assert config.agents.sandbox.require_user_permission["write_file"] is True
     assert config.agents.sandbox.require_permission_by_risk["network"] is True
     assert config.agents.sandbox.execution_mode == "prefer_docker"
+    assert config.agents.sandbox.force_docker is True
     assert config.agents.sandbox.limits["timeout_s_default"] == 15
     assert config.agents.sandbox.limits["max_stdout_kb"] == 128
     assert config.agents.sandbox.limits["max_file_write_mb"] == 4
@@ -151,6 +153,7 @@ def test_config_to_raw_includes_agents_section(tmp_path: Path) -> None:
             "require_user_permission": {"write_file": True},
             "require_permission_by_risk": {"writes_workspace": True},
             "execution_mode": "local_only",
+            "force_docker": False,
             "limits": {"timeout_s_default": 22, "max_stdout_kb": 33, "max_file_write_mb": 2},
             "docker": {"enabled": False, "mem_limit_mb": 1024},
             "tool_llm_assignments": {"query_llm": "default"},
@@ -178,6 +181,7 @@ def test_config_to_raw_includes_agents_section(tmp_path: Path) -> None:
     assert serialized["agents"]["sandbox"]["require_user_permission"]["write_file"] is True
     assert serialized["agents"]["sandbox"]["require_permission_by_risk"]["writes_workspace"] is True
     assert serialized["agents"]["sandbox"]["execution_mode"] == "local_only"
+    assert serialized["agents"]["sandbox"]["force_docker"] is False
     assert serialized["agents"]["sandbox"]["limits"]["timeout_s_default"] == 22
     assert serialized["agents"]["sandbox"]["limits"]["max_stdout_kb"] == 33
     assert serialized["agents"]["sandbox"]["limits"]["max_file_write_mb"] == 2

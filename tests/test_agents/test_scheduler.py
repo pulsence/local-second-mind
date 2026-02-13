@@ -75,6 +75,7 @@ class FakeHarness:
                     "sandbox_allow_url_access": sandbox.config.allow_url_access,
                     "sandbox_allowed_write_paths": list(sandbox.config.allowed_write_paths),
                     "sandbox_execution_mode": sandbox.config.execution_mode,
+                    "sandbox_force_docker": sandbox.config.force_docker,
                 }
             )
 
@@ -331,6 +332,7 @@ def test_scheduler_defaults_to_read_only_and_no_network(tmp_path: Path) -> None:
         assert init["sandbox_allow_url_access"] is False
         assert init["sandbox_allowed_write_paths"] == []
         assert init["sandbox_execution_mode"] == "local_only"
+        assert init["sandbox_force_docker"] is False
     finally:
         scheduler.stop()
 
@@ -366,6 +368,36 @@ def test_scheduler_requires_opt_in_for_writes_and_network(tmp_path: Path) -> Non
         assert init["sandbox_allow_url_access"] is True
         assert len(init["sandbox_allowed_write_paths"]) == 1
         assert init["sandbox_execution_mode"] == "prefer_docker"
+        assert init["sandbox_force_docker"] is False
+    finally:
+        scheduler.stop()
+
+
+def test_scheduler_force_docker_param_enables_force_mode(tmp_path: Path) -> None:
+    clock = FakeClock(datetime(2026, 2, 13, 12, 0, 0, tzinfo=timezone.utc))
+    scheduler = _create_scheduler(
+        tmp_path,
+        {
+            "agent_name": "research",
+            "params": {
+                "topic": "unsupervised hardening",
+                "force_docker": True,
+            },
+            "interval": "1s",
+            "enabled": True,
+            "concurrency_policy": "skip",
+            "confirmation_mode": "auto",
+        },
+        clock,
+    )
+    try:
+        clock.advance(seconds=2)
+        scheduler.run_pending_once(now=clock.now())
+        assert scheduler.wait_until_idle(timeout_s=2.0)
+
+        init = FakeHarness.init_calls[0]
+        assert init["sandbox_execution_mode"] == "prefer_docker"
+        assert init["sandbox_force_docker"] is True
     finally:
         scheduler.stop()
 

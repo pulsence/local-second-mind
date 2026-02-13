@@ -54,6 +54,9 @@ class SandboxConfig:
     execution_mode: str = "local_only"
     """Runner selection policy (`local_only` or `prefer_docker`)."""
 
+    force_docker: bool = False
+    """Require Docker runner for all tool risks; blocks execution when unavailable."""
+
     limits: Dict[str, Any] = field(
         default_factory=lambda: dict(_DEFAULT_SANDBOX_LIMITS)
     )
@@ -81,6 +84,7 @@ class SandboxConfig:
             if str(key).strip()
         }
         self.execution_mode = str(self.execution_mode or "local_only").strip().lower()
+        self.force_docker = bool(self.force_docker)
         limits = self.limits if isinstance(self.limits, dict) else {}
         docker = self.docker if isinstance(self.docker, dict) else {}
         self.limits = dict(_DEFAULT_SANDBOX_LIMITS)

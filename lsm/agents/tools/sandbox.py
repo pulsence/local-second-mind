@@ -337,6 +337,28 @@ class ToolSandbox:
         risk_level = str(tool.risk_level or "read_only")
         mode = self.config.execution_mode
 
+        if self.config.force_docker:
+            if bool(self.config.docker.get("enabled", False)) and self.docker_runner is not None:
+                logger.debug(
+                    "Runner selection: tool='%s' risk='%s' mode='%s' force_docker=true runner='docker'",
+                    tool.name,
+                    risk_level,
+                    mode,
+                )
+                return self.docker_runner
+            reason = (
+                f"Tool '{tool.name}' requires Docker execution because sandbox.force_docker=true, "
+                "but Docker runner is unavailable"
+            )
+            logger.warning(
+                "Runner selection blocked: tool='%s' risk='%s' mode='%s' reason='%s'",
+                tool.name,
+                risk_level,
+                mode,
+                reason,
+            )
+            raise PermissionError(reason)
+
         if risk_level in {"read_only", "writes_workspace"}:
             logger.debug(
                 "Runner selection: tool='%s' risk='%s' mode='%s' runner='local' reason='low-risk policy'",

@@ -572,6 +572,7 @@ class AgentScheduler:
         allow_writes = _to_bool(params.get("allow_writes"), default=False)
         allow_network = _to_bool(params.get("allow_network"), default=False)
         allow_exec = _to_bool(params.get("allow_exec"), default=False)
+        force_docker = _to_bool(params.get("force_docker"), default=False)
 
         if confirmation_mode == "deny":
             allow_writes = False
@@ -586,6 +587,7 @@ class AgentScheduler:
             "allow_writes": effective_writes,
             "allow_network": effective_network,
             "allow_exec": effective_exec,
+            "force_docker": force_docker,
         }
 
     def _build_sandbox_for_schedule(
@@ -597,6 +599,7 @@ class AgentScheduler:
         allow_writes = bool(permissions.get("allow_writes", False))
         allow_network = bool(permissions.get("allow_network", False))
         allow_exec = bool(permissions.get("allow_exec", False))
+        force_docker = bool(permissions.get("force_docker", False))
         confirmation_mode = str(schedule.confirmation_mode or "auto").strip().lower()
 
         require_user_permission: Dict[str, bool] = {}
@@ -613,7 +616,7 @@ class AgentScheduler:
             require_permission_by_risk = dict(base.require_permission_by_risk)
 
         execution_mode = "local_only"
-        if allow_network or allow_exec:
+        if allow_network or allow_exec or force_docker:
             execution_mode = "prefer_docker"
 
         return SandboxConfig(
@@ -623,6 +626,7 @@ class AgentScheduler:
             require_user_permission=require_user_permission,
             require_permission_by_risk=require_permission_by_risk,
             execution_mode=execution_mode,
+            force_docker=force_docker,
             limits=dict(base.limits),
             docker=dict(base.docker),
             tool_llm_assignments=dict(base.tool_llm_assignments),
@@ -823,4 +827,3 @@ class AgentScheduler:
         if not values:
             raise ValueError(f"Invalid cron field: '{field}'")
         return values, False
-

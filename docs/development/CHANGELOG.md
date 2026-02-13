@@ -98,11 +98,15 @@ All notable changes to Local Second Mind are documented here.
   - network disabled by default
   - explicit schedule `params` opt-in for writes/network/exec
   - network/exec runs force sandbox `execution_mode="prefer_docker"`
+  - optional schedule `params.force_docker=true` to require Docker runner for all tool risks
 - Scheduler test coverage in `tests/test_agents/test_scheduler.py`:
   - persistence/reload behavior
   - no-overlap guarantees and concurrency-policy behavior
   - safe-default and explicit-opt-in tool/sandbox behavior
   - due-tick execution logic
+- Sandbox runner policy now supports `sandbox.force_docker`:
+  - all tool risks (`read_only`, `writes_workspace`, `network`, `exec`) require Docker when enabled
+  - execution is blocked with `PermissionError` when Docker is unavailable
 
 ### Changed
 

@@ -83,7 +83,7 @@ class RecordingRunner(BaseRunner):
         )
 
 
-def test_runner_policy_read_only_is_always_local(tmp_path) -> None:
+def test_runner_policy_read_only_uses_local_without_force_docker(tmp_path) -> None:
     local = RecordingRunner(ToolExecutionResult(stdout="local", runner_used="local"))
     docker = RecordingRunner(ToolExecutionResult(stdout="docker", runner_used="docker"))
     sandbox = ToolSandbox(
@@ -101,7 +101,7 @@ def test_runner_policy_read_only_is_always_local(tmp_path) -> None:
     assert docker.calls == 0
 
 
-def test_runner_policy_writes_workspace_is_always_local(tmp_path) -> None:
+def test_runner_policy_writes_workspace_uses_local_without_force_docker(tmp_path) -> None:
     local = RecordingRunner(ToolExecutionResult(stdout="local", runner_used="local"))
     docker = RecordingRunner(ToolExecutionResult(stdout="docker", runner_used="docker"))
     sandbox = ToolSandbox(
@@ -120,6 +120,63 @@ def test_runner_policy_writes_workspace_is_always_local(tmp_path) -> None:
     assert output == "local"
     assert local.calls == 1
     assert docker.calls == 0
+
+
+def test_runner_policy_force_docker_routes_read_only_to_docker(tmp_path) -> None:
+    local = RecordingRunner(ToolExecutionResult(stdout="local", runner_used="local"))
+    docker = RecordingRunner(ToolExecutionResult(stdout="docker", runner_used="docker"))
+    sandbox = ToolSandbox(
+        SandboxConfig(
+            allowed_read_paths=[tmp_path],
+            execution_mode="prefer_docker",
+            force_docker=True,
+            docker={"enabled": True},
+        ),
+        local_runner=local,
+        docker_runner=docker,
+    )
+    output = sandbox.execute(ReadTool(), {"path": str(tmp_path / "file.txt")})
+    assert output == "docker"
+    assert local.calls == 0
+    assert docker.calls == 1
+
+
+def test_runner_policy_force_docker_routes_write_to_docker(tmp_path) -> None:
+    local = RecordingRunner(ToolExecutionResult(stdout="local", runner_used="local"))
+    docker = RecordingRunner(ToolExecutionResult(stdout="docker", runner_used="docker"))
+    sandbox = ToolSandbox(
+        SandboxConfig(
+            allowed_write_paths=[tmp_path],
+            execution_mode="prefer_docker",
+            force_docker=True,
+            docker={"enabled": True},
+        ),
+        local_runner=local,
+        docker_runner=docker,
+    )
+    output = sandbox.execute(
+        WriteTool(),
+        {"path": str(tmp_path / "out.txt"), "content": "hello"},
+    )
+    assert output == "docker"
+    assert local.calls == 0
+    assert docker.calls == 1
+
+
+def test_runner_policy_force_docker_blocks_when_docker_unavailable(tmp_path) -> None:
+    local = RecordingRunner(ToolExecutionResult(stdout="local", runner_used="local"))
+    sandbox = ToolSandbox(
+        SandboxConfig(
+            allowed_read_paths=[tmp_path],
+            force_docker=True,
+            docker={"enabled": False},
+        ),
+        local_runner=local,
+        docker_runner=None,
+    )
+    with pytest.raises(PermissionError, match="requires Docker execution"):
+        sandbox.execute(ReadTool(), {"path": str(tmp_path / "file.txt")})
+    assert local.calls == 0
 
 
 def test_runner_policy_network_uses_docker_when_available() -> None:

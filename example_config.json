@@ -136,6 +136,7 @@
       "require_user_permission": {},
       "require_permission_by_risk": {},
       "execution_mode": "local_only",
+      "force_docker": false,
       "limits": {
         "timeout_s_default": 30,
         "max_stdout_kb": 256,
@@ -192,7 +193,8 @@
       {
         "agent_name": "curator",
         "params": {
-          "topic": "--mode memory"
+          "topic": "--mode memory",
+          "force_docker": false
         },
         "interval": "daily",
         "enabled": false,
