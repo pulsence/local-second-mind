@@ -37,7 +37,7 @@ class AgentsScreen(Widget):
     def compose(self) -> ComposeResult:
         with Vertical(id="agents-layout"):
             with Horizontal(id="agents-top"):
-                with Vertical(id="agents-left"):
+                with ScrollableContainer(id="agents-left"):
                     with Container(id="agents-control-panel"):
                         yield Static("Agents", classes="agents-section-title")
                         yield Static("Agent", classes="agents-label")
@@ -47,13 +47,15 @@ class AgentsScreen(Widget):
                             placeholder="Research topic",
                             id="agents-topic-input",
                         )
-                        with Horizontal(id="agents-buttons"):
-                            yield Button("Start", id="agents-start-button", variant="primary")
-                            yield Button("Status", id="agents-status-button")
-                            yield Button("Pause", id="agents-pause-button")
-                            yield Button("Resume", id="agents-resume-button")
-                            yield Button("Stop", id="agents-stop-button", variant="error")
-                            yield Button("Log", id="agents-log-button")
+                        with Vertical(id="agents-buttons"):
+                            with Horizontal(classes="agents-button-row"):
+                                yield Button("Start", id="agents-start-button", variant="primary")
+                                yield Button("Status", id="agents-status-button")
+                                yield Button("Pause", id="agents-pause-button")
+                            with Horizontal(classes="agents-button-row"):
+                                yield Button("Resume", id="agents-resume-button")
+                                yield Button("Stop", id="agents-stop-button", variant="error")
+                                yield Button("Log", id="agents-log-button")
                     with Container(id="agents-status-panel"):
                         yield Static("Status", classes="agents-section-title")
                         yield Static("No active agent.", id="agents-status-output", markup=False)
@@ -100,13 +102,15 @@ class AgentsScreen(Widget):
                             ],
                             id="agents-schedule-confirmation-select",
                         )
-                        with Horizontal(id="agents-schedule-buttons"):
-                            yield Button("Add", id="agents-schedule-add-button", variant="primary")
-                            yield Button("Remove", id="agents-schedule-remove-button", variant="error")
-                            yield Button("Refresh", id="agents-schedule-refresh-button")
-                            yield Button("Enable", id="agents-schedule-enable-button")
-                            yield Button("Disable", id="agents-schedule-disable-button")
-                            yield Button("Status", id="agents-schedule-status-button")
+                        with Vertical(id="agents-schedule-buttons"):
+                            with Horizontal(classes="agents-button-row"):
+                                yield Button("Add", id="agents-schedule-add-button", variant="primary")
+                                yield Button("Remove", id="agents-schedule-remove-button", variant="error")
+                                yield Button("Refresh", id="agents-schedule-refresh-button")
+                            with Horizontal(classes="agents-button-row"):
+                                yield Button("Enable", id="agents-schedule-enable-button")
+                                yield Button("Disable", id="agents-schedule-disable-button")
+                                yield Button("Status", id="agents-schedule-status-button")
                         yield Static(
                             "No schedules loaded.",
                             id="agents-schedule-output",
@@ -119,11 +123,13 @@ class AgentsScreen(Widget):
                             placeholder="TTL days (e.g., 30)",
                             id="agents-memory-ttl-input",
                         )
-                        with Horizontal(id="agents-memory-buttons"):
-                            yield Button("Refresh", id="agents-memory-refresh-button")
-                            yield Button("Approve", id="agents-memory-approve-button")
-                            yield Button("Reject", id="agents-memory-reject-button")
-                            yield Button("Edit TTL", id="agents-memory-ttl-button")
+                        with Vertical(id="agents-memory-buttons"):
+                            with Horizontal(classes="agents-button-row"):
+                                yield Button("Refresh", id="agents-memory-refresh-button")
+                                yield Button("Approve", id="agents-memory-approve-button")
+                            with Horizontal(classes="agents-button-row"):
+                                yield Button("Reject", id="agents-memory-reject-button")
+                                yield Button("Edit TTL", id="agents-memory-ttl-button")
                         yield Static(
                             "No memory candidates loaded.",
                             id="agents-memory-output",

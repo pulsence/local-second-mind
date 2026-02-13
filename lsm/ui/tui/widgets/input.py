@@ -44,7 +44,7 @@ class CommandInput(Widget):
     DEFAULT_CSS = """
     CommandInput {
         height: auto;
-        min-height: 3;
+        min-height: 1;
         max-height: 10;
         background: $surface-darken-1;
         border: tall $primary-darken-1;
