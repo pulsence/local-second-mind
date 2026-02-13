@@ -162,6 +162,7 @@
 ### v0.9.0: Refactor and Dog Food
 #### General
 - Start up is slow, analyze why that is an try to improve start time
+- Update "psycopg[binary]>=3.1", "pgvector>=0.4",
 
 #### Documentation
 - Improve documentation
@@ -186,6 +187,7 @@
 #### Deployment
 - Create clear install instructions
 - Explore creating docker images
+- Config pyproject to install complete/just chroma/just pgsql
 
 #### Testing
 - Ensure that the complete security strategy in SECURITY.md is being followed. Pay particular

@@ -6,7 +6,24 @@ All notable changes to Local Second Mind are documented here.
 
 ### Added
 
-- _No entries yet._
+- TUI density mode support with `auto`, `compact`, and `comfortable` behavior:
+  - persisted `global.tui_density_mode` config support in loader/serializer and `GlobalConfig`
+  - `/ui density` query command for runtime status and mode switching
+  - auto-density terminal sizing with resize re-evaluation and debounce/hysteresis behavior
+  - narrow-terminal responsive layout fallbacks for query, remote, and agents panes
+- Dedicated agents screen styling for layout consistency and small-terminal usability:
+  - explicit panel/layout rules for `#agents-layout`, `#agents-top`, `#agents-left`, and `#agents-log-panel`
+  - dedicated section, button-group, and DataTable styling for status/meta/schedule/memory panels
+- New TUI style regression coverage for density behavior and agents layout:
+  - `tests/test_ui/tui/test_compact_layout.py`
+  - `tests/test_ui/tui/test_agents_layout_css.py`
+
+### Changed
+
+- Refactored TUI CSS from a monolithic `lsm/ui/tui/styles.tcss` into modular files under `lsm/ui/tui/styles/`:
+  - `base.tcss`, `widgets.tcss`, `query.tcss`, `ingest.tcss`, `settings.tcss`, `remote.tcss`, `agents.tcss`
+- Updated `LSMApp.CSS_PATH` to load split style files in deterministic order.
+- Updated CSS-path expectations and CSS-loading helpers in TUI tests for the split stylesheet layout.
 
 ## 0.5.0 - 2026-02-13
 

@@ -15,7 +15,7 @@ sandbox, runtime manager, and TUI simultaneously. Additional improvements are la
 
 ---
 
-## Phase 1: UI Scaling & Compact Layout
+## Phase 1: UI Scaling & Compact Layout (COMPLETED)
 
 The TUI uses oversized defaults (3-line tabs, 3-line min-height fields, generous padding) that consume
 too much vertical space on a standard 24-30 row Windows command prompt. This phase reduces element sizes
@@ -100,7 +100,7 @@ appearance.
 
 **Post-block:** Visual verification, tests, commit.
 
-### 1.3: Split CSS into Per-Screen Files
+### 1.3: Split CSS into Per-Screen Files (COMPLETED)
 
 The monolithic 960-line `styles.tcss` makes it hard to find and modify screen-specific styles.
 Split into modular files that are loaded by the main app.
@@ -136,7 +136,7 @@ Split into modular files that are loaded by the main app.
 
 **Post-block:** Visual verification on all screens, tests, commit.
 
-### 1.4: Phase 1 Changelog
+### 1.4: Phase 1 Changelog (COMPLETED)
 
 Summarize Phase 1 changes into `docs/development/CHANGELOG.md`.
 

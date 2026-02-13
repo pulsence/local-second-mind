@@ -17,6 +17,16 @@ from textual.widgets import Button, Input, Select, Static, Switch, TabbedContent
 from lsm.config.loader import load_config_from_file, save_config_to_file
 from lsm.config.models import RemoteProviderRef
 from lsm.logging import get_logger
+from lsm.ui.tui.widgets.settings_base import (
+    _field as _shared_field,
+    _replace_container_children as _shared_replace_container_children,
+    _save_reset_row as _shared_save_reset_row,
+    _select_field as _shared_select_field,
+    _set_input as _shared_set_input,
+    _set_select_options as _shared_set_select_options,
+    _set_select_value as _shared_set_select_value,
+    _set_switch as _shared_set_switch,
+)
 
 logger = get_logger(__name__)
 
@@ -239,11 +249,7 @@ class SettingsScreen(Widget):
         )
 
     def _save_reset_row(self, section: str) -> Widget:
-        return Horizontal(
-            Button("Save", id=f"settings-save-{section}"),
-            Button("Reset", id=f"settings-reset-{section}"),
-            classes="settings-actions",
-        )
+        return _shared_save_reset_row(section)
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         button_id = event.button.id or ""
@@ -1031,14 +1037,7 @@ class SettingsScreen(Widget):
             self._replace_container_children("#settings-remote-chains-list", chain_widgets)
 
     def _replace_container_children(self, selector: str, widgets: Sequence[Widget]) -> None:
-        try:
-            container = self.query_one(selector)
-            if hasattr(container, "remove_children"):
-                container.remove_children()
-            for widget in widgets:
-                container.mount(widget)
-        except Exception:
-            return
+        _shared_replace_container_children(self, selector, widgets)
 
     def _container_exists(self, selector: str) -> bool:
         try:
@@ -1265,40 +1264,29 @@ class SettingsScreen(Widget):
         field_type: str = "input",
         value: Any = "",
     ) -> Widget:
-        label_widget = Static(label, classes="settings-label")
-        if field_type == "switch":
-            field_widget: Widget = Switch(value=bool(value), id=field_id)
-        else:
-            field_widget = Input(value="" if value is None else str(value), placeholder=placeholder, id=field_id)
-        field_widget.disabled = disabled
-        return Horizontal(label_widget, field_widget, classes="settings-field")
+        return _shared_field(
+            label,
+            field_id,
+            placeholder=placeholder,
+            disabled=disabled,
+            field_type=field_type,
+            value=value,
+        )
 
     def _select_field(self, label: str, field_id: str, options: Optional[list[tuple[str, str]]] = None) -> Widget:
-        return Horizontal(Static(label, classes="settings-label"), Select(options or [], id=field_id), classes="settings-field")
+        return _shared_select_field(label, field_id, options)
 
     def _set_input(self, field_id: str, value: str) -> None:
-        try:
-            self.query_one(f"#{field_id}", Input).value = value or ""
-        except Exception:
-            return
+        _shared_set_input(self, field_id, value)
 
     def _set_switch(self, field_id: str, value: bool) -> None:
-        try:
-            self.query_one(f"#{field_id}", Switch).value = bool(value)
-        except Exception:
-            return
+        _shared_set_switch(self, field_id, value)
 
     def _set_select_options(self, field_id: str, values: list[str]) -> None:
-        try:
-            self.query_one(f"#{field_id}", Select).set_options([(v, v) for v in values])
-        except Exception:
-            return
+        _shared_set_select_options(self, field_id, values)
 
     def _set_select_value(self, field_id: str, value: str) -> None:
-        try:
-            self.query_one(f"#{field_id}", Select).value = value
-        except Exception:
-            return
+        _shared_set_select_value(self, field_id, value)
 
     @staticmethod
     def _format_optional(value: Optional[Any]) -> str:
