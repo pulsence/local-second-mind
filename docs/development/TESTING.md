@@ -1,5 +1,6 @@
 # Testing Guide
 
+This guide reflects the v0.5.0 tiered test strategy and runtime configuration.
 
 ## Test Tiers
 
@@ -28,6 +29,7 @@ Test runtime settings are loaded from:
 
 - `tests/.env.test` (local, gitignored)
 - `LSM_TEST_*` environment variables
+- `tests/testing_config.py` loader helpers
 
 Template file:
 
@@ -83,36 +85,36 @@ Validation test:
 
 ## Running Tests
 
-```bash
+```powershell
 # Default run (excludes live/docker)
-pytest tests/ -v
+.venv\Scripts\python -m pytest tests/ -v
 
 # Only live tests
-pytest tests/ -v -m "live"
+.venv\Scripts\python -m pytest tests/ -v -m "live"
 
 # Everything including live/docker
-pytest tests/ -v -m ""
+.venv\Scripts\python -m pytest tests/ -v -m ""
 
 # Only live LLM tests
-pytest tests/ -v -m "live_llm"
+.venv\Scripts\python -m pytest tests/ -v -m "live_llm"
 
 # Only live remote provider tests
-pytest tests/ -v -m "live_remote"
+.venv\Scripts\python -m pytest tests/ -v -m "live_remote"
 
 # Only live vector DB tests (PostgreSQL + migration)
-pytest tests/ -v -m "live_vectordb"
+.venv\Scripts\python -m pytest tests/ -v -m "live_vectordb"
 ```
 
 ## Security Suite
 
 Agent sandbox security tests are adversarial and should run as part of default validation when changing `lsm/agents/` or `lsm/agents/tools/`.
 
-```bash
+```powershell
 # Run all STRIDE security suites (T1-T8)
-pytest tests/test_agents/test_security_*.py -v
+.venv\Scripts\python -m pytest tests/test_agents/test_security_*.py -v
 
 # Run full agent test suite
-pytest tests/test_agents -v
+.venv\Scripts\python -m pytest tests/test_agents -v
 ```
 
 Security suite files:
@@ -164,13 +166,13 @@ It includes:
 
 Examples:
 
-```bash
+```powershell
 # End-to-end ingest + retrieval without live services
-pytest tests/test_integration/test_full_pipeline.py -v -m "integration"
+.venv\Scripts\python -m pytest tests/test_integration/test_full_pipeline.py -v -m "integration"
 
 # Live full pipeline (requires configured LSM_TEST_* provider credentials)
-pytest tests/test_integration/test_full_pipeline.py -v -m "live"
+.venv\Scripts\python -m pytest tests/test_integration/test_full_pipeline.py -v -m "live"
 
 # Performance scenario
-LSM_PERF_TEST=1 pytest tests/test_integration/test_full_pipeline.py -v -m "performance"
+$env:LSM_PERF_TEST=1; .venv\Scripts\python -m pytest tests/test_integration/test_full_pipeline.py -v -m "performance"
 ```

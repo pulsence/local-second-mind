@@ -1,6 +1,6 @@
 # Agents Guide
 
-This guide covers the agent system added in `0.4.0`: architecture, configuration, tools, sandboxing, and runtime usage.
+This guide covers the v0.5.0 agent system: architecture, configuration, tools, sandboxing, memory, scheduler, and meta-agent orchestration usage.
 
 ## Overview
 

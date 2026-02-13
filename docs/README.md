@@ -48,6 +48,15 @@ This project is maintained for personal use first.
 - [Development Plan](development/PLAN.md)
 - [Changelog](development/CHANGELOG.md)
 
+## What's New in 0.5.0
+
+- Expanded testing to tiered smoke/integration/live flows with richer synthetic data and live provider coverage.
+- Hardened the agent sandbox with adversarial STRIDE security tests, permission gating, environment scrubbing, and log redaction.
+- Added new built-in agents: `writing`, `synthesis`, and `curator`.
+- Added agent memory storage/API/tooling with SQLite/PostgreSQL backends and curator-driven memory distillation workflows.
+- Added scheduler configuration, engine, and CLI/TUI management for recurring agent runs with safe unattended defaults.
+- Added meta-agent orchestration with task graphs, sub-agent system tools, shared workspace execution, and synthesis artifacts.
+
 ## Version
 
-Current release: `0.4.0`
+Current release: `0.5.0`

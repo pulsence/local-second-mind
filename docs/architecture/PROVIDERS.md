@@ -1,124 +1,126 @@
-﻿# Provider System Architecture
+# Provider System Architecture
 
-This document describes the provider abstractions used by LSM for LLM calls and vector DBs.
+This document describes the LSM v0.5.0 provider abstractions for both LLM and vector database backends.
 
-## Goals
+## Design Goals
 
-- Encapsulate provider-specific APIs behind a stable interface.
-- Support multiple LLM backends (OpenAI today; others in the future).
-- Allow per-feature overrides (query, ranking, tagging).
+- Keep business logic stable while allowing provider-specific transport implementations.
+- Support multiple provider backends through a registry + factory pattern.
+- Keep app modules provider-agnostic through shared typed interfaces.
 
-## LLM Provider Interface
+## LLM Provider Architecture
 
-All providers implement `BaseLLMProvider`:
+Core abstraction: `lsm/providers/base.py` -> `BaseLLMProvider`.
 
-- `rerank(question, candidates, k, **kwargs)`
-- `synthesize(question, context, mode, **kwargs)`
-- `generate_tags(text, num_tags, existing_tags, **kwargs)`
-- `is_available()`
-- `health_check()`
-- `name` and `model` properties
+### Provider Contract
 
-Optional:
+Each provider implements transport-only methods:
 
-- `estimate_cost(input_tokens, output_tokens)`
+- `_send_message(system, user, temperature, max_tokens, **kwargs) -> str`
+- `_send_streaming_message(system, user, temperature, max_tokens, **kwargs) -> Iterable[str]`
+- `is_available() -> bool`
+- `name` property
+- `model` property
 
-See `docs/api-reference/PROVIDERS.md` for method signatures.
+### Shared Base Logic
 
-## LLM Factory Pattern
+`BaseLLMProvider` now owns common LLM business flows:
 
-Providers are created through a registry in `lsm/providers/factory.py`:
+- `rerank(...)`
+- `synthesize(...)`
+- `stream_synthesize(...)`
+- `generate_tags(...)`
+- `_fallback_answer(...)`
 
-- `PROVIDER_REGISTRY` maps provider names to classes.
-- `create_provider(config)` instantiates and validates availability.
-- `register_provider(name, provider_class)` allows custom providers.
+This removes duplicated prompt/parsing/retry logic from concrete providers.
 
-## OpenAI Provider
+### Health and Reliability
 
-The OpenAI provider:
+`BaseLLMProvider` includes:
 
-- Uses the Responses API via `openai.OpenAI`.
-- Supports structured output for reranking and tagging when possible.
-- Handles unsupported parameter errors by retrying without them.
-- Provides a simple cost estimate per model family.
+- per-provider global health stats (`ProviderHealthStats`)
+- centralized success/failure recording
+- error categorization (`retryable` vs `fatal`)
+- retry helper with exponential backoff
+- circuit-breaker cooldown after repeated failures
 
-### Reranking
+### Factory and Registry
 
-- Sends candidate snippets and a strict JSON schema.
-- Returns top-k candidates with reasons (reasons are not used downstream).
+`lsm/providers/factory.py`:
 
-### Synthesis
+- `PROVIDER_REGISTRY` maps provider names to lazy `module:ClassName` references
+- `create_provider(config)` loads, instantiates, and availability-checks a provider
+- `register_provider(name, provider_class)` allows custom provider registration
 
-- Uses mode-specific instructions (`grounded` or `insight`).
-- Uses `temperature` and `max_tokens` unless unsupported by model.
+Built-in provider keys:
 
-### Tagging
+- `openai`
+- `azure_openai`
+- `anthropic` (`claude` alias)
+- `gemini`
+- `local` (Ollama-compatible)
 
-- Emits JSON tags and attempts to recover from malformed responses.
+### Configuration Model
 
-## Per-Feature Overrides
+Provider configuration uses the structured `llms` model:
 
-`LLMRegistryConfig` supports overrides for:
+- `llms.providers[]`: connection/auth entries per provider
+- `llms.services{}`: named feature mappings to provider + model
 
-- `query` (synthesis)
-- `ranking` (reranking)
-- `tagging` (AI tag generation)
+Services are then resolved by feature (for example query, ranking, tagging, translation, decomposition) into a concrete `LLMConfig` passed to `create_provider(...)`.
 
-These overrides inherit from the selected provider entry when fields are not provided.
+## Vector DB Provider Architecture
 
-## Availability Checks
+Core abstraction: `lsm/vectordb/base.py` -> `BaseVectorDBProvider`.
 
-`is_available()` returns true if the API key is present or can be resolved from
-environment variables.
+### Provider Contract
 
-## Extension Points
-
-To add a provider:
-
-1. Implement `BaseLLMProvider`.
-2. Register it in `PROVIDER_REGISTRY` (or via `register_provider`).
-3. Provide configuration under the ordered `llms` list.
-
-See `docs/api-reference/ADDING_PROVIDERS.md` for a worked example.
-
-## Vector DB Provider Interface
-
-Vector DB providers implement `BaseVectorDBProvider`:
+Required methods:
 
 - `add_chunks(ids, documents, metadatas, embeddings)`
-- `query(embedding, top_k, filters)`
+- `get(ids=None, filters=None, limit=None, offset=0, include=None) -> VectorDBGetResult`
+- `query(embedding, top_k, filters=None) -> VectorDBQueryResult`
+- `update_metadatas(ids, metadatas)`
 - `delete_by_id(ids)`
 - `delete_by_filter(filters)`
-- `count()`
-- `get_stats()`
-- `optimize()`
-- `health_check()`
+- `delete_all() -> int`
+- `count() -> int`
+- `get_stats() -> Dict[str, Any]`
+- `optimize() -> Dict[str, Any]`
+- `health_check() -> Dict[str, Any]`
+- `is_available() -> bool`
 - `name` property
 
-See `lsm/vectordb/base.py` for method signatures.
+### Result Types
 
-## Vector DB Factory Pattern
+Typed dataclasses normalize provider output:
 
-Providers are created through a registry in `lsm/vectordb/factory.py`:
+- `VectorDBQueryResult`: similarity query results (`ids`, `documents`, `metadatas`, `distances`)
+- `VectorDBGetResult`: non-similarity retrieval with optional `documents`, `metadatas`, `embeddings`
 
-- `PROVIDER_REGISTRY` maps provider names to classes.
-- `create_vectordb_provider(config)` instantiates and validates availability.
-- `register_provider(name, provider_class)` allows custom providers.
+### Filter Semantics
 
-## ChromaDB Provider
+Provider interface accepts simple metadata filters (`{"key": "value"}`); providers normalize internally for backend-specific query languages.
 
-The ChromaDB provider:
+### Factory and Registry
 
-- Uses persistent storage from `vectordb.persist_dir`.
-- Supports `chroma_hnsw_space` configuration.
-- Exposes `get_collection()` for legacy Chroma-only operations.
+`lsm/vectordb/factory.py`:
 
-## PostgreSQL + pgvector Provider
+- `create_vectordb_provider(config)` loads and initializes the configured backend
+- `register_provider(name, provider_class)` registers custom vector DB providers
 
-The PostgreSQL provider:
+Built-in providers:
 
-- Uses `psycopg2` pooling and `pgvector` bindings.
-- Creates schema/indexes on first use.
-- Supports `hnsw` or `ivfflat` indexing.
+- `chromadb`
+- `postgresql` (`pgvector`)
 
-See `docs/user-guide/VECTOR_DATABASES.md` for configuration examples.
+Migration helpers are available in `lsm/vectordb/migrations/chromadb_to_postgres.py` for ChromaDB -> PostgreSQL moves.
+
+## Extension Workflow
+
+To add a custom provider:
+
+1. Implement the correct base class (`BaseLLMProvider` or `BaseVectorDBProvider`).
+2. Register it via the corresponding factory `register_provider(...)`.
+3. Configure it in `config.json` (`llms` or `vectordb`).
+4. Add tests under `tests/test_providers/` or `tests/test_vectordb/`.

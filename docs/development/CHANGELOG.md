@@ -6,6 +6,12 @@ All notable changes to Local Second Mind are documented here.
 
 ### Added
 
+- _No entries yet._
+
+## 0.5.0 - 2026-02-13
+
+### Added
+
 - Agent memory storage backend foundation in `lsm/agents/memory/`:
   - memory datamodels (`Memory`, `MemoryCandidate`)
   - backend abstraction (`BaseMemoryStore`)
@@ -161,6 +167,11 @@ All notable changes to Local Second Mind are documented here.
 
 ### Changed
 
+- Documentation refresh for v0.5.0 across:
+  - `docs/README.md`
+  - `docs/AGENTS.md`
+  - `docs/architecture/PROVIDERS.md`
+  - `docs/development/TESTING.md`
 - Agent config loader/serializer now round-trips `agents.memory` settings via `build_memory_config(...)` and `config_to_raw(...)`.
 - Relative `agents.memory.sqlite_path` values now resolve under resolved `agents_folder` (which itself resolves under `global_folder` when configured).
 - `BaseMemoryStore` now supports `mark_used(memory_ids, used_at=...)` to update `last_used_at` for injected memories.
