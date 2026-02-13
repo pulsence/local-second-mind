@@ -284,9 +284,9 @@ class AgentsScreen(Widget):
             run_table = self.query_one("#agents-meta-runs-table", DataTable)
         except Exception:
             return
-        if task_table.column_count == 0:
+        if len(getattr(task_table, "columns", {})) == 0:
             task_table.add_columns("Task", "Agent", "Status", "Depends On")
-        if run_table.column_count == 0:
+        if len(getattr(run_table, "columns", {})) == 0:
             run_table.add_columns("Task", "Sub-Agent", "Status", "Workspace", "Artifacts")
         task_table.cursor_type = "row"
         task_table.zebra_stripes = True
@@ -376,7 +376,7 @@ class AgentsScreen(Widget):
             schedule_table = self.query_one("#agents-schedule-table", DataTable)
         except Exception:
             return
-        if schedule_table.column_count == 0:
+        if len(getattr(schedule_table, "columns", {})) == 0:
             schedule_table.add_columns(
                 "ID",
                 "Agent",

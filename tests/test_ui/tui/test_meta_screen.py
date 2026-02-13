@@ -33,10 +33,6 @@ class _DataTable:
         self.cursor_type = None
         self.zebra_stripes = False
 
-    @property
-    def column_count(self) -> int:
-        return len(self.columns)
-
     def add_columns(self, *columns) -> None:
         self.columns.extend(columns)
 

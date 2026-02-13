@@ -1,43 +1,6 @@
 # Todo
 
-## Current Items
-### LLM Providers
-- There should be a basic method that simply handles sending messages and receiving message with the
-  llm and all other methods (e.g., synthesize, rerank, etc.) all use that base method basic calling,
-  streaming, cached server, etc. The highlevel methods should only can about formating the request
-  or handling the response.
-
-### Agent
-- Look at the files in .claude_files/sandbox_plan to generate a complete development for a
-  sandbox to run agents in. These plans are to be treated as guidelines since they were created
-  without reference to the actual code. As you develop the plan make sure to update them to the
-  style and structure of the actual code base.
-    - Be sure to clearly document the threat model and security model in docs/ and follow the
-      security test plan. We need to make sure that we try to break the sandbox in the test suite.
-- Create a simple agent where the user gives a task and the agent processes it via the background.
-- Read .claude_files/lsm_agent_roadmap_writing_synthesis_curator.md for an outline of new agents
-  and tools to create. The ideas in this file should be included when creating the next plan and
-  adapted to the style and struture of the actual code base.
-- Read .claude_files/lsm_agent_advanced_capabilities_plan.md for an outline of new capabilites for
-  the agent system. The ideas in this file should be included when creating the next plan and
-  adapted to the style and struture of the actual code base.
-
-### Testing
-- Make sure that there are tests which interact with web services have a test that actaully
-  makes web calls. This includes LLM API calls.
-- Make sure that there are tests which read and write from file peform actual filesystem operations.
-- Make sure that there are DB tests and embedding tests that make actual DB and embedding calls.
-- There should be a full intergration test that create an actual DB, embeddes actual files,
-  and queries using actual Remote Providers against a live LLM provider.
-    - The test file fixtures should be improved to ensure that there is enough data to properly
-      run this suite.
-- The test suite should be able to run a series of smoke tests which do not hit live servies
-  and only at specific times should the entery test suite on live services be used.
-- User should be able to set a custom config for the test suite.
-- There should be NO STUBS or MOCK tests.
-
-## Future Items (INGORE ALL THE FOLLOWING FOR PLANNING)
-### v0.6.0: TUI Improvements
+## v0.6.0: TUI Improvements
 - General:
   - Screen elements are too large on defualt command prompt in windows, need to scale UI better
 - Settings Screen
@@ -49,6 +12,9 @@
   - User needs to be able to interact with the agent like when it requests permission or needs
     feedback from the user.
   - There should be a list of agents running
+
+## Future Items (INGORE ALL THE FOLLOWING FOR PLANNING)
+
 
 ### v0.7.0: Agents and Remote Sources
 #### Architecture
@@ -195,6 +161,9 @@
       level is larger than the target max chunk size.
 
 ### v0.9.0: Refactor and Dog Food
+#### General
+- Start up is slow, analyze why that is an try to improve start time
+
 #### Documentation
 - Improve documentation
 - Find a way to automatically turn the documentation into a viewable site using MkDocs
