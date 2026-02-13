@@ -6,7 +6,7 @@ LSM ingests local documents, builds embeddings, retrieves relevant context, and 
 
 ## Version
 
-`0.4.0`
+`0.5.0`
 
 ## Caveat Emptor
 
@@ -17,16 +17,14 @@ This project is maintained for personal use first.
 - Until `v1.0.0`, breaking changes can happen between releases, especially in configuration schema and interfaces.
 - Pin versions and review `docs/development/CHANGELOG.md` before upgrading.
 
-## What Is New in 0.4.0
+## What Is New in 0.5.0
 
-- Restructured config schema (`global`, `ingest`, `vectordb`, `llms`, `query`, `modes`, `notes`, `chats`, `remote_providers`, `agents`)
-- LLM providers/services registry with service resolution (`default`, `query`, `tagging`, `ranking`, `decomposition`)
-- Structure-aware chunking with heading/paragraph/sentence boundaries and page tracking
-- Language detection, optional translation, folder/root tagging, versioned chunks
-- Query improvements: metadata prefiltering, decomposition, context anchors, chat mode, query cache
-- Remote provider structured protocol, result caching, and provider chains
-- Agent framework with tool sandbox, research agent, TUI tab, and shell commands
-- PostgreSQL + pgvector vector database support and migration tooling
+- Tiered real-world testing (`smoke`, `integration`, `live`, `live_llm`, `live_remote`, `live_vectordb`, `docker`) with expanded synthetic and live coverage
+- Hardened agent sandbox with adversarial STRIDE security tests, permission gates, environment scrubbing, and log redaction
+- New built-in agents: `writing`, `synthesis`, and expanded `curator` workflows
+- Agent memory system with SQLite/PostgreSQL backends, API/context injection, CLI/TUI actions, and curation-based memory distillation
+- Scheduler engine with interval/cron scheduling, overlap policies, persisted state, and unattended safety defaults
+- Meta-agent orchestration with task graphs, sub-agent system tools (`spawn_agent`, `await_agent`, `collect_artifacts`), shared workspaces, and final synthesis artifacts
 
 ## Install
 
