@@ -421,7 +421,7 @@ Add UI elements to the Agents screen for handling interaction requests and showi
 
 **Post-block:** `tests/test_ui/tui/test_agent_interaction.py`, run `pytest tests/ -v`, commit.
 
-### 3.5: Agent Interaction CLI Commands
+### 3.5: Agent Interaction CLI Commands (COMPLETED)
 
 Add CLI commands for responding to agent interaction requests.
 

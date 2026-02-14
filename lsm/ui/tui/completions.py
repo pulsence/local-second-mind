@@ -78,7 +78,24 @@ BUILD_OPTIONS = ["--force"]
 TAG_OPTIONS = ["--max"]
 EXPORT_FORMATS = ["bibtex", "zotero"]
 MEMORY_SUBCOMMANDS = ["candidates", "promote", "reject", "ttl"]
-AGENT_SUBCOMMANDS = ["start", "status", "pause", "resume", "stop", "log", "schedule", "meta"]
+AGENT_SUBCOMMANDS = [
+    "start",
+    "list",
+    "interact",
+    "approve",
+    "deny",
+    "approve-session",
+    "reply",
+    "queue",
+    "select",
+    "status",
+    "pause",
+    "resume",
+    "stop",
+    "log",
+    "schedule",
+    "meta",
+]
 AGENT_SCHEDULE_SUBCOMMANDS = ["add", "list", "enable", "disable", "remove", "status"]
 AGENT_META_SUBCOMMANDS = ["start", "status", "log"]
 UI_SUBCOMMANDS = ["density"]
@@ -247,6 +264,29 @@ def _get_argument_completions(
                 return [item for item in AGENT_META_SUBCOMMANDS if item.startswith(parts[1])]
             if len(parts) == 3 and parts[1] == "start":
                 return ["<goal>"]
+        if parts[0] == "start":
+            if len(parts) == 2:
+                return ["<name>"]
+            if len(parts) == 3:
+                return ["<topic>"]
+        if parts[0] == "queue":
+            if len(parts) == 2:
+                return ["<agent_id>", "<message>"]
+            if len(parts) == 3:
+                return ["<message>"]
+            return []
+        if parts[0] in {"status", "pause", "resume", "stop", "log", "select", "approve", "approve-session"}:
+            if len(parts) == 2:
+                return ["<agent_id>"]
+        if parts[0] == "resume" and len(parts) == 3:
+            return ["<message>"]
+        if parts[0] in {"interact", "deny", "reply"}:
+            if len(parts) == 2:
+                return ["<agent_id>"]
+        if parts[0] == "deny" and len(parts) == 3:
+            return ["<reason>"]
+        if parts[0] == "reply" and len(parts) == 3:
+            return ["<message>"]
         return []
 
     if cmd == "/ui":

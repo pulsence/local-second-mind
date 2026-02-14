@@ -366,11 +366,19 @@ Open the **Agents** tab:
 ## Shell Commands
 
 - `/agent start <name> <topic>`
-- `/agent status`
-- `/agent pause`
-- `/agent resume`
-- `/agent stop`
-- `/agent log`
+- `/agent list`
+- `/agent interact [agent_id]`
+- `/agent approve <agent_id>`
+- `/agent deny <agent_id> [reason]`
+- `/agent approve-session <agent_id>`
+- `/agent reply <agent_id> <message>`
+- `/agent queue [agent_id] <message>`
+- `/agent select <agent_id>`
+- `/agent status [agent_id]`
+- `/agent pause [agent_id]`
+- `/agent resume [agent_id] [message]`
+- `/agent stop [agent_id]`
+- `/agent log [agent_id]`
 - `/agent meta start <goal>`
 - `/agent meta status`
 - `/agent meta log`
@@ -384,6 +392,9 @@ Open the **Agents** tab:
 - `/memory promote <candidate_id>`
 - `/memory reject <candidate_id>`
 - `/memory ttl <candidate_id> <days>`
+
+`/agent queue` lets you inject follow-up user instructions into a running agent context.  
+`/agent resume ... [message]` queues that message first, then resumes the selected/targeted agent.
 
 ## Scheduler Engine
 

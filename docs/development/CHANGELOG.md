@@ -53,6 +53,12 @@ All notable changes to Local Second Mind are documented here.
   - pending-interaction urgency indicator styling and panel warning-state highlighting in `lsm/ui/tui/styles/agents.tcss`
   - interaction responses route through `AgentRuntimeManager.respond_to_interaction(...)` from TUI actions/buttons
   - added `tests/test_ui/tui/test_agent_interaction.py` coverage for table selection, interaction mode switching, and response actions
+- Agent interaction CLI command surface for concurrent sessions:
+  - new commands: `/agent list`, `/agent interact [agent_id]`, `/agent approve <agent_id>`, `/agent deny <agent_id> [reason]`, `/agent approve-session <agent_id>`, `/agent reply <agent_id> <message>`, `/agent queue [agent_id] <message>`, `/agent select <agent_id>`
+  - `/agent resume [agent_id] [message]` now supports resuming with a queued user instruction in one step
+  - no-id control/log/status commands now target selected agent when available in multi-agent sessions
+  - added command/parser coverage in `tests/test_ui/shell/test_agent_interaction_commands.py`
+  - updated `/agent ...` completion suggestions in `lsm/ui/tui/completions.py` and `tests/test_ui/tui/test_completions.py`
 
 ### Changed
 

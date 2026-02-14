@@ -348,7 +348,8 @@ def test_multi_agent_controls_target_by_id_and_keep_single_agent_compat(monkeypa
     id_1 = _extract_agent_id(manager.start(app, "research", "a"))
     id_2 = _extract_agent_id(manager.start(app, "writing", "b"))
 
-    assert "Multiple active agents" in manager.pause()
+    # Multi-agent default targeting uses selected agent id (latest start or /agent select).
+    assert f"({id_2})" in manager.pause()
     assert f"({id_1})" in manager.pause(agent_id=id_1)
     assert f"({id_1})" in manager.resume(agent_id=id_1)
 
@@ -356,7 +357,7 @@ def test_multi_agent_controls_target_by_id_and_keep_single_agent_compat(monkeypa
         agent_1 = manager._agents[id_1].agent
         agent_2 = manager._agents[id_2].agent
     assert agent_1.pause_calls == 1
-    assert agent_2.pause_calls == 0
+    assert agent_2.pause_calls == 1
 
     assert f"({id_1})" in manager.stop(agent_id=id_1)
     assert _wait_until(lambda: len(manager.list_running()) == 1)

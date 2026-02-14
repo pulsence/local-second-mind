@@ -152,6 +152,24 @@ class TestGetCompletions:
         assert "remove" in completions
         assert "status" in completions
 
+    def test_agent_command_suggests_interaction_subcommands(self):
+        """Agent command should suggest interaction and selection subcommands."""
+        completions = get_completions("/agent ", "query")
+        assert "list" in completions
+        assert "interact" in completions
+        assert "approve" in completions
+        assert "deny" in completions
+        assert "approve-session" in completions
+        assert "reply" in completions
+        assert "queue" in completions
+        assert "select" in completions
+
+    def test_agent_queue_suggests_target_or_message(self):
+        """Agent queue should prompt for either target id or message."""
+        completions = get_completions("/agent queue ", "query")
+        assert "<agent_id>" in completions
+        assert "<message>" in completions
+
     def test_agent_schedule_add_suggests_flags(self):
         """Agent schedule add should suggest supported optional flags."""
         completions = get_completions("/agent schedule add research daily ", "query")

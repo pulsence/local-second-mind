@@ -5,6 +5,7 @@ Shell-level agent command helpers.
 from __future__ import annotations
 
 import json
+import re
 import shlex
 import threading
 import time
@@ -25,7 +26,7 @@ from lsm.agents import (
 from lsm.agents.log_formatter import format_agent_log
 from lsm.agents.memory import Memory, MemoryCandidate, create_memory_store
 from lsm.agents.memory.models import now_utc
-from lsm.agents.models import AgentContext
+from lsm.agents.models import AgentContext, AgentLogEntry
 from lsm.agents.tools import ToolSandbox, create_default_tool_registry
 from lsm.config.loader import save_config_to_file
 from lsm.config.models import ScheduleConfig
@@ -48,6 +49,7 @@ class AgentRunEntry:
     channel: InteractionChannel
     started_at: datetime
     topic: str
+    context: Optional[AgentContext] = None
     completed_at: Optional[datetime] = None
 
 
@@ -204,6 +206,7 @@ class AgentRuntimeManager:
                 channel=channel,
                 started_at=datetime.utcnow(),
                 topic=normalized_topic,
+                context=context,
             )
             self._selected_agent_id = agent_id
             thread.start()
@@ -253,6 +256,68 @@ class AgentRuntimeManager:
                 lines.append(
                     self._format_compact_entry_status(entry, include_topic=True)
                 )
+        lines.append("")
+        return "\n".join(lines)
+
+    def select(self, agent_id: str) -> str:
+        normalized = str(agent_id or "").strip()
+        if not normalized:
+            return "Usage: /agent select <agent_id>\n"
+        with self._lock:
+            self._cleanup_finished_locked()
+            try:
+                entry = self._lookup_entry_locked(normalized, include_completed=True)
+            except ValueError as exc:
+                return f"{exc}\n"
+            if entry is None:
+                return f"Unknown agent id: {normalized}\n"
+            self._selected_agent_id = entry.agent_id
+            is_running = entry.agent_id in self._agents and entry.thread.is_alive()
+        state = "running" if is_running else "completed"
+        return f"Selected agent '{entry.agent_name}' ({entry.agent_id}) [{state}].\n"
+
+    def format_running_agents(self) -> str:
+        with self._lock:
+            self._cleanup_finished_locked()
+            entries = sorted(self._agents.values(), key=lambda item: item.started_at)
+            selected_id = self._selected_agent_id
+        if not entries:
+            return "No running agents.\n"
+        lines = [f"Running agents ({len(entries)}):"]
+        now = datetime.utcnow()
+        for entry in entries:
+            marker = "*" if entry.agent_id == selected_id else "-"
+            status = self._entry_status_value(entry)
+            age_seconds = max(0.0, (now - entry.started_at).total_seconds())
+            lines.append(
+                f"{marker} {entry.agent_id[:8]} | {entry.agent_name} "
+                f"| status={status} | age={round(age_seconds, 1)}s | topic={entry.topic}"
+            )
+        lines.append("")
+        return "\n".join(lines)
+
+    def format_pending_interactions(self, agent_id: Optional[str] = None) -> str:
+        pending = self.get_pending_interactions(agent_id=agent_id)
+        if not pending:
+            return "No pending interaction requests.\n"
+        lines = [f"Pending interactions ({len(pending)}):"]
+        for row in pending:
+            agent_id_value = str(row.get("agent_id", "")).strip()
+            agent_name = str(row.get("agent_name", "")).strip() or "-"
+            request_type = str(row.get("request_type", "")).strip() or "-"
+            request_id = str(row.get("request_id", "")).strip() or "-"
+            tool_name = str(row.get("tool_name", "")).strip() or "-"
+            risk_level = str(row.get("risk_level", "")).strip() or "-"
+            lines.append(
+                f"- {agent_id_value[:8]} | {agent_name} | type={request_type} "
+                f"| request_id={request_id} | tool={tool_name} | risk={risk_level}"
+            )
+            reason = str(row.get("reason", "")).strip()
+            if reason:
+                lines.append(f"  reason: {reason}")
+            prompt = str(row.get("prompt", "")).strip()
+            if prompt:
+                lines.append(f"  prompt: {prompt}")
         lines.append("")
         return "\n".join(lines)
 
@@ -439,6 +504,65 @@ class AgentRuntimeManager:
         self._safe_call(entry.harness, "resume")
         self._safe_call(entry.agent, "resume")
         return f"Resumed agent '{entry.agent_name}' ({entry.agent_id}).\n"
+
+    def queue_user_command(
+        self,
+        message: str,
+        *,
+        agent_id: Optional[str] = None,
+        resume_after_queue: bool = False,
+    ) -> str:
+        normalized_message = str(message or "").strip()
+        if not normalized_message:
+            return "Usage: /agent queue [agent_id] <message>\n"
+        with self._lock:
+            self._cleanup_finished_locked()
+            entry, error = self._resolve_target_entry_locked(
+                agent_id=agent_id,
+                action="queue",
+                include_completed=False,
+            )
+            if error:
+                return error
+            assert entry is not None
+            if entry.context is None:
+                return (
+                    f"Cannot queue message for agent '{entry.agent_name}' "
+                    f"({entry.agent_id}): run context unavailable.\n"
+                )
+            entry.context.messages.append(
+                {"role": "user", "content": normalized_message}
+            )
+            state = getattr(entry.agent, "state", None)
+            add_log = getattr(state, "add_log", None)
+            if callable(add_log):
+                try:
+                    add_log(
+                        AgentLogEntry(
+                            timestamp=datetime.utcnow(),
+                            actor="user",
+                            content=normalized_message,
+                        )
+                    )
+                except Exception:
+                    logger.exception(
+                        "Failed to append queued user message log for agent '%s' (%s)",
+                        entry.agent_name,
+                        entry.agent_id,
+                    )
+
+        if resume_after_queue:
+            self._safe_call(entry.harness, "resume")
+            self._safe_call(entry.agent, "resume")
+            return (
+                f"Queued user message for agent '{entry.agent_name}' "
+                f"({entry.agent_id}).\n"
+                f"Resumed agent '{entry.agent_name}' ({entry.agent_id}).\n"
+            )
+        return (
+            f"Queued user message for agent '{entry.agent_name}' "
+            f"({entry.agent_id}).\n"
+        )
 
     def log(self, agent_id: Optional[str] = None, *, prefer_meta: bool = False) -> str:
         with self._lock:
@@ -798,6 +922,16 @@ class AgentRuntimeManager:
                 return None, f"Unknown agent id: {agent_id}\n"
             self._selected_agent_id = entry.agent_id
             return entry, None
+
+        selected_id = str(self._selected_agent_id or "").strip()
+        if selected_id:
+            selected_entry = self._agents.get(selected_id)
+            if selected_entry is not None:
+                return selected_entry, None
+            if include_completed:
+                completed_selected_entry = self._completed_runs.get(selected_id)
+                if completed_selected_entry is not None:
+                    return completed_selected_entry, None
 
         if len(self._agents) == 1:
             entry = next(iter(self._agents.values()))
@@ -1479,17 +1613,21 @@ def handle_agent_command(command: str, app: Any) -> str:
 
     Supported:
     - `/agent start <name> <topic...>`
+    - `/agent queue [agent_id] <message>`
     - `/agent status`
     - `/agent stop`
     - `/agent pause`
-    - `/agent resume`
+    - `/agent resume [agent_id] [message]`
     - `/agent log`
     - `/agent meta start <goal...>`
     - `/agent meta status`
     - `/agent meta log`
     """
     text = command.strip()
-    parts = text.split()
+    try:
+        parts = shlex.split(text)
+    except ValueError as exc:
+        return f"Invalid command syntax: {exc}\n"
     if len(parts) < 2:
         return _agent_help()
 
@@ -1499,10 +1637,55 @@ def handle_agent_command(command: str, app: Any) -> str:
         if len(parts) < 4:
             return "Usage: /agent start <name> <topic>\n"
         name = parts[2].strip()
-        topic = text.split(maxsplit=3)[3].strip()
+        topic = " ".join(parts[3:]).strip()
         if not topic:
             return "Usage: /agent start <name> <topic>\n"
         return manager.start(app, name, topic)
+    if action == "list":
+        return manager.format_running_agents()
+    if action == "interact":
+        target_id = parts[2].strip() if len(parts) >= 3 else None
+        return manager.format_pending_interactions(agent_id=target_id)
+    if action in {"approve", "approve-session", "approve_session"}:
+        if len(parts) < 3:
+            usage = "/agent approve <agent_id>" if action == "approve" else "/agent approve-session <agent_id>"
+            return f"Usage: {usage}\n"
+        decision = "approve" if action == "approve" else "approve_session"
+        return manager.respond_to_interaction(
+            parts[2].strip(),
+            {"decision": decision},
+        )
+    if action == "deny":
+        if len(parts) < 3:
+            return "Usage: /agent deny <agent_id> [reason]\n"
+        payload: dict[str, Any] = {"decision": "deny"}
+        reason = " ".join(parts[3:]).strip()
+        if reason:
+            payload["user_message"] = reason
+        return manager.respond_to_interaction(parts[2].strip(), payload)
+    if action == "reply":
+        if len(parts) < 4:
+            return "Usage: /agent reply <agent_id> <message>\n"
+        message = " ".join(parts[3:]).strip()
+        if not message:
+            return "Usage: /agent reply <agent_id> <message>\n"
+        return manager.respond_to_interaction(
+            parts[2].strip(),
+            {"decision": "reply", "user_message": message},
+        )
+    if action == "queue":
+        parsed = _parse_agent_message_target_and_content(parts[2:])
+        if parsed is None:
+            return "Usage: /agent queue [agent_id] <message>\n"
+        target_id, message = parsed
+        return manager.queue_user_command(
+            message,
+            agent_id=target_id,
+        )
+    if action == "select":
+        if len(parts) < 3:
+            return "Usage: /agent select <agent_id>\n"
+        return manager.select(parts[2].strip())
     if action == "status":
         target_id = parts[2].strip() if len(parts) >= 3 else None
         return manager.status(agent_id=target_id)
@@ -1531,7 +1714,19 @@ def handle_agent_command(command: str, app: Any) -> str:
         target_id = parts[2].strip() if len(parts) >= 3 else None
         return manager.pause(agent_id=target_id)
     if action == "resume":
-        target_id = parts[2].strip() if len(parts) >= 3 else None
+        parsed = _parse_resume_args(parts[2:])
+        if parsed is None:
+            return (
+                "Usage: /agent resume [agent_id] [message]\n"
+                "       /agent resume [--agent <agent_id>] [--message <message>]\n"
+            )
+        target_id, queued_message = parsed
+        if queued_message:
+            return manager.queue_user_command(
+                queued_message,
+                agent_id=target_id,
+                resume_after_queue=True,
+            )
         return manager.resume(agent_id=target_id)
     if action == "log":
         target_id = parts[2].strip() if len(parts) >= 3 else None
@@ -1544,10 +1739,18 @@ def _agent_help() -> str:
     return (
         "Agent commands:\n"
         "  /agent start <name> <topic>\n"
+        "  /agent list\n"
+        "  /agent interact [agent_id]\n"
+        "  /agent approve <agent_id>\n"
+        "  /agent deny <agent_id> [reason]\n"
+        "  /agent approve-session <agent_id>\n"
+        "  /agent reply <agent_id> <message>\n"
+        "  /agent queue [agent_id] <message>\n"
+        "  /agent select <agent_id>\n"
         "  /agent status [agent_id]\n"
         "  /agent stop [agent_id]\n"
         "  /agent pause [agent_id]\n"
-        "  /agent resume [agent_id]\n"
+        "  /agent resume [agent_id] [message]\n"
         "  /agent log [agent_id]\n"
         "  /agent meta start <goal>\n"
         "  /agent meta status\n"
@@ -1591,3 +1794,68 @@ def _schedule_help() -> str:
         "  /agent schedule remove <schedule_id>\n"
         "  /agent schedule status\n"
     )
+
+
+_HEX_AGENT_ID_RE = re.compile(r"^[0-9a-f]{8,32}$")
+
+
+def _looks_like_agent_id(value: str) -> bool:
+    return bool(_HEX_AGENT_ID_RE.match(str(value or "").strip().lower()))
+
+
+def _parse_agent_message_target_and_content(
+    tokens: list[str],
+) -> Optional[tuple[Optional[str], str]]:
+    if not tokens:
+        return None
+    if tokens[0] in {"--agent", "-a"}:
+        if len(tokens) < 3:
+            return None
+        target_id = str(tokens[1] or "").strip()
+        message = " ".join(tokens[2:]).strip()
+        if not target_id or not message:
+            return None
+        return target_id, message
+    if len(tokens) >= 2 and _looks_like_agent_id(tokens[0]):
+        target_id = str(tokens[0] or "").strip()
+        message = " ".join(tokens[1:]).strip()
+        if not message:
+            return None
+        return target_id, message
+    message = " ".join(tokens).strip()
+    if not message:
+        return None
+    return None, message
+
+
+def _parse_resume_args(tokens: list[str]) -> Optional[tuple[Optional[str], str]]:
+    if not tokens:
+        return None, ""
+
+    target_id: Optional[str] = None
+    message_tokens: list[str] = []
+    idx = 0
+
+    if tokens[idx] in {"--agent", "-a"}:
+        idx += 1
+        if idx >= len(tokens):
+            return None
+        candidate = str(tokens[idx] or "").strip()
+        if not candidate:
+            return None
+        target_id = candidate
+        idx += 1
+    elif _looks_like_agent_id(tokens[idx]):
+        target_id = str(tokens[idx] or "").strip()
+        idx += 1
+
+    if idx < len(tokens) and tokens[idx] in {"--message", "-m"}:
+        idx += 1
+        if idx >= len(tokens):
+            return None
+        message_tokens = tokens[idx:]
+    elif idx < len(tokens):
+        message_tokens = tokens[idx:]
+
+    message = " ".join(message_tokens).strip()
+    return target_id, message
