@@ -1,0 +1,347 @@
+from __future__ import annotations
+
+import re
+import threading
+import time
+from datetime import datetime
+from types import SimpleNamespace
+
+from lsm.agents.base import AgentState, AgentStatus
+from lsm.agents.models import AgentLogEntry
+from lsm.agents.interaction import InteractionRequest
+from lsm.ui.shell.commands import agents as agent_commands
+
+
+class _DummyRegistry:
+    def list_definitions(self) -> list[dict]:
+        return []
+
+
+class _DummySandbox:
+    def __init__(self, cfg) -> None:
+        self.config = cfg
+        self.channel = None
+        self.waiting_callback = None
+
+    def set_interaction_channel(self, channel, waiting_state_callback=None) -> None:
+        self.channel = channel
+        self.waiting_callback = waiting_state_callback
+
+
+class _DummyHarness:
+    init_calls: list[dict] = []
+
+    def __init__(
+        self,
+        agent_config,
+        tool_registry,
+        llm_registry,
+        sandbox,
+        agent_name="agent",
+        tool_allowlist=None,
+        vectordb_config=None,
+        memory_store=None,
+        memory_context_builder=None,
+        interaction_channel=None,
+    ) -> None:
+        _ = (
+            agent_config,
+            tool_registry,
+            llm_registry,
+            sandbox,
+            agent_name,
+            tool_allowlist,
+            vectordb_config,
+            memory_store,
+            memory_context_builder,
+        )
+        self.interaction_channel = interaction_channel
+        self.stopped = False
+        self.paused = False
+        _DummyHarness.init_calls.append(
+            {
+                "agent_name": agent_name,
+                "interaction_channel": interaction_channel,
+            }
+        )
+
+    def stop(self) -> None:
+        self.stopped = True
+
+    def pause(self) -> None:
+        self.paused = True
+
+    def resume(self) -> None:
+        self.paused = False
+
+
+class _LoopAgent:
+    def __init__(self) -> None:
+        self.state = AgentState()
+        self._stop_event = threading.Event()
+        self.pause_calls = 0
+        self.resume_calls = 0
+        self.stop_calls = 0
+
+    def run(self, context) -> AgentState:
+        _ = context
+        self.state.set_status(AgentStatus.RUNNING)
+        while not self._stop_event.wait(timeout=0.01):
+            continue
+        self.state.set_status(AgentStatus.COMPLETED)
+        return self.state
+
+    def stop(self) -> None:
+        self.stop_calls += 1
+        self._stop_event.set()
+        self.state.set_status(AgentStatus.COMPLETED)
+
+    def pause(self) -> None:
+        self.pause_calls += 1
+        self.state.set_status(AgentStatus.PAUSED)
+
+    def resume(self) -> None:
+        self.resume_calls += 1
+        self.state.set_status(AgentStatus.RUNNING)
+
+
+class _InteractionAgent:
+    def __init__(self, channel) -> None:
+        self.state = AgentState()
+        self._channel = channel
+        self.stop_calls = 0
+
+    def run(self, context) -> AgentState:
+        _ = context
+        self.state.set_status(AgentStatus.RUNNING)
+        response = self._channel.post_request(
+            InteractionRequest(
+                request_id="clarify-1",
+                request_type="clarification",
+                reason="Need user answer",
+                prompt="Proceed?",
+            )
+        )
+        self.state.add_log(
+            AgentLogEntry(
+                timestamp=datetime.utcnow(),
+                actor="agent",
+                content=f"decision={response.decision}",
+            )
+        )
+        self.state.set_status(AgentStatus.COMPLETED)
+        return self.state
+
+    def stop(self) -> None:
+        self.stop_calls += 1
+        self.state.set_status(AgentStatus.COMPLETED)
+
+    def pause(self) -> None:
+        self.state.set_status(AgentStatus.PAUSED)
+
+    def resume(self) -> None:
+        self.state.set_status(AgentStatus.RUNNING)
+
+
+def _app(max_concurrent: int = 2) -> SimpleNamespace:
+    return SimpleNamespace(
+        config=SimpleNamespace(
+            agents=SimpleNamespace(
+                enabled=True,
+                max_tokens_budget=1000,
+                max_concurrent=max_concurrent,
+                memory=SimpleNamespace(enabled=False),
+                interaction=SimpleNamespace(timeout_seconds=2, timeout_action="deny"),
+                sandbox=SimpleNamespace(
+                    allowed_read_paths=[],
+                    allowed_write_paths=[],
+                    allow_url_access=False,
+                    require_user_permission={},
+                    tool_llm_assignments={},
+                ),
+            ),
+            llm=SimpleNamespace(),
+            vectordb=SimpleNamespace(),
+            batch_size=32,
+        ),
+        query_provider=None,
+        query_embedder=None,
+    )
+
+
+def _extract_agent_id(output: str) -> str:
+    match = re.search(r"id=([0-9a-f]+)", output)
+    assert match is not None, output
+    return match.group(1)
+
+
+def _wait_until(predicate, timeout_s: float = 1.5) -> bool:
+    deadline = time.monotonic() + timeout_s
+    while time.monotonic() < deadline:
+        if predicate():
+            return True
+        time.sleep(0.01)
+    return predicate()
+
+
+def test_multi_agent_start_enforces_max_concurrent(monkeypatch) -> None:
+    agents: list[_LoopAgent] = []
+    monkeypatch.setattr(agent_commands, "create_default_tool_registry", lambda *args, **kwargs: _DummyRegistry())
+    monkeypatch.setattr(agent_commands, "ToolSandbox", _DummySandbox)
+    monkeypatch.setattr(agent_commands, "AgentHarness", _DummyHarness)
+
+    def _create_agent(**kwargs):
+        _ = kwargs
+        agent = _LoopAgent()
+        agents.append(agent)
+        return agent
+
+    monkeypatch.setattr(agent_commands, "create_agent", _create_agent)
+
+    manager = agent_commands.AgentRuntimeManager()
+    app = _app(max_concurrent=2)
+
+    start_1 = manager.start(app, "research", "topic-1")
+    start_2 = manager.start(app, "writing", "topic-2")
+    assert "Started agent 'research'" in start_1
+    assert "Started agent 'writing'" in start_2
+    assert len(manager.list_running()) == 2
+
+    rejected = manager.start(app, "synthesis", "topic-3")
+    assert "max_concurrent limit (2) reached" in rejected
+
+    manager.shutdown(join_timeout_s=1.0)
+    assert len(manager.list_running()) == 0
+    assert all(agent.stop_calls >= 1 for agent in agents)
+
+
+def test_multi_agent_controls_target_by_id_and_keep_single_agent_compat(monkeypatch) -> None:
+    monkeypatch.setattr(agent_commands, "create_default_tool_registry", lambda *args, **kwargs: _DummyRegistry())
+    monkeypatch.setattr(agent_commands, "ToolSandbox", _DummySandbox)
+    monkeypatch.setattr(agent_commands, "AgentHarness", _DummyHarness)
+    monkeypatch.setattr(agent_commands, "create_agent", lambda **kwargs: _LoopAgent())
+
+    manager = agent_commands.AgentRuntimeManager()
+    app = _app(max_concurrent=3)
+
+    id_1 = _extract_agent_id(manager.start(app, "research", "a"))
+    id_2 = _extract_agent_id(manager.start(app, "writing", "b"))
+
+    assert "Multiple active agents" in manager.pause()
+    assert f"({id_1})" in manager.pause(agent_id=id_1)
+    assert f"({id_1})" in manager.resume(agent_id=id_1)
+
+    with manager._lock:
+        agent_1 = manager._agents[id_1].agent
+        agent_2 = manager._agents[id_2].agent
+    assert agent_1.pause_calls == 1
+    assert agent_2.pause_calls == 0
+
+    assert f"({id_1})" in manager.stop(agent_id=id_1)
+    assert _wait_until(lambda: len(manager.list_running()) == 1)
+
+    # Backward compatibility: with one active agent, no-id control actions target it.
+    pause_out = manager.pause()
+    assert "Paused agent" in pause_out
+    resume_out = manager.resume()
+    assert "Resumed agent" in resume_out
+
+    manager.shutdown(join_timeout_s=1.0)
+
+
+def test_multi_agent_pending_interactions_and_response_flow(monkeypatch) -> None:
+    monkeypatch.setattr(agent_commands, "create_default_tool_registry", lambda *args, **kwargs: _DummyRegistry())
+    monkeypatch.setattr(agent_commands, "ToolSandbox", _DummySandbox)
+    monkeypatch.setattr(agent_commands, "AgentHarness", _DummyHarness)
+
+    def _create_agent(**kwargs):
+        sandbox = kwargs["sandbox"]
+        return _InteractionAgent(sandbox.channel)
+
+    monkeypatch.setattr(agent_commands, "create_agent", _create_agent)
+
+    manager = agent_commands.AgentRuntimeManager()
+    app = _app(max_concurrent=1)
+    agent_id = _extract_agent_id(manager.start(app, "research", "needs-answer"))
+
+    assert _wait_until(lambda: len(manager.get_pending_interactions()) == 1)
+    pending = manager.get_pending_interaction(agent_id=agent_id)
+    assert pending is not None
+    assert pending["request_type"] == "clarification"
+    assert pending["prompt"] == "Proceed?"
+
+    reply_out = manager.respond_to_interaction(
+        agent_id,
+        {
+            "decision": "reply",
+            "user_message": "yes",
+        },
+    )
+    assert "Posted interaction response" in reply_out
+    assert _wait_until(lambda: len(manager.list_running()) == 0)
+
+    status_out = manager.status(agent_id=agent_id)
+    assert "Status: completed" in status_out
+    log_out = manager.log(agent_id=agent_id)
+    assert "decision=reply" in log_out
+
+
+def test_multi_agent_shutdown_cancels_pending_and_joins(monkeypatch) -> None:
+    monkeypatch.setattr(agent_commands, "create_default_tool_registry", lambda *args, **kwargs: _DummyRegistry())
+    monkeypatch.setattr(agent_commands, "ToolSandbox", _DummySandbox)
+    monkeypatch.setattr(agent_commands, "AgentHarness", _DummyHarness)
+    monkeypatch.setattr(
+        agent_commands,
+        "create_agent",
+        lambda **kwargs: _InteractionAgent(kwargs["sandbox"].channel),
+    )
+
+    manager = agent_commands.AgentRuntimeManager()
+    app = _app(max_concurrent=1)
+    agent_id = _extract_agent_id(manager.start(app, "research", "blocking"))
+    assert _wait_until(lambda: len(manager.get_pending_interactions()) == 1)
+
+    manager.shutdown(join_timeout_s=1.0)
+    assert manager.list_running() == []
+    assert manager.get_pending_interactions() == []
+    assert "Status: completed" in manager.status(agent_id=agent_id)
+
+
+def test_multi_agent_completed_history_pruning(monkeypatch) -> None:
+    class _FastAgent:
+        def __init__(self) -> None:
+            self.state = AgentState()
+
+        def run(self, context) -> AgentState:
+            _ = context
+            self.state.set_status(AgentStatus.COMPLETED)
+            return self.state
+
+        def stop(self) -> None:
+            self.state.set_status(AgentStatus.COMPLETED)
+
+        def pause(self) -> None:
+            self.state.set_status(AgentStatus.PAUSED)
+
+        def resume(self) -> None:
+            self.state.set_status(AgentStatus.RUNNING)
+
+    monkeypatch.setattr(agent_commands, "create_default_tool_registry", lambda *args, **kwargs: _DummyRegistry())
+    monkeypatch.setattr(agent_commands, "ToolSandbox", _DummySandbox)
+    monkeypatch.setattr(agent_commands, "AgentHarness", _DummyHarness)
+    monkeypatch.setattr(agent_commands, "create_agent", lambda **kwargs: _FastAgent())
+
+    manager = agent_commands.AgentRuntimeManager(completed_retention=2)
+    app = _app(max_concurrent=2)
+
+    ids: list[str] = []
+    for idx in range(3):
+        ids.append(_extract_agent_id(manager.start(app, "research", f"topic-{idx}")))
+        assert _wait_until(lambda: len(manager.list_running()) == 0)
+
+    with manager._lock:
+        retained = set(manager._completed_runs.keys())
+    assert len(retained) == 2
+    assert ids[0] not in retained
+    assert ids[1] in retained
+    assert ids[2] in retained

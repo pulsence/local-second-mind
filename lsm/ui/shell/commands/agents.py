@@ -7,11 +7,20 @@ from __future__ import annotations
 import json
 import shlex
 import threading
+from dataclasses import dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Optional
+from uuid import uuid4
 
-from lsm.agents import AgentScheduler, create_agent
+from lsm.agents import (
+    AgentHarness,
+    AgentScheduler,
+    InteractionChannel,
+    InteractionRequest,
+    InteractionResponse,
+    create_agent,
+)
 from lsm.agents.log_formatter import format_agent_log
 from lsm.agents.memory import Memory, MemoryCandidate, create_memory_store
 from lsm.agents.memory.models import now_utc
@@ -19,6 +28,41 @@ from lsm.agents.models import AgentContext
 from lsm.agents.tools import ToolSandbox, create_default_tool_registry
 from lsm.config.loader import save_config_to_file
 from lsm.config.models import ScheduleConfig
+from lsm.logging import get_logger
+
+logger = get_logger(__name__)
+
+
+@dataclass
+class AgentRunEntry:
+    """
+    Runtime record for a single agent run.
+    """
+
+    agent_id: str
+    agent_name: str
+    agent: Any
+    thread: threading.Thread
+    harness: Any
+    channel: InteractionChannel
+    started_at: datetime
+    topic: str
+    completed_at: Optional[datetime] = None
+
+
+class _NoopHarness:
+    """
+    Fallback harness used when the full harness cannot be initialized.
+    """
+
+    def stop(self) -> None:
+        return
+
+    def pause(self) -> None:
+        return
+
+    def resume(self) -> None:
+        return
 
 
 class AgentRuntimeManager:
@@ -26,24 +70,45 @@ class AgentRuntimeManager:
     Manage active agent runtime instances for UI command surfaces.
     """
 
-    def __init__(self) -> None:
-        self._active_agent = None
-        self._active_thread: Optional[threading.Thread] = None
-        self._active_name: Optional[str] = None
+    def __init__(self, *, completed_retention: int = 10, join_timeout_s: float = 5.0) -> None:
+        self._agents: dict[str, AgentRunEntry] = {}
+        self._completed_runs: dict[str, AgentRunEntry] = {}
+        self._completed_order: list[str] = []
+        self._selected_agent_id: Optional[str] = None
+        self._completed_retention = max(1, int(completed_retention))
+        self._join_timeout_s = max(0.1, float(join_timeout_s))
         self._scheduler: Optional[AgentScheduler] = None
         self._lock = threading.Lock()
 
     def start(self, app: Any, agent_name: str, topic: str) -> str:
         with self._lock:
-            if self._active_thread is not None and self._active_thread.is_alive():
-                return (
-                    f"Agent '{self._active_name}' is already running. "
-                    "Use /agent status or /agent stop first.\n"
-                )
+            self._cleanup_finished_locked()
 
             agent_cfg = getattr(app.config, "agents", None)
             if agent_cfg is None or not getattr(agent_cfg, "enabled", False):
                 return "Agents are disabled. Enable `agents.enabled` in config.\n"
+
+            max_concurrent = self._resolve_max_concurrent(app)
+            if len(self._agents) >= max_concurrent:
+                return (
+                    f"Cannot start agent '{agent_name}': max_concurrent limit "
+                    f"({max_concurrent}) reached.\n"
+                )
+
+            normalized_agent_name = str(agent_name or "").strip().lower()
+            if not normalized_agent_name:
+                return "Usage: /agent start <name> <topic>\n"
+            normalized_topic = str(topic or "").strip()
+            if not normalized_topic:
+                return "Usage: /agent start <name> <topic>\n"
+
+            interaction_cfg = getattr(agent_cfg, "interaction", None)
+            timeout_seconds = int(getattr(interaction_cfg, "timeout_seconds", 300))
+            timeout_action = str(getattr(interaction_cfg, "timeout_action", "deny"))
+            channel = InteractionChannel(
+                timeout_seconds=timeout_seconds,
+                timeout_action=timeout_action,
+            )
 
             memory_store = None
             if getattr(agent_cfg, "memory", None) is not None and agent_cfg.memory.enabled:
@@ -60,15 +125,31 @@ class AgentRuntimeManager:
                 memory_store=memory_store,
             )
             sandbox = ToolSandbox(agent_cfg.sandbox)
+            self._attach_interaction_channel_to_sandbox(
+                sandbox=sandbox,
+                channel=channel,
+                topic=normalized_topic,
+            )
             agent = create_agent(
-                name=agent_name,
+                name=normalized_agent_name,
                 llm_registry=app.config.llm,
                 tool_registry=tool_registry,
                 sandbox=sandbox,
                 agent_config=agent_cfg,
             )
+            harness = self._build_harness(
+                app=app,
+                sandbox=sandbox,
+                agent_cfg=agent_cfg,
+                agent_name=normalized_agent_name,
+                tool_registry=tool_registry,
+                agent=agent,
+                memory_store=memory_store,
+                interaction_channel=channel,
+            )
+
             context = AgentContext(
-                messages=[{"role": "user", "content": topic}],
+                messages=[{"role": "user", "content": normalized_topic}],
                 tool_definitions=tool_registry.list_definitions(),
                 budget_tracking={
                     "tokens_used": 0,
@@ -76,36 +157,94 @@ class AgentRuntimeManager:
                     "started_at": datetime.utcnow().isoformat(),
                 },
             )
+            agent_id = uuid4().hex
 
             def _run() -> None:
                 try:
                     agent.run(context)
+                except Exception:
+                    logger.exception(
+                        "Agent run '%s' (%s) failed",
+                        normalized_agent_name,
+                        agent_id,
+                    )
                 finally:
                     if memory_store is not None:
-                        memory_store.close()
+                        try:
+                            memory_store.close()
+                        except Exception:
+                            logger.exception(
+                                "Failed to close memory store for run '%s' (%s)",
+                                normalized_agent_name,
+                                agent_id,
+                            )
+                    self._mark_run_completed(agent_id)
 
             thread = threading.Thread(
                 target=_run,
                 daemon=True,
-                name=f"Agent-{agent_name}",
+                name=f"Agent-{normalized_agent_name}-{agent_id[:8]}",
             )
-            self._active_agent = agent
-            self._active_thread = thread
-            self._active_name = agent_name
+            self._agents[agent_id] = AgentRunEntry(
+                agent_id=agent_id,
+                agent_name=normalized_agent_name,
+                agent=agent,
+                thread=thread,
+                harness=harness,
+                channel=channel,
+                started_at=datetime.utcnow(),
+                topic=normalized_topic,
+            )
+            self._selected_agent_id = agent_id
             thread.start()
-            return f"Started agent '{agent_name}' with topic: {topic}\n"
+            return (
+                f"Started agent '{normalized_agent_name}' "
+                f"(id={agent_id}) with topic: {normalized_topic}\n"
+            )
 
-    def status(self) -> str:
-        if self._active_agent is None:
+    def status(self, agent_id: Optional[str] = None) -> str:
+        with self._lock:
+            self._cleanup_finished_locked()
+            if agent_id is not None:
+                try:
+                    entry = self._lookup_entry_locked(agent_id, include_completed=True)
+                except ValueError as exc:
+                    return f"{exc}\n"
+                if entry is None:
+                    return f"Unknown agent id: {agent_id}\n"
+                return self._format_entry_status(entry)
+
+            active_entries = sorted(self._agents.values(), key=lambda item: item.started_at)
+            completed_entries = [
+                self._completed_runs[item_id]
+                for item_id in self._completed_order
+                if item_id in self._completed_runs
+            ]
+
+        if not active_entries and not completed_entries:
             return "No active agent.\n"
-        alive = bool(self._active_thread and self._active_thread.is_alive())
-        status = self._active_agent.state.status.value
-        return (
-            f"Agent: {self._active_name}\n"
-            f"Status: {status}\n"
-            f"Thread alive: {alive}\n"
-            f"Logs: {len(self._active_agent.state.log_entries)} entries\n"
-        )
+        if len(active_entries) == 1 and not completed_entries:
+            return self._format_entry_status(active_entries[0])
+        if not active_entries and len(completed_entries) == 1:
+            return self._format_entry_status(completed_entries[0])
+
+        lines = [
+            f"Agents: {len(active_entries)} active, {len(completed_entries)} recent completed",
+        ]
+        if active_entries:
+            lines.append("Active:")
+            for entry in active_entries:
+                lines.append(
+                    self._format_compact_entry_status(entry, include_topic=True)
+                )
+        if completed_entries:
+            lines.append("Recent Completed:")
+            for entry in reversed(completed_entries):
+                lines.append(
+                    self._format_compact_entry_status(entry, include_topic=True)
+                )
+        lines.append("")
+        return "\n".join(lines)
 
     def start_meta(self, app: Any, goal: str) -> str:
         normalized_goal = str(goal or "").strip()
@@ -114,23 +253,15 @@ class AgentRuntimeManager:
         return self.start(app, "meta", normalized_goal)
 
     def get_meta_snapshot(self) -> dict[str, Any]:
-        active_name = str(self._active_name or "").strip().lower()
-        if active_name != "meta" or self._active_agent is None:
-            return {
-                "available": False,
-                "status": "idle",
-                "thread_alive": False,
-                "goal": "",
-                "execution_order": [],
-                "tasks": [],
-                "task_runs": [],
-                "artifacts": [],
-                "final_result_path": None,
-                "meta_log_path": None,
-            }
+        with self._lock:
+            self._cleanup_finished_locked()
+            entry = self._latest_entry_for_agent_name_locked("meta")
 
-        agent = self._active_agent
-        alive = bool(self._active_thread and self._active_thread.is_alive())
+        if entry is None:
+            return self._empty_meta_snapshot()
+
+        agent = entry.agent
+        alive = bool(entry.thread.is_alive())
         status = str(getattr(agent.state.status, "value", agent.state.status))
         result = getattr(agent, "last_result", None)
         graph = getattr(result, "task_graph", None)
@@ -223,37 +354,531 @@ class AgentRuntimeManager:
                     return f"Failed to read meta log '{path}': {exc}\n"
                 if text.strip():
                     return text if text.endswith("\n") else text + "\n"
-        return self.log()
+        return self.log(agent_id=None, prefer_meta=True)
 
-    def stop(self) -> str:
-        if self._active_agent is None:
-            return "No active agent.\n"
-        self._active_agent.stop()
-        return f"Stop requested for agent '{self._active_name}'.\n"
+    def stop(self, agent_id: Optional[str] = None) -> str:
+        with self._lock:
+            self._cleanup_finished_locked()
+            entry, error = self._resolve_target_entry_locked(
+                agent_id=agent_id,
+                action="stop",
+                include_completed=True,
+            )
+            if error:
+                return error
+            assert entry is not None
+            thread = entry.thread
+            target_id = entry.agent_id
 
-    def pause(self) -> str:
-        if self._active_agent is None:
-            return "No active agent.\n"
-        self._active_agent.pause()
-        return f"Paused agent '{self._active_name}'.\n"
+        self._cancel_entry_pending_interactions(entry, reason="Agent stopped")
+        self._safe_call(entry.harness, "stop")
+        self._safe_call(entry.agent, "stop")
 
-    def resume(self) -> str:
-        if self._active_agent is None:
-            return "No active agent.\n"
-        self._active_agent.resume()
-        return f"Resumed agent '{self._active_name}'.\n"
+        if thread.is_alive():
+            thread.join(timeout=self._join_timeout_s)
 
-    def log(self) -> str:
-        if self._active_agent is None:
-            return "No active agent.\n"
-        entries = self._active_agent.state.log_entries
+        with self._lock:
+            self._cleanup_finished_locked()
+            still_running = (
+                target_id in self._agents
+                and self._agents[target_id].thread.is_alive()
+            )
+        if still_running:
+            return (
+                f"Stop requested for agent '{entry.agent_name}' "
+                f"({target_id}), but thread is still running.\n"
+            )
+        return f"Stop requested for agent '{entry.agent_name}' ({target_id}).\n"
+
+    def pause(self, agent_id: Optional[str] = None) -> str:
+        with self._lock:
+            self._cleanup_finished_locked()
+            entry, error = self._resolve_target_entry_locked(
+                agent_id=agent_id,
+                action="pause",
+                include_completed=True,
+            )
+            if error:
+                return error
+            assert entry is not None
+
+        self._safe_call(entry.harness, "pause")
+        self._safe_call(entry.agent, "pause")
+        return f"Paused agent '{entry.agent_name}' ({entry.agent_id}).\n"
+
+    def resume(self, agent_id: Optional[str] = None) -> str:
+        with self._lock:
+            self._cleanup_finished_locked()
+            entry, error = self._resolve_target_entry_locked(
+                agent_id=agent_id,
+                action="resume",
+                include_completed=True,
+            )
+            if error:
+                return error
+            assert entry is not None
+
+        self._safe_call(entry.harness, "resume")
+        self._safe_call(entry.agent, "resume")
+        return f"Resumed agent '{entry.agent_name}' ({entry.agent_id}).\n"
+
+    def log(self, agent_id: Optional[str] = None, *, prefer_meta: bool = False) -> str:
+        with self._lock:
+            self._cleanup_finished_locked()
+            if prefer_meta:
+                entry = self._latest_entry_for_agent_name_locked("meta")
+                if entry is None:
+                    return "No active meta-agent.\n"
+            else:
+                entry, error = self._resolve_target_entry_locked(
+                    agent_id=agent_id,
+                    action="log",
+                    include_completed=True,
+                )
+                if error:
+                    return error
+                assert entry is not None
+
+        entries = list(getattr(entry.agent.state, "log_entries", []))
         if not entries:
             return "No log entries yet.\n"
         return format_agent_log(entries)
 
     def get_active_agent(self):
         """Return the active agent instance for UI screens."""
-        return self._active_agent
+        with self._lock:
+            self._cleanup_finished_locked()
+            if self._selected_agent_id and self._selected_agent_id in self._agents:
+                return self._agents[self._selected_agent_id].agent
+            if len(self._agents) == 1:
+                return next(iter(self._agents.values())).agent
+            return None
+
+    def list_running(self) -> list[dict[str, Any]]:
+        with self._lock:
+            self._cleanup_finished_locked()
+            entries = sorted(self._agents.values(), key=lambda item: item.started_at)
+        now = datetime.utcnow()
+        output: list[dict[str, Any]] = []
+        for entry in entries:
+            status = self._entry_status_value(entry)
+            output.append(
+                {
+                    "agent_id": entry.agent_id,
+                    "agent_name": entry.agent_name,
+                    "topic": entry.topic,
+                    "status": status,
+                    "started_at": entry.started_at.isoformat(),
+                    "duration_seconds": max(
+                        0.0,
+                        (now - entry.started_at).total_seconds(),
+                    ),
+                    "thread_alive": entry.thread.is_alive(),
+                    "log_entries": len(getattr(entry.agent.state, "log_entries", [])),
+                }
+            )
+        return output
+
+    def get_pending_interactions(
+        self,
+        agent_id: Optional[str] = None,
+    ) -> list[dict[str, Any]]:
+        with self._lock:
+            self._cleanup_finished_locked()
+            if agent_id is None:
+                entries = list(self._agents.values())
+            else:
+                try:
+                    entry = self._lookup_entry_locked(agent_id, include_completed=False)
+                except ValueError:
+                    return []
+                entries = [entry] if entry is not None else []
+
+        pending: list[dict[str, Any]] = []
+        for entry in entries:
+            request = entry.channel.get_pending_request()
+            if request is None:
+                continue
+            pending.append(self._serialize_pending_interaction(entry, request))
+        return pending
+
+    def get_pending_interaction(self, agent_id: Optional[str] = None) -> Optional[dict[str, Any]]:
+        interactions = self.get_pending_interactions(agent_id=agent_id)
+        if not interactions:
+            return None
+        return interactions[0]
+
+    def respond_to_interaction(self, agent_id: str, response: Any) -> str:
+        with self._lock:
+            self._cleanup_finished_locked()
+            try:
+                entry = self._lookup_entry_locked(agent_id, include_completed=False)
+            except ValueError as exc:
+                return f"{exc}\n"
+            if entry is None:
+                return f"Unknown running agent id: {agent_id}\n"
+
+        pending = entry.channel.get_pending_request()
+        if pending is None:
+            return f"No pending interaction request for agent '{entry.agent_name}' ({entry.agent_id}).\n"
+
+        parsed = self._normalize_interaction_response(response, pending)
+        if isinstance(parsed, str):
+            return parsed
+        try:
+            entry.channel.post_response(parsed)
+        except Exception as exc:
+            return f"Failed to post interaction response: {exc}\n"
+        return (
+            f"Posted interaction response to agent '{entry.agent_name}' "
+            f"({entry.agent_id}).\n"
+        )
+
+    def shutdown(self, *, join_timeout_s: Optional[float] = None) -> None:
+        timeout = self._join_timeout_s if join_timeout_s is None else max(0.1, float(join_timeout_s))
+        with self._lock:
+            entries = list(self._agents.values())
+            scheduler = self._scheduler
+            self._scheduler = None
+        if scheduler is not None:
+            try:
+                scheduler.stop()
+            except Exception:
+                logger.exception("Failed to stop scheduler during runtime manager shutdown")
+
+        for entry in entries:
+            self._cancel_entry_pending_interactions(
+                entry,
+                reason="Application shutting down",
+            )
+            self._safe_call(entry.harness, "stop")
+            self._safe_call(entry.agent, "stop")
+
+        for entry in entries:
+            if entry.thread.is_alive():
+                entry.thread.join(timeout=timeout)
+
+        with self._lock:
+            self._cleanup_finished_locked()
+            remaining = list(self._agents.values())
+        if remaining:
+            ids = ", ".join(entry.agent_id for entry in remaining)
+            logger.warning(
+                "Runtime manager shutdown completed with %d still-running agents: %s",
+                len(remaining),
+                ids,
+            )
+
+    def _mark_run_completed(self, agent_id: str) -> None:
+        with self._lock:
+            entry = self._agents.get(agent_id)
+            if entry is None:
+                return
+            self._finalize_entry_locked(entry)
+
+    def _resolve_max_concurrent(self, app: Any) -> int:
+        agent_cfg = getattr(getattr(app, "config", None), "agents", None)
+        if agent_cfg is None:
+            return 5
+        try:
+            return max(1, int(getattr(agent_cfg, "max_concurrent", 5)))
+        except Exception:
+            return 5
+
+    def _build_harness(
+        self,
+        *,
+        app: Any,
+        sandbox: Any,
+        agent_cfg: Any,
+        agent_name: str,
+        tool_registry: Any,
+        agent: Any,
+        memory_store: Any,
+        interaction_channel: InteractionChannel,
+    ) -> Any:
+        try:
+            effective_agent_cfg = getattr(agent, "agent_config", agent_cfg)
+            tool_allowlist = getattr(agent, "tool_allowlist", None)
+            return AgentHarness(
+                effective_agent_cfg,
+                tool_registry,
+                app.config.llm,
+                sandbox,
+                agent_name=agent_name,
+                tool_allowlist=tool_allowlist,
+                vectordb_config=getattr(app.config, "vectordb", None),
+                memory_store=memory_store,
+                interaction_channel=interaction_channel,
+            )
+        except Exception as exc:
+            logger.warning(
+                "Failed to initialize AgentHarness for run '%s': %s",
+                agent_name,
+                exc,
+            )
+            return _NoopHarness()
+
+    def _attach_interaction_channel_to_sandbox(
+        self,
+        *,
+        sandbox: Any,
+        channel: InteractionChannel,
+        topic: str,
+    ) -> None:
+        setter = getattr(sandbox, "set_interaction_channel", None)
+        if not callable(setter):
+            return
+
+        def _waiting_callback(waiting: bool) -> None:
+            _ = topic
+            # BaseAgent implementations may set their own status transitions; this callback
+            # is intentionally lightweight for runtime manager compatibility.
+            return
+
+        try:
+            setter(channel, waiting_state_callback=_waiting_callback)
+        except TypeError:
+            try:
+                setter(channel)
+            except Exception:
+                logger.exception("Failed to set interaction channel on sandbox")
+        except Exception:
+            logger.exception("Failed to set interaction channel on sandbox")
+
+    def _empty_meta_snapshot(self) -> dict[str, Any]:
+        return {
+            "available": False,
+            "status": "idle",
+            "thread_alive": False,
+            "goal": "",
+            "execution_order": [],
+            "tasks": [],
+            "task_runs": [],
+            "artifacts": [],
+            "final_result_path": None,
+            "meta_log_path": None,
+        }
+
+    def _latest_entry_for_agent_name_locked(self, agent_name: str) -> Optional[AgentRunEntry]:
+        normalized = str(agent_name or "").strip().lower()
+        active = [
+            entry
+            for entry in self._agents.values()
+            if str(entry.agent_name).strip().lower() == normalized
+        ]
+        if active:
+            return max(active, key=lambda item: item.started_at)
+
+        completed = [
+            self._completed_runs[item_id]
+            for item_id in self._completed_order
+            if item_id in self._completed_runs
+            and str(self._completed_runs[item_id].agent_name).strip().lower() == normalized
+        ]
+        if completed:
+            return completed[-1]
+        return None
+
+    def _cleanup_finished_locked(self) -> None:
+        finished_ids = [
+            entry_id
+            for entry_id, entry in self._agents.items()
+            if not entry.thread.is_alive()
+        ]
+        for entry_id in finished_ids:
+            entry = self._agents.get(entry_id)
+            if entry is not None:
+                self._finalize_entry_locked(entry)
+
+    def _finalize_entry_locked(self, entry: AgentRunEntry) -> None:
+        active_entry = self._agents.pop(entry.agent_id, None)
+        target = active_entry or entry
+        target.completed_at = datetime.utcnow()
+        self._completed_runs[target.agent_id] = target
+        if target.agent_id not in self._completed_order:
+            self._completed_order.append(target.agent_id)
+        if self._selected_agent_id == target.agent_id:
+            self._selected_agent_id = next(iter(self._agents.keys()), None)
+        self._prune_completed_locked()
+
+    def _prune_completed_locked(self) -> None:
+        while len(self._completed_order) > self._completed_retention:
+            oldest_id = self._completed_order.pop(0)
+            oldest = self._completed_runs.pop(oldest_id, None)
+            if oldest is None:
+                continue
+            try:
+                oldest.channel.shutdown("Completed run evicted from history")
+            except Exception:
+                logger.exception(
+                    "Failed to shutdown interaction channel for pruned run '%s'",
+                    oldest_id,
+                )
+
+    def _lookup_entry_locked(
+        self,
+        agent_id: str,
+        *,
+        include_completed: bool,
+    ) -> Optional[AgentRunEntry]:
+        normalized = str(agent_id or "").strip()
+        if not normalized:
+            return None
+        if normalized in self._agents:
+            return self._agents[normalized]
+        if include_completed and normalized in self._completed_runs:
+            return self._completed_runs[normalized]
+
+        candidates = list(self._agents.keys())
+        if include_completed:
+            candidates.extend(self._completed_runs.keys())
+        prefix_matches = [item for item in candidates if item.startswith(normalized)]
+        if len(prefix_matches) == 1:
+            match = prefix_matches[0]
+            if match in self._agents:
+                return self._agents[match]
+            return self._completed_runs.get(match)
+        if len(prefix_matches) > 1:
+            raise ValueError(
+                f"Ambiguous agent id '{normalized}'. Matches: {', '.join(prefix_matches[:5])}"
+            )
+        return None
+
+    def _resolve_target_entry_locked(
+        self,
+        *,
+        agent_id: Optional[str],
+        action: str,
+        include_completed: bool,
+    ) -> tuple[Optional[AgentRunEntry], Optional[str]]:
+        if agent_id is not None:
+            try:
+                entry = self._lookup_entry_locked(
+                    agent_id,
+                    include_completed=include_completed,
+                )
+            except ValueError as exc:
+                return None, f"{exc}\n"
+            if entry is None:
+                return None, f"Unknown agent id: {agent_id}\n"
+            self._selected_agent_id = entry.agent_id
+            return entry, None
+
+        if len(self._agents) == 1:
+            entry = next(iter(self._agents.values()))
+            self._selected_agent_id = entry.agent_id
+            return entry, None
+        if len(self._agents) > 1:
+            return (
+                None,
+                f"Multiple active agents. Specify an agent_id for /agent {action}.\n",
+            )
+        if include_completed:
+            if len(self._completed_runs) == 1:
+                return next(iter(self._completed_runs.values())), None
+            if len(self._completed_runs) > 1:
+                return (
+                    None,
+                    f"Multiple recent agents found. Specify an agent_id for /agent {action}.\n",
+                )
+        return None, "No active agent.\n"
+
+    def _entry_status_value(self, entry: AgentRunEntry) -> str:
+        return str(getattr(entry.agent.state.status, "value", entry.agent.state.status))
+
+    def _format_entry_status(self, entry: AgentRunEntry) -> str:
+        status = self._entry_status_value(entry)
+        alive = bool(entry.thread.is_alive())
+        logs = len(getattr(entry.agent.state, "log_entries", []))
+        completed_at = (
+            entry.completed_at.isoformat()
+            if entry.completed_at is not None
+            else "-"
+        )
+        return (
+            f"Agent ID: {entry.agent_id}\n"
+            f"Agent: {entry.agent_name}\n"
+            f"Topic: {entry.topic}\n"
+            f"Status: {status}\n"
+            f"Thread alive: {alive}\n"
+            f"Started at: {entry.started_at.isoformat()}\n"
+            f"Completed at: {completed_at}\n"
+            f"Logs: {logs} entries\n"
+        )
+
+    def _format_compact_entry_status(
+        self,
+        entry: AgentRunEntry,
+        *,
+        include_topic: bool = False,
+    ) -> str:
+        status = self._entry_status_value(entry)
+        age_seconds = max(0.0, (datetime.utcnow() - entry.started_at).total_seconds())
+        topic_part = f" | topic={entry.topic}" if include_topic else ""
+        return (
+            f"- {entry.agent_id[:8]} | {entry.agent_name} | status={status} "
+            f"| alive={entry.thread.is_alive()} | age={round(age_seconds, 1)}s{topic_part}"
+        )
+
+    def _cancel_entry_pending_interactions(self, entry: AgentRunEntry, *, reason: str) -> None:
+        try:
+            entry.channel.cancel_pending(reason)
+        except Exception:
+            logger.exception(
+                "Failed to cancel pending interaction for agent '%s' (%s)",
+                entry.agent_name,
+                entry.agent_id,
+            )
+
+    def _serialize_pending_interaction(
+        self,
+        entry: AgentRunEntry,
+        request: InteractionRequest,
+    ) -> dict[str, Any]:
+        return {
+            "agent_id": entry.agent_id,
+            "agent_name": entry.agent_name,
+            "topic": entry.topic,
+            "request_id": request.request_id,
+            "request_type": request.request_type,
+            "tool_name": request.tool_name,
+            "risk_level": request.risk_level,
+            "reason": request.reason,
+            "args_summary": request.args_summary,
+            "prompt": request.prompt,
+            "timestamp": request.timestamp.isoformat(),
+        }
+
+    def _normalize_interaction_response(
+        self,
+        response: Any,
+        pending: InteractionRequest,
+    ) -> InteractionResponse | str:
+        if isinstance(response, InteractionResponse):
+            return response
+        if not isinstance(response, dict):
+            return "Interaction response must be an object.\n"
+        request_id = str(response.get("request_id") or pending.request_id).strip()
+        decision = str(response.get("decision", "")).strip()
+        user_message = str(response.get("user_message", "")).strip()
+        try:
+            return InteractionResponse(
+                request_id=request_id,
+                decision=decision,
+                user_message=user_message,
+            )
+        except ValueError as exc:
+            return f"Invalid interaction response: {exc}\n"
+
+    def _safe_call(self, target: Any, method_name: str) -> None:
+        method = getattr(target, method_name, None)
+        if not callable(method):
+            return
+        try:
+            method()
+        except Exception:
+            logger.exception("Failed to call %s on %r", method_name, target)
 
     def list_schedules(self, app: Any) -> list[dict[str, Any]]:
         scheduler = self._ensure_scheduler(app, start=False)
@@ -821,7 +1446,8 @@ def handle_agent_command(command: str, app: Any) -> str:
             return "Usage: /agent start <name> <topic>\n"
         return manager.start(app, name, topic)
     if action == "status":
-        return manager.status()
+        target_id = parts[2].strip() if len(parts) >= 3 else None
+        return manager.status(agent_id=target_id)
     if action == "meta":
         if len(parts) < 3:
             return _meta_help()
@@ -841,13 +1467,17 @@ def handle_agent_command(command: str, app: Any) -> str:
     if action == "schedule":
         return manager.handle_schedule_command(app, text)
     if action == "stop":
-        return manager.stop()
+        target_id = parts[2].strip() if len(parts) >= 3 else None
+        return manager.stop(agent_id=target_id)
     if action == "pause":
-        return manager.pause()
+        target_id = parts[2].strip() if len(parts) >= 3 else None
+        return manager.pause(agent_id=target_id)
     if action == "resume":
-        return manager.resume()
+        target_id = parts[2].strip() if len(parts) >= 3 else None
+        return manager.resume(agent_id=target_id)
     if action == "log":
-        return manager.log()
+        target_id = parts[2].strip() if len(parts) >= 3 else None
+        return manager.log(agent_id=target_id)
 
     return _agent_help()
 
@@ -856,11 +1486,11 @@ def _agent_help() -> str:
     return (
         "Agent commands:\n"
         "  /agent start <name> <topic>\n"
-        "  /agent status\n"
-        "  /agent stop\n"
-        "  /agent pause\n"
-        "  /agent resume\n"
-        "  /agent log\n"
+        "  /agent status [agent_id]\n"
+        "  /agent stop [agent_id]\n"
+        "  /agent pause [agent_id]\n"
+        "  /agent resume [agent_id]\n"
+        "  /agent log [agent_id]\n"
         "  /agent meta start <goal>\n"
         "  /agent meta status\n"
         "  /agent meta log\n"

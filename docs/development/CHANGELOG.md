@@ -39,6 +39,14 @@ All notable changes to Local Second Mind are documented here.
   - default tool registry now includes `ask_user`, and allowlist filtering keeps `ask_user` always available in harness/base-agent tool definitions
   - sub-agent harness/sandbox creation now inherits the parent interaction channel for consistent prompt handling across meta-agent workflows
   - coverage added in `tests/test_agents/test_sandbox_interaction.py` and `tests/test_agents/test_ask_user_tool.py`, with registry/metadata assertions updated in `tests/test_agents/test_new_tools.py` and `tests/test_agents/test_tool_risk_metadata.py`
+- Multi-agent runtime manager refactor:
+  - `AgentRuntimeManager` now tracks concurrent runs by `agent_id` with `AgentRunEntry` records instead of single active-agent fields
+  - start flow now enforces `agents.max_concurrent`, creates per-run `InteractionChannel`, and returns generated agent ids in start output
+  - runtime APIs now support targeted operations (`status/pause/resume/stop/log`) by id while keeping no-id compatibility for single-agent sessions
+  - added pending-interaction APIs (`get_pending_interactions`, `respond_to_interaction`) for per-agent request/response routing
+  - deterministic lifecycle handling now includes stop/shutdown cancellation + thread join behavior and bounded completed-run retention pruning
+  - shell command parsing now supports optional `agent_id` arguments for status/control/log commands
+  - coverage added in `tests/test_ui/shell/test_multi_agent_manager.py`
 
 ### Changed
 

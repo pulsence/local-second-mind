@@ -361,7 +361,7 @@ timeout, session approval caching, stop/shutdown cancellation), plus
 `tests/test_agents/test_ask_user_tool.py` for clarification flow, security tests still pass,
 run `pytest tests/ -v`, commit.
 
-### 3.3: Multi-Agent Runtime Manager
+### 3.3: Multi-Agent Runtime Manager (COMPLETED)
 
 Replace the single-agent tracking in `AgentRuntimeManager` with a dictionary-based registry
 that can track multiple concurrent agents.

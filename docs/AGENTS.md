@@ -9,6 +9,8 @@ The agent runtime is implemented in `lsm/agents/` and integrated into both:
 - TUI (`lsm/ui/tui/screens/agents.py`)
 - Shell commands (`/agent ...` via `lsm/ui/shell/commands/agents.py`)
 
+The shell runtime manager supports concurrent runs and assigns each started run a unique `agent_id`.
+
 Built-in agent:
 
 - `curator`
@@ -140,6 +142,7 @@ Runtime usage:
 - `ToolSandbox` posts `"permission"` requests through the channel when a tool requires confirmation
 - `AgentHarness` posts clarification requests (for example through `ask_user`) and transitions `RUNNING -> WAITING_USER -> RUNNING`
 - `AgentHarness.stop()` cancels any pending request so blocked tool execution unblocks deterministically
+- `AgentRuntimeManager` keeps one interaction channel per running agent and forwards UI responses to the correct run by `agent_id`
 
 ## Sandbox Model
 
@@ -248,6 +251,19 @@ Default tool registry (`create_default_tool_registry`) includes:
 6. Stop on `DONE`, stop request, budget exhaustion, or iteration cap
 
 When waiting on a user interaction request, harness status is set to `WAITING_USER` and restored to `RUNNING` after a response (or `COMPLETED` when a stop request arrives during the wait).
+
+## Runtime Manager
+
+`AgentRuntimeManager` (in `lsm/ui/shell/commands/agents.py`) tracks active agent sessions and recent completed history.
+
+- Active run records include `agent_id`, `agent_name`, `agent`, `thread`, `harness`, `channel`, `started_at`, and `topic`
+- Concurrency is limited by `agents.max_concurrent` (default `5`)
+- Control APIs accept optional `agent_id` and target all active runs only when unambiguous (single-run compatibility)
+- Completed-run retention is bounded (default last `10` runs)
+- `shutdown()` cancels pending interaction requests and joins active run threads
+- Interaction helpers:
+  - `get_pending_interactions()` returns active run prompts waiting for user input
+  - `respond_to_interaction(agent_id, response)` posts an `InteractionResponse` to the run channel
 
 Per-run workspace is created as:
 
