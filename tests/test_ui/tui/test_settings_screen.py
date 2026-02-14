@@ -2,9 +2,10 @@ from __future__ import annotations
 
 from pathlib import Path
 from types import SimpleNamespace
+from typing import Any, Optional
 
-from lsm.config.models import RemoteProviderRef
 from lsm.ui.tui.screens.settings import SettingsScreen
+from lsm.ui.tui.widgets.settings_base import BaseSettingsTab
 
 
 class _Tabs:
@@ -16,25 +17,6 @@ class _Tabs:
         self.focused = True
 
 
-class _InputWidget:
-    def __init__(self) -> None:
-        self.value = ""
-
-
-class _SwitchWidget:
-    def __init__(self) -> None:
-        self.value = False
-
-
-class _SelectWidget:
-    def __init__(self) -> None:
-        self.value = ""
-        self.options = []
-
-    def set_options(self, options):
-        self.options = options
-
-
 class _StaticWidget:
     def __init__(self) -> None:
         self.last = ""
@@ -43,15 +25,35 @@ class _StaticWidget:
         self.last = value
 
 
-class _ContainerWidget:
-    def __init__(self) -> None:
-        self.children = []
+class _FakeTab(BaseSettingsTab):
+    def __init__(self, name: str) -> None:
+        super().__init__(id=f"tab-{name}")
+        self.tab_name = name
+        self.refresh_calls = 0
+        self.apply_calls: list[tuple[str, Any]] = []
+        self.button_calls: list[str] = []
+        self.next_apply_handled = True
+        self.next_button_handled = True
+        self.apply_error: Optional[Exception] = None
+        self.button_error: Optional[Exception] = None
+        self.apply_hook = None
 
-    def remove_children(self) -> None:
-        self.children = []
+    def refresh_fields(self, config: Any) -> None:
+        self.refresh_calls += 1
 
-    def mount(self, widget) -> None:
-        self.children.append(widget)
+    def apply_update(self, field_id: str, value: Any, config: Any) -> bool:
+        self.apply_calls.append((field_id, value))
+        if self.apply_error is not None:
+            raise self.apply_error
+        if callable(self.apply_hook):
+            self.apply_hook(field_id, value, config)
+        return self.next_apply_handled
+
+    def handle_button(self, button_id: str, config: Any) -> bool:
+        self.button_calls.append(button_id)
+        if self.button_error is not None:
+            raise self.button_error
+        return self.next_button_handled
 
 
 class _TestableSettingsScreen(SettingsScreen):
@@ -83,157 +85,35 @@ class _DeferredRefreshSettingsScreen(_TestableSettingsScreen):
         self.after_refresh = fn
 
 
-def _config():
-    ingest = SimpleNamespace(
-        roots=[SimpleNamespace(path=Path("/docs"), tags=None, content_type=None)],
-        persist_dir=Path("/data"),
-        collection="kb",
-        manifest=Path("/data/manifest.json"),
-        chroma_flush_interval=500,
-        chunking_strategy="structure",
-        chunk_size=800,
-        chunk_overlap=120,
-        tags_per_chunk=3,
-        translation_target="en",
-        extensions=[".md", ".txt"],
-        override_extensions=False,
-        exclude_dirs=[".git"],
-        override_excludes=False,
-        dry_run=False,
-        skip_errors=True,
-        max_files=None,
-        max_seconds=None,
-        enable_ocr=True,
-        enable_ai_tagging=False,
-        enable_language_detection=False,
-        enable_translation=False,
-        enable_versioning=False,
-    )
-    query = SimpleNamespace(
-        mode="grounded",
-        k=12,
-        retrieve_k=None,
-        k_rerank=6,
-        min_relevance=0.2,
-        local_pool=None,
-        max_per_file=2,
-        path_contains=None,
-        ext_allow=None,
-        ext_deny=None,
-        rerank_strategy="hybrid",
-        no_rerank=False,
-        chat_mode="single",
-        enable_query_cache=False,
-        query_cache_ttl=3600,
-        query_cache_size=100,
-        enable_llm_server_cache=True,
-    )
-    vectordb = SimpleNamespace(
-        provider="chromadb",
-        collection="kb",
-        persist_dir=Path("/data"),
-        chroma_hnsw_space="cosine",
-        connection_string=None,
-        host=None,
-        port=None,
-        database=None,
-        user=None,
-        password=None,
-        index_type="hnsw",
-        pool_size=5,
-    )
-    mode_cfg = SimpleNamespace(
-        synthesis_style="grounded",
-        source_policy=SimpleNamespace(
-            local=SimpleNamespace(enabled=True, min_relevance=0.2, k=12, k_rerank=6),
-            remote=SimpleNamespace(enabled=False, rank_strategy="weighted", max_results=5, remote_providers=["wiki"]),
-            model_knowledge=SimpleNamespace(enabled=False, require_label=True),
-        ),
-    )
-    notes = SimpleNamespace(
-        enabled=True,
-        dir="notes",
-        template="default",
-        filename_format="timestamp",
-        integration="none",
-        wikilinks=False,
-        backlinks=False,
-        include_tags=False,
-    )
-    chats = SimpleNamespace(enabled=True, dir="Chats", auto_save=True, format="markdown")
-    llm = SimpleNamespace(
-        providers=[
-            SimpleNamespace(
-                provider_name="openai",
-                api_key=None,
-                base_url=None,
-                endpoint=None,
-                api_version=None,
-                deployment_name=None,
-            )
-        ],
-        services={
-            "default": SimpleNamespace(
-                provider="openai",
-                model="gpt-5.2",
-                temperature=None,
-                max_tokens=None,
-            )
-        },
-    )
-    remote_provider = SimpleNamespace(
-        name="brave",
-        type="web_search",
-        weight=1.0,
-        api_key=None,
-        endpoint=None,
-        max_results=5,
-        language=None,
-        user_agent=None,
-        timeout=None,
-        min_interval_seconds=None,
-        section_limit=None,
-        snippet_max_chars=None,
-        include_disambiguation=None,
-        cache_results=False,
-        cache_ttl=86400,
-        extra={},
-    )
-    remote_chain = SimpleNamespace(
-        name="research",
-        agent_description="",
-        links=[SimpleNamespace(source="brave", map=None)],
-    )
+def _config() -> Any:
     return SimpleNamespace(
         config_path=Path("config.json"),
-        ingest=ingest,
-        query=query,
-        vectordb=vectordb,
-        llm=llm,
-        modes={"grounded": mode_cfg},
-        get_mode_config=lambda name: mode_cfg,
-        notes=notes,
-        chats=chats,
-        remote_providers=[remote_provider],
-        remote_provider_chains=[remote_chain],
-        global_folder=Path("/global"),
-        embed_model="mini",
-        device="cpu",
-        batch_size=16,
-        embedding_dimension=384,
-        global_settings=SimpleNamespace(
-            global_folder=Path("/global"),
-            embed_model="mini",
-            device="cpu",
-            batch_size=16,
-            embedding_dimension=384,
-        ),
+        query=SimpleNamespace(mode="grounded"),
+        ingest=SimpleNamespace(),
+        llm=SimpleNamespace(),
+        vectordb=SimpleNamespace(),
+        modes={},
+        remote_providers=[],
+        remote_provider_chains=[],
+        notes=SimpleNamespace(),
+        chats=SimpleNamespace(),
     )
 
 
-def _screen(context: str = "settings"):
+def _screen(context: str = "settings") -> _TestableSettingsScreen:
     app = SimpleNamespace(config=_config(), current_context=context)
-    return _TestableSettingsScreen(app)
+    screen = _TestableSettingsScreen(app)
+    screen._tabs = {
+        "settings-global": _FakeTab("global"),
+        "settings-ingest": _FakeTab("ingest"),
+        "settings-query": _FakeTab("query"),
+        "settings-llm": _FakeTab("llm"),
+        "settings-vdb": _FakeTab("vdb"),
+        "settings-modes": _FakeTab("modes"),
+        "settings-remote": _FakeTab("remote"),
+        "settings-chats-notes": _FakeTab("chats-notes"),
+    }
+    return screen
 
 
 def test_focus_and_tab_actions() -> None:
@@ -250,38 +130,107 @@ def test_focus_and_tab_actions() -> None:
     assert tabs.active == "settings-chats-notes"
 
 
-def test_live_update_query_fields() -> None:
+def test_refresh_from_config_delegates_to_all_tabs() -> None:
     screen = _screen()
-    status = _StaticWidget()
-    screen.widgets["#settings-status"] = status
 
-    cfg = screen.app.config
-    screen._apply_live_update("settings-query-k", "20")
-    screen._apply_live_update("settings-query-min-relevance", "0.5")
-    screen._apply_live_update("settings-query-chat-mode", "chat")
-    screen._apply_live_update("settings-global-device", "cuda:0")
+    screen.refresh_from_config()
 
-    assert cfg.query.k == 20
-    assert cfg.query.min_relevance == 0.5
-    assert cfg.query.chat_mode == "chat"
-    assert cfg.global_settings.device == "cuda:0"
-    assert status.last == ""
+    for tab in screen._tabs.values():
+        assert tab.refresh_calls == 1
 
 
-def test_live_switch_updates() -> None:
+def test_on_show_refreshes_values_even_if_context_is_stale() -> None:
+    screen = _screen(context="query")
+
+    screen.on_show()
+
+    for tab in screen._tabs.values():
+        assert tab.refresh_calls == 1
+
+
+def test_refresh_keeps_guard_until_after_refresh_callback_runs() -> None:
+    app = SimpleNamespace(config=_config(), current_context="settings")
+    screen = _DeferredRefreshSettingsScreen(app)
+    screen._tabs = {
+        "settings-global": _FakeTab("global"),
+        "settings-ingest": _FakeTab("ingest"),
+        "settings-query": _FakeTab("query"),
+        "settings-llm": _FakeTab("llm"),
+        "settings-vdb": _FakeTab("vdb"),
+        "settings-modes": _FakeTab("modes"),
+        "settings-remote": _FakeTab("remote"),
+        "settings-chats-notes": _FakeTab("chats-notes"),
+    }
+
+    screen.refresh_from_config()
+
+    assert screen._is_refreshing is True
+    assert callable(screen.after_refresh)
+
+    screen.after_refresh()
+    assert screen._is_refreshing is False
+
+
+def test_input_update_routes_to_query_tab_by_field_prefix() -> None:
     screen = _screen()
-    status = _StaticWidget()
-    screen.widgets["#settings-status"] = status
+
+    event = SimpleNamespace(input=SimpleNamespace(id="settings-query-k"), value="20")
+    screen.on_input_changed(event)
+
+    query_tab = screen._tabs["settings-query"]
+    assert query_tab.apply_calls == [("settings-query-k", "20")]
+
+
+def test_switch_update_routes_to_chats_notes_tab() -> None:
+    screen = _screen()
+
+    event = SimpleNamespace(switch=SimpleNamespace(id="settings-notes-enabled"), value=True)
+    screen.on_switch_changed(event)
+
+    chats_notes_tab = screen._tabs["settings-chats-notes"]
+    assert chats_notes_tab.apply_calls == [("settings-notes-enabled", True)]
+
+
+def test_select_update_routes_to_vectordb_tab() -> None:
+    screen = _screen()
+
+    event = SimpleNamespace(select=SimpleNamespace(id="settings-vdb-provider"), value="postgresql")
+    screen.on_select_changed(event)
+
+    vdb_tab = screen._tabs["settings-vdb"]
+    assert vdb_tab.apply_calls == [("settings-vdb-provider", "postgresql")]
+
+
+def test_mode_change_syncs_query_and_modes_tabs() -> None:
+    screen = _screen()
     cfg = screen.app.config
 
-    screen._apply_live_switch_update("settings-query-enable-cache", True)
-    screen._apply_live_switch_update("settings-ingest-enable-translation", True)
-    screen._apply_live_switch_update("settings-notes-enabled", False)
+    query_tab = screen._tabs["settings-query"]
 
-    assert cfg.query.enable_query_cache is True
-    assert cfg.ingest.enable_translation is True
-    assert cfg.notes.enabled is False
-    assert status.last == ""
+    def _apply_mode(field_id: str, value: Any, config: Any) -> None:
+        if field_id == "settings-query-mode":
+            config.query.mode = str(value)
+
+    query_tab.apply_hook = _apply_mode
+
+    event = SimpleNamespace(select=SimpleNamespace(id="settings-query-mode"), value="insight")
+    screen.on_select_changed(event)
+
+    assert cfg.query.mode == "insight"
+    assert screen.current_mode == "insight"
+    assert screen._tabs["settings-query"].refresh_calls == 1
+    assert screen._tabs["settings-modes"].refresh_calls == 1
+
+
+def test_update_uses_source_tab_when_available() -> None:
+    screen = _screen()
+    source = SimpleNamespace(parent=screen._tabs["settings-remote"])
+
+    handled = screen._apply_update("settings-query-k", "14", source)
+
+    assert handled is True
+    assert screen._tabs["settings-remote"].apply_calls == [("settings-query-k", "14")]
+    assert screen._tabs["settings-query"].apply_calls == []
 
 
 def test_save_and_reset_buttons(monkeypatch) -> None:
@@ -301,237 +250,56 @@ def test_save_and_reset_buttons(monkeypatch) -> None:
     assert reset["called"] is True
 
 
-def test_mode_display_updates_fields() -> None:
+def test_button_routes_to_remote_tab_handler() -> None:
     screen = _screen()
-    mode_name = _InputWidget()
-    local_policy = _InputWidget()
-    remote_policy = _InputWidget()
-    model_policy = _InputWidget()
-    screen.widgets["#settings-modes-synthesis-style"] = mode_name
-    screen.widgets["#settings-modes-local-policy"] = local_policy
-    screen.widgets["#settings-modes-remote-policy"] = remote_policy
-    screen.widgets["#settings-modes-model-policy"] = model_policy
 
-    screen._update_mode_display("grounded")
-    assert "grounded" in mode_name.value
-    assert "enabled=True" in local_policy.value
-    assert "rank=weighted" in remote_policy.value
-    assert "require_label=True" in model_policy.value
-
-
-def test_refresh_loads_enable_ocr_switch_value() -> None:
-    screen = _screen()
-    ocr_switch = _SwitchWidget()
-    screen.widgets["#settings-ingest-enable-ocr"] = ocr_switch
-
-    screen._refresh_settings()
-    assert ocr_switch.value is True
-
-
-def test_refresh_sets_additional_ingest_and_query_fields() -> None:
-    screen = _screen()
-    manifest = _InputWidget()
-    retrieve_k = _InputWidget()
-    no_rerank = _SwitchWidget()
-    screen.widgets["#settings-ingest-manifest"] = manifest
-    screen.widgets["#settings-query-retrieve-k"] = retrieve_k
-    screen.widgets["#settings-query-no-rerank"] = no_rerank
-
-    screen._refresh_settings()
-
-    assert Path(manifest.value) == Path("/data/manifest.json")
-    assert retrieve_k.value == ""
-    assert no_rerank.value is False
-
-
-def test_on_show_refreshes_values_even_if_context_is_stale() -> None:
-    screen = _screen(context="query")
-    ocr_switch = _SwitchWidget()
-    screen.widgets["#settings-ingest-enable-ocr"] = ocr_switch
-
-    screen.on_show()
-    assert ocr_switch.value is True
-
-
-def test_refresh_keeps_guard_until_after_refresh_callback_runs() -> None:
-    app = SimpleNamespace(config=_config(), current_context="settings")
-    screen = _DeferredRefreshSettingsScreen(app)
-
-    screen._refresh_settings()
-
-    assert screen._is_refreshing is True
-    assert callable(screen.after_refresh)
-
-    screen.after_refresh()
-    assert screen._is_refreshing is False
-
-
-def test_settings_tab_activation_does_not_refresh_values() -> None:
-    screen = _screen(context="query")
-    ocr_switch = _SwitchWidget()
-    screen.widgets["#settings-ingest-enable-ocr"] = ocr_switch
-
-    event = SimpleNamespace(tabbed_content=SimpleNamespace(id="settings-tabs"))
-    screen.on_tabbed_content_tab_activated(event)
-    assert ocr_switch.value is False
-
-
-def test_dynamic_llm_updates() -> None:
-    screen = _screen()
-    status = _StaticWidget()
-    screen.widgets["#settings-status"] = status
-    cfg = screen.app.config
-
-    handled_provider = screen._apply_dynamic_text_update("settings-llm-provider-0-name", "openai-main")
-    handled_service = screen._apply_dynamic_text_update("settings-llm-service-0-model", "gpt-5.2-mini")
-
-    assert handled_provider is True
-    assert handled_service is True
-    assert cfg.llm.providers[0].provider_name == "openai-main"
-    assert cfg.llm.services["default"].model == "gpt-5.2-mini"
-    assert status.last == ""
-
-
-def test_dynamic_llm_provider_rename_updates_service_provider() -> None:
-    screen = _screen()
-    status = _StaticWidget()
-    screen.widgets["#settings-status"] = status
-    cfg = screen.app.config
-
-    handled = screen._apply_dynamic_text_update("settings-llm-provider-0-name", "openai-main")
+    handled = screen._handle_structured_button("settings-remote-chain-add")
 
     assert handled is True
-    assert cfg.llm.providers[0].provider_name == "openai-main"
-    assert cfg.llm.services["default"].provider == "openai-main"
-    assert status.last == ""
+    assert screen._tabs["settings-remote"].button_calls == ["settings-remote-chain-add"]
 
 
-def test_dynamic_llm_provider_name_no_refresh_when_unchanged(monkeypatch) -> None:
+def test_invalid_field_update_sets_error_status() -> None:
     screen = _screen()
     status = _StaticWidget()
     screen.widgets["#settings-status"] = status
 
-    called = {"count": 0}
+    query_tab = screen._tabs["settings-query"]
+    query_tab.apply_error = ValueError("bad value")
 
-    def _refresh(_cfg) -> None:
-        called["count"] += 1
+    screen._apply_live_update("settings-query-k", "oops")
 
-    monkeypatch.setattr(screen, "_refresh_llm_structured_fields", _refresh)
-
-    handled = screen._apply_dynamic_text_update("settings-llm-provider-0-name", "openai")
-    assert handled is True
-    assert called["count"] == 0
+    assert "Invalid value for settings-query-k" in status.last
 
 
-def test_dynamic_ingest_root_updates() -> None:
+def test_button_handler_exception_sets_error_status() -> None:
     screen = _screen()
     status = _StaticWidget()
     screen.widgets["#settings-status"] = status
-    cfg = screen.app.config
 
-    handled_path = screen._apply_dynamic_text_update("settings-ingest-root-0-path", "/docs/new")
-    handled_tags = screen._apply_dynamic_text_update("settings-ingest-root-0-tags", "a, b, c")
-    handled_content_type = screen._apply_dynamic_text_update(
-        "settings-ingest-root-0-content-type",
-        "notes",
-    )
+    remote_tab = screen._tabs["settings-remote"]
+    remote_tab.button_error = ValueError("cannot remove")
 
-    assert handled_path is True
-    assert handled_tags is True
-    assert handled_content_type is True
-    assert cfg.ingest.roots[0].path == Path("/docs/new")
-    assert cfg.ingest.roots[0].tags == ["a", "b", "c"]
-    assert cfg.ingest.roots[0].content_type == "notes"
-    assert status.last == ""
-
-
-def test_dynamic_remote_updates() -> None:
-    screen = _screen()
-    status = _StaticWidget()
-    screen.widgets["#settings-status"] = status
-    cfg = screen.app.config
-
-    handled_weight = screen._apply_dynamic_text_update("settings-remote-provider-0-weight", "0.75")
-    handled_cache = screen._apply_dynamic_switch_update("settings-remote-provider-0-cache-results", True)
-    handled_map = screen._apply_dynamic_text_update(
-        "settings-remote-chain-0-link-0-map",
-        "doi:doi, title:query",
-    )
-
-    assert handled_weight is True
-    assert handled_cache is True
-    assert handled_map is True
-    assert cfg.remote_providers[0].weight == 0.75
-    assert cfg.remote_providers[0].cache_results is True
-    assert cfg.remote_provider_chains[0].links[0].map == ["doi:doi", "title:query"]
-    assert status.last == ""
-
-
-def test_dynamic_remote_provider_rename_updates_refs_and_chain_links() -> None:
-    screen = _screen()
-    status = _StaticWidget()
-    screen.widgets["#settings-status"] = status
-    cfg = screen.app.config
-
-    cfg.modes["grounded"].source_policy.remote.remote_providers = [
-        "brave",
-        RemoteProviderRef(source="brave", weight=0.5),
-    ]
-    cfg.remote_provider_chains[0].links[0].source = "brave"
-
-    handled = screen._apply_dynamic_text_update("settings-remote-provider-0-name", "brave-main")
+    handled = screen._handle_structured_button("settings-remote-provider-remove-0")
 
     assert handled is True
-    assert cfg.remote_providers[0].name == "brave-main"
-    refs = cfg.modes["grounded"].source_policy.remote.remote_providers
-    assert refs[0] == "brave-main"
-    assert isinstance(refs[1], RemoteProviderRef)
-    assert refs[1].source == "brave-main"
-    assert cfg.remote_provider_chains[0].links[0].source == "brave-main"
-    assert status.last == ""
+    assert "cannot remove" in status.last
 
 
-def test_refresh_mounts_llm_services_and_remote_chains_lists(monkeypatch) -> None:
-    from textual.widgets import Static as TextualStatic
-
-    screen = _screen()
-    llm_services = _ContainerWidget()
-    remote_providers = _ContainerWidget()
-    remote_chains = _ContainerWidget()
-    screen.widgets["#settings-llm-services-list"] = llm_services
-    screen.widgets["#settings-remote-providers-list"] = remote_providers
-    screen.widgets["#settings-remote-chains-list"] = remote_chains
-    monkeypatch.setattr(screen, "_field", lambda *args, **kwargs: TextualStatic(""))
-
-    screen._refresh_settings()
-
-    assert len(llm_services.children) >= 1
-    assert len(remote_providers.children) >= 1
-    assert len(remote_chains.children) >= 1
-
-
-def test_structured_buttons_add_records() -> None:
+def test_reset_config_reloads_from_disk_and_refreshes(monkeypatch) -> None:
     screen = _screen()
     status = _StaticWidget()
     screen.widgets["#settings-status"] = status
-    cfg = screen.app.config
 
-    base_llm_providers = len(cfg.llm.providers)
-    base_llm_services = len(cfg.llm.services)
-    base_roots = len(cfg.ingest.roots)
-    base_remote_providers = len(cfg.remote_providers)
-    base_remote_chains = len(cfg.remote_provider_chains)
+    new_config = _config()
+    new_config.query.mode = "hybrid"
 
-    assert screen._handle_structured_button("settings-ingest-root-add") is True
-    assert screen._handle_structured_button("settings-llm-provider-add") is True
-    assert screen._handle_structured_button("settings-llm-service-add") is True
-    assert screen._handle_structured_button("settings-remote-provider-add") is True
-    assert screen._handle_structured_button("settings-remote-chain-add") is True
-    assert screen._handle_structured_button("settings-remote-chain-0-link-add") is True
+    import lsm.ui.tui.screens.settings as settings_module
 
-    assert len(cfg.ingest.roots) == base_roots + 1
-    assert len(cfg.llm.providers) == base_llm_providers + 1
-    assert len(cfg.llm.services) == base_llm_services + 1
-    assert len(cfg.remote_providers) == base_remote_providers + 1
-    assert len(cfg.remote_provider_chains) == base_remote_chains + 1
-    assert len(cfg.remote_provider_chains[0].links) == 2
+    monkeypatch.setattr(settings_module, "load_config_from_file", lambda _path: new_config)
+
+    screen._reset_config()
+
+    assert screen.app.config.query.mode == "hybrid"
+    assert screen._tabs["settings-global"].refresh_calls == 1
+    assert "Configuration reloaded from disk" in status.last

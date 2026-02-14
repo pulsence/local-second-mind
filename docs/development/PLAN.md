@@ -173,7 +173,7 @@ module that all tab widgets will import.
 
 **Post-block:** Tests for `BaseSettingsTab` utilities, run `pytest tests/ -v`, commit.
 
-### 2.2: Create Tab Widget Files (Views)
+### 2.2: Create Tab Widget Files (Views) (COMPLETED)
 
 Extract each tab's compose and refresh logic into its own widget file. Each tab widget:
 - Extends `BaseSettingsTab`
@@ -208,7 +208,7 @@ Extract each tab's compose and refresh logic into its own widget file. Each tab 
 **Post-block:** Per-tab tests in `tests/test_ui/tui/test_settings_tabs.py`, run `pytest tests/ -v`,
 commit.
 
-### 2.3: Refactor SettingsScreen as Controller
+### 2.3: Refactor SettingsScreen as Controller (COMPLETED)
 
 Slim `settings.py` down to ~150-200 lines. It becomes the controller that:
 - Composes the `TabbedContent` with 8 tab widgets
