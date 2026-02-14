@@ -491,7 +491,7 @@ to date with Phase 3 changes.
 This phase focuses on user-facing usability and interaction improvements that directly affect
 day-to-day TUI operation.
 
-### 4.1: Toast Notification System
+### 4.1: Toast Notification System (COMPLETED)
 
 Add a non-blocking notification system for background events (agent started/completed,
 ingest finished, errors).

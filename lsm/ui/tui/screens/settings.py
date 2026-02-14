@@ -154,6 +154,7 @@ class SettingsScreen(Widget):
                 self.app.config = view_model.persisted_config
                 self._source_config = self.app.config
                 self._set_status("Configuration saved.", False)
+                self._notify_event("Configuration saved successfully.", severity="info")
             else:
                 self._set_status(f"Save failed: {result.error}", True)
         elif verb == "set":
@@ -361,3 +362,21 @@ class SettingsScreen(Widget):
             widget.update(f"[red]{message}[/red]" if error else message)
         except Exception:
             logger.warning(message)
+
+    def _notify_event(
+        self,
+        message: str,
+        *,
+        severity: str = "info",
+        timeout: Optional[float] = None,
+    ) -> None:
+        notify = getattr(self.app, "notify_event", None)
+        if not callable(notify):
+            return
+        try:
+            kwargs: dict[str, Any] = {"severity": severity}
+            if timeout is not None:
+                kwargs["timeout"] = timeout
+            notify(message, **kwargs)
+        except Exception:
+            logger.exception("Failed to emit settings notification")

@@ -207,6 +207,7 @@ class IngestScreen(Widget):
         self._pending_responses = []
         self._set_command_status("Ready.")
         self._update_command_progress(None, None)
+        self._notify_build_result(command_to_run, output)
 
     def _set_output_mode(self, mode: str) -> None:
         """Toggle output widgets between text and tree."""
@@ -229,6 +230,36 @@ class IngestScreen(Widget):
         """Update the command status line."""
         status_widget = self.query_one("#ingest-command-status", Static)
         status_widget.update(message)
+
+    def _notify_event(
+        self,
+        message: str,
+        *,
+        severity: str = "info",
+        timeout: Optional[float] = None,
+    ) -> None:
+        notify = getattr(self.app, "notify_event", None)
+        if not callable(notify):
+            return
+        try:
+            kwargs: Dict[str, Any] = {"severity": severity}
+            if timeout is not None:
+                kwargs["timeout"] = timeout
+            notify(message, **kwargs)
+        except Exception:
+            logger.exception("Failed to emit ingest notification")
+
+    def _notify_build_result(self, command: str, output: str) -> None:
+        normalized_command = str(command or "").strip().lower()
+        if not normalized_command.startswith("/build"):
+            return
+
+        normalized_output = str(output or "").lower()
+        if "ingest completed successfully" in normalized_output:
+            self._notify_event("Ingest build completed.", severity="info")
+            return
+        if "error during ingest" in normalized_output:
+            self._notify_event("Ingest build failed.", severity="error")
 
     def _update_command_progress(self, current: Optional[int], total: Optional[int]) -> None:
         """Update the command progress bar."""

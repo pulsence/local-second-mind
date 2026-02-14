@@ -90,6 +90,7 @@ class _TestableIngestScreen(ingest_screen_mod.IngestScreen):
 
 
 def _screen(current_context: str = "ingest"):
+    notifications = []
     app = SimpleNamespace(
         ingest_provider=SimpleNamespace(count=lambda: 3),
         config=SimpleNamespace(collection="kb", vectordb=SimpleNamespace(provider="chromadb")),
@@ -98,6 +99,8 @@ def _screen(current_context: str = "ingest"):
         update_chunk_count=lambda n: None,
         _async_init_ingest_context=lambda: None,
         exit=lambda: None,
+        notifications=notifications,
+        notify_event=lambda message, **kwargs: notifications.append((message, kwargs)),
     )
     screen = _TestableIngestScreen(app)
     screen.widgets["#ingest-output"] = _Static()
@@ -195,6 +198,19 @@ def test_run_ingest_command_and_refresh_stats(monkeypatch: pytest.MonkeyPatch) -
 
     asyncio.run(screen._refresh_stats())
     assert "Collection: kb" in screen.widgets["#stats-content"].value
+
+
+def test_build_command_emits_completion_notification(monkeypatch: pytest.MonkeyPatch) -> None:
+    screen = _screen()
+
+    async def _fake_run(command: str, responses):
+        _ = responses
+        return "Ingest completed successfully!", None
+
+    monkeypatch.setattr(screen, "_run_ingest_command", _fake_run)
+
+    asyncio.run(screen._process_command("/build"))
+    assert screen.app.notifications == [("Ingest build completed.", {"severity": "info"})]
 
 
 def test_tree_selection_and_actions() -> None:

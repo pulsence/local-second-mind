@@ -35,6 +35,47 @@ class _Static:
         self.last = message
 
 
+class _Panel:
+    def __init__(self) -> None:
+        self.display = True
+        self.classes = set()
+
+    def add_class(self, class_name: str) -> None:
+        self.classes.add(class_name)
+
+    def remove_class(self, class_name: str) -> None:
+        self.classes.discard(class_name)
+
+
+class _DataTable:
+    def __init__(self, widget_id: str = "") -> None:
+        self.id = widget_id
+        self.columns = []
+        self.rows = []
+        self.cursor_row = 0
+        self.cursor_type = None
+        self.zebra_stripes = False
+
+    def add_columns(self, *columns) -> None:
+        self.columns.extend(columns)
+
+    def clear(self, *, columns: bool = False) -> None:
+        self.rows = []
+        if columns:
+            self.columns = []
+
+    def add_row(self, *row_values) -> None:
+        self.rows.append(tuple(row_values))
+
+    def move_cursor(self, *, row: int, column: int = 0) -> None:
+        _ = column
+        self.cursor_row = row
+
+    @property
+    def cursor_coordinate(self):
+        return SimpleNamespace(row=self.cursor_row, column=0)
+
+
 class _RichLog:
     def __init__(self) -> None:
         self.lines = []
@@ -56,13 +97,18 @@ class _Manager:
         self.promoted = None
         self.rejected = None
         self.ttl_updated = None
+        self.running_rows = []
+        self.pending_rows = []
+        self.schedule_rows = []
+        self.status_by_id = {}
 
     def start(self, app, name: str, topic: str) -> str:
         self.started = (name, topic)
         return f"Started agent '{name}' with topic: {topic}\n"
 
     def status(self, agent_id=None) -> str:
-        _ = agent_id
+        if agent_id is not None and agent_id in self.status_by_id:
+            return self.status_by_id[agent_id]
         return "Agent: research\nStatus: running\n"
 
     def pause(self, agent_id=None) -> str:
@@ -80,6 +126,19 @@ class _Manager:
     def log(self, agent_id=None) -> str:
         _ = agent_id
         return "Agent log line\n"
+
+    def list_running(self):
+        return list(self.running_rows)
+
+    def clear_log_stream(self, agent_id: str) -> None:
+        _ = agent_id
+
+    def get_pending_interactions(self):
+        return list(self.pending_rows)
+
+    def list_schedules(self, app):
+        _ = app
+        return list(self.schedule_rows)
 
     def get_memory_candidates(self, app, status="pending", limit=200):
         _ = app, status, limit
@@ -155,7 +214,13 @@ class _TestableAgentsScreen(AgentsScreen):
 
 
 def _screen(context: str = "agents"):
-    app = SimpleNamespace(current_context=context, config=SimpleNamespace())
+    notifications = []
+    app = SimpleNamespace(
+        current_context=context,
+        config=SimpleNamespace(),
+        notifications=notifications,
+        notify_event=lambda message, **kwargs: notifications.append((message, kwargs)),
+    )
     screen = _TestableAgentsScreen(app)
     screen.widgets["#agents-select"] = _Select("")
     screen.widgets["#agents-topic-input"] = _Input("", "agents-topic-input")
@@ -168,7 +233,13 @@ def _screen(context: str = "agents"):
 
 
 def _threaded_screen(context: str = "agents"):
-    app = SimpleNamespace(current_context=context, config=SimpleNamespace())
+    notifications = []
+    app = SimpleNamespace(
+        current_context=context,
+        config=SimpleNamespace(),
+        notifications=notifications,
+        notify_event=lambda message, **kwargs: notifications.append((message, kwargs)),
+    )
 
     def _call_from_thread(callback, *args, **kwargs):
         callback(*args, **kwargs)
@@ -182,6 +253,18 @@ def _threaded_screen(context: str = "agents"):
     screen.widgets["#agents-memory-ttl-input"] = _Input("", "agents-memory-ttl-input")
     screen.widgets["#agents-memory-output"] = _Static()
     screen.widgets["#agents-log"] = _RichLog()
+    return screen
+
+
+def _screen_with_runtime_widgets(context: str = "agents"):
+    screen = _screen(context=context)
+    screen.widgets["#agents-running-table"] = _DataTable("agents-running-table")
+    screen.widgets["#agents-running-output"] = _Static()
+    screen.widgets["#agents-interaction-panel"] = _Panel()
+    screen.widgets["#agents-interaction-indicator"] = _Static()
+    screen.widgets["#agents-interaction-status-output"] = _Static()
+    screen.widgets["#agents-schedule-table"] = _DataTable("agents-schedule-table")
+    screen.widgets["#agents-schedule-output"] = _Static()
     return screen
 
 
@@ -307,3 +390,142 @@ def test_stop_action_runs_async_when_call_from_thread_available(monkeypatch) -> 
     worker = screen._stop_worker
     assert worker is not None
     worker.join(timeout=1.0)
+
+
+def test_running_agent_notifications_for_start_and_completion(monkeypatch) -> None:
+    screen = _screen_with_runtime_widgets()
+    manager = _Manager()
+    monkeypatch.setattr("lsm.ui.tui.screens.agents.get_agent_runtime_manager", lambda: manager)
+
+    agent_id = "agent-12345678"
+    manager.running_rows = []
+    screen._refresh_running_agents()
+
+    manager.running_rows = [
+        {
+            "agent_id": agent_id,
+            "agent_name": "research",
+            "topic": "topic",
+            "status": "running",
+            "duration_seconds": 1.0,
+        }
+    ]
+    screen._refresh_running_agents()
+
+    manager.running_rows = []
+    manager.status_by_id[agent_id] = (
+        f"Agent ID: {agent_id}\n"
+        "Agent: research\n"
+        "Status: completed\n"
+    )
+    screen._refresh_running_agents()
+
+    assert screen.app.notifications == [
+        ("Agent 'research' started.", {"severity": "info"}),
+        ("Agent 'research' completed.", {"severity": "info"}),
+    ]
+
+
+def test_running_agent_failed_notification(monkeypatch) -> None:
+    screen = _screen_with_runtime_widgets()
+    manager = _Manager()
+    monkeypatch.setattr("lsm.ui.tui.screens.agents.get_agent_runtime_manager", lambda: manager)
+
+    agent_id = "agent-failed-1234"
+    manager.running_rows = []
+    screen._refresh_running_agents()
+
+    manager.running_rows = [
+        {
+            "agent_id": agent_id,
+            "agent_name": "research",
+            "topic": "topic",
+            "status": "running",
+            "duration_seconds": 1.0,
+        }
+    ]
+    screen._refresh_running_agents()
+
+    manager.running_rows = []
+    manager.status_by_id[agent_id] = (
+        f"Agent ID: {agent_id}\n"
+        "Agent: research\n"
+        "Status: failed\n"
+    )
+    screen._refresh_running_agents()
+
+    assert screen.app.notifications[-1] == (
+        "Agent 'research' failed.",
+        {"severity": "error"},
+    )
+
+
+def test_interaction_pending_notification_uses_high_priority(monkeypatch) -> None:
+    screen = _screen_with_runtime_widgets()
+    manager = _Manager()
+    monkeypatch.setattr("lsm.ui.tui.screens.agents.get_agent_runtime_manager", lambda: manager)
+
+    manager.pending_rows = []
+    screen._refresh_interaction_panel()
+
+    manager.pending_rows = [
+        {
+            "request_id": "req-1",
+            "request_type": "permission",
+            "agent_name": "research",
+            "agent_id": "agent-1",
+            "tool_name": "write_file",
+            "risk_level": "writes_workspace",
+            "reason": "Need approval",
+            "args_summary": "{}",
+            "prompt": "Allow?",
+        }
+    ]
+    screen._refresh_interaction_panel()
+    screen._refresh_interaction_panel()
+
+    assert screen.app.notifications == [
+        (
+            "Agent 'research' is waiting for user interaction (permission).",
+            {"severity": "warning", "timeout": 10},
+        )
+    ]
+
+
+def test_schedule_trigger_notification_emitted_on_last_run_change(monkeypatch) -> None:
+    screen = _screen_with_runtime_widgets()
+    manager = _Manager()
+    monkeypatch.setattr("lsm.ui.tui.screens.agents.get_agent_runtime_manager", lambda: manager)
+
+    manager.schedule_rows = [
+        {
+            "id": "0:research",
+            "agent_name": "research",
+            "interval": "hourly",
+            "enabled": True,
+            "last_status": "idle",
+            "next_run_at": "2026-02-14T12:00:00+00:00",
+            "last_run_at": None,
+        }
+    ]
+    screen._refresh_schedule_entries()
+
+    manager.schedule_rows = [
+        {
+            "id": "0:research",
+            "agent_name": "research",
+            "interval": "hourly",
+            "enabled": True,
+            "last_status": "running",
+            "next_run_at": "2026-02-14T13:00:00+00:00",
+            "last_run_at": "2026-02-14T12:00:00+00:00",
+        }
+    ]
+    screen._refresh_schedule_entries()
+
+    assert screen.app.notifications == [
+        (
+            "Schedule '0:research' triggered for agent 'research'.",
+            {"severity": "info"},
+        )
+    ]

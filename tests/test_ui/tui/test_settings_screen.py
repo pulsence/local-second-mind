@@ -135,7 +135,13 @@ def _config() -> Any:
 
 
 def _screen(context: str = "settings") -> tuple[_TestableSettingsScreen, _FakeViewModel]:
-    app = SimpleNamespace(config=_config(), current_context=context)
+    notifications: list[tuple[str, dict[str, Any]]] = []
+    app = SimpleNamespace(
+        config=_config(),
+        current_context=context,
+        notifications=notifications,
+        notify_event=lambda message, **kwargs: notifications.append((message, kwargs)),
+    )
     screen = _TestableSettingsScreen(app)
     vm = _FakeViewModel(app.config)
     screen._view_model = vm
@@ -224,6 +230,9 @@ def test_save_command_updates_app_config() -> None:
     assert screen.app.config is persisted
     status = screen.widgets["#settings-status"].last
     assert "Configuration saved" in status
+    assert screen.app.notifications == [
+        ("Configuration saved successfully.", {"severity": "info"})
+    ]
 
 
 def test_reset_without_key_routes_to_tab_reset() -> None:

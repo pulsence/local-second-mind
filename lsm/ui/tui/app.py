@@ -62,6 +62,8 @@ class LSMApp(App):
     _DENSITY_AUTO_COMFORTABLE_MIN_HEIGHT = 34
     _DENSITY_NARROW_MAX_WIDTH = 100
     _DENSITY_RESIZE_DEBOUNCE_SECONDS = 0.15
+    _NOTIFY_TIMEOUT_SECONDS = 5.0
+    _NOTIFY_ERROR_TIMEOUT_SECONDS = 10.0
 
     BINDINGS = [
         Binding("ctrl+n", "switch_ingest", "Ingest", show=False),
@@ -677,11 +679,19 @@ class LSMApp(App):
         timeout: Optional[float] = None,
     ) -> None:
         """Emit and record a UI notification event."""
+        effective_timeout = timeout
+        if effective_timeout is None:
+            effective_timeout = (
+                self._NOTIFY_ERROR_TIMEOUT_SECONDS
+                if severity == "error"
+                else self._NOTIFY_TIMEOUT_SECONDS
+            )
         self.ui_state.push_notification(message, severity=severity)
-        kwargs: dict[str, Any] = {"severity": severity}
-        if timeout is not None:
-            kwargs["timeout"] = timeout
-        self.notify(message, **kwargs)
+        self.notify(
+            message,
+            severity=severity,
+            timeout=effective_timeout,
+        )
 
     def update_cost(self, amount: float) -> None:
         """

@@ -59,10 +59,18 @@ class AgentsScreen(Widget):
         super().__init__(*args, **kwargs)
         self._schedule_ids: list[str] = []
         self._schedule_row_index: int = 0
+        self._schedule_last_run_by_id: dict[str, str] = {}
+        self._schedule_agent_by_id: dict[str, str] = {}
+        self._schedule_notifications_initialized: bool = False
         self._running_agent_ids: list[str] = []
+        self._known_running_agent_ids: set[str] = set()
+        self._known_running_agent_names: dict[str, str] = {}
+        self._running_notifications_initialized: bool = False
         self._running_row_index: int = 0
         self._selected_agent_id: Optional[str] = None
         self._pending_interaction: Optional[dict[str, Any]] = None
+        self._known_pending_interaction_ids: set[str] = set()
+        self._interaction_notifications_initialized: bool = False
         self._running_refresh_timer: Optional[Timer] = None
         self._interaction_poll_timer: Optional[Timer] = None
         self._log_stream_timer: Optional[Timer] = None
@@ -536,11 +544,13 @@ class AgentsScreen(Widget):
 
         running_table.clear(columns=False)
         self._running_agent_ids = []
+        current_running_agent_names: dict[str, str] = {}
         for row in running:
             agent_id = str(row.get("agent_id", "")).strip()
             if not agent_id:
                 continue
             agent_name = str(row.get("agent_name", "")).strip() or "-"
+            current_running_agent_names[agent_id] = agent_name
             topic = str(row.get("topic", "")).strip() or "-"
             status = str(row.get("status", "")).strip() or "-"
             duration_seconds = float(row.get("duration_seconds", 0.0) or 0.0)
@@ -552,6 +562,16 @@ class AgentsScreen(Widget):
                 self._format_duration(duration_seconds),
             )
             self._running_agent_ids.append(agent_id)
+
+        current_running_agent_ids = set(self._running_agent_ids)
+        self._emit_running_agent_notifications(
+            manager=manager,
+            current_running_agent_ids=current_running_agent_ids,
+            current_running_agent_names=current_running_agent_names,
+        )
+        self._known_running_agent_ids = current_running_agent_ids
+        self._known_running_agent_names = current_running_agent_names
+        self._running_notifications_initialized = True
 
         if not self._running_agent_ids:
             self._running_row_index = 0
@@ -671,6 +691,15 @@ class AgentsScreen(Widget):
             indicator.update("Interaction unavailable")
             self._set_interaction_visual_state(panel=panel, indicator=indicator, pending_count=0)
             return
+
+        pending_ids = {
+            self._pending_interaction_key(row)
+            for row in pending_rows
+            if self._pending_interaction_key(row)
+        }
+        self._emit_interaction_notifications(pending_rows, pending_ids)
+        self._known_pending_interaction_ids = pending_ids
+        self._interaction_notifications_initialized = True
 
         pending_count = len(pending_rows)
         if pending_count == 0:
@@ -1074,21 +1103,36 @@ class AgentsScreen(Widget):
 
         schedule_table.clear(columns=False)
         self._schedule_ids = []
+        current_schedule_last_run_by_id: dict[str, str] = {}
+        current_schedule_agent_by_id: dict[str, str] = {}
         for row in schedules:
+            schedule_id = str(row["id"])
+            agent_name = str(row["agent_name"])
             enabled = "yes" if row.get("enabled") else "no"
             status = str(row.get("last_status", "idle"))
             next_run = str(row.get("next_run_at") or "-")
             last_run = str(row.get("last_run_at") or "-")
+            normalized_last_run = "" if last_run == "-" else last_run
+            current_schedule_last_run_by_id[schedule_id] = normalized_last_run
+            current_schedule_agent_by_id[schedule_id] = agent_name
             schedule_table.add_row(
-                str(row["id"]),
-                str(row["agent_name"]),
+                schedule_id,
+                agent_name,
                 str(row["interval"]),
                 enabled,
                 status,
                 next_run,
                 last_run,
             )
-            self._schedule_ids.append(str(row["id"]))
+            self._schedule_ids.append(schedule_id)
+
+        self._emit_schedule_trigger_notifications(
+            current_schedule_last_run_by_id=current_schedule_last_run_by_id,
+            current_schedule_agent_by_id=current_schedule_agent_by_id,
+        )
+        self._schedule_last_run_by_id = current_schedule_last_run_by_id
+        self._schedule_agent_by_id = current_schedule_agent_by_id
+        self._schedule_notifications_initialized = True
 
         if self._schedule_ids:
             self._schedule_row_index = min(self._schedule_row_index, len(self._schedule_ids) - 1)
@@ -1291,6 +1335,142 @@ class AgentsScreen(Widget):
 
     def _set_meta_status(self, message: str) -> None:
         self._update_static("#agents-meta-output", message)
+
+    def _notify_event(
+        self,
+        message: str,
+        *,
+        severity: str = "info",
+        timeout: Optional[float] = None,
+    ) -> None:
+        notify = getattr(self.app, "notify_event", None)
+        if not callable(notify):
+            return
+        try:
+            kwargs: dict[str, Any] = {"severity": severity}
+            if timeout is not None:
+                kwargs["timeout"] = timeout
+            notify(message, **kwargs)
+        except Exception:
+            logger.exception("Failed to emit agents notification")
+
+    def _emit_running_agent_notifications(
+        self,
+        *,
+        manager: Any,
+        current_running_agent_ids: set[str],
+        current_running_agent_names: dict[str, str],
+    ) -> None:
+        if not self._running_notifications_initialized:
+            return
+
+        started_ids = sorted(current_running_agent_ids - self._known_running_agent_ids)
+        for agent_id in started_ids:
+            agent_name = current_running_agent_names.get(agent_id, "agent")
+            self._notify_event(f"Agent '{agent_name}' started.", severity="info")
+
+        completed_ids = sorted(self._known_running_agent_ids - current_running_agent_ids)
+        for agent_id in completed_ids:
+            fallback_name = self._known_running_agent_names.get(agent_id, "agent")
+            status_output = ""
+            try:
+                status_output = str(manager.status(agent_id=agent_id) or "")
+            except Exception:
+                status_output = ""
+            status_value = self._extract_agent_status(status_output)
+            agent_name = self._extract_agent_name(status_output) or fallback_name
+            if status_value == "failed":
+                self._notify_event(f"Agent '{agent_name}' failed.", severity="error")
+                continue
+            if status_value and status_value != "completed":
+                self._notify_event(
+                    f"Agent '{agent_name}' completed ({status_value}).",
+                    severity="info",
+                )
+                continue
+            self._notify_event(f"Agent '{agent_name}' completed.", severity="info")
+
+    def _emit_interaction_notifications(
+        self,
+        pending_rows: list[dict[str, Any]],
+        pending_ids: set[str],
+    ) -> None:
+        if not self._interaction_notifications_initialized:
+            return
+        new_ids = pending_ids - self._known_pending_interaction_ids
+        if not new_ids:
+            return
+        for row in pending_rows:
+            row_id = self._pending_interaction_key(row)
+            if row_id not in new_ids:
+                continue
+            agent_name = str(row.get("agent_name") or "agent").strip() or "agent"
+            request_type = str(row.get("request_type") or "interaction").strip() or "interaction"
+            self._notify_event(
+                f"Agent '{agent_name}' is waiting for user interaction ({request_type}).",
+                severity="warning",
+                timeout=10,
+            )
+
+    def _emit_schedule_trigger_notifications(
+        self,
+        *,
+        current_schedule_last_run_by_id: dict[str, str],
+        current_schedule_agent_by_id: dict[str, str],
+    ) -> None:
+        if not self._schedule_notifications_initialized:
+            return
+        for schedule_id, last_run_at in current_schedule_last_run_by_id.items():
+            previous_last_run_at = self._schedule_last_run_by_id.get(schedule_id, "")
+            if not last_run_at or last_run_at == previous_last_run_at:
+                continue
+            agent_name = (
+                current_schedule_agent_by_id.get(schedule_id)
+                or self._schedule_agent_by_id.get(schedule_id)
+                or "agent"
+            )
+            self._notify_event(
+                f"Schedule '{schedule_id}' triggered for agent '{agent_name}'.",
+                severity="info",
+            )
+
+    def _pending_interaction_key(self, row: dict[str, Any]) -> str:
+        request_id = str(row.get("request_id", "")).strip()
+        if request_id:
+            return request_id
+        agent_id = str(row.get("agent_id", "")).strip()
+        request_type = str(row.get("request_type", "")).strip()
+        return f"{agent_id}:{request_type}"
+
+    def _extract_agent_status(self, status_output: str) -> str:
+        return self._extract_value_from_status_output(
+            status_output,
+            key="status",
+            normalize=True,
+        )
+
+    def _extract_agent_name(self, status_output: str) -> str:
+        return self._extract_value_from_status_output(
+            status_output,
+            key="agent",
+            normalize=False,
+        )
+
+    def _extract_value_from_status_output(
+        self,
+        status_output: str,
+        *,
+        key: str,
+        normalize: bool,
+    ) -> str:
+        prefix = f"{key.strip().lower()}:"
+        for line in str(status_output or "").splitlines():
+            normalized = str(line).strip()
+            if not normalized.lower().startswith(prefix):
+                continue
+            value = normalized.split(":", 1)[1].strip()
+            return value.lower() if normalize else value
+        return ""
 
     def _append_log(self, message: Any) -> None:
         if message is None:

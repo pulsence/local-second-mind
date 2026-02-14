@@ -467,6 +467,25 @@ class TestLSMAppBehavior:
         assert len(app.ui_state.notifications) == 1
         assert app.ui_state.notifications[0].message == "Saved"
 
+    def test_notify_event_uses_severity_default_timeouts(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ):
+        from lsm.ui.tui.app import LSMApp
+
+        app = LSMApp(_build_config(tmp_path))
+        seen = []
+        monkeypatch.setattr(app, "notify", lambda msg, **kwargs: seen.append((msg, kwargs)))
+
+        app.notify_event("Info")
+        app.notify_event("Error", severity="error")
+
+        assert seen == [
+            ("Info", {"severity": "info", "timeout": 5.0}),
+            ("Error", {"severity": "error", "timeout": 10.0}),
+        ]
+
     def test_watch_methods_update_status_bar(self, tmp_path: Path):
         from lsm.ui.tui.app import LSMApp
 
