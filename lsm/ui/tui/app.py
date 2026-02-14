@@ -561,7 +561,7 @@ class LSMApp(App):
     def action_show_help(self) -> None:
         """Show help modal."""
         from lsm.ui.tui.screens.help import HelpScreen
-        self.push_screen(HelpScreen())
+        self.push_screen(HelpScreen(context=self.current_context))
 
     def action_quit(self) -> None:
         """Quit the application."""

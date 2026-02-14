@@ -123,6 +123,45 @@ class TestHelpScreen:
         escape_bindings = [b for b in bindings if b.key == "escape"]
         assert len(escape_bindings) > 0
 
+    def test_defaults_to_query_context(self):
+        """HelpScreen defaults to query context."""
+        from lsm.ui.tui.screens.help import HelpScreen
+        screen = HelpScreen()
+        assert screen.context == "query"
+
+    def test_invalid_context_falls_back_to_query(self):
+        """Unknown context values should map to query."""
+        from lsm.ui.tui.screens.help import HelpScreen
+        screen = HelpScreen(context="unknown")
+        assert screen.context == "query"
+
+    def test_context_commands_are_filtered(self):
+        """Context command text should include only the active context commands."""
+        from lsm.ui.tui.screens.help import HelpScreen
+
+        agents_help = HelpScreen(context="agents")
+        agents_text = agents_help._context_commands_text()
+        assert "Start selected agent" in agents_text
+        assert "/build [--force]" not in agents_text
+
+        ingest_help = HelpScreen(context="ingest")
+        ingest_text = ingest_help._context_commands_text()
+        assert "/build [--force]" in ingest_text
+        assert "Approve pending action" not in ingest_text
+
+    def test_all_commands_and_whats_new_sections_present(self):
+        """All-commands and v0.6.0 feature text should include agent interaction highlights."""
+        from lsm.ui.tui.screens.help import HelpScreen
+
+        screen = HelpScreen(context="query")
+        all_commands = screen._all_commands_text()
+        whats_new = screen._whats_new_text()
+
+        assert "Query: /mode" in all_commands
+        assert "Ingest: /info" in all_commands
+        assert "Version: v0.6.0" in whats_new
+        assert "Interactive agent approvals and replies" in whats_new
+
 
 class TestMainScreen:
     """Tests for MainScreen class."""

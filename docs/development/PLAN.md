@@ -515,7 +515,7 @@ ingest finished, errors).
 
 **Post-block:** Tests, run `pytest tests/ -v`, commit.
 
-### 4.2: Context-Sensitive Help
+### 4.2: Context-Sensitive Help (COMPLETED)
 
 Replace the static help modal with context-sensitive help that shows commands relevant to the
 active tab.
@@ -601,7 +601,18 @@ Strengthen terminal compatibility with explicit breakpoint behavior.
 
 **Post-block:** Manual verification in Windows command prompt and tests for narrow-layout behavior.
 
-### 4.6: Phase 4 Changelog
+### 4.6: Phase 4 Code Review
+
+**Tasks:**
+- Review the changes made in Phase 4 and ensure that the phase is
+  entirely implemented and implemented completely
+- Review the code related to Phase 4 and make sure that there is no remaining backwards
+  compatability code or deprecated code or dead code.
+- Review thet tests related to Phase 4 and ensure they are well structured and there are no
+  mock or stub tests.
+- Ensure all documentation in docs/ is properly updated.
+
+### 4.7: Phase 4 Changelog
 
 Summarize Phase 4 changes into `docs/development/CHANGELOG.md`.
 
@@ -872,7 +883,18 @@ Align UI tests with TUI module boundaries and reduce duplicate setup logic.
 
 **Post-block:** Run full UI test suite + full project tests, `pytest tests/ -v`, commit.
 
-### 5.14: Phase 5 Changelog
+### 5.14: Phase 5 Code Review
+
+**Tasks:**
+- Review the changes made in Phase 5 and ensure that the phase is
+  entirely implemented and implemented completely
+- Review the code related to Phase 5 and make sure that there is no remaining backwards
+  compatability code or deprecated code or dead code.
+- Review thet tests related to Phase 5 and ensure they are well structured and there are no
+  mock or stub tests.
+- Ensure all documentation in docs/ is properly updated.
+
+### 5.15: Phase 5 Changelog
 
 Summarize Phase 5 changes into `docs/development/CHANGELOG.md`.
 
@@ -939,7 +961,18 @@ non-critical initialization to background workers.
 
 **Post-block:** Run startup smoke + performance test group and full tests, `pytest tests/ -v`, commit.
 
-### 6.3: Phase 6 Changelog
+### 6.3: Phase 6 Code Review
+
+**Tasks:**
+- Review the changes made in Phase 6 and ensure that the phase is
+  entirely implemented and implemented completely
+- Review the code related to Phase 6 and make sure that there is no remaining backwards
+  compatability code or deprecated code or dead code.
+- Review thet tests related to Phase 6 and ensure they are well structured and there are no
+  mock or stub tests.
+- Ensure all documentation in docs/ is properly updated.
+
+### 6.4: Phase 6 Changelog
 
 Summarize Phase 6 changes into `docs/development/CHANGELOG.md`.
 
@@ -952,6 +985,7 @@ Summarize Phase 6 changes into `docs/development/CHANGELOG.md`.
 **Version bump (0.5.0 -> 0.6.0):**
 - `pyproject.toml` — `version = "0.6.0"`
 - `lsm/__init__.py` — `__version__ = "0.6.0"`
+- `lsm/ui/tui/screens/help.py` — update "What's New" version text (`_WHATS_NEW` content and section title) to match the release version
 
 **Files to modify:**
 - `README.md` — Update root project README with v0.6.0 highlights
@@ -959,6 +993,7 @@ Summarize Phase 6 changes into `docs/development/CHANGELOG.md`.
 - `docs/AGENTS.md` — Document interactive agent sessions, multi-agent, interaction channel
 - `docs/development/CHANGELOG.md` — Complete v0.6.0 changelog entry
 - `example_config.json` — Update any new config options
+- `lsm/ui/tui/screens/help.py` — Sync "What's New" version label with release version
 - Update CLAUDE.md with new file locations and architecture notes
 
 **Post-block:** Run `pytest tests/ -v` final validation, commit.

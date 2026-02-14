@@ -443,14 +443,17 @@ class TestLSMAppBehavior:
 
     def test_show_help_and_quit(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
         from lsm.ui.tui.app import LSMApp
+        from lsm.ui.tui.screens.help import HelpScreen
 
         app = LSMApp(_build_config(tmp_path))
         pushed = {}
         monkeypatch.setattr(app, "push_screen", lambda screen: pushed.setdefault("screen", screen))
         monkeypatch.setattr(app, "exit", lambda: pushed.setdefault("quit", True))
+        app.current_context = "agents"
 
         app.action_show_help()
-        assert pushed["screen"] is not None
+        assert isinstance(pushed["screen"], HelpScreen)
+        assert pushed["screen"].context == "agents"
         app.action_quit()
         assert pushed["quit"] is True
 
