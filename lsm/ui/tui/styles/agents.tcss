@@ -28,6 +28,8 @@
     padding-right: 1;
 }
 
+/* --- Log panel (right side) --- */
+
 #agents-log-panel {
     width: 2fr;
     min-width: 44;
@@ -41,6 +43,22 @@
     height: 1fr;
 }
 
+#agents-log-header {
+    layout: horizontal;
+    height: auto;
+    margin-bottom: 1;
+}
+
+#agents-log-header .agents-section-title {
+    width: 1fr;
+    margin-bottom: 0;
+}
+
+#agents-log-follow-toggle-button {
+    width: auto;
+    min-width: 14;
+}
+
 #agents-log {
     height: 1fr;
     background: $surface;
@@ -50,6 +68,8 @@
     overflow-x: hidden;
     overflow-y: auto;
 }
+
+/* --- Left-side panels (shared base) --- */
 
 #agents-control-panel,
 #agents-running-panel,
@@ -66,41 +86,11 @@
     layout: vertical;
 }
 
-#agents-control-panel {
-    height: auto;
-    layout: vertical;
-}
-
-#agents-running-panel {
-    height: auto;
-    layout: vertical;
-}
-
 #agents-interaction-panel {
-    height: auto;
-    layout: vertical;
     display: none;
 }
 
-#agents-status-panel {
-    height: auto;
-    layout: vertical;
-}
-
-#agents-meta-panel {
-    height: auto;
-    layout: vertical;
-}
-
-#agents-schedule-panel {
-    height: auto;
-    layout: vertical;
-}
-
-#agents-memory-panel {
-    height: auto;
-    layout: vertical;
-}
+/* --- Section titles --- */
 
 .agents-section-title {
     color: $primary;
@@ -110,17 +100,82 @@
 
 .agents-panel-header {
     layout: horizontal;
+    width: 100%;
     height: auto;
+    align-vertical: middle;
+}
+
+.agents-panel-header .agents-section-title {
+    width: 1fr;
+    margin-bottom: 0;
 }
 
 .agents-label {
     color: $text-muted;
 }
 
-#agents-left Input,
-#agents-left Select {
+/* --- Form-level inputs/selects (bottom margin for spacing) ---
+ * Target the specific panels that contain form fields, NOT the
+ * refresh-interval rows which need tight spacing. */
+
+#agents-control-panel Input,
+#agents-control-panel Select,
+#agents-schedule-panel > Input,
+#agents-schedule-panel > Select,
+#agents-memory-panel Input,
+#agents-memory-panel Select,
+#agents-interaction-panel > Input {
     margin: 0 0 1 0;
 }
+
+/* --- Refresh controls (running + interaction) --- */
+
+#agents-running-refresh-controls,
+#agents-interaction-refresh-controls {
+    layout: horizontal;
+    width: 100%;
+    height: auto;
+    margin-bottom: 0;
+}
+
+#agents-running-refresh-controls Button,
+#agents-interaction-refresh-controls Button {
+    width: auto;
+    min-width: 6;
+    margin-right: 1;
+}
+
+#agents-running-refresh-controls Button:last-child,
+#agents-interaction-refresh-controls Button:last-child {
+    margin-right: 0;
+}
+
+#agents-clear-unread-button {
+    min-width: 6;
+}
+
+/* --- Refresh interval rows --- */
+
+#agents-running-refresh-interval-row,
+#agents-interaction-refresh-interval-row {
+    layout: vertical;
+    width: 100%;
+    height: auto;
+    margin-bottom: 0;
+}
+
+.agents-refresh-interval-label {
+    margin: 0;
+}
+
+#agents-running-refresh-interval-select,
+#agents-interaction-refresh-interval-select {
+    width: 1fr;
+    min-width: 8;
+    margin: 0 0 1 0;
+}
+
+/* --- Status outputs --- */
 
 #agents-status-output,
 #agents-running-output,
@@ -131,6 +186,8 @@
 #agents-memory-output {
     min-height: 1;
 }
+
+/* --- Data tables --- */
 
 #agents-running-table {
     height: 7;
@@ -154,22 +211,22 @@
     color: $text;
 }
 
+#agents-running-table:focus,
 #agents-meta-task-table:focus,
 #agents-meta-runs-table:focus,
 #agents-schedule-table:focus {
     border: round $primary;
 }
 
-#agents-running-table:focus {
-    border: round $primary;
-}
+/* --- Interaction indicator --- */
 
 #agents-interaction-indicator {
     width: auto;
     margin-left: 1;
     color: $text-muted;
-    dock: right;
 }
+
+/* --- Button groups --- */
 
 #agents-buttons,
 #agents-interaction-buttons,
@@ -205,6 +262,8 @@
     width: 1fr;
     min-width: 0;
 }
+
+/* --- Interaction panel active state --- */
 
 .agents-interaction-panel-active {
     border: round $warning;

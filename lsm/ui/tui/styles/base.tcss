@@ -9,6 +9,7 @@
 
 Screen {
     background: $surface;
+    layers: base overlay;
 }
 
 /* ============================================================================
@@ -162,6 +163,12 @@ TextArea:focus {
 Select {
     width: 100%;
     margin: 1 0;
+}
+
+/* Prevent zero-width overlay rendering when a Select is temporarily squeezed. */
+SelectOverlay {
+    layer: overlay;
+    min-width: 4;
 }
 
 Switch {

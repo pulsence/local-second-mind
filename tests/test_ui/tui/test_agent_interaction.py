@@ -87,17 +87,22 @@ class _Button:
     def __init__(self, widget_id: str = "") -> None:
         self.id = widget_id
         self.disabled = False
+        self.label = ""
 
 
 class _RichLog:
     def __init__(self) -> None:
         self.lines: list[str] = []
+        self.scroll_end_calls: list[bool | None] = []
+        self.is_vertical_scroll_end = True
 
-    def write(self, message: str) -> None:
+    def write(self, message: str, scroll_end=None) -> None:
         self.lines.append(message)
+        self.scroll_end_calls.append(scroll_end)
 
     def clear(self) -> None:
         self.lines = []
+        self.scroll_end_calls = []
 
 
 class _Manager:
@@ -225,9 +230,30 @@ def _screen():
 
     screen.widgets["#agents-running-table"] = _DataTable("agents-running-table")
     screen.widgets["#agents-running-output"] = _Static()
+    screen.widgets["#agents-running-refresh-toggle-button"] = _Button(
+        "agents-running-refresh-toggle-button"
+    )
+    screen.widgets["#agents-running-refresh-interval-select"] = _Select(
+        "2.0",
+        "agents-running-refresh-interval-select",
+    )
+    screen.widgets["#agents-running-refresh-now-button"] = _Button(
+        "agents-running-refresh-now-button"
+    )
+    screen.widgets["#agents-clear-unread-button"] = _Button("agents-clear-unread-button")
 
     screen.widgets["#agents-interaction-panel"] = _Container()
     screen.widgets["#agents-interaction-indicator"] = _Static()
+    screen.widgets["#agents-interaction-refresh-toggle-button"] = _Button(
+        "agents-interaction-refresh-toggle-button"
+    )
+    screen.widgets["#agents-interaction-refresh-interval-select"] = _Select(
+        "1.0",
+        "agents-interaction-refresh-interval-select",
+    )
+    screen.widgets["#agents-interaction-refresh-now-button"] = _Button(
+        "agents-interaction-refresh-now-button"
+    )
     screen.widgets["#agents-interaction-status-output"] = _Static()
     screen.widgets["#agents-interaction-type"] = _Static()
     screen.widgets["#agents-interaction-agent"] = _Static()
@@ -261,6 +287,7 @@ def _screen():
     screen.widgets["#agents-memory-select"] = _Select("", "agents-memory-select")
     screen.widgets["#agents-memory-ttl-input"] = _Input("", "agents-memory-ttl-input")
     screen.widgets["#agents-memory-output"] = _Static()
+    screen.widgets["#agents-log-follow-toggle-button"] = _Button("agents-log-follow-toggle-button")
     return screen
 
 
@@ -424,8 +451,151 @@ def test_log_stream_drain_appends_formatted_entries_and_drop_notice(monkeypatch)
     ]
     manager.stream_dropped[selected] = 2
 
-    screen._drain_selected_log_stream()
+    screen._drain_log_streams()
     rendered_lines = [str(line) for line in screen.widgets["#agents-log"].lines]
     assert any("Dropped 2 log entries" in line for line in rendered_lines)
     assert any("[TOOL]" in line and "write_file(" in line and "->" in line for line in rendered_lines)
     assert any("[LLM]" in line and "action=DONE" in line for line in rendered_lines)
+
+
+def test_refresh_controls_toggle_and_interval_updates(monkeypatch) -> None:
+    screen = _screen()
+    manager = _Manager()
+    monkeypatch.setattr(
+        "lsm.ui.tui.screens.agents.AgentRegistry",
+        lambda: SimpleNamespace(list_agents=lambda: ["research", "writing"]),
+    )
+    monkeypatch.setattr(
+        "lsm.ui.tui.screens.agents.get_agent_runtime_manager",
+        lambda: manager,
+    )
+
+    class _Timer:
+        def __init__(self) -> None:
+            self.stopped = False
+
+        def stop(self) -> None:
+            self.stopped = True
+
+    def _fake_start_timer(*, interval_seconds, callback):
+        _ = interval_seconds, callback
+        return _Timer()
+
+    screen._start_timer = _fake_start_timer  # type: ignore[method-assign]
+    screen.on_mount()
+
+    running_toggle = screen.widgets["#agents-running-refresh-toggle-button"]
+    interaction_toggle = screen.widgets["#agents-interaction-refresh-toggle-button"]
+    assert running_toggle.label == "Auto: On"
+    assert interaction_toggle.label == "Auto: On"
+
+    screen.on_button_pressed(
+        SimpleNamespace(button=SimpleNamespace(id="agents-running-refresh-toggle-button"))
+    )
+    assert screen._running_refresh_enabled is False
+    assert running_toggle.label == "Auto: Off"
+
+    screen.on_select_changed(
+        SimpleNamespace(
+            select=screen.widgets["#agents-running-refresh-interval-select"],
+            value="5.0",
+        )
+    )
+    assert screen._running_refresh_interval_seconds == 5.0
+
+    screen.on_button_pressed(
+        SimpleNamespace(button=SimpleNamespace(id="agents-interaction-refresh-toggle-button"))
+    )
+    assert screen._interaction_poll_enabled is False
+    assert interaction_toggle.label == "Auto: Off"
+
+    screen.on_select_changed(
+        SimpleNamespace(
+            select=screen.widgets["#agents-interaction-refresh-interval-select"],
+            value="2.0",
+        )
+    )
+    assert screen._interaction_poll_interval_seconds == 2.0
+
+
+def test_follow_toggle_controls_log_autoscroll(monkeypatch) -> None:
+    screen = _screen()
+    manager = _Manager()
+    monkeypatch.setattr(
+        "lsm.ui.tui.screens.agents.AgentRegistry",
+        lambda: SimpleNamespace(list_agents=lambda: ["research", "writing"]),
+    )
+    monkeypatch.setattr(
+        "lsm.ui.tui.screens.agents.get_agent_runtime_manager",
+        lambda: manager,
+    )
+
+    screen.on_mount()
+    log_widget = screen.widgets["#agents-log"]
+    log_widget.is_vertical_scroll_end = False
+
+    screen.on_button_pressed(
+        SimpleNamespace(button=SimpleNamespace(id="agents-log-follow-toggle-button"))
+    )
+    assert screen._log_follow_selected is False
+
+    screen._append_log("first line")
+    assert log_widget.scroll_end_calls[-1] is False
+
+    screen.on_button_pressed(
+        SimpleNamespace(button=SimpleNamespace(id="agents-log-follow-toggle-button"))
+    )
+    assert screen._log_follow_selected is True
+    screen._append_log("second line")
+    assert log_widget.scroll_end_calls[-1] is True
+
+
+def test_unread_log_counters_increment_and_clear(monkeypatch) -> None:
+    screen = _screen()
+    manager = _Manager()
+    monkeypatch.setattr(
+        "lsm.ui.tui.screens.agents.AgentRegistry",
+        lambda: SimpleNamespace(list_agents=lambda: ["research", "writing"]),
+    )
+    monkeypatch.setattr(
+        "lsm.ui.tui.screens.agents.get_agent_runtime_manager",
+        lambda: manager,
+    )
+
+    screen.on_mount()
+    assert screen._selected_agent_id == "aaaaaaaa11111111"
+
+    manager.stream_payloads["bbbbbbbb22222222"] = [
+        {
+            "timestamp": "2026-02-14T12:01:00",
+            "actor": "agent",
+            "content": "first",
+            "action": "",
+            "action_arguments": {},
+        },
+        {
+            "timestamp": "2026-02-14T12:01:01",
+            "actor": "agent",
+            "content": "second",
+            "action": "",
+            "action_arguments": {},
+        },
+    ]
+    screen._drain_log_streams()
+
+    assert screen._unread_log_counts["bbbbbbbb22222222"] == 2
+    screen._refresh_running_agents()
+    running_table = screen.widgets["#agents-running-table"]
+    assert running_table.rows[1][-1] == "2"
+
+    screen.on_data_table_row_selected(
+        SimpleNamespace(data_table=running_table, cursor_row=1)
+    )
+    assert screen._selected_agent_id == "bbbbbbbb22222222"
+    assert screen._unread_log_counts["bbbbbbbb22222222"] == 0
+
+    screen._unread_log_counts["aaaaaaaa11111111"] = 3
+    screen.on_button_pressed(
+        SimpleNamespace(button=SimpleNamespace(id="agents-clear-unread-button"))
+    )
+    assert all(count == 0 for count in screen._unread_log_counts.values())

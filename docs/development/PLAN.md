@@ -533,7 +533,7 @@ active tab.
 
 **Post-block:** Tests, run `pytest tests/ -v`, commit.
 
-### 4.3: UI Command Helpers Extraction
+### 4.3: UI Command Helpers Extraction (COMPLETED)
 
 The query screen is 1,515 lines with a massive command dispatch handler. Extract command
 parsing/dispatch helpers into a shared UI helpers package so command behavior is reusable and
@@ -568,13 +568,11 @@ consistent across TUI and shell surfaces.
 
 **Post-block:** All existing query tests pass, command-contract tests stay green, run `pytest tests/ -v`, commit.
 
-### 4.4: Agent Panel Refresh Controls and Log Following
+### 4.4: Agent Panel Refresh Controls and Log Following (COMPLETED)
 
 Improve usability and performance by giving users explicit control over refresh behavior.
 
 **Tasks:**
-- Add refresh toggle and interval controls for running-agents and interaction polling timers
-- Add "follow selected agent log" toggle in Agents screen
 - Add unread log counters per running agent when not selected
 - Reset unread counters when an agent is selected or manually cleared
 

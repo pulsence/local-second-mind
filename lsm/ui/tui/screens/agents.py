@@ -75,6 +75,12 @@ class AgentsScreen(Widget):
         self._interaction_poll_timer: Optional[Timer] = None
         self._log_stream_timer: Optional[Timer] = None
         self._stop_worker: Optional[threading.Thread] = None
+        self._running_refresh_enabled: bool = True
+        self._interaction_poll_enabled: bool = True
+        self._running_refresh_interval_seconds: float = 2.0
+        self._interaction_poll_interval_seconds: float = 1.0
+        self._log_follow_selected: bool = True
+        self._unread_log_counts: dict[str, int] = {}
 
     def compose(self) -> ComposeResult:
         with Vertical(id="agents-layout"):
@@ -97,6 +103,28 @@ class AgentsScreen(Widget):
                                 id="agents-interaction-indicator",
                                 markup=False,
                             )
+                        with Horizontal(id="agents-running-refresh-controls"):
+                            yield Button(
+                                "Auto: On",
+                                id="agents-running-refresh-toggle-button",
+                            )
+                            yield Button(
+                                "Refresh",
+                                id="agents-running-refresh-now-button",
+                            )
+                            yield Button(
+                                "Clear",
+                                id="agents-clear-unread-button",
+                            )
+                        with Vertical(id="agents-running-refresh-interval-row"):
+                            yield Static(
+                                "Refresh every",
+                                classes="agents-label agents-refresh-interval-label",
+                            )
+                            yield Select(
+                                [],
+                                id="agents-running-refresh-interval-select",
+                            )
                         yield DataTable(id="agents-running-table")
                         yield Static(
                             "No running agents.",
@@ -116,6 +144,24 @@ class AgentsScreen(Widget):
                                 yield Button("Log", id="agents-log-button")
                     with Container(id="agents-interaction-panel"):
                         yield Static("Interaction Request", classes="agents-section-title")
+                        with Horizontal(id="agents-interaction-refresh-controls"):
+                            yield Button(
+                                "Auto: On",
+                                id="agents-interaction-refresh-toggle-button",
+                            )
+                            yield Button(
+                                "Refresh",
+                                id="agents-interaction-refresh-now-button",
+                            )
+                        with Vertical(id="agents-interaction-refresh-interval-row"):
+                            yield Static(
+                                "Check every",
+                                classes="agents-label agents-refresh-interval-label",
+                            )
+                            yield Select(
+                                [],
+                                id="agents-interaction-refresh-interval-select",
+                            )
                         yield Static(
                             "No pending interaction requests.",
                             id="agents-interaction-status-output",
@@ -236,7 +282,12 @@ class AgentsScreen(Widget):
                         )
 
                 with Container(id="agents-log-panel"):
-                    yield Static("Agent Log", classes="agents-section-title")
+                    with Horizontal(id="agents-log-header"):
+                        yield Static("Agent Log", classes="agents-section-title")
+                        yield Button(
+                            "Follow: On",
+                            id="agents-log-follow-toggle-button",
+                        )
                     with ScrollableContainer(id="agents-log-scroll"):
                         yield RichLog(id="agents-log", auto_scroll=False, wrap=True)
 
@@ -244,6 +295,7 @@ class AgentsScreen(Widget):
         """Initialize agent select options and focus."""
         self._refresh_agent_options()
         self._initialize_running_controls()
+        self._initialize_refresh_controls()
         self._refresh_running_agents()
         self._refresh_interaction_panel()
         self._initialize_meta_controls()
@@ -251,17 +303,11 @@ class AgentsScreen(Widget):
         self._initialize_schedule_controls()
         self._refresh_schedule_entries()
         self._refresh_memory_candidates()
-        self._running_refresh_timer = self._start_timer(
-            interval_seconds=2.0,
-            callback=self._refresh_running_agents,
-        )
-        self._interaction_poll_timer = self._start_timer(
-            interval_seconds=1.0,
-            callback=self._refresh_interaction_panel,
-        )
+        self._restart_running_refresh_timer()
+        self._restart_interaction_poll_timer()
         self._log_stream_timer = self._start_timer(
             interval_seconds=0.5,
-            callback=self._drain_selected_log_stream,
+            callback=self._drain_log_streams,
         )
         self._focus_default_input()
 
@@ -271,12 +317,7 @@ class AgentsScreen(Widget):
             self._interaction_poll_timer,
             self._log_stream_timer,
         ):
-            if timer is None:
-                continue
-            try:
-                timer.stop()
-            except Exception:
-                continue
+            self._stop_timer(timer)
         self._running_refresh_timer = None
         self._interaction_poll_timer = None
         self._log_stream_timer = None
@@ -302,6 +343,24 @@ class AgentsScreen(Widget):
     def on_button_pressed(self, event: Button.Pressed) -> None:
         """Handle control button presses."""
         button_id = event.button.id or ""
+        if button_id == "agents-running-refresh-toggle-button":
+            self._toggle_running_refresh()
+            return
+        if button_id == "agents-running-refresh-now-button":
+            self._refresh_running_agents()
+            return
+        if button_id == "agents-clear-unread-button":
+            self._clear_unread_counts(manual=True)
+            return
+        if button_id == "agents-interaction-refresh-toggle-button":
+            self._toggle_interaction_refresh()
+            return
+        if button_id == "agents-interaction-refresh-now-button":
+            self._refresh_interaction_panel()
+            return
+        if button_id == "agents-log-follow-toggle-button":
+            self._toggle_log_follow_mode()
+            return
         if button_id == "agents-status-button":
             self._show_status()
             return
@@ -373,6 +432,37 @@ class AgentsScreen(Widget):
         if event.input.id == "agents-interaction-reply-input":
             self._reply_to_interaction()
             return
+
+    def on_select_changed(self, event: Select.Changed) -> None:
+        select_id = getattr(event.select, "id", "")
+        value = getattr(event, "value", None)
+        if select_id == "agents-running-refresh-interval-select":
+            parsed = self._parse_refresh_interval(value)
+            if parsed is None:
+                return
+            self._running_refresh_interval_seconds = parsed
+            self._restart_running_refresh_timer()
+            self._update_refresh_controls()
+            self._set_status(
+                (
+                    "Running-agents refresh interval set to "
+                    f"{self._format_interval_label(self._running_refresh_interval_seconds)}."
+                )
+            )
+            return
+        if select_id == "agents-interaction-refresh-interval-select":
+            parsed = self._parse_refresh_interval(value)
+            if parsed is None:
+                return
+            self._interaction_poll_interval_seconds = parsed
+            self._restart_interaction_poll_timer()
+            self._update_refresh_controls()
+            self._set_interaction_status(
+                (
+                    "Interaction polling interval set to "
+                    f"{self._format_interval_label(self._interaction_poll_interval_seconds)}."
+                )
+            )
 
     def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:
         table = getattr(event, "data_table", None)
@@ -513,13 +603,156 @@ class AgentsScreen(Widget):
         except Exception:
             return None
 
+    def _stop_timer(self, timer: Optional[Timer]) -> None:
+        if timer is None:
+            return
+        try:
+            timer.stop()
+        except Exception:
+            return
+
+    def _initialize_refresh_controls(self) -> None:
+        running_options = [
+            ("0.5s", "0.5"),
+            ("1.0s", "1.0"),
+            ("2.0s", "2.0"),
+            ("5.0s", "5.0"),
+        ]
+        interaction_options = [
+            ("0.5s", "0.5"),
+            ("1.0s", "1.0"),
+            ("2.0s", "2.0"),
+            ("3.0s", "3.0"),
+        ]
+        self._set_select_options(
+            "#agents-running-refresh-interval-select",
+            options=running_options,
+            value=f"{self._running_refresh_interval_seconds:.1f}",
+        )
+        self._set_select_options(
+            "#agents-interaction-refresh-interval-select",
+            options=interaction_options,
+            value=f"{self._interaction_poll_interval_seconds:.1f}",
+        )
+        self._update_refresh_controls()
+
+    def _set_select_options(
+        self,
+        selector: str,
+        *,
+        options: list[tuple[str, str]],
+        value: str,
+    ) -> None:
+        try:
+            select_widget = self.query_one(selector, Select)
+        except Exception:
+            return
+        try:
+            select_widget.set_options(options)
+            select_widget.value = value
+        except Exception:
+            return
+
+    def _set_button_label(self, selector: str, label: str) -> None:
+        try:
+            button = self.query_one(selector, Button)
+        except Exception:
+            return
+        try:
+            button.label = label
+        except Exception:
+            return
+
+    def _update_refresh_controls(self) -> None:
+        self._set_button_label(
+            "#agents-running-refresh-toggle-button",
+            "Auto: On" if self._running_refresh_enabled else "Auto: Off",
+        )
+        self._set_button_label(
+            "#agents-interaction-refresh-toggle-button",
+            "Auto: On" if self._interaction_poll_enabled else "Auto: Off",
+        )
+        self._set_button_label(
+            "#agents-log-follow-toggle-button",
+            "Follow: On" if self._log_follow_selected else "Follow: Off",
+        )
+
+    def _restart_running_refresh_timer(self) -> None:
+        self._stop_timer(self._running_refresh_timer)
+        self._running_refresh_timer = None
+        if not self._running_refresh_enabled:
+            return
+        self._running_refresh_timer = self._start_timer(
+            interval_seconds=self._running_refresh_interval_seconds,
+            callback=self._refresh_running_agents,
+        )
+
+    def _restart_interaction_poll_timer(self) -> None:
+        self._stop_timer(self._interaction_poll_timer)
+        self._interaction_poll_timer = None
+        if not self._interaction_poll_enabled:
+            return
+        self._interaction_poll_timer = self._start_timer(
+            interval_seconds=self._interaction_poll_interval_seconds,
+            callback=self._refresh_interaction_panel,
+        )
+
+    def _toggle_running_refresh(self) -> None:
+        self._running_refresh_enabled = not self._running_refresh_enabled
+        self._restart_running_refresh_timer()
+        self._update_refresh_controls()
+        state = "enabled" if self._running_refresh_enabled else "disabled"
+        self._set_status(
+            (
+                f"Running-agents refresh {state} "
+                f"({self._format_interval_label(self._running_refresh_interval_seconds)})."
+            )
+        )
+
+    def _toggle_interaction_refresh(self) -> None:
+        self._interaction_poll_enabled = not self._interaction_poll_enabled
+        self._restart_interaction_poll_timer()
+        self._update_refresh_controls()
+        state = "enabled" if self._interaction_poll_enabled else "disabled"
+        self._set_interaction_status(
+            (
+                f"Interaction polling {state} "
+                f"({self._format_interval_label(self._interaction_poll_interval_seconds)})."
+            )
+        )
+
+    def _toggle_log_follow_mode(self) -> None:
+        self._log_follow_selected = not self._log_follow_selected
+        self._update_refresh_controls()
+        if self._log_follow_selected:
+            try:
+                log_widget = self.query_one("#agents-log", RichLog)
+                self._scroll_log_to_end(log_widget)
+            except Exception:
+                pass
+        self._set_status(
+            f"Follow selected agent log {'enabled' if self._log_follow_selected else 'disabled'}."
+        )
+
+    def _parse_refresh_interval(self, value: Any) -> Optional[float]:
+        try:
+            parsed = float(str(value).strip())
+        except (TypeError, ValueError):
+            return None
+        if parsed <= 0:
+            return None
+        return parsed
+
+    def _format_interval_label(self, interval_seconds: float) -> str:
+        return f"{float(interval_seconds):.1f}s"
+
     def _initialize_running_controls(self) -> None:
         try:
             running_table = self.query_one("#agents-running-table", DataTable)
         except Exception:
             return
         if len(getattr(running_table, "columns", {})) == 0:
-            running_table.add_columns("ID", "Agent", "Topic", "Status", "Duration")
+            running_table.add_columns("ID", "Agent", "Topic", "Status", "Duration", "Unread")
         running_table.cursor_type = "row"
         running_table.zebra_stripes = True
 
@@ -539,11 +772,11 @@ class AgentsScreen(Widget):
             self._running_agent_ids = []
             self._running_row_index = 0
             self._selected_agent_id = None
+            self._unread_log_counts = {}
             output_widget.update(str(exc))
             return
 
-        running_table.clear(columns=False)
-        self._running_agent_ids = []
+        row_data: list[dict[str, Any]] = []
         current_running_agent_names: dict[str, str] = {}
         for row in running:
             agent_id = str(row.get("agent_id", "")).strip()
@@ -554,14 +787,21 @@ class AgentsScreen(Widget):
             topic = str(row.get("topic", "")).strip() or "-"
             status = str(row.get("status", "")).strip() or "-"
             duration_seconds = float(row.get("duration_seconds", 0.0) or 0.0)
-            running_table.add_row(
-                agent_id[:8],
-                agent_name,
-                topic,
-                status,
-                self._format_duration(duration_seconds),
+            row_data.append(
+                {
+                    "agent_id": agent_id,
+                    "agent_name": agent_name,
+                    "topic": topic,
+                    "status": status,
+                    "duration_seconds": duration_seconds,
+                }
             )
-            self._running_agent_ids.append(agent_id)
+
+        self._running_agent_ids = [
+            str(item.get("agent_id", "")).strip()
+            for item in row_data
+            if str(item.get("agent_id", "")).strip()
+        ]
 
         current_running_agent_ids = set(self._running_agent_ids)
         self._emit_running_agent_notifications(
@@ -572,10 +812,17 @@ class AgentsScreen(Widget):
         self._known_running_agent_ids = current_running_agent_ids
         self._known_running_agent_names = current_running_agent_names
         self._running_notifications_initialized = True
+        self._unread_log_counts = {
+            agent_id: max(0, self._coerce_int(count) or 0)
+            for agent_id, count in self._unread_log_counts.items()
+            if agent_id in current_running_agent_ids
+        }
 
         if not self._running_agent_ids:
+            running_table.clear(columns=False)
             self._running_row_index = 0
             self._selected_agent_id = None
+            self._unread_log_counts = {}
             output_widget.update("No running agents.")
             return
 
@@ -585,6 +832,27 @@ class AgentsScreen(Widget):
         else:
             selected_index = min(self._running_row_index, len(self._running_agent_ids) - 1)
             self._selected_agent_id = self._running_agent_ids[selected_index]
+
+        selected_agent_id = str(self._selected_agent_id or "").strip()
+        if selected_agent_id:
+            self._clear_unread_for_agent(selected_agent_id)
+
+        running_table.clear(columns=False)
+        for item in row_data:
+            agent_id = str(item.get("agent_id", "")).strip()
+            if not agent_id:
+                continue
+            unread_count = max(0, self._coerce_int(self._unread_log_counts.get(agent_id)) or 0)
+            if agent_id == selected_agent_id:
+                unread_count = 0
+            running_table.add_row(
+                agent_id[:8],
+                str(item.get("agent_name", "")),
+                str(item.get("topic", "")),
+                str(item.get("status", "")),
+                self._format_duration(float(item.get("duration_seconds", 0.0) or 0.0)),
+                str(unread_count),
+            )
 
         self._running_row_index = selected_index
         try:
@@ -624,12 +892,14 @@ class AgentsScreen(Widget):
             return
         self._running_row_index = row_index
         self._selected_agent_id = self._running_agent_ids[row_index]
+        self._clear_unread_for_agent(self._selected_agent_id)
         self._show_selected_agent_log()
 
     def _show_selected_agent_log(self) -> None:
         agent_id = self._selected_agent_id
         if not agent_id:
             return
+        self._clear_unread_for_agent(agent_id)
         manager = get_agent_runtime_manager()
         output = self._call_manager_with_agent_id(manager.log, agent_id)
         self._replace_log(output)
@@ -640,40 +910,77 @@ class AgentsScreen(Widget):
             except Exception:
                 pass
 
+    def _clear_unread_for_agent(self, agent_id: Optional[str]) -> None:
+        normalized = str(agent_id or "").strip()
+        if not normalized:
+            return
+        self._unread_log_counts[normalized] = 0
+
+    def _clear_unread_counts(self, *, manual: bool = False) -> None:
+        if not self._unread_log_counts:
+            if manual:
+                self._set_status("No unread log counters to clear.")
+            return
+        self._unread_log_counts = {agent_id: 0 for agent_id in self._unread_log_counts}
+        if manual:
+            self._set_status("Cleared unread log counters.")
+        self._refresh_running_agents()
+
     def _call_manager_with_agent_id(self, method, agent_id: Optional[str]) -> str:
         if agent_id:
             return method(agent_id=agent_id)
         return method(agent_id=None)
 
-    def _drain_selected_log_stream(self) -> None:
-        agent_id = str(self._selected_agent_id or "").strip()
-        if not agent_id:
-            return
+    def _drain_log_streams(self) -> None:
         manager = get_agent_runtime_manager()
         drain = getattr(manager, "drain_log_stream", None)
         if not callable(drain):
             return
-        try:
-            payload = drain(agent_id, max_entries=200)
-        except Exception:
-            return
-        if not isinstance(payload, dict):
-            return
 
-        drained_agent_id = str(payload.get("agent_id", "")).strip()
-        if drained_agent_id and drained_agent_id != agent_id:
-            return
-        dropped_count = self._coerce_int(payload.get("dropped_count"))
-        if dropped_count and dropped_count > 0:
-            self._append_log(self._format_stream_drop_notice(dropped_count))
+        selected_agent_id = str(self._selected_agent_id or "").strip()
+        target_agent_ids: list[str] = []
+        for agent_id in self._running_agent_ids:
+            normalized = str(agent_id or "").strip()
+            if normalized and normalized not in target_agent_ids:
+                target_agent_ids.append(normalized)
+        if selected_agent_id and selected_agent_id not in target_agent_ids:
+            target_agent_ids.append(selected_agent_id)
 
-        entries = payload.get("entries")
-        if not isinstance(entries, list):
-            return
-        for row in entries:
-            if not isinstance(row, dict):
+        for agent_id in target_agent_ids:
+            try:
+                payload = drain(agent_id, max_entries=200)
+            except Exception:
                 continue
-            self._append_log(self._format_stream_log_entry(row))
+            if not isinstance(payload, dict):
+                continue
+
+            drained_agent_id = str(payload.get("agent_id", "")).strip()
+            if drained_agent_id and drained_agent_id != agent_id:
+                continue
+
+            dropped_count = max(0, self._coerce_int(payload.get("dropped_count")) or 0)
+            entries = payload.get("entries")
+            if not isinstance(entries, list):
+                entries = []
+
+            if agent_id == selected_agent_id:
+                if dropped_count > 0:
+                    self._append_log(self._format_stream_drop_notice(dropped_count))
+                for row in entries:
+                    if not isinstance(row, dict):
+                        continue
+                    self._append_log(self._format_stream_log_entry(row))
+                continue
+
+            increment = dropped_count
+            for row in entries:
+                if isinstance(row, dict):
+                    increment += 1
+            if increment <= 0:
+                continue
+            self._unread_log_counts[agent_id] = (
+                max(0, self._coerce_int(self._unread_log_counts.get(agent_id)) or 0) + increment
+            )
 
     def _refresh_interaction_panel(self) -> None:
         try:
@@ -1498,7 +1805,11 @@ class AgentsScreen(Widget):
         if isinstance(message, str) and not message:
             return
         log_widget = self.query_one("#agents-log", RichLog)
-        should_scroll_end = force_scroll_end or self._is_log_scrolled_to_bottom(log_widget)
+        should_scroll_end = (
+            force_scroll_end
+            or self._log_follow_selected
+            or self._is_log_scrolled_to_bottom(log_widget)
+        )
         if replace:
             clear_fn = getattr(log_widget, "clear", None)
             if callable(clear_fn):

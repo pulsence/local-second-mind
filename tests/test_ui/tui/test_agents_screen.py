@@ -352,6 +352,7 @@ def test_button_press_routes_to_actions(monkeypatch) -> None:
 
 def test_log_append_autoscrolls_only_when_at_bottom() -> None:
     screen = _screen()
+    screen._log_follow_selected = False
     log_widget = screen.widgets["#agents-log"]
 
     log_widget.is_vertical_scroll_end = True
