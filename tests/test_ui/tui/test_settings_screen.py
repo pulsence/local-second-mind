@@ -43,6 +43,14 @@ class _Table:
         self.rows = []
 
 
+class _CommandInput:
+    def __init__(self) -> None:
+        self.focused = False
+
+    def focus(self) -> None:
+        self.focused = True
+
+
 class _FakeViewModel:
     def __init__(self, config: Any) -> None:
         self.persisted_config = config
@@ -137,13 +145,19 @@ def _screen(context: str = "settings") -> tuple[_TestableSettingsScreen, _FakeVi
     screen.widgets["#settings-tabs"] = _Tabs()
     for tab_id, _ in screen._TAB_LAYOUT:
         screen.widgets[f"#{tab_id}-table"] = _Table()
+        screen.widgets[f"#{tab_id}-command"] = _CommandInput()
 
     return screen, vm
 
 
-def test_settings_bindings_use_ctrl_numbers() -> None:
+def test_settings_bindings_use_function_keys_and_avoid_app_conflicts() -> None:
+    from lsm.ui.tui.app import LSMApp
+
     keys = [binding.key for binding in SettingsScreen.BINDINGS]
-    assert keys == ["ctrl+1", "ctrl+2", "ctrl+3", "ctrl+4", "ctrl+5", "ctrl+6", "ctrl+7", "ctrl+8"]
+    assert keys == ["f2", "f3", "f4", "f5", "f6", "f7", "f8", "f9"]
+
+    app_keys = {binding.key for binding in LSMApp.BINDINGS}
+    assert app_keys.isdisjoint(keys)
 
 
 def test_refresh_from_config_populates_only_active_table() -> None:
@@ -167,6 +181,18 @@ def test_tab_activation_refreshes_stale_selected_tab() -> None:
 
     assert vm.table_rows_calls == ["settings-llm"]
     assert screen.widgets["#settings-llm-table"].rows
+
+
+def test_tab_activation_focuses_active_command_input() -> None:
+    screen, _ = _screen()
+    tabs = screen.widgets["#settings-tabs"]
+
+    tabs.active = "settings-query"
+    event = SimpleNamespace(tabbed_content=tabs, tab=SimpleNamespace(id="settings-query-tab"))
+
+    screen.on_tabbed_content_tab_activated(event)
+
+    assert screen.widgets["#settings-query-command"].focused is True
 
 
 def test_set_command_routes_to_view_model() -> None:

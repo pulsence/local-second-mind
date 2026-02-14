@@ -24,25 +24,25 @@ class SettingsScreen(Widget):
     """Current selected mode name (for tests and UI state)."""
 
     BINDINGS = [
-        Binding("ctrl+1", "settings_tab_1", "Global", show=True),
-        Binding("ctrl+2", "settings_tab_2", "Ingest", show=True),
-        Binding("ctrl+3", "settings_tab_3", "Query", show=True),
-        Binding("ctrl+4", "settings_tab_4", "LLM", show=True),
-        Binding("ctrl+5", "settings_tab_5", "Vector DB", show=True),
-        Binding("ctrl+6", "settings_tab_6", "Modes", show=True),
-        Binding("ctrl+7", "settings_tab_7", "Remote", show=True),
-        Binding("ctrl+8", "settings_tab_8", "Chats/Notes", show=True),
+        Binding("f2", "local_settings_tab_1", "Global", show=True),
+        Binding("f3", "local_settings_tab_2", "Ingest", show=True),
+        Binding("f4", "local_settings_tab_3", "Query", show=True),
+        Binding("f5", "local_settings_tab_4", "LLM", show=True),
+        Binding("f6", "local_settings_tab_5", "Vector DB", show=True),
+        Binding("f7", "local_settings_tab_6", "Modes", show=True),
+        Binding("f8", "local_settings_tab_7", "Remote", show=True),
+        Binding("f9", "local_settings_tab_8", "Chats/Notes", show=True),
     ]
 
     _TAB_LAYOUT: tuple[tuple[str, str], ...] = (
-        ("settings-global", "Global (^1)"),
-        ("settings-ingest", "Ingest (^2)"),
-        ("settings-query", "Query (^3)"),
-        ("settings-llm", "LLM (^4)"),
-        ("settings-vdb", "Vector DB (^5)"),
-        ("settings-modes", "Modes (^6)"),
-        ("settings-remote", "Remote (^7)"),
-        ("settings-chats-notes", "Chats/Notes (^8)"),
+        ("settings-global", "Global (F2)"),
+        ("settings-ingest", "Ingest (F3)"),
+        ("settings-query", "Query (F4)"),
+        ("settings-llm", "LLM (F5)"),
+        ("settings-vdb", "Vector DB (F6)"),
+        ("settings-modes", "Modes (F7)"),
+        ("settings-remote", "Remote (F8)"),
+        ("settings-chats-notes", "Chats/Notes (F9)"),
     )
 
     _TAB_HELP: dict[str, str] = {
@@ -86,6 +86,7 @@ class SettingsScreen(Widget):
             try:
                 tabs = self.query_one("#settings-tabs", TabbedContent)
                 self.call_after_refresh(tabs.focus)
+                self.call_after_refresh(lambda: self._focus_command_input(self._active_tab_id()))
             except Exception:
                 return
 
@@ -103,6 +104,7 @@ class SettingsScreen(Widget):
 
         if tab_id in self._stale_tabs:
             self._refresh_tab_from_view_model(tab_id)
+        self._focus_command_input(tab_id)
 
     def on_input_submitted(self, event: Input.Submitted) -> None:
         tab_id = self._tab_id_from_command_input_id(event.input.id or "")
@@ -124,7 +126,9 @@ class SettingsScreen(Widget):
 
         self.current_mode = str(getattr(view_model.draft_config.query, "mode", "") or "")
         self._mark_tabs_stale([tab_id for tab_id, _ in self._TAB_LAYOUT])
-        self._refresh_tab_from_view_model(self._active_tab_id())
+        active = self._active_tab_id()
+        self._refresh_tab_from_view_model(active)
+        self._focus_command_input(active)
 
     def _execute_command(self, tab_id: str, command: str) -> None:
         view_model = self._ensure_view_model()
@@ -294,6 +298,38 @@ class SettingsScreen(Widget):
 
     def _activate_tab(self, tab_id: str) -> None:
         self.query_one("#settings-tabs", TabbedContent).active = tab_id
+        self.call_after_refresh(lambda: self._focus_command_input(tab_id))
+
+    def _focus_command_input(self, tab_id: str) -> None:
+        try:
+            command = self.query_one(f"#{self._command_id(tab_id)}", Input)
+            command.focus()
+        except Exception:
+            return
+
+    def action_local_settings_tab_1(self) -> None:
+        self._activate_tab("settings-global")
+
+    def action_local_settings_tab_2(self) -> None:
+        self._activate_tab("settings-ingest")
+
+    def action_local_settings_tab_3(self) -> None:
+        self._activate_tab("settings-query")
+
+    def action_local_settings_tab_4(self) -> None:
+        self._activate_tab("settings-llm")
+
+    def action_local_settings_tab_5(self) -> None:
+        self._activate_tab("settings-vdb")
+
+    def action_local_settings_tab_6(self) -> None:
+        self._activate_tab("settings-modes")
+
+    def action_local_settings_tab_7(self) -> None:
+        self._activate_tab("settings-remote")
+
+    def action_local_settings_tab_8(self) -> None:
+        self._activate_tab("settings-chats-notes")
 
     def action_settings_tab_1(self) -> None:
         self._activate_tab("settings-global")
