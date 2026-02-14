@@ -554,16 +554,21 @@ ProgressBar > .bar--complete {
 
 .density-narrow #query-top {
     layout: vertical;
+    overflow-y: auto;
+    overflow-x: hidden;
 }
 
 .density-narrow #query-results-panel {
     width: 1fr;
+    min-height: 10;
 }
 
 .density-narrow #query-log-panel {
     width: 1fr;
+    min-width: 0;
     max-width: 100%;
     margin-top: 1;
+    min-height: 8;
 }
 
 .density-narrow #remote-top {
@@ -582,12 +587,15 @@ ProgressBar > .bar--complete {
 
 .density-narrow #agents-top {
     layout: vertical;
+    overflow-y: auto;
+    overflow-x: hidden;
 }
 
 .density-narrow #agents-left {
     width: 1fr;
     min-width: 0;
     max-width: 100%;
+    height: auto;
     padding-right: 0;
 }
 
@@ -595,4 +603,34 @@ ProgressBar > .bar--complete {
     width: 1fr;
     min-width: 0;
     margin-top: 1;
+    min-height: 10;
+}
+
+.density-narrow #ingest-layout {
+    layout: vertical;
+    overflow-y: auto;
+    overflow-x: hidden;
+}
+
+.density-narrow .ingest-tree-container {
+    width: 1fr;
+    min-width: 0;
+    max-width: 100%;
+    max-height: 12;
+    border-right: none;
+    border-bottom: solid $primary-darken-1;
+}
+
+.density-narrow #ingest-right-pane {
+    width: 1fr;
+    min-width: 0;
+}
+
+.density-narrow #ingest-info-container {
+    height: auto;
+}
+
+.density-narrow #ingest-output-container {
+    height: 1fr;
+    min-height: 8;
 }

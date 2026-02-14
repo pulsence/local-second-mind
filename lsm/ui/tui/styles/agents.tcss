@@ -16,6 +16,7 @@
 #agents-top {
     height: 1fr;
     layout: horizontal;
+    overflow: hidden;
 }
 
 #agents-left {

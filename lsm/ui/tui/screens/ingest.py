@@ -17,7 +17,7 @@ import asyncio
 
 from textual.app import ComposeResult
 from textual.binding import Binding
-from textual.containers import Container, Horizontal, Vertical, ScrollableContainer
+from textual.containers import Container, Vertical, ScrollableContainer
 from textual.widgets import Static, DirectoryTree, ProgressBar, Tree, TabbedContent
 from textual.widget import Widget
 from textual.reactive import reactive
@@ -77,7 +77,7 @@ class IngestScreen(Widget):
 
     def compose(self) -> ComposeResult:
         """Compose the ingest screen layout."""
-        with Horizontal(id="ingest-layout"):
+        with ScrollableContainer(id="ingest-layout"):
             # Left pane: Directory tree
             with Vertical(classes="ingest-tree-container"):
                 yield Static("Indexed Files", classes="stats-title")

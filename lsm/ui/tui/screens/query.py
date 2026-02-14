@@ -14,7 +14,7 @@ import asyncio
 
 from textual.app import ComposeResult
 from textual.binding import Binding
-from textual.containers import Container, Vertical, Horizontal
+from textual.containers import Container, Vertical, ScrollableContainer
 from textual.widgets import Static, RichLog, TabbedContent
 from textual.widget import Widget
 from textual.message import Message
@@ -109,7 +109,7 @@ class QueryScreen(Widget):
     def compose(self) -> ComposeResult:
         """Compose the query screen layout."""
         with Vertical(id="query-layout"):
-            with Horizontal(id="query-top"):
+            with ScrollableContainer(id="query-top"):
                 # Results area with ResultsPanel widget
                 yield ResultsPanel(id="query-results-panel")
 

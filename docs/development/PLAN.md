@@ -582,7 +582,7 @@ Improve usability and performance by giving users explicit control over refresh 
 
 **Post-block:** `tests/test_ui/tui/test_agent_interaction.py` updates for refresh/follow/unread behavior, run `pytest tests/ -v`, commit.
 
-### 4.5: Responsive Layout Fallbacks for Narrow Terminals
+### 4.5: Responsive Layout Fallbacks for Narrow Terminals (COMPLETED)
 
 Strengthen terminal compatibility with explicit breakpoint behavior.
 

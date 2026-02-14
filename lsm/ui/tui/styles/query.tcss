@@ -27,10 +27,12 @@
 #query-top {
     height: 1fr;
     layout: horizontal;
+    overflow: hidden;
 }
 
 #query-log-panel {
     width: 1fr;
+    min-width: 28;
     max-width: 40%;
     padding: 1;
     border: round $primary-darken-2;
@@ -65,4 +67,5 @@
 
 #query-results-panel {
     width: 2fr;
+    min-width: 0;
 }

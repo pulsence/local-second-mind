@@ -20,6 +20,10 @@ def _styles_text() -> str:
     )
 
 
+def _read(path: Path) -> str:
+    return path.read_text(encoding="utf-8")
+
+
 def _selector_bodies(css: str, selector: str) -> list[str]:
     pattern = rf"(?ms)^\s*{re.escape(selector)}\s*\{{(.*?)^\s*\}}"
     return re.findall(pattern, css)
@@ -107,8 +111,31 @@ def test_narrow_breakpoint_rules_exist() -> None:
     """Narrow-terminal layout fallbacks should be present."""
     css = _styles_text()
     _assert_selector_has(css, ".density-narrow #query-top", "layout: vertical;")
+    _assert_selector_has(css, ".density-narrow #query-top", "overflow-y: auto;")
     _assert_selector_has(css, ".density-narrow #remote-top", "layout: vertical;")
     _assert_selector_has(css, ".density-narrow #agents-top", "layout: vertical;")
+    _assert_selector_has(css, ".density-narrow #agents-top", "overflow-y: auto;")
+    _assert_selector_has(css, ".density-narrow #ingest-layout", "layout: vertical;")
+    _assert_selector_has(css, ".density-narrow .ingest-tree-container", "width: 1fr;")
+    _assert_selector_has(
+        css,
+        ".density-narrow .ingest-tree-container",
+        "border-bottom: solid $primary-darken-1;",
+    )
+    _assert_selector_has(css, ".density-narrow #ingest-right-pane", "width: 1fr;")
+    _assert_selector_has(css, ".density-narrow #ingest-output-container", "min-height: 8;")
+
+
+def test_narrow_layout_uses_scrollable_top_containers() -> None:
+    """Query, ingest, and agents should use scrollable top containers."""
+    repo_root = Path(__file__).resolve().parents[3]
+    query_source = _read(repo_root / "lsm" / "ui" / "tui" / "screens" / "query.py")
+    ingest_source = _read(repo_root / "lsm" / "ui" / "tui" / "screens" / "ingest.py")
+    agents_source = _read(repo_root / "lsm" / "ui" / "tui" / "screens" / "agents.py")
+
+    assert 'with ScrollableContainer(id="query-top")' in query_source
+    assert 'with ScrollableContainer(id="ingest-layout")' in ingest_source
+    assert 'with ScrollableContainer(id="agents-top")' in agents_source
 
 
 def test_global_input_and_select_do_not_force_compact_height() -> None:

@@ -84,7 +84,7 @@ class AgentsScreen(Widget):
 
     def compose(self) -> ComposeResult:
         with Vertical(id="agents-layout"):
-            with Horizontal(id="agents-top"):
+            with ScrollableContainer(id="agents-top"):
                 with ScrollableContainer(id="agents-left"):
                     with Container(id="agents-control-panel"):
                         yield Static("Agents", classes="agents-section-title")
