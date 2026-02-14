@@ -52,6 +52,8 @@
 }
 
 #agents-control-panel,
+#agents-running-panel,
+#agents-interaction-panel,
 #agents-status-panel,
 #agents-meta-panel,
 #agents-schedule-panel,
@@ -67,6 +69,17 @@
 #agents-control-panel {
     height: auto;
     layout: vertical;
+}
+
+#agents-running-panel {
+    height: auto;
+    layout: vertical;
+}
+
+#agents-interaction-panel {
+    height: auto;
+    layout: vertical;
+    display: none;
 }
 
 #agents-status-panel {
@@ -95,6 +108,11 @@
     margin-bottom: 1;
 }
 
+.agents-panel-header {
+    layout: horizontal;
+    height: auto;
+}
+
 .agents-label {
     color: $text-muted;
 }
@@ -105,11 +123,21 @@
 }
 
 #agents-status-output,
+#agents-running-output,
+#agents-interaction-status-output,
 #agents-meta-output,
 #agents-meta-artifacts-output,
 #agents-schedule-output,
 #agents-memory-output {
     min-height: 1;
+}
+
+#agents-running-table {
+    height: 7;
+    min-height: 5;
+    margin-bottom: 1;
+    border: round $primary-darken-2;
+    background: $surface;
 }
 
 #agents-meta-task-table,
@@ -132,7 +160,19 @@
     border: round $primary;
 }
 
+#agents-running-table:focus {
+    border: round $primary;
+}
+
+#agents-interaction-indicator {
+    width: auto;
+    margin-left: 1;
+    color: $text-muted;
+    dock: right;
+}
+
 #agents-buttons,
+#agents-interaction-buttons,
 #agents-schedule-buttons,
 #agents-memory-buttons,
 #agents-meta-buttons {
@@ -164,4 +204,25 @@
 #agents-meta-buttons Button {
     width: 1fr;
     min-width: 0;
+}
+
+.agents-interaction-panel-active {
+    border: round $warning;
+    background: $surface-darken-1;
+}
+
+.agents-interaction-indicator-active {
+    color: $warning;
+    text-style: bold;
+}
+
+#agents-interaction-type,
+#agents-interaction-agent,
+#agents-interaction-tool,
+#agents-interaction-risk,
+#agents-interaction-reason,
+#agents-interaction-args,
+#agents-interaction-prompt {
+    color: $text-muted;
+    margin-bottom: 1;
 }

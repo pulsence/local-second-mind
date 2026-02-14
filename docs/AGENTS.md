@@ -264,6 +264,11 @@ When waiting on a user interaction request, harness status is set to `WAITING_US
 - Interaction helpers:
   - `get_pending_interactions()` returns active run prompts waiting for user input
   - `respond_to_interaction(agent_id, response)` posts an `InteractionResponse` to the run channel
+- Agents TUI (`lsm/ui/tui/screens/agents.py`) now consumes these APIs with:
+  - a polling Running Agents table (`agent_id`, agent, topic, status, duration)
+  - row-based log targeting for concurrent sessions
+  - an interaction request panel that supports permission decisions and clarification replies per `agent_id`
+  - urgency indicator styling for pending interaction requests
 
 Per-run workspace is created as:
 

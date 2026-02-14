@@ -394,7 +394,7 @@ that can track multiple concurrent agents.
 
 **Post-block:** `tests/test_ui/shell/test_multi_agent_manager.py` including stop/shutdown/join race cases, run `pytest tests/ -v`, commit.
 
-### 3.4: Agent Interaction UI in TUI
+### 3.4: Agent Interaction UI in TUI (COMPLETED)
 
 Add UI elements to the Agents screen for handling interaction requests and showing running agents.
 
@@ -467,7 +467,19 @@ so the UI shows log entries as they happen.
 
 **Post-block:** Tests for log streaming and queue pressure handling, run pytest tests/ -v, commit.
 
-### 3.7: Phase 3 Changelog
+### 3.7: Phase 3 Code Review
+
+**Tasks:**
+- Review the changes made in Phase 3: Interactive Agent System and ensure that the phase is
+  entirely implemented and implemented completely
+- Review the code related to Phase 3 and make sure that there is no remaining backwards
+  compatability code or deprecated code or dead code.
+- Review thet tests related to Phase 3 and ensure they are well structured and there are not
+  mock or stub tests.
+
+**Post-block:** Run pytest tests/ -v, and then provide git commit message for this phase.
+
+### 3.8: Phase 3 Changelog
 
 Summarize Phase 3 changes into `docs/development/CHANGELOG.md`.
 

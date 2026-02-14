@@ -5,18 +5,36 @@ Agents screen for launching and monitoring agent runs.
 from __future__ import annotations
 
 import json
+from typing import Any, Optional
 
 from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Container, Vertical, Horizontal, ScrollableContainer
+from textual.timer import Timer
 from textual.widgets import Static, Input, Button, Select, RichLog, DataTable
 from textual.widget import Widget
 
-from lsm.agents.factory import AgentRegistry
 from lsm.logging import get_logger
-from lsm.ui.shell.commands.agents import get_agent_runtime_manager
 
 logger = get_logger(__name__)
+
+
+def AgentRegistry():
+    """
+    Lazily construct the agent registry for TUI option loading.
+    """
+    from lsm.agents.factory import AgentRegistry as _AgentRegistry
+
+    return _AgentRegistry()
+
+
+def get_agent_runtime_manager():
+    """
+    Lazily import the shell runtime manager to keep TUI module import fast.
+    """
+    from lsm.ui.shell.commands.agents import get_agent_runtime_manager as _get_runtime_manager
+
+    return _get_runtime_manager()
 
 
 class AgentsScreen(Widget):
@@ -27,17 +45,43 @@ class AgentsScreen(Widget):
     BINDINGS = [
         Binding("tab", "focus_next", "Next", show=False),
         Binding("shift+tab", "focus_previous", "Previous", show=False),
+        Binding("f6", "running_prev", "Prev Agent", show=False),
+        Binding("f7", "running_next", "Next Agent", show=False),
+        Binding("f8", "interaction_approve", "Approve", show=False),
+        Binding("f9", "interaction_approve_session", "Approve Session", show=False),
+        Binding("f10", "interaction_deny", "Deny", show=False),
+        Binding("f11", "interaction_reply", "Reply", show=False),
     ]
 
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
         self._schedule_ids: list[str] = []
         self._schedule_row_index: int = 0
+        self._running_agent_ids: list[str] = []
+        self._running_row_index: int = 0
+        self._selected_agent_id: Optional[str] = None
+        self._pending_interaction: Optional[dict[str, Any]] = None
+        self._running_refresh_timer: Optional[Timer] = None
+        self._interaction_poll_timer: Optional[Timer] = None
 
     def compose(self) -> ComposeResult:
         with Vertical(id="agents-layout"):
             with Horizontal(id="agents-top"):
                 with ScrollableContainer(id="agents-left"):
+                    with Container(id="agents-running-panel"):
+                        with Horizontal(classes="agents-panel-header"):
+                            yield Static("Running Agents", classes="agents-section-title")
+                            yield Static(
+                                "No pending interaction",
+                                id="agents-interaction-indicator",
+                                markup=False,
+                            )
+                        yield DataTable(id="agents-running-table")
+                        yield Static(
+                            "No running agents.",
+                            id="agents-running-output",
+                            markup=False,
+                        )
                     with Container(id="agents-control-panel"):
                         yield Static("Agents", classes="agents-section-title")
                         yield Static("Agent", classes="agents-label")
@@ -56,6 +100,50 @@ class AgentsScreen(Widget):
                                 yield Button("Resume", id="agents-resume-button")
                                 yield Button("Stop", id="agents-stop-button", variant="error")
                                 yield Button("Log", id="agents-log-button")
+                    with Container(id="agents-interaction-panel"):
+                        yield Static("Interaction Request", classes="agents-section-title")
+                        yield Static(
+                            "No pending interaction requests.",
+                            id="agents-interaction-status-output",
+                            markup=False,
+                        )
+                        yield Static("Type: -", id="agents-interaction-type", markup=False)
+                        yield Static("Agent: -", id="agents-interaction-agent", markup=False)
+                        yield Static("Tool: -", id="agents-interaction-tool", markup=False)
+                        yield Static("Risk: -", id="agents-interaction-risk", markup=False)
+                        yield Static("Reason: -", id="agents-interaction-reason", markup=False)
+                        yield Static("Args: -", id="agents-interaction-args", markup=False)
+                        yield Static("Prompt: -", id="agents-interaction-prompt", markup=False)
+                        yield Input(
+                            placeholder="Optional deny reason",
+                            id="agents-interaction-deny-input",
+                        )
+                        yield Input(
+                            placeholder="Reply text",
+                            id="agents-interaction-reply-input",
+                        )
+                        with Vertical(id="agents-interaction-buttons"):
+                            with Horizontal(classes="agents-button-row"):
+                                yield Button(
+                                    "Approve",
+                                    id="agents-interaction-approve-button",
+                                    variant="success",
+                                )
+                                yield Button(
+                                    "Approve Session",
+                                    id="agents-interaction-approve-session-button",
+                                )
+                                yield Button(
+                                    "Deny",
+                                    id="agents-interaction-deny-button",
+                                    variant="error",
+                                )
+                            with Horizontal(classes="agents-button-row"):
+                                yield Button(
+                                    "Send Reply",
+                                    id="agents-interaction-reply-button",
+                                    variant="primary",
+                                )
                     with Container(id="agents-status-panel"):
                         yield Static("Status", classes="agents-section-title")
                         yield Static("No active agent.", id="agents-status-output", markup=False)
@@ -144,12 +232,52 @@ class AgentsScreen(Widget):
     def on_mount(self) -> None:
         """Initialize agent select options and focus."""
         self._refresh_agent_options()
+        self._initialize_running_controls()
+        self._refresh_running_agents()
+        self._refresh_interaction_panel()
         self._initialize_meta_controls()
         self._refresh_meta_panel()
         self._initialize_schedule_controls()
         self._refresh_schedule_entries()
         self._refresh_memory_candidates()
+        self._running_refresh_timer = self._start_timer(
+            interval_seconds=2.0,
+            callback=self._refresh_running_agents,
+        )
+        self._interaction_poll_timer = self._start_timer(
+            interval_seconds=1.0,
+            callback=self._refresh_interaction_panel,
+        )
         self._focus_default_input()
+
+    def on_unmount(self) -> None:
+        for timer in (self._running_refresh_timer, self._interaction_poll_timer):
+            if timer is None:
+                continue
+            try:
+                timer.stop()
+            except Exception:
+                continue
+        self._running_refresh_timer = None
+        self._interaction_poll_timer = None
+
+    def action_running_prev(self) -> None:
+        self._move_running_selection(-1)
+
+    def action_running_next(self) -> None:
+        self._move_running_selection(1)
+
+    def action_interaction_approve(self) -> None:
+        self._approve_interaction()
+
+    def action_interaction_approve_session(self) -> None:
+        self._approve_interaction_session()
+
+    def action_interaction_deny(self) -> None:
+        self._deny_interaction()
+
+    def action_interaction_reply(self) -> None:
+        self._reply_to_interaction()
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         """Handle control button presses."""
@@ -171,6 +299,18 @@ class AgentsScreen(Widget):
             return
         if button_id == "agents-log-button":
             self._show_log()
+            return
+        if button_id == "agents-interaction-approve-button":
+            self._approve_interaction()
+            return
+        if button_id == "agents-interaction-approve-session-button":
+            self._approve_interaction_session()
+            return
+        if button_id == "agents-interaction-deny-button":
+            self._deny_interaction()
+            return
+        if button_id == "agents-interaction-reply-button":
+            self._reply_to_interaction()
             return
         if button_id == "agents-meta-refresh-button":
             self._refresh_meta_panel()
@@ -212,14 +352,25 @@ class AgentsScreen(Widget):
     def on_input_submitted(self, event: Input.Submitted) -> None:
         if event.input.id == "agents-topic-input":
             self._start_agent()
+            return
+        if event.input.id == "agents-interaction-reply-input":
+            self._reply_to_interaction()
+            return
 
     def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:
         table = getattr(event, "data_table", None)
-        if table is None or table.id != "agents-schedule-table":
+        if table is None:
             return
         row_index = getattr(event, "cursor_row", None)
-        if isinstance(row_index, int) and row_index >= 0:
+        if not isinstance(row_index, int) or row_index < 0:
+            return
+        if table.id == "agents-running-table":
+            self._running_row_index = row_index
+            self._select_running_agent_by_row(row_index)
+            return
+        if table.id == "agents-schedule-table":
             self._schedule_row_index = row_index
+            return
 
     def _refresh_agent_options(self) -> None:
         agent_select = self.query_one("#agents-select", Select)
@@ -247,6 +398,8 @@ class AgentsScreen(Widget):
         output = manager.start(self.app, agent_name, topic)
         self._set_status(output.strip())
         self._append_log(output)
+        self._refresh_running_agents()
+        self._refresh_interaction_panel()
         self._refresh_meta_panel()
 
     def _show_status(self) -> None:
@@ -257,22 +410,26 @@ class AgentsScreen(Widget):
 
     def _run_control_action(self, action: str) -> None:
         manager = get_agent_runtime_manager()
+        target_id = self._selected_agent_id
         if action == "pause":
-            output = manager.pause()
+            output = self._call_manager_with_agent_id(manager.pause, target_id)
         elif action == "resume":
-            output = manager.resume()
+            output = self._call_manager_with_agent_id(manager.resume, target_id)
         elif action == "stop":
-            output = manager.stop()
+            output = self._call_manager_with_agent_id(manager.stop, target_id)
         else:
             output = "Unsupported control action."
         self._set_status(output.strip())
         self._append_log(output)
+        self._refresh_running_agents()
+        self._refresh_interaction_panel()
+        self._show_selected_agent_log()
         self._refresh_meta_panel()
 
     def _show_log(self) -> None:
         manager = get_agent_runtime_manager()
-        output = manager.log()
-        self._append_log(output)
+        output = self._call_manager_with_agent_id(manager.log, self._selected_agent_id)
+        self._replace_log(output)
         self._refresh_meta_panel()
 
     def _show_meta_log(self) -> None:
@@ -283,6 +440,385 @@ class AgentsScreen(Widget):
         output = manager.meta_log()
         self._append_log(output)
         self._refresh_meta_panel()
+
+    def _start_timer(
+        self,
+        *,
+        interval_seconds: float,
+        callback,
+    ) -> Optional[Timer]:
+        app_obj = getattr(self, "app", None)
+        if app_obj is None or not hasattr(app_obj, "set_interval"):
+            return None
+        try:
+            return self.set_interval(interval_seconds, callback)
+        except Exception:
+            return None
+
+    def _initialize_running_controls(self) -> None:
+        try:
+            running_table = self.query_one("#agents-running-table", DataTable)
+        except Exception:
+            return
+        if len(getattr(running_table, "columns", {})) == 0:
+            running_table.add_columns("ID", "Agent", "Topic", "Status", "Duration")
+        running_table.cursor_type = "row"
+        running_table.zebra_stripes = True
+
+    def _refresh_running_agents(self) -> None:
+        try:
+            running_table = self.query_one("#agents-running-table", DataTable)
+            output_widget = self.query_one("#agents-running-output", Static)
+        except Exception:
+            return
+
+        manager = get_agent_runtime_manager()
+        try:
+            running = list(manager.list_running())
+        except Exception as exc:
+            running_table.clear(columns=False)
+            self._running_agent_ids = []
+            self._running_row_index = 0
+            self._selected_agent_id = None
+            output_widget.update(str(exc))
+            return
+
+        running_table.clear(columns=False)
+        self._running_agent_ids = []
+        for row in running:
+            agent_id = str(row.get("agent_id", "")).strip()
+            if not agent_id:
+                continue
+            agent_name = str(row.get("agent_name", "")).strip() or "-"
+            topic = str(row.get("topic", "")).strip() or "-"
+            status = str(row.get("status", "")).strip() or "-"
+            duration_seconds = float(row.get("duration_seconds", 0.0) or 0.0)
+            running_table.add_row(
+                agent_id[:8],
+                agent_name,
+                topic,
+                status,
+                self._format_duration(duration_seconds),
+            )
+            self._running_agent_ids.append(agent_id)
+
+        if not self._running_agent_ids:
+            self._running_row_index = 0
+            self._selected_agent_id = None
+            output_widget.update("No running agents.")
+            return
+
+        selected_index = 0
+        if self._selected_agent_id and self._selected_agent_id in self._running_agent_ids:
+            selected_index = self._running_agent_ids.index(self._selected_agent_id)
+        else:
+            selected_index = min(self._running_row_index, len(self._running_agent_ids) - 1)
+            self._selected_agent_id = self._running_agent_ids[selected_index]
+
+        self._running_row_index = selected_index
+        try:
+            running_table.move_cursor(row=selected_index, column=0)
+        except Exception:
+            pass
+
+        output_widget.update(f"{len(self._running_agent_ids)} running agent(s).")
+        self._show_selected_agent_log()
+
+    def _format_duration(self, duration_seconds: float) -> str:
+        seconds = max(0, int(duration_seconds))
+        hours, remainder = divmod(seconds, 3600)
+        minutes, secs = divmod(remainder, 60)
+        if hours > 0:
+            return f"{hours:02d}:{minutes:02d}:{secs:02d}"
+        return f"{minutes:02d}:{secs:02d}"
+
+    def _move_running_selection(self, delta: int) -> None:
+        if not self._running_agent_ids:
+            return
+        row_index = min(
+            max(0, self._running_row_index + int(delta)),
+            len(self._running_agent_ids) - 1,
+        )
+        self._running_row_index = row_index
+        try:
+            running_table = self.query_one("#agents-running-table", DataTable)
+            running_table.move_cursor(row=row_index, column=0)
+        except Exception:
+            pass
+        self._select_running_agent_by_row(row_index)
+
+    def _select_running_agent_by_row(self, row_index: int) -> None:
+        if row_index < 0 or row_index >= len(self._running_agent_ids):
+            return
+        self._running_row_index = row_index
+        self._selected_agent_id = self._running_agent_ids[row_index]
+        self._show_selected_agent_log()
+
+    def _show_selected_agent_log(self) -> None:
+        agent_id = self._selected_agent_id
+        if not agent_id:
+            return
+        manager = get_agent_runtime_manager()
+        output = self._call_manager_with_agent_id(manager.log, agent_id)
+        self._replace_log(output)
+
+    def _call_manager_with_agent_id(self, method, agent_id: Optional[str]) -> str:
+        if agent_id:
+            try:
+                return method(agent_id=agent_id)
+            except TypeError:
+                return method()
+        try:
+            return method(agent_id=None)
+        except TypeError:
+            return method()
+
+    def _refresh_interaction_panel(self) -> None:
+        try:
+            panel = self.query_one("#agents-interaction-panel", Container)
+            indicator = self.query_one("#agents-interaction-indicator", Static)
+        except Exception:
+            return
+
+        manager = get_agent_runtime_manager()
+        try:
+            pending_rows = list(manager.get_pending_interactions())
+        except Exception as exc:
+            self._pending_interaction = None
+            self._set_interaction_status(str(exc))
+            indicator.update("Interaction unavailable")
+            self._set_interaction_visual_state(panel=panel, indicator=indicator, pending_count=0)
+            return
+
+        pending_count = len(pending_rows)
+        if pending_count == 0:
+            self._pending_interaction = None
+            self._set_interaction_status("No pending interaction requests.")
+            self._set_interaction_request_details(None)
+            self._set_interaction_controls(mode="none", has_pending=False)
+            self._set_interaction_visual_state(panel=panel, indicator=indicator, pending_count=0)
+            return
+
+        selected = self._pick_pending_interaction(pending_rows)
+        self._pending_interaction = selected
+        self._set_interaction_status(
+            (
+                f"Pending {str(selected.get('request_type') or 'interaction')} request "
+                f"for agent '{str(selected.get('agent_name') or '-').strip()}' "
+                f"({str(selected.get('agent_id') or '')[:8]})."
+            )
+        )
+        self._set_interaction_request_details(selected)
+        self._set_interaction_controls(
+            mode=self._interaction_mode(str(selected.get("request_type", "")).strip().lower()),
+            has_pending=True,
+        )
+        self._set_interaction_visual_state(panel=panel, indicator=indicator, pending_count=pending_count)
+
+        selected_id = str(selected.get("agent_id", "")).strip()
+        if selected_id and selected_id in self._running_agent_ids and selected_id != self._selected_agent_id:
+            self._selected_agent_id = selected_id
+            self._running_row_index = self._running_agent_ids.index(selected_id)
+            try:
+                running_table = self.query_one("#agents-running-table", DataTable)
+                running_table.move_cursor(row=self._running_row_index, column=0)
+            except Exception:
+                pass
+            self._show_selected_agent_log()
+
+    def _pick_pending_interaction(
+        self,
+        pending_rows: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        selected_id = str(self._selected_agent_id or "").strip()
+        if selected_id:
+            for row in pending_rows:
+                if str(row.get("agent_id", "")).strip() == selected_id:
+                    return row
+        return pending_rows[0]
+
+    def _set_interaction_visual_state(
+        self,
+        *,
+        panel: Container,
+        indicator: Static,
+        pending_count: int,
+    ) -> None:
+        if pending_count <= 0:
+            indicator.update("No pending interaction")
+            self._set_display(panel, visible=False)
+            self._toggle_class(panel, "agents-interaction-panel-active", enabled=False)
+            self._toggle_class(indicator, "agents-interaction-indicator-active", enabled=False)
+            return
+        indicator.update(f"Interaction pending ({pending_count})")
+        self._set_display(panel, visible=True)
+        self._toggle_class(panel, "agents-interaction-panel-active", enabled=True)
+        self._toggle_class(indicator, "agents-interaction-indicator-active", enabled=True)
+
+    def _set_interaction_request_details(
+        self,
+        interaction: Optional[dict[str, Any]],
+    ) -> None:
+        details = {
+            "#agents-interaction-type": "Type",
+            "#agents-interaction-agent": "Agent",
+            "#agents-interaction-tool": "Tool",
+            "#agents-interaction-risk": "Risk",
+            "#agents-interaction-reason": "Reason",
+            "#agents-interaction-args": "Args",
+            "#agents-interaction-prompt": "Prompt",
+        }
+        if interaction is None:
+            for selector, label in details.items():
+                self._update_static(selector, f"{label}: -")
+            return
+
+        self._update_static(
+            "#agents-interaction-type",
+            f"Type: {str(interaction.get('request_type') or '-').strip()}",
+        )
+        self._update_static(
+            "#agents-interaction-agent",
+            (
+                f"Agent: {str(interaction.get('agent_name') or '-').strip()} "
+                f"({str(interaction.get('agent_id') or '')[:8]})"
+            ),
+        )
+        self._update_static(
+            "#agents-interaction-tool",
+            f"Tool: {str(interaction.get('tool_name') or '-').strip()}",
+        )
+        self._update_static(
+            "#agents-interaction-risk",
+            f"Risk: {str(interaction.get('risk_level') or '-').strip()}",
+        )
+        self._update_static(
+            "#agents-interaction-reason",
+            f"Reason: {str(interaction.get('reason') or '-').strip()}",
+        )
+        self._update_static(
+            "#agents-interaction-args",
+            f"Args: {str(interaction.get('args_summary') or '-').strip()}",
+        )
+        self._update_static(
+            "#agents-interaction-prompt",
+            f"Prompt: {str(interaction.get('prompt') or '-').strip()}",
+        )
+
+    def _interaction_mode(self, request_type: str) -> str:
+        if request_type in {"clarification", "feedback"}:
+            return "reply"
+        return "permission"
+
+    def _set_interaction_controls(self, *, mode: str, has_pending: bool) -> None:
+        is_permission = has_pending and mode == "permission"
+        is_reply = has_pending and mode == "reply"
+        self._set_widget_disabled("#agents-interaction-deny-input", disabled=not is_permission)
+        self._set_widget_disabled("#agents-interaction-reply-input", disabled=not is_reply)
+        self._set_widget_disabled("#agents-interaction-approve-button", disabled=not is_permission)
+        self._set_widget_disabled("#agents-interaction-approve-session-button", disabled=not is_permission)
+        self._set_widget_disabled("#agents-interaction-deny-button", disabled=not is_permission)
+        self._set_widget_disabled("#agents-interaction-reply-button", disabled=not is_reply)
+
+    def _approve_interaction(self) -> None:
+        self._respond_to_interaction(decision="approve")
+
+    def _approve_interaction_session(self) -> None:
+        self._respond_to_interaction(decision="approve_session")
+
+    def _deny_interaction(self) -> None:
+        deny_reason = self._input_value("#agents-interaction-deny-input")
+        self._respond_to_interaction(
+            decision="deny",
+            user_message=deny_reason,
+        )
+
+    def _reply_to_interaction(self) -> None:
+        reply_message = self._input_value("#agents-interaction-reply-input")
+        if not reply_message:
+            self._set_interaction_status("Enter reply text before sending.")
+            return
+        self._respond_to_interaction(
+            decision="reply",
+            user_message=reply_message,
+        )
+
+    def _respond_to_interaction(self, *, decision: str, user_message: str = "") -> None:
+        pending = self._pending_interaction
+        if not pending:
+            self._set_interaction_status("No pending interaction request.")
+            return
+
+        agent_id = str(pending.get("agent_id", "")).strip()
+        if not agent_id:
+            self._set_interaction_status("Pending interaction does not include an agent id.")
+            return
+
+        payload: dict[str, Any] = {"decision": decision}
+        request_id = str(pending.get("request_id", "")).strip()
+        if request_id:
+            payload["request_id"] = request_id
+        if user_message:
+            payload["user_message"] = user_message
+
+        manager = get_agent_runtime_manager()
+        output = manager.respond_to_interaction(agent_id, payload)
+        self._set_interaction_status(output.strip())
+        self._append_log(output)
+        if output.lower().startswith("posted interaction response"):
+            self._clear_input("#agents-interaction-deny-input")
+            self._clear_input("#agents-interaction-reply-input")
+
+        self._refresh_interaction_panel()
+        self._refresh_running_agents()
+
+    def _set_interaction_status(self, message: str) -> None:
+        self._update_static("#agents-interaction-status-output", message)
+
+    def _update_static(self, selector: str, message: str) -> None:
+        try:
+            self.query_one(selector, Static).update(message)
+        except Exception:
+            return
+
+    def _set_widget_disabled(self, selector: str, *, disabled: bool) -> None:
+        try:
+            widget = self.query_one(selector)
+        except Exception:
+            return
+        try:
+            widget.disabled = bool(disabled)
+        except Exception:
+            return
+
+    def _input_value(self, selector: str) -> str:
+        try:
+            widget = self.query_one(selector, Input)
+        except Exception:
+            return ""
+        return str(widget.value or "").strip()
+
+    def _clear_input(self, selector: str) -> None:
+        try:
+            widget = self.query_one(selector, Input)
+        except Exception:
+            return
+        widget.value = ""
+
+    def _set_display(self, widget, *, visible: bool) -> None:
+        try:
+            widget.display = bool(visible)
+        except Exception:
+            return
+
+    def _toggle_class(self, widget, class_name: str, *, enabled: bool) -> None:
+        try:
+            if enabled:
+                widget.add_class(class_name)
+            else:
+                widget.remove_class(class_name)
+        except Exception:
+            return
 
     def _initialize_meta_controls(self) -> None:
         try:
@@ -663,22 +1199,34 @@ class AgentsScreen(Widget):
         return self._schedule_ids[row_index].strip()
 
     def _set_status(self, message: str) -> None:
-        self.query_one("#agents-status-output", Static).update(message)
+        self._update_static("#agents-status-output", message)
 
     def _set_memory_status(self, message: str) -> None:
-        self.query_one("#agents-memory-output", Static).update(message)
+        self._update_static("#agents-memory-output", message)
 
     def _set_schedule_status(self, message: str) -> None:
-        self.query_one("#agents-schedule-output", Static).update(message)
+        self._update_static("#agents-schedule-output", message)
 
     def _set_meta_status(self, message: str) -> None:
-        try:
-            self.query_one("#agents-meta-output", Static).update(message)
-        except Exception:
-            return
+        self._update_static("#agents-meta-output", message)
 
     def _append_log(self, message: str) -> None:
         if not message:
             return
+        self._write_log(message, replace=False)
+
+    def _replace_log(self, message: str) -> None:
+        self._write_log(message, replace=True)
+
+    def _write_log(self, message: str, *, replace: bool) -> None:
+        if not message:
+            return
         log_widget = self.query_one("#agents-log", RichLog)
+        if replace:
+            clear_fn = getattr(log_widget, "clear", None)
+            if callable(clear_fn):
+                try:
+                    clear_fn()
+                except Exception:
+                    pass
         log_widget.write(message.rstrip() + "\n")

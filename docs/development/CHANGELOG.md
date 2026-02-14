@@ -47,6 +47,12 @@ All notable changes to Local Second Mind are documented here.
   - deterministic lifecycle handling now includes stop/shutdown cancellation + thread join behavior and bounded completed-run retention pruning
   - shell command parsing now supports optional `agent_id` arguments for status/control/log commands
   - coverage added in `tests/test_ui/shell/test_multi_agent_manager.py`
+- Agents TUI interaction surface for concurrent sessions:
+  - new Running Agents DataTable with per-row selection, keyboard row navigation, and periodic refresh polling
+  - new Interaction Request panel with permission (`approve`, `approve_session`, `deny`) and clarification/feedback reply workflows
+  - pending-interaction urgency indicator styling and panel warning-state highlighting in `lsm/ui/tui/styles/agents.tcss`
+  - interaction responses route through `AgentRuntimeManager.respond_to_interaction(...)` from TUI actions/buttons
+  - added `tests/test_ui/tui/test_agent_interaction.py` coverage for table selection, interaction mode switching, and response actions
 
 ### Changed
 
