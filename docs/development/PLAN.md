@@ -434,6 +434,8 @@ Add CLI commands for responding to agent interaction requests.
 - Add `/agent reply <agent_id> <message>` - respond to clarification/feedback request
 - Add `/agent select <agent_id>` - set active agent for status/log/stop commands
 - Update existing commands to work with multi-agent (use selected or only agent)
+- Allow user to queue a new command to agent
+- Allow user to pause agent, and then restat agent with a message from user
 
 **Files to modify:**
 - `lsm/ui/shell/commands/agents.py` - add interaction commands

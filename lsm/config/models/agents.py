@@ -27,6 +27,7 @@ _DEFAULT_SANDBOX_DOCKER = {
 _VALID_MEMORY_BACKENDS = {"auto", "sqlite", "postgresql"}
 _VALID_SCHEDULE_CONCURRENCY_POLICIES = {"skip", "queue", "cancel"}
 _VALID_SCHEDULE_CONFIRMATION_MODES = {"auto", "confirm", "deny"}
+_VALID_INTERACTION_TIMEOUT_ACTIONS = {"deny", "approve"}
 _SCHEDULE_INTERVAL_ALIASES = {"hourly", "daily", "weekly"}
 
 
@@ -266,6 +267,32 @@ class ScheduleConfig:
 
 
 @dataclass
+class InteractionConfig:
+    """
+    Agent interaction channel configuration.
+    """
+
+    timeout_seconds: int = 300
+    """Maximum seconds to wait for a user interaction response."""
+
+    timeout_action: str = "deny"
+    """Timeout behavior (`deny` or `approve`)."""
+
+    def __post_init__(self) -> None:
+        self.timeout_seconds = int(self.timeout_seconds)
+        self.timeout_action = str(self.timeout_action or "deny").strip().lower()
+
+    def validate(self) -> None:
+        """Validate interaction configuration."""
+        if self.timeout_seconds < 1:
+            raise ValueError("agents.interaction.timeout_seconds must be >= 1")
+        if self.timeout_action not in _VALID_INTERACTION_TIMEOUT_ACTIONS:
+            raise ValueError(
+                "agents.interaction.timeout_action must be one of: deny, approve"
+            )
+
+
+@dataclass
 class AgentConfig:
     """
     Top-level configuration for the agent system.
@@ -283,6 +310,9 @@ class AgentConfig:
     max_iterations: int = 25
     """Maximum tool/model loop iterations per run."""
 
+    max_concurrent: int = 5
+    """Maximum number of concurrent agent runs."""
+
     context_window_strategy: str = "compact"
     """Context strategy: 'compact' or 'fresh'."""
 
@@ -291,6 +321,9 @@ class AgentConfig:
 
     memory: MemoryConfig = field(default_factory=MemoryConfig)
     """Persistent memory storage configuration."""
+
+    interaction: InteractionConfig = field(default_factory=InteractionConfig)
+    """Interaction request timeout and fallback policy."""
 
     agent_configs: Dict[str, Dict[str, Any]] = field(default_factory=dict)
     """Per-agent overrides keyed by agent name."""
@@ -301,6 +334,11 @@ class AgentConfig:
     def __post_init__(self) -> None:
         self.agents_folder = Path(self.agents_folder).expanduser()
         self.context_window_strategy = (self.context_window_strategy or "compact").strip().lower()
+        self.max_concurrent = int(self.max_concurrent)
+        if isinstance(self.interaction, dict):
+            self.interaction = InteractionConfig(**self.interaction)
+        elif not isinstance(self.interaction, InteractionConfig):
+            raise ValueError("agents.interaction must be an object")
         normalized_schedules: List[ScheduleConfig] = []
         for entry in self.schedules or []:
             if isinstance(entry, ScheduleConfig):
@@ -317,6 +355,8 @@ class AgentConfig:
             raise ValueError("agents.max_tokens_budget must be positive")
         if self.max_iterations < 1:
             raise ValueError("agents.max_iterations must be positive")
+        if self.max_concurrent < 1:
+            raise ValueError("agents.max_concurrent must be >= 1")
         if self.context_window_strategy not in {"compact", "fresh"}:
             raise ValueError("agents.context_window_strategy must be 'compact' or 'fresh'")
         if not isinstance(self.agent_configs, dict):
@@ -332,3 +372,4 @@ class AgentConfig:
                 raise ValueError(f"agents.schedules[{idx}] {exc}") from exc
         self.sandbox.validate()
         self.memory.validate()
+        self.interaction.validate()

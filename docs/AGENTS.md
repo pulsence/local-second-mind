@@ -1,6 +1,6 @@
 # Agents Guide
 
-This guide covers the v0.5.0 agent system: architecture, configuration, tools, sandboxing, memory, scheduler, and meta-agent orchestration usage.
+This guide covers the agent system: architecture, configuration, tools, sandboxing, memory, scheduler, and meta-agent orchestration usage.
 
 ## Overview
 
@@ -21,6 +21,7 @@ Built-in agent:
 
 - `lsm/agents/base.py`: `BaseAgent`, `AgentState`, lifecycle status model
 - `lsm/agents/harness.py`: runtime loop, tool-calling execution, budget/iteration guards, state persistence, per-run summaries
+- `lsm/agents/interaction.py`: thread-safe request/response channel for runtime-to-UI interaction handshakes
 - `lsm/agents/models.py`: runtime message/log/response models
 - `lsm/agents/log_formatter.py`: log formatting and serialization helpers
 - `lsm/agents/factory.py`: registry + `create_agent(...)`
@@ -59,6 +60,7 @@ Agents are configured in top-level `agents`:
   "agents_folder": "Agents",
   "max_tokens_budget": 200000,
   "max_iterations": 25,
+  "max_concurrent": 5,
   "context_window_strategy": "compact",
   "sandbox": {
     "allowed_read_paths": ["./notes", "./docs"],
@@ -77,6 +79,10 @@ Agents are configured in top-level `agents`:
     "ttl_project_fact_days": 90,
     "ttl_task_state_days": 7,
     "ttl_cache_hours": 24
+  },
+  "interaction": {
+    "timeout_seconds": 300,
+    "timeout_action": "deny"
   },
   "agent_configs": {
     "research": {
@@ -102,10 +108,31 @@ Agents are configured in top-level `agents`:
 - `agents_folder`: where run state/log files are written
 - `max_tokens_budget`: approximate token cap per run
 - `max_iterations`: max action loop iterations
+- `max_concurrent`: max concurrently running agents (used by multi-agent runtime managers)
 - `context_window_strategy`: `compact` or `fresh`
+- `interaction.timeout_seconds`: wait timeout for an interaction response (default `300`)
+- `interaction.timeout_action`: timeout fallback (`deny` or `approve`, default `deny`)
 - `memory`: persistent memory backend config and TTL caps
 - `agent_configs`: per-agent overrides
 - `schedules`: optional scheduled runs (`hourly`, `daily`, `weekly`, `<seconds>s`, or cron intervals)
+
+## Interaction Channel
+
+`lsm/agents/interaction.py` defines a thread-safe bridge between background harness threads and UI threads.
+
+- `InteractionRequest`: request envelope with `request_id`, `request_type`, `tool_name`, `risk_level`, `reason`, `args_summary`, `prompt`, and `timestamp`
+- `InteractionResponse`: response envelope with `request_id`, `decision`, and optional `user_message`
+- `InteractionChannel`:
+  - `post_request(...)` blocks until UI responds or timeout is reached
+  - `get_pending_request()` and `has_pending()` support non-blocking UI polling
+  - `post_response(...)` fulfills a pending request
+  - `cancel_pending(...)` and `shutdown(...)` unblock waiting runtime calls safely
+  - stores per-session tool approvals for `approve_session` flows
+
+Timeout behavior is configurable via `agents.interaction`:
+
+- `timeout_action="deny"` raises `PermissionError` on timeout (safe default)
+- `timeout_action="approve"` auto-approves timed-out requests
 
 ## Sandbox Model
 

@@ -129,6 +129,7 @@
     "agents_folder": "Agents",
     "max_tokens_budget": 200000,
     "max_iterations": 25,
+    "max_concurrent": 5,
     "context_window_strategy": "compact",
     "sandbox": {
       "allowed_read_paths": ["./docs", "./notes", "./.ingest", "./.chroma"],
@@ -164,6 +165,11 @@
       "ttl_project_fact_days": 90,
       "ttl_task_state_days": 7,
       "ttl_cache_hours": 24
+    },
+    "interaction": {
+      "timeout_seconds": 300,
+      "_comment_timeout_action": "deny = safe default, approve = auto-approve on timeout",
+      "timeout_action": "deny"
     },
     "agent_configs": {
       "research": {

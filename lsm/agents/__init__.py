@@ -6,6 +6,7 @@ from .base import AgentState, AgentStatus, BaseAgent
 from .curator import CuratorAgent
 from .factory import AgentRegistry, create_agent
 from .harness import AgentHarness
+from .interaction import InteractionChannel, InteractionRequest, InteractionResponse
 from .log_formatter import format_agent_log, load_agent_log, save_agent_log
 from .meta import MetaAgent
 from .models import AgentContext, AgentLogEntry, ToolResponse
@@ -30,6 +31,9 @@ __all__ = [
     "AgentRegistry",
     "create_agent",
     "AgentHarness",
+    "InteractionChannel",
+    "InteractionRequest",
+    "InteractionResponse",
     "AgentLogEntry",
     "ToolResponse",
     "AgentContext",

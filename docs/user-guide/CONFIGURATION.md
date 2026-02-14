@@ -39,6 +39,7 @@ fields in the config file. The top-level keys are:
 | `chats` | `ChatsConfig` | Chat transcript saving settings |
 | `remote_providers` | `list[RemoteProviderConfig]` | Remote source providers |
 | `remote_provider_chains` | `list[RemoteProviderChainConfig]` | Named multi-provider remote pipelines |
+| `agents` | `AgentConfig` | Agent runtime, sandbox, memory, scheduling, and interaction settings |
 
 ## Required Fields
 
@@ -353,6 +354,58 @@ Provider `type` must be registered by the remote provider factory. Built-ins:
 - `wikipedia`
 - `arxiv`
 
+## Agents Configuration
+
+Agents are configured under the top-level `agents` key.
+
+```json
+"agents": {
+  "enabled": true,
+  "agents_folder": "Agents",
+  "max_tokens_budget": 200000,
+  "max_iterations": 25,
+  "max_concurrent": 5,
+  "context_window_strategy": "compact",
+  "sandbox": {
+    "allowed_read_paths": ["./docs", "./notes", "./.ingest", "./.chroma"],
+    "allowed_write_paths": ["./Agents", "./notes"],
+    "allow_url_access": true,
+    "require_user_permission": {},
+    "require_permission_by_risk": {},
+    "execution_mode": "local_only",
+    "force_docker": false
+  },
+  "memory": {
+    "enabled": true,
+    "storage_backend": "auto",
+    "sqlite_path": "memory.sqlite3"
+  },
+  "interaction": {
+    "timeout_seconds": 300,
+    "timeout_action": "deny"
+  }
+}
+```
+
+| Key | Type | Default | Purpose |
+| --- | --- | --- | --- |
+| `enabled` | bool | `false` | Enable the agent runtime. |
+| `agents_folder` | path | `Agents` | Folder for agent runs, logs, and scheduler state. |
+| `max_tokens_budget` | int | `200000` | Per-run token budget cap. |
+| `max_iterations` | int | `25` | Per-run action-loop cap. |
+| `max_concurrent` | int | `5` | Maximum simultaneous agent runs. |
+| `context_window_strategy` | string | `compact` | Agent loop context strategy: `compact` or `fresh`. |
+| `sandbox` | object | see defaults | Tool path/network/permission/runner restrictions. |
+| `memory` | object | see defaults | Memory backend + TTL configuration. |
+| `interaction` | object | see defaults | Interaction request timeout policy. |
+| `agent_configs` | object | `{}` | Per-agent override dictionary keyed by agent name. |
+| `schedules` | list | `[]` | Optional scheduler entries. |
+
+`agents.interaction` fields:
+
+- `timeout_seconds` (`int`, default `300`): max seconds to wait for user interaction response.
+- `timeout_action` (`string`, default `deny`): timeout fallback; `deny` raises a permission error, `approve` auto-approves.
+
 ## Environment Variables
 
 Common environment variables:
@@ -380,6 +433,8 @@ an API key.
   resolved relative to the config file.
 - `agents.agents_folder` is resolved relative to `global.global_folder` when
   provided as a relative path.
+- `agents.memory.sqlite_path` is resolved relative to `agents.agents_folder`
+  when provided as a relative path.
 - If `notes.dir` is `"notes"`, notes are written to `<global_folder>/Notes`.
 - For any other relative `notes.dir`, paths are resolved relative to the config file.
 - `ingest.roots` can be absolute or relative to the working directory.

@@ -18,7 +18,10 @@ Fields:
 - `global_settings: GlobalConfig` (global shared settings; maps to the `"global"` key in config JSON)
 - `modes: dict[str, ModeConfig] | None` (optional, built-ins if None)
 - `notes: NotesConfig` (global notes configuration)
+- `chats: ChatsConfig` (global chats configuration)
 - `remote_providers: list[RemoteProviderConfig] | None`
+- `remote_provider_chains: list[RemoteProviderChainConfig] | None`
+- `agents: AgentConfig | None` (agent runtime configuration)
 - `config_path: Path | None` (used for path resolution)
 
 Shortcut properties (delegate to nested configs):
@@ -294,3 +297,96 @@ Fields:
 - `section_limit: int | None = None`
 - `snippet_max_chars: int | None = None`
 - `include_disambiguation: bool | None = None`
+
+## AgentConfig
+
+Top-level agent runtime configuration (`"agents"` object).
+
+Fields:
+
+- `enabled: bool = false`
+- `agents_folder: Path = Agents`
+- `max_tokens_budget: int = 200000`
+- `max_iterations: int = 25`
+- `max_concurrent: int = 5`
+- `context_window_strategy: str = compact` (`compact` or `fresh`)
+- `sandbox: SandboxConfig`
+- `memory: MemoryConfig`
+- `interaction: InteractionConfig`
+- `agent_configs: dict[str, dict[str, Any]] = {}`
+- `schedules: list[ScheduleConfig] = []`
+
+Methods:
+
+- `validate()`
+
+## InteractionConfig
+
+Interaction timeout behavior for runtime-to-UI request/response channels.
+
+Fields:
+
+- `timeout_seconds: int = 300`
+- `timeout_action: str = deny` (`deny` or `approve`)
+
+Methods:
+
+- `validate()`
+
+## SandboxConfig
+
+Tool sandbox policy object under `agents.sandbox`.
+
+Fields:
+
+- `allowed_read_paths: list[Path] = []`
+- `allowed_write_paths: list[Path] = []`
+- `allow_url_access: bool = false`
+- `require_user_permission: dict[str, bool] = {}`
+- `require_permission_by_risk: dict[str, bool] = {}`
+- `execution_mode: str = local_only` (`local_only` or `prefer_docker`)
+- `force_docker: bool = false`
+- `limits: dict[str, Any]` (`timeout_s_default`, `max_stdout_kb`, `max_file_write_mb`)
+- `docker: dict[str, Any]` (`enabled`, `image`, `network_default`, `cpu_limit`, `mem_limit_mb`, `read_only_root`)
+- `tool_llm_assignments: dict[str, str] = {}`
+
+Methods:
+
+- `validate()`
+
+## MemoryConfig
+
+Agent memory backend configuration under `agents.memory`.
+
+Fields:
+
+- `enabled: bool = true`
+- `storage_backend: str = auto` (`auto`, `sqlite`, `postgresql`)
+- `sqlite_path: Path = memory.sqlite3`
+- `postgres_connection_string: str | None = None`
+- `postgres_table_prefix: str = agent_memory`
+- `ttl_project_fact_days: int = 90`
+- `ttl_task_state_days: int = 7`
+- `ttl_cache_hours: int = 24`
+
+Methods:
+
+- `validate()`
+- `ttl_cap_for_type(memory_type)`
+
+## ScheduleConfig
+
+Scheduler entry object under `agents.schedules[]`.
+
+Fields:
+
+- `agent_name: str`
+- `params: dict[str, Any] = {}`
+- `interval: str = daily` (`hourly`, `daily`, `weekly`, `<seconds>s`, cron syntax)
+- `enabled: bool = true`
+- `concurrency_policy: str = skip` (`skip`, `queue`, `cancel`)
+- `confirmation_mode: str = auto` (`auto`, `confirm`, `deny`)
+
+Methods:
+
+- `validate()`

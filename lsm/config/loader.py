@@ -17,6 +17,7 @@ from dotenv import load_dotenv
 from .models import (
     LSMConfig,
     AgentConfig,
+    InteractionConfig,
     ScheduleConfig,
     MemoryConfig,
     SandboxConfig,
@@ -576,6 +577,27 @@ def build_schedule_configs(raw: Any) -> list[ScheduleConfig]:
     return schedules
 
 
+def build_interaction_config(raw: Any) -> InteractionConfig:
+    """
+    Build InteractionConfig from raw configuration.
+
+    Args:
+        raw: Raw interaction config dictionary.
+
+    Returns:
+        InteractionConfig instance.
+    """
+    if raw is None:
+        return InteractionConfig()
+    if not isinstance(raw, dict):
+        warnings.warn("agents.interaction must be an object. Using defaults.")
+        return InteractionConfig()
+    return InteractionConfig(
+        timeout_seconds=int(raw.get("timeout_seconds", 300)),
+        timeout_action=str(raw.get("timeout_action", "deny")),
+    )
+
+
 def build_agent_config(raw: Dict[str, Any] | None) -> AgentConfig | None:
     """
     Build AgentConfig from raw configuration.
@@ -597,9 +619,11 @@ def build_agent_config(raw: Dict[str, Any] | None) -> AgentConfig | None:
         agents_folder=Path(raw.get("agents_folder", "Agents")),
         max_tokens_budget=int(raw.get("max_tokens_budget", 200_000)),
         max_iterations=int(raw.get("max_iterations", 25)),
+        max_concurrent=int(raw.get("max_concurrent", 5)),
         context_window_strategy=str(raw.get("context_window_strategy", "compact")),
         sandbox=build_sandbox_config(raw.get("sandbox", {})),
         memory=build_memory_config(raw.get("memory", {})),
+        interaction=build_interaction_config(raw.get("interaction", {})),
         agent_configs=dict(raw.get("agent_configs", {})),
         schedules=build_schedule_configs(raw.get("schedules")),
     )
@@ -1087,6 +1111,7 @@ def config_to_raw(config: LSMConfig) -> Dict[str, Any]:
             "agents_folder": str(config.agents.agents_folder),
             "max_tokens_budget": config.agents.max_tokens_budget,
             "max_iterations": config.agents.max_iterations,
+            "max_concurrent": config.agents.max_concurrent,
             "context_window_strategy": config.agents.context_window_strategy,
             "sandbox": {
                 "allowed_read_paths": [str(p) for p in config.agents.sandbox.allowed_read_paths],
@@ -1109,6 +1134,10 @@ def config_to_raw(config: LSMConfig) -> Dict[str, Any]:
                 "ttl_project_fact_days": config.agents.memory.ttl_project_fact_days,
                 "ttl_task_state_days": config.agents.memory.ttl_task_state_days,
                 "ttl_cache_hours": config.agents.memory.ttl_cache_hours,
+            },
+            "interaction": {
+                "timeout_seconds": config.agents.interaction.timeout_seconds,
+                "timeout_action": config.agents.interaction.timeout_action,
             },
             "agent_configs": dict(config.agents.agent_configs),
             "schedules": [

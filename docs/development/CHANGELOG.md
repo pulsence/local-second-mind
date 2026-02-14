@@ -25,6 +25,13 @@ All notable changes to Local Second Mind are documented here.
   - command-driven settings editing (`set`, `unset`, `delete`, `reset`, `default`, `save`) per tab
   - key/value table rendering with dirty-state markers and tab-local refresh behavior
   - new/updated tests: `tests/test_ui/tui/test_app_state.py`, `tests/test_ui/tui/test_settings_view_model.py`, `tests/test_ui/tui/test_settings_screen.py`
+- Phase 3.1 interaction-channel foundation for interactive agent handshakes:
+  - new `lsm/agents/interaction.py` with `InteractionRequest`, `InteractionResponse`, and thread-safe `InteractionChannel`
+  - channel capabilities: blocking request wait, non-blocking pending polling, response posting, cancellation/shutdown unblocking, and session approval caching
+  - new agent config fields in `AgentConfig`: `max_concurrent` and `interaction` (`timeout_seconds`, `timeout_action`)
+  - loader/serializer round-trip support for `agents.max_concurrent` and `agents.interaction`
+  - configuration examples updated in `example_config.json`
+  - coverage added in `tests/test_agents/test_interaction_channel.py` and expanded `tests/test_config/test_agents_config.py`
 
 ### Changed
 
