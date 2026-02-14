@@ -40,6 +40,7 @@ class _DummyHarness:
         memory_store=None,
         memory_context_builder=None,
         interaction_channel=None,
+        log_callback=None,
     ) -> None:
         _ = (
             agent_config,
@@ -52,6 +53,7 @@ class _DummyHarness:
             memory_store,
             memory_context_builder,
             interaction_channel,
+            log_callback,
         )
 
     def stop(self) -> None:

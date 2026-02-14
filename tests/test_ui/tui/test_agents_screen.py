@@ -61,19 +61,24 @@ class _Manager:
         self.started = (name, topic)
         return f"Started agent '{name}' with topic: {topic}\n"
 
-    def status(self) -> str:
+    def status(self, agent_id=None) -> str:
+        _ = agent_id
         return "Agent: research\nStatus: running\n"
 
-    def pause(self) -> str:
+    def pause(self, agent_id=None) -> str:
+        _ = agent_id
         return "Paused agent 'research'.\n"
 
-    def resume(self) -> str:
+    def resume(self, agent_id=None) -> str:
+        _ = agent_id
         return "Resumed agent 'research'.\n"
 
-    def stop(self) -> str:
+    def stop(self, agent_id=None) -> str:
+        _ = agent_id
         return "Stop requested for agent 'research'.\n"
 
-    def log(self) -> str:
+    def log(self, agent_id=None) -> str:
+        _ = agent_id
         return "Agent log line\n"
 
     def get_memory_candidates(self, app, status="pending", limit=200):
@@ -124,7 +129,8 @@ class _SlowStopManager(_Manager):
         super().__init__()
         self.delay_s = max(0.0, float(delay_s))
 
-    def stop(self) -> str:
+    def stop(self, agent_id=None) -> str:
+        _ = agent_id
         time.sleep(self.delay_s)
         return super().stop()
 

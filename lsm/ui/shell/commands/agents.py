@@ -926,25 +926,13 @@ class AgentRuntimeManager:
             }
             if log_callback is not None:
                 harness_kwargs["log_callback"] = log_callback
-            try:
-                return AgentHarness(
-                    effective_agent_cfg,
-                    tool_registry,
-                    app.config.llm,
-                    sandbox,
-                    **harness_kwargs,
-                )
-            except TypeError as exc:
-                if "log_callback" not in str(exc):
-                    raise
-                harness_kwargs.pop("log_callback", None)
-                return AgentHarness(
-                    effective_agent_cfg,
-                    tool_registry,
-                    app.config.llm,
-                    sandbox,
-                    **harness_kwargs,
-                )
+            return AgentHarness(
+                effective_agent_cfg,
+                tool_registry,
+                app.config.llm,
+                sandbox,
+                **harness_kwargs,
+            )
         except Exception as exc:
             logger.warning(
                 "Failed to initialize AgentHarness for run '%s': %s",
@@ -966,17 +954,10 @@ class AgentRuntimeManager:
 
         def _waiting_callback(waiting: bool) -> None:
             _ = topic
-            # BaseAgent implementations may set their own status transitions; this callback
-            # is intentionally lightweight for runtime manager compatibility.
             return
 
         try:
             setter(channel, waiting_state_callback=_waiting_callback)
-        except TypeError:
-            try:
-                setter(channel)
-            except Exception:
-                logger.exception("Failed to set interaction channel on sandbox")
         except Exception:
             logger.exception("Failed to set interaction channel on sandbox")
 

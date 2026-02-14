@@ -44,6 +44,7 @@ class _DummyHarness:
         memory_store=None,
         memory_context_builder=None,
         interaction_channel=None,
+        log_callback=None,
     ) -> None:
         _ = (
             agent_config,
@@ -55,6 +56,7 @@ class _DummyHarness:
             vectordb_config,
             memory_store,
             memory_context_builder,
+            log_callback,
         )
         self.interaction_channel = interaction_channel
         self.stopped = False
@@ -63,6 +65,7 @@ class _DummyHarness:
             {
                 "agent_name": agent_name,
                 "interaction_channel": interaction_channel,
+                "log_callback": log_callback,
             }
         )
 
@@ -343,6 +346,7 @@ def _wait_until(predicate, timeout_s: float = 1.5) -> bool:
 
 def test_multi_agent_start_enforces_max_concurrent(monkeypatch) -> None:
     agents: list[_LoopAgent] = []
+    _DummyHarness.init_calls.clear()
     monkeypatch.setattr(agent_commands, "create_default_tool_registry", lambda *args, **kwargs: _DummyRegistry())
     monkeypatch.setattr(agent_commands, "ToolSandbox", _DummySandbox)
     monkeypatch.setattr(agent_commands, "AgentHarness", _DummyHarness)
@@ -370,6 +374,8 @@ def test_multi_agent_start_enforces_max_concurrent(monkeypatch) -> None:
     manager.shutdown(join_timeout_s=1.0)
     assert len(manager.list_running()) == 0
     assert all(agent.stop_calls >= 1 for agent in agents)
+    assert len(_DummyHarness.init_calls) >= 2
+    assert all(callable(row.get("log_callback")) for row in _DummyHarness.init_calls)
 
 
 def test_multi_agent_controls_target_by_id_and_keep_single_agent_compat(monkeypatch) -> None:

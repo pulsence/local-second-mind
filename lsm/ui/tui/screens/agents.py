@@ -622,14 +622,8 @@ class AgentsScreen(Widget):
 
     def _call_manager_with_agent_id(self, method, agent_id: Optional[str]) -> str:
         if agent_id:
-            try:
-                return method(agent_id=agent_id)
-            except TypeError:
-                return method()
-        try:
-            return method(agent_id=None)
-        except TypeError:
-            return method()
+            return method(agent_id=agent_id)
+        return method(agent_id=None)
 
     def _drain_selected_log_stream(self) -> None:
         agent_id = str(self._selected_agent_id or "").strip()
@@ -641,11 +635,6 @@ class AgentsScreen(Widget):
             return
         try:
             payload = drain(agent_id, max_entries=200)
-        except TypeError:
-            try:
-                payload = drain(agent_id)
-            except Exception:
-                return
         except Exception:
             return
         if not isinstance(payload, dict):
