@@ -5,6 +5,7 @@ Agents screen for launching and monitoring agent runs.
 from __future__ import annotations
 
 import json
+import threading
 from typing import Any, Optional
 
 from textual.app import ComposeResult
@@ -63,11 +64,21 @@ class AgentsScreen(Widget):
         self._pending_interaction: Optional[dict[str, Any]] = None
         self._running_refresh_timer: Optional[Timer] = None
         self._interaction_poll_timer: Optional[Timer] = None
+        self._stop_worker: Optional[threading.Thread] = None
 
     def compose(self) -> ComposeResult:
         with Vertical(id="agents-layout"):
             with Horizontal(id="agents-top"):
                 with ScrollableContainer(id="agents-left"):
+                    with Container(id="agents-control-panel"):
+                        yield Static("Agents", classes="agents-section-title")
+                        yield Static("Agent", classes="agents-label")
+                        yield Select([], id="agents-select")
+                        yield Static("Topic", classes="agents-label")
+                        yield Input(
+                            placeholder="Research topic",
+                            id="agents-topic-input",
+                        )
                     with Container(id="agents-running-panel"):
                         with Horizontal(classes="agents-panel-header"):
                             yield Static("Running Agents", classes="agents-section-title")
@@ -82,15 +93,17 @@ class AgentsScreen(Widget):
                             id="agents-running-output",
                             markup=False,
                         )
-                    with Container(id="agents-control-panel"):
-                        yield Static("Agents", classes="agents-section-title")
-                        yield Static("Agent", classes="agents-label")
-                        yield Select([], id="agents-select")
-                        yield Static("Topic", classes="agents-label")
-                        yield Input(
-                            placeholder="Research topic",
-                            id="agents-topic-input",
-                        )
+                    with Container(id="agents-status-panel"):
+                        yield Static("Status", classes="agents-section-title")
+                        yield Static("No active agent.", id="agents-status-output", markup=False)
+                        with Vertical(id="agents-buttons"):
+                            with Horizontal(classes="agents-button-row"):
+                                yield Button("Status", id="agents-status-button")
+                                yield Button("Pause", id="agents-pause-button")
+                                yield Button("Resume", id="agents-resume-button")
+                            with Horizontal(classes="agents-button-row"):
+                                yield Button("Stop", id="agents-stop-button", variant="error")
+                                yield Button("Log", id="agents-log-button")
                     with Container(id="agents-interaction-panel"):
                         yield Static("Interaction Request", classes="agents-section-title")
                         yield Static(
@@ -135,17 +148,6 @@ class AgentsScreen(Widget):
                                     id="agents-interaction-reply-button",
                                     variant="primary",
                                 )
-                    with Container(id="agents-status-panel"):
-                        yield Static("Status", classes="agents-section-title")
-                        yield Static("No active agent.", id="agents-status-output", markup=False)
-                        with Vertical(id="agents-buttons"):
-                            with Horizontal(classes="agents-button-row"):
-                                yield Button("Status", id="agents-status-button")
-                                yield Button("Pause", id="agents-pause-button")
-                                yield Button("Resume", id="agents-resume-button")
-                            with Horizontal(classes="agents-button-row"):
-                                yield Button("Stop", id="agents-stop-button", variant="error")
-                                yield Button("Log", id="agents-log-button")
                     with Container(id="agents-meta-panel"):
                         yield Static("Meta Agent", classes="agents-section-title")
                         yield DataTable(id="agents-meta-task-table")
@@ -412,9 +414,15 @@ class AgentsScreen(Widget):
         elif action == "resume":
             output = self._call_manager_with_agent_id(manager.resume, target_id)
         elif action == "stop":
+            if self._can_run_async_stop():
+                self._start_stop_worker(manager=manager, target_id=target_id)
+                return
             output = self._call_manager_with_agent_id(manager.stop, target_id)
         else:
             output = "Unsupported control action."
+        self._apply_control_action_output(output)
+
+    def _apply_control_action_output(self, output: str) -> None:
         self._set_status(output.strip())
         self._append_log(output)
         self._refresh_running_agents()
@@ -422,10 +430,45 @@ class AgentsScreen(Widget):
         self._show_selected_agent_log()
         self._refresh_meta_panel()
 
+    def _can_run_async_stop(self) -> bool:
+        app_obj = getattr(self, "app", None)
+        callback = getattr(app_obj, "call_from_thread", None)
+        return callable(callback)
+
+    def _start_stop_worker(self, *, manager: Any, target_id: Optional[str]) -> None:
+        if self._stop_worker is not None and self._stop_worker.is_alive():
+            self._set_status("Stop already in progress.")
+            return
+        self._set_status("Stopping agent...")
+
+        def _worker() -> None:
+            output = self._call_manager_with_agent_id(manager.stop, target_id)
+
+            def _finish() -> None:
+                self._stop_worker = None
+                self._apply_control_action_output(output)
+
+            app_obj = getattr(self, "app", None)
+            callback = getattr(app_obj, "call_from_thread", None)
+            if callable(callback):
+                try:
+                    callback(_finish)
+                    return
+                except Exception:
+                    pass
+            _finish()
+
+        self._stop_worker = threading.Thread(
+            target=_worker,
+            daemon=True,
+            name="AgentsScreenStopAction",
+        )
+        self._stop_worker.start()
+
     def _show_log(self) -> None:
         manager = get_agent_runtime_manager()
         output = self._call_manager_with_agent_id(manager.log, self._selected_agent_id)
-        self._replace_log(output)
+        self._replace_log(output, force_scroll_end=True)
         self._refresh_meta_panel()
 
     def _show_meta_log(self) -> None:
@@ -1211,14 +1254,24 @@ class AgentsScreen(Widget):
             return
         self._write_log(message, replace=False)
 
-    def _replace_log(self, message: str) -> None:
-        self._write_log(message, replace=True)
+    def _replace_log(self, message: str, *, force_scroll_end: bool = False) -> None:
+        self._write_log(
+            message,
+            replace=True,
+            force_scroll_end=force_scroll_end,
+        )
 
-    def _write_log(self, message: str, *, replace: bool) -> None:
+    def _write_log(
+        self,
+        message: str,
+        *,
+        replace: bool,
+        force_scroll_end: bool = False,
+    ) -> None:
         if not message:
             return
         log_widget = self.query_one("#agents-log", RichLog)
-        should_scroll_end = self._is_log_scrolled_to_bottom(log_widget)
+        should_scroll_end = force_scroll_end or self._is_log_scrolled_to_bottom(log_widget)
         if replace:
             clear_fn = getattr(log_widget, "clear", None)
             if callable(clear_fn):
@@ -1234,6 +1287,25 @@ class AgentsScreen(Widget):
             write_fn(entry, scroll_end=should_scroll_end)
         except TypeError:
             write_fn(entry)
+        if force_scroll_end:
+            self._scroll_log_to_end(log_widget)
+
+    def _scroll_log_to_end(self, log_widget: RichLog) -> None:
+        scroll_end_fn = getattr(log_widget, "scroll_end", None)
+        if not callable(scroll_end_fn):
+            return
+        try:
+            scroll_end_fn(animate=False, immediate=True, x_axis=False, y_axis=True)
+        except TypeError:
+            try:
+                scroll_end_fn(animate=False, immediate=True)
+            except TypeError:
+                try:
+                    scroll_end_fn()
+                except Exception:
+                    return
+        except Exception:
+            return
 
     def _is_log_scrolled_to_bottom(self, log_widget: RichLog) -> bool:
         at_end_attr = getattr(log_widget, "is_vertical_scroll_end", None)

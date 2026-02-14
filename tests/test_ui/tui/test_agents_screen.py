@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+import time
 from types import SimpleNamespace
 
 from lsm.ui.tui.screens.agents import AgentsScreen
@@ -39,10 +40,14 @@ class _RichLog:
         self.lines = []
         self.is_vertical_scroll_end = True
         self.scroll_end_calls = []
+        self.forced_scroll_calls = []
 
     def write(self, message: str, scroll_end=None) -> None:
         self.lines.append(message)
         self.scroll_end_calls.append(scroll_end)
+
+    def scroll_end(self, **kwargs) -> None:
+        self.forced_scroll_calls.append(dict(kwargs))
 
 
 class _Manager:
@@ -114,6 +119,16 @@ class _Manager:
         )
 
 
+class _SlowStopManager(_Manager):
+    def __init__(self, delay_s: float = 0.25) -> None:
+        super().__init__()
+        self.delay_s = max(0.0, float(delay_s))
+
+    def stop(self) -> str:
+        time.sleep(self.delay_s)
+        return super().stop()
+
+
 class _TestableAgentsScreen(AgentsScreen):
     def __init__(self, app) -> None:
         super().__init__()
@@ -135,6 +150,24 @@ class _TestableAgentsScreen(AgentsScreen):
 
 def _screen(context: str = "agents"):
     app = SimpleNamespace(current_context=context, config=SimpleNamespace())
+    screen = _TestableAgentsScreen(app)
+    screen.widgets["#agents-select"] = _Select("")
+    screen.widgets["#agents-topic-input"] = _Input("", "agents-topic-input")
+    screen.widgets["#agents-status-output"] = _Static()
+    screen.widgets["#agents-memory-select"] = _Select("", "agents-memory-select")
+    screen.widgets["#agents-memory-ttl-input"] = _Input("", "agents-memory-ttl-input")
+    screen.widgets["#agents-memory-output"] = _Static()
+    screen.widgets["#agents-log"] = _RichLog()
+    return screen
+
+
+def _threaded_screen(context: str = "agents"):
+    app = SimpleNamespace(current_context=context, config=SimpleNamespace())
+
+    def _call_from_thread(callback, *args, **kwargs):
+        callback(*args, **kwargs)
+
+    app.call_from_thread = _call_from_thread
     screen = _TestableAgentsScreen(app)
     screen.widgets["#agents-select"] = _Select("")
     screen.widgets["#agents-topic-input"] = _Input("", "agents-topic-input")
@@ -239,3 +272,32 @@ def test_log_append_autoscrolls_only_when_at_bottom() -> None:
     log_widget.is_vertical_scroll_end = False
     screen._append_log("second")
     assert log_widget.scroll_end_calls[-1] is False
+
+
+def test_show_log_forces_scroll_to_bottom(monkeypatch) -> None:
+    screen = _screen()
+    manager = _Manager()
+    log_widget = screen.widgets["#agents-log"]
+    log_widget.is_vertical_scroll_end = False
+    monkeypatch.setattr("lsm.ui.tui.screens.agents.get_agent_runtime_manager", lambda: manager)
+
+    screen._show_log()
+
+    assert log_widget.scroll_end_calls[-1] is True
+    assert len(log_widget.forced_scroll_calls) == 1
+
+
+def test_stop_action_runs_async_when_call_from_thread_available(monkeypatch) -> None:
+    screen = _threaded_screen()
+    manager = _SlowStopManager(delay_s=0.25)
+    monkeypatch.setattr("lsm.ui.tui.screens.agents.get_agent_runtime_manager", lambda: manager)
+
+    start = time.monotonic()
+    screen._run_control_action("stop")
+    elapsed = time.monotonic() - start
+
+    assert elapsed < 0.1
+    assert "Stopping agent" in screen.widgets["#agents-status-output"].last
+    worker = screen._stop_worker
+    assert worker is not None
+    worker.join(timeout=1.0)

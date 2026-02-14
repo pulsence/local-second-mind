@@ -4,6 +4,7 @@ import re
 import threading
 import time
 from datetime import datetime
+from pathlib import Path
 from types import SimpleNamespace
 
 from lsm.agents.base import AgentState, AgentStatus
@@ -219,6 +220,42 @@ class _SinglePermissionAgent:
 
     def stop(self) -> None:
         self.state.set_status(AgentStatus.COMPLETED)
+
+    def pause(self) -> None:
+        self.state.set_status(AgentStatus.PAUSED)
+
+    def resume(self) -> None:
+        self.state.set_status(AgentStatus.RUNNING)
+
+
+class _StopAwareAgent:
+    def __init__(
+        self,
+        *,
+        log_path: Path,
+        action_delay_s: float = 0.3,
+    ) -> None:
+        self.state = AgentState()
+        self._log_path = Path(log_path)
+        self._action_delay_s = max(0.0, float(action_delay_s))
+        self._stop_requested = threading.Event()
+        self.action_started = threading.Event()
+
+    def run(self, context) -> AgentState:
+        _ = context
+        self.state.set_status(AgentStatus.RUNNING)
+        # Simulate a currently running action that should be allowed to finish.
+        self.action_started.set()
+        time.sleep(self._action_delay_s)
+        if not self._stop_requested.is_set():
+            time.sleep(0.05)
+        self._log_path.parent.mkdir(parents=True, exist_ok=True)
+        self._log_path.write_text("saved", encoding="utf-8")
+        self.state.set_status(AgentStatus.COMPLETED)
+        return self.state
+
+    def stop(self) -> None:
+        self._stop_requested.set()
 
     def pause(self) -> None:
         self.state.set_status(AgentStatus.PAUSED)
@@ -446,6 +483,33 @@ def test_multi_agent_approve_session_persists_across_runs(monkeypatch) -> None:
     assert manager.get_pending_interactions() == []
     second_log = manager.log(agent_id=second_id)
     assert "decision=approve_session" in second_log
+
+
+def test_multi_agent_stop_waits_for_current_action_and_log_persist(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(agent_commands, "create_default_tool_registry", lambda *args, **kwargs: _DummyRegistry())
+    monkeypatch.setattr(agent_commands, "ToolSandbox", _DummySandbox)
+    monkeypatch.setattr(agent_commands, "AgentHarness", _DummyHarness)
+
+    holder: dict[str, _StopAwareAgent] = {}
+    log_path = tmp_path / "stop-log.txt"
+
+    def _create_agent(**kwargs):
+        _ = kwargs
+        agent = _StopAwareAgent(log_path=log_path, action_delay_s=0.3)
+        holder["agent"] = agent
+        return agent
+
+    monkeypatch.setattr(agent_commands, "create_agent", _create_agent)
+
+    manager = agent_commands.AgentRuntimeManager(join_timeout_s=0.1)
+    app = _app(max_concurrent=1)
+    agent_id = _extract_agent_id(manager.start(app, "research", "stop-aware"))
+    assert _wait_until(lambda: "agent" in holder and holder["agent"].action_started.is_set())
+
+    stop_out = manager.stop(agent_id=agent_id)
+    assert "still running" not in stop_out.lower()
+    assert _wait_until(lambda: len(manager.list_running()) == 0)
+    assert log_path.exists()
 
 
 def test_multi_agent_completed_history_pruning(monkeypatch) -> None:

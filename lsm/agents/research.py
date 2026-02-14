@@ -82,6 +82,7 @@ class ResearchAgent(BaseAgent):
             Agent state after execution.
         """
         self._tokens_used = 0
+        self._stop_logged = False
         self.state.set_status(AgentStatus.RUNNING)
         topic = self._extract_topic(initial_context)
         self.state.current_task = f"Researching: {topic}"
@@ -95,19 +96,27 @@ class ResearchAgent(BaseAgent):
         outline_sections: List[Dict[str, str]] = []
 
         while iteration < self.max_iterations and not self._budget_exhausted():
+            if self._handle_stop_request():
+                break
             iteration += 1
             self._log(f"Research iteration {iteration} with {len(subtopics)} subtopics.")
 
             outline_sections = []
             for subtopic in subtopics:
+                if self._handle_stop_request():
+                    break
                 if self._budget_exhausted():
                     self._log("Budget exhausted; stopping subtopic processing.")
                     break
 
                 findings = self._collect_findings(provider, subtopic)
+                if self._handle_stop_request():
+                    break
                 summary = self._summarize_findings(provider, subtopic, findings)
                 outline_sections.append({"subtopic": subtopic, "summary": summary})
 
+            if self._handle_stop_request():
+                break
             outline = self._build_outline(topic, outline_sections)
             review = self._review_outline(provider, topic, outline)
             if review.get("sufficient", False):
@@ -143,6 +152,8 @@ class ResearchAgent(BaseAgent):
         return "Untitled Research Topic"
 
     def _decompose_topic(self, provider: Any, topic: str) -> List[str]:
+        if self._is_stop_requested():
+            return []
         prompt = (
             "Decompose the topic into focused research subtopics. "
             "Respond as JSON array of strings.\n"
@@ -165,6 +176,8 @@ class ResearchAgent(BaseAgent):
         tool_names = self._select_tools(provider, subtopic)
         findings: List[Dict[str, Any]] = []
         for tool_name in tool_names:
+            if self._handle_stop_request():
+                break
             try:
                 tool = self.tool_registry.lookup(tool_name)
             except KeyError:
@@ -189,6 +202,8 @@ class ResearchAgent(BaseAgent):
         return findings
 
     def _select_tools(self, provider: Any, subtopic: str) -> List[str]:
+        if self._is_stop_requested():
+            return []
         tool_definitions = self._get_tool_definitions(self.tool_registry)
         available = [str(item.get("name", "")).strip() for item in tool_definitions]
         available = [name for name in available if name]
@@ -235,6 +250,8 @@ class ResearchAgent(BaseAgent):
         subtopic: str,
         findings: List[Dict[str, Any]],
     ) -> str:
+        if self._is_stop_requested():
+            return ""
         findings_block = json.dumps(findings, indent=2)
         prompt = (
             f"Summarize findings for subtopic '{subtopic}'. "
@@ -245,6 +262,8 @@ class ResearchAgent(BaseAgent):
         return str(response).strip()
 
     def _review_outline(self, provider: Any, topic: str, outline: str) -> Dict[str, Any]:
+        if self._is_stop_requested():
+            return {"sufficient": True, "suggestions": []}
         prompt = (
             "Review this research outline and decide if it is sufficient. "
             "Return JSON object: {\"sufficient\": bool, \"suggestions\": [\"...\"]}.\n"

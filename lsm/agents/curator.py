@@ -86,6 +86,7 @@ class CuratorAgent(BaseAgent):
             Agent state after execution.
         """
         self._tokens_used = 0
+        self._stop_logged = False
         self.state.set_status(AgentStatus.RUNNING)
         topic_input = self._extract_topic(initial_context)
         mode, topic = self._resolve_mode(topic_input)
@@ -100,21 +101,40 @@ class CuratorAgent(BaseAgent):
         provider = create_provider(self.llm_registry.resolve_service("default"))
         scope = self._select_scope(provider, topic)
         inventory = self._inventory_files(scope)
-        metadata = self._collect_metadata(inventory)
-        exact_duplicates = self._detect_exact_duplicates(inventory)
-        near_duplicates = self._detect_near_duplicates(inventory, scope)
-        quality_signals = self._collect_quality_signals(topic)
-        heuristics = self._apply_heuristics(metadata, quality_signals, scope)
-        recommendations = self._generate_recommendations(
-            provider,
-            topic=topic,
-            scope=scope,
-            inventory=inventory,
-            metadata=metadata,
-            exact_duplicates=exact_duplicates,
-            near_duplicates=near_duplicates,
-            heuristics=heuristics,
-        )
+        metadata: List[Dict[str, Any]] = []
+        exact_duplicates: List[Dict[str, Any]] = []
+        near_duplicates: List[Dict[str, Any]] = []
+        quality_signals: List[Dict[str, Any]] = []
+        heuristics: Dict[str, Any] = {
+            "stale_files": [],
+            "tiny_files": [],
+            "empty_files": [],
+            "quality_hits": [],
+        }
+        recommendations: List[str] = []
+        if not self._is_stop_requested():
+            metadata = self._collect_metadata(inventory)
+        if not self._is_stop_requested():
+            exact_duplicates = self._detect_exact_duplicates(inventory)
+        if not self._is_stop_requested():
+            near_duplicates = self._detect_near_duplicates(inventory, scope)
+        if not self._is_stop_requested():
+            quality_signals = self._collect_quality_signals(topic)
+        if not self._is_stop_requested():
+            heuristics = self._apply_heuristics(metadata, quality_signals, scope)
+        if not self._is_stop_requested():
+            recommendations = self._generate_recommendations(
+                provider,
+                topic=topic,
+                scope=scope,
+                inventory=inventory,
+                metadata=metadata,
+                exact_duplicates=exact_duplicates,
+                near_duplicates=near_duplicates,
+                heuristics=heuristics,
+            )
+        if self._handle_stop_request():
+            recommendations = recommendations or ["Run stopped before full completion."]
 
         report_markdown = self._build_report(
             topic=topic,
@@ -160,6 +180,8 @@ class CuratorAgent(BaseAgent):
         return mode, cleaned_topic
 
     def _run_memory_mode(self, topic: str, initial_context: AgentContext) -> CuratorResult:
+        if self._is_stop_requested():
+            self._handle_stop_request()
         summary_limit = int(self.agent_overrides.get("memory_summary_limit", 50))
         summaries = self._load_recent_run_summaries(limit=max(1, summary_limit))
         candidates = self._build_memory_candidates_from_summaries(summaries)
@@ -195,6 +217,8 @@ class CuratorAgent(BaseAgent):
         )
         summaries: list[Dict[str, Any]] = []
         for path in paths[: max(1, int(limit))]:
+            if self._is_stop_requested():
+                break
             try:
                 parsed = json.loads(path.read_text(encoding="utf-8"))
             except (OSError, json.JSONDecodeError):
@@ -210,6 +234,8 @@ class CuratorAgent(BaseAgent):
         self,
         summaries: List[Dict[str, Any]],
     ) -> List[Dict[str, Any]]:
+        if self._is_stop_requested():
+            return []
         tool_threshold = max(2, int(self.agent_overrides.get("memory_tool_threshold", 3)))
         constraint_threshold = max(
             2, int(self.agent_overrides.get("memory_constraint_threshold", 2))
@@ -224,6 +250,8 @@ class CuratorAgent(BaseAgent):
         approvals_denials: Dict[str, Dict[str, int]] = {}
 
         for summary in summaries:
+            if self._is_stop_requested():
+                break
             tool_map = summary.get("tools_used")
             if isinstance(tool_map, dict):
                 for raw_tool, raw_count in tool_map.items():
@@ -412,6 +440,13 @@ class CuratorAgent(BaseAgent):
         }
 
     def _select_scope(self, provider: Any, topic: str) -> Dict[str, Any]:
+        if self._is_stop_requested():
+            return {
+                "scope_path": self._default_scope_path(),
+                "stale_days": 365,
+                "near_duplicate_threshold": 0.9,
+                "top_near_duplicates": 25,
+            }
         default_scope_path = str(
             self.agent_overrides.get("scope_path", self._default_scope_path())
         )
@@ -479,6 +514,8 @@ class CuratorAgent(BaseAgent):
         return "."
 
     def _inventory_files(self, scope: Dict[str, Any]) -> List[str]:
+        if self._is_stop_requested():
+            return []
         if "read_folder" not in self._available_tools():
             return []
         output = self._run_tool(
@@ -492,6 +529,8 @@ class CuratorAgent(BaseAgent):
         allowed_exts = {".txt", ".md", ".rst", ".pdf", ".docx", ".html", ".htm"}
         files: list[str] = []
         for item in parsed:
+            if self._is_stop_requested():
+                break
             if not isinstance(item, dict):
                 continue
             if bool(item.get("is_dir", False)):
@@ -510,12 +549,16 @@ class CuratorAgent(BaseAgent):
         return files
 
     def _collect_metadata(self, paths: List[str]) -> List[Dict[str, Any]]:
+        if self._is_stop_requested():
+            return []
         if "file_metadata" not in self._available_tools() or not paths:
             return []
 
         results: list[Dict[str, Any]] = []
         batch_size = 50
         for start in range(0, len(paths), batch_size):
+            if self._is_stop_requested():
+                break
             batch = paths[start : start + batch_size]
             output = self._run_tool("file_metadata", {"paths": batch})
             parsed = self._parse_json(output)
@@ -526,11 +569,15 @@ class CuratorAgent(BaseAgent):
         return results
 
     def _detect_exact_duplicates(self, paths: List[str]) -> List[Dict[str, Any]]:
+        if self._is_stop_requested():
+            return []
         if "hash_file" not in self._available_tools() or not paths:
             return []
 
         by_hash: Dict[str, List[str]] = {}
         for path in paths:
+            if self._is_stop_requested():
+                break
             output = self._run_tool("hash_file", {"path": path})
             parsed = self._parse_json(output)
             if not isinstance(parsed, dict):
@@ -559,6 +606,8 @@ class CuratorAgent(BaseAgent):
         paths: List[str],
         scope: Dict[str, Any],
     ) -> List[Dict[str, Any]]:
+        if self._is_stop_requested():
+            return []
         if "similarity_search" not in self._available_tools() or not paths:
             return []
 
@@ -595,6 +644,8 @@ class CuratorAgent(BaseAgent):
         return results
 
     def _collect_quality_signals(self, topic: str) -> List[Dict[str, Any]]:
+        if self._is_stop_requested():
+            return []
         if "query_embeddings" not in self._available_tools():
             return []
         query = str(
@@ -620,6 +671,13 @@ class CuratorAgent(BaseAgent):
         quality_signals: List[Dict[str, Any]],
         scope: Dict[str, Any],
     ) -> Dict[str, Any]:
+        if self._is_stop_requested():
+            return {
+                "stale_files": [],
+                "tiny_files": [],
+                "empty_files": [],
+                "quality_hits": [],
+            }
         stale_cutoff = datetime.now(timezone.utc) - timedelta(
             days=int(scope.get("stale_days", 365))
         )
@@ -630,6 +688,8 @@ class CuratorAgent(BaseAgent):
         quality_hits: list[Dict[str, Any]] = []
 
         for item in metadata:
+            if self._is_stop_requested():
+                break
             path = str(item.get("path", "")).strip()
             if not path:
                 continue
@@ -651,6 +711,8 @@ class CuratorAgent(BaseAgent):
                     continue
 
         for hit in quality_signals:
+            if self._is_stop_requested():
+                break
             text = str(hit.get("text", "")).lower()
             if not text:
                 continue
@@ -687,6 +749,8 @@ class CuratorAgent(BaseAgent):
         near_duplicates: List[Dict[str, Any]],
         heuristics: Dict[str, Any],
     ) -> List[str]:
+        if self._is_stop_requested():
+            return []
         default_recommendations = self._default_recommendations(
             exact_duplicates,
             near_duplicates,
@@ -866,6 +930,8 @@ class CuratorAgent(BaseAgent):
         return save_agent_log(self.state.log_entries, log_path)
 
     def _run_tool(self, tool_name: str, args: Dict[str, Any]) -> str:
+        if self._handle_stop_request():
+            return ""
         try:
             tool = self.tool_registry.lookup(tool_name)
         except KeyError:

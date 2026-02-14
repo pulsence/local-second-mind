@@ -74,6 +74,12 @@ All notable changes to Local Second Mind are documented here.
   - log updates auto-scroll only when the viewer is already at the bottom
   - when scrolled up, incoming log refreshes no longer force-jump to the end
 - Agents launch UX now starts runs on topic-input submit (`Enter`) and keeps control buttons in the status panel.
+- Agent stop behavior now drains in-flight work more reliably before returning:
+  - runtime stop waits for graceful thread completion (with bounded wait) after issuing stop
+  - built-in agents (`research`, `writing`, `synthesis`, `curator`) now honor stop requests between actions and skip remaining steps
+  - stop-aware completion ensures per-run log artifacts are written before stop reports success in normal cases
+- Agents TUI stop control now runs stop requests on a background worker to prevent UI hangs during graceful-stop waits.
+- Agents screen panel order updated so launch appears first and status/control appears immediately after launch.
 
 ## 0.5.0 - 2026-02-13
 

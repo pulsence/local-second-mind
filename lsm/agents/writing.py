@@ -85,15 +85,26 @@ class WritingAgent(BaseAgent):
             Agent state after execution.
         """
         self._tokens_used = 0
+        self._stop_logged = False
         self.state.set_status(AgentStatus.RUNNING)
         topic = self._extract_topic(initial_context)
         self.state.current_task = f"Writing: {topic}"
 
         provider = create_provider(self.llm_registry.resolve_service("default"))
         grounding = self._collect_grounding(topic)
-        outline = self._build_outline(provider, topic, grounding)
-        draft = self._draft_deliverable(provider, topic, outline, grounding)
-        revised = self._review_deliverable(provider, topic, draft, grounding)
+        outline = ""
+        draft = ""
+        revised = ""
+        if not self._is_stop_requested():
+            outline = self._build_outline(provider, topic, grounding)
+        if not self._is_stop_requested():
+            draft = self._draft_deliverable(provider, topic, outline, grounding)
+        if not self._is_stop_requested():
+            revised = self._review_deliverable(provider, topic, draft, grounding)
+        if self._handle_stop_request():
+            revised = revised or draft or (
+                f"# Deliverable: {topic}\n\nRun stopped before full completion.\n"
+            )
 
         output_path = self._save_deliverable(topic, revised)
         log_path = self._save_log(output_path)
@@ -120,6 +131,8 @@ class WritingAgent(BaseAgent):
             "snippets": [],
             "source_map": {},
         }
+        if self._is_stop_requested():
+            return grounding
         available = {
             str(item.get("name", "")).strip()
             for item in self._get_tool_definitions(
@@ -136,6 +149,8 @@ class WritingAgent(BaseAgent):
             if isinstance(parsed, list):
                 grounding["candidates"] = parsed
 
+        if self._is_stop_requested():
+            return grounding
         source_paths = self._extract_source_paths(grounding["candidates"])
         if "extract_snippets" in available and source_paths:
             snippet_args = {
@@ -149,6 +164,8 @@ class WritingAgent(BaseAgent):
             if isinstance(parsed, list):
                 grounding["snippets"] = parsed
 
+        if self._is_stop_requested():
+            return grounding
         if "source_map" in available and grounding["snippets"]:
             source_map_args = {
                 "evidence": grounding["snippets"],
@@ -176,6 +193,8 @@ class WritingAgent(BaseAgent):
         return paths
 
     def _run_tool(self, tool_name: str, args: Dict[str, Any]) -> str:
+        if self._handle_stop_request():
+            return ""
         try:
             tool = self.tool_registry.lookup(tool_name)
         except KeyError:
@@ -201,6 +220,8 @@ class WritingAgent(BaseAgent):
         topic: str,
         grounding: Dict[str, Any],
     ) -> str:
+        if self._is_stop_requested():
+            return f"# Outline: {topic}\n\nRun stopped before outline generation.\n"
         prompt = (
             "Create a concise markdown outline for a grounded deliverable. "
             "Use headings and a logical flow."
@@ -225,6 +246,8 @@ class WritingAgent(BaseAgent):
         outline: str,
         grounding: Dict[str, Any],
     ) -> str:
+        if self._is_stop_requested():
+            return f"# Deliverable: {topic}\n\nRun stopped before drafting.\n"
         prompt = (
             "Draft a polished markdown deliverable using the outline and evidence. "
             "Be precise and grounded in provided sources."
@@ -251,6 +274,8 @@ class WritingAgent(BaseAgent):
         draft: str,
         grounding: Dict[str, Any],
     ) -> str:
+        if self._is_stop_requested():
+            return draft or f"# Deliverable: {topic}\n\nRun stopped before review.\n"
         prompt = (
             "Revise the draft for clarity, factual grounding, and concise style. "
             "Return final markdown only."

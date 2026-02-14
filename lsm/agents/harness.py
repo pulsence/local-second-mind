@@ -111,7 +111,6 @@ class AgentHarness:
         """
         started_at = datetime.utcnow()
         with self._lock:
-            self._stop_event.clear()
             self.context = initial_context
             self._tool_usage_counts = {}
             self._tool_sequence = []

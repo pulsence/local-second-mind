@@ -7,6 +7,7 @@ from __future__ import annotations
 import json
 import shlex
 import threading
+import time
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -388,7 +389,11 @@ class AgentRuntimeManager:
         self._safe_call(entry.agent, "stop")
 
         if thread.is_alive():
-            thread.join(timeout=self._join_timeout_s)
+            stop_wait_timeout = max(self._join_timeout_s, 30.0)
+            self._wait_for_thread_completion(
+                thread,
+                timeout_s=stop_wait_timeout,
+            )
 
         with self._lock:
             self._cleanup_finished_locked()
@@ -868,6 +873,21 @@ class AgentRuntimeManager:
                 entry.agent_name,
                 entry.agent_id,
             )
+
+    @staticmethod
+    def _wait_for_thread_completion(
+        thread: threading.Thread,
+        *,
+        timeout_s: float,
+    ) -> bool:
+        timeout = max(0.1, float(timeout_s))
+        deadline = time.monotonic() + timeout
+        while thread.is_alive():
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                return False
+            thread.join(timeout=min(0.2, remaining))
+        return True
 
     def _serialize_pending_interaction(
         self,

@@ -113,6 +113,7 @@ class BaseAgent(ABC):
         )
         self.state = AgentState()
         self._stop_requested = False
+        self._stop_logged = False
         self._tokens_used = 0
         self.max_tokens_budget: Optional[int] = None
 
@@ -140,6 +141,25 @@ class BaseAgent(ABC):
         """Request stop for an active run."""
         self._stop_requested = True
         self.state.set_status(AgentStatus.COMPLETED)
+
+    def _is_stop_requested(self) -> bool:
+        """Return whether a stop was requested for this run."""
+        return bool(self._stop_requested)
+
+    def _handle_stop_request(self, message: str = "Stop requested; finishing current action.") -> bool:
+        """
+        Mark stop-request handling and ensure completed state.
+
+        Returns:
+            True when stop has been requested.
+        """
+        if not self._stop_requested:
+            return False
+        if not self._stop_logged:
+            self._log(message)
+            self._stop_logged = True
+        self.state.set_status(AgentStatus.COMPLETED)
+        return True
 
     def _log(
         self,
@@ -182,6 +202,8 @@ class BaseAgent(ABC):
 
     def _budget_exhausted(self) -> bool:
         """Return True when the current token budget has been exhausted."""
+        if self._stop_requested:
+            return True
         if self.max_tokens_budget is None:
             return False
         return self._tokens_used >= int(self.max_tokens_budget)

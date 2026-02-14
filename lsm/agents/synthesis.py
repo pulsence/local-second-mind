@@ -87,6 +87,7 @@ class SynthesisAgent(BaseAgent):
             Agent state after execution.
         """
         self._tokens_used = 0
+        self._stop_logged = False
         self.state.set_status(AgentStatus.RUNNING)
         topic = self._extract_topic(initial_context)
         self.state.current_task = f"Synthesizing: {topic}"
@@ -96,9 +97,23 @@ class SynthesisAgent(BaseAgent):
         candidate_paths = self._collect_candidate_sources(scope)
         evidence = self._retrieve_evidence(scope, candidate_paths)
 
-        draft = self._synthesize(provider, topic, scope, evidence)
-        tightened = self._tighten(provider, topic, scope, draft)
-        coverage = self._coverage_check(provider, topic, scope, evidence, tightened)
+        draft = ""
+        tightened = ""
+        coverage: Dict[str, Any] = {
+            "sufficient": True,
+            "coverage_notes": [],
+            "missing_topics": [],
+        }
+        if not self._is_stop_requested():
+            draft = self._synthesize(provider, topic, scope, evidence)
+        if not self._is_stop_requested():
+            tightened = self._tighten(provider, topic, scope, draft)
+        if not self._is_stop_requested():
+            coverage = self._coverage_check(provider, topic, scope, evidence, tightened)
+        if self._handle_stop_request():
+            tightened = tightened or draft or (
+                f"# Synthesis: {topic}\n\nRun stopped before full completion.\n"
+            )
         final_markdown = self._apply_coverage_notes(tightened, coverage)
         source_map_markdown = self._build_source_map_markdown(
             evidence.get("source_map", {})
@@ -141,6 +156,13 @@ class SynthesisAgent(BaseAgent):
         }
 
     def _select_scope(self, provider: Any, topic: str) -> Dict[str, Any]:
+        if self._is_stop_requested():
+            return {
+                "query": topic,
+                "target_format": "bullets",
+                "target_length_words": 350,
+                "scope_path": self._default_scope_path(),
+            }
         default_scope_path = str(
             self.agent_overrides.get(
                 "scope_path",
@@ -201,6 +223,8 @@ class SynthesisAgent(BaseAgent):
         return "."
 
     def _collect_candidate_sources(self, scope: Dict[str, Any]) -> List[str]:
+        if self._is_stop_requested():
+            return []
         if "read_folder" not in self._available_tools():
             return []
         args = {"path": str(scope.get("scope_path", ".")), "recursive": True}
@@ -212,6 +236,8 @@ class SynthesisAgent(BaseAgent):
         allowed_exts = {".txt", ".md", ".rst", ".pdf", ".docx", ".html", ".htm"}
         candidates: list[str] = []
         for item in parsed:
+            if self._is_stop_requested():
+                break
             if not isinstance(item, dict):
                 continue
             if bool(item.get("is_dir", False)):
@@ -235,6 +261,12 @@ class SynthesisAgent(BaseAgent):
         scope: Dict[str, Any],
         candidate_paths: List[str],
     ) -> Dict[str, Any]:
+        if self._is_stop_requested():
+            return {
+                "candidates": [],
+                "snippets": [],
+                "source_map": {},
+            }
         available = self._available_tools()
         query = str(scope.get("query", "")).strip()
         evidence: Dict[str, Any] = {
@@ -250,6 +282,8 @@ class SynthesisAgent(BaseAgent):
             if isinstance(parsed, list):
                 evidence["candidates"] = parsed
 
+        if self._is_stop_requested():
+            return evidence
         snippet_paths = list(candidate_paths[:8])
         if not snippet_paths:
             snippet_paths = self._extract_source_paths(evidence["candidates"])[:8]
@@ -269,6 +303,8 @@ class SynthesisAgent(BaseAgent):
         if not evidence["snippets"] and "read_file" in available:
             fallback_snippets: list[Dict[str, Any]] = []
             for path in snippet_paths[:3]:
+                if self._is_stop_requested():
+                    break
                 text = self._run_tool("read_file", {"path": path})
                 if not text:
                     continue
@@ -310,6 +346,8 @@ class SynthesisAgent(BaseAgent):
         return paths
 
     def _run_tool(self, tool_name: str, args: Dict[str, Any]) -> str:
+        if self._handle_stop_request():
+            return ""
         try:
             tool = self.tool_registry.lookup(tool_name)
         except KeyError:
@@ -336,6 +374,8 @@ class SynthesisAgent(BaseAgent):
         scope: Dict[str, Any],
         evidence: Dict[str, Any],
     ) -> str:
+        if self._is_stop_requested():
+            return f"# Synthesis: {topic}\n\nRun stopped before synthesis.\n"
         target_format = str(scope.get("target_format", "bullets"))
         target_length_words = int(scope.get("target_length_words", 350))
         prompt = (
@@ -369,6 +409,8 @@ class SynthesisAgent(BaseAgent):
         scope: Dict[str, Any],
         synthesis: str,
     ) -> str:
+        if self._is_stop_requested():
+            return synthesis or f"# Synthesis: {topic}\n\nRun stopped before tightening.\n"
         prompt = (
             "Tighten the synthesis for concision while preserving factual grounding. "
             "Return markdown only."
@@ -395,6 +437,8 @@ class SynthesisAgent(BaseAgent):
         evidence: Dict[str, Any],
         synthesis: str,
     ) -> Dict[str, Any]:
+        if self._is_stop_requested():
+            return {"sufficient": True, "coverage_notes": [], "missing_topics": []}
         prompt = (
             "Assess whether the synthesis covers the core evidence. "
             "Return JSON object with keys: "
