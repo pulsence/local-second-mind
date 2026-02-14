@@ -75,6 +75,7 @@ class AgentRuntimeManager:
         self._completed_runs: dict[str, AgentRunEntry] = {}
         self._completed_order: list[str] = []
         self._selected_agent_id: Optional[str] = None
+        self._session_tool_approvals: set[str] = set()
         self._completed_retention = max(1, int(completed_retention))
         self._join_timeout_s = max(0.1, float(join_timeout_s))
         self._scheduler: Optional[AgentScheduler] = None
@@ -109,6 +110,14 @@ class AgentRuntimeManager:
                 timeout_seconds=timeout_seconds,
                 timeout_action=timeout_action,
             )
+            for approved_tool in sorted(self._session_tool_approvals):
+                try:
+                    channel.approve_for_session(approved_tool)
+                except Exception:
+                    logger.exception(
+                        "Failed to seed session approval '%s' into interaction channel",
+                        approved_tool,
+                    )
 
             memory_store = None
             if getattr(agent_cfg, "memory", None) is not None and agent_cfg.memory.enabled:
@@ -370,7 +379,11 @@ class AgentRuntimeManager:
             thread = entry.thread
             target_id = entry.agent_id
 
-        self._cancel_entry_pending_interactions(entry, reason="Agent stopped")
+        self._cancel_entry_pending_interactions(
+            entry,
+            reason="Agent stopped",
+            close_channel=True,
+        )
         self._safe_call(entry.harness, "stop")
         self._safe_call(entry.agent, "stop")
 
@@ -525,10 +538,18 @@ class AgentRuntimeManager:
         parsed = self._normalize_interaction_response(response, pending)
         if isinstance(parsed, str):
             return parsed
+        approved_tool: Optional[str] = None
+        if parsed.decision == "approve_session":
+            candidate = str(pending.tool_name or "").strip()
+            if candidate:
+                approved_tool = candidate
         try:
             entry.channel.post_response(parsed)
         except Exception as exc:
             return f"Failed to post interaction response: {exc}\n"
+        if approved_tool:
+            with self._lock:
+                self._session_tool_approvals.add(approved_tool)
         return (
             f"Posted interaction response to agent '{entry.agent_name}' "
             f"({entry.agent_id}).\n"
@@ -550,6 +571,7 @@ class AgentRuntimeManager:
             self._cancel_entry_pending_interactions(
                 entry,
                 reason="Application shutting down",
+                close_channel=True,
             )
             self._safe_call(entry.harness, "stop")
             self._safe_call(entry.agent, "stop")
@@ -695,6 +717,13 @@ class AgentRuntimeManager:
         active_entry = self._agents.pop(entry.agent_id, None)
         target = active_entry or entry
         target.completed_at = datetime.utcnow()
+        try:
+            target.channel.shutdown("Agent run completed")
+        except Exception:
+            logger.exception(
+                "Failed to shutdown interaction channel for completed run '%s'",
+                target.agent_id,
+            )
         self._completed_runs[target.agent_id] = target
         if target.agent_id not in self._completed_order:
             self._completed_order.append(target.agent_id)
@@ -821,9 +850,18 @@ class AgentRuntimeManager:
             f"| alive={entry.thread.is_alive()} | age={round(age_seconds, 1)}s{topic_part}"
         )
 
-    def _cancel_entry_pending_interactions(self, entry: AgentRunEntry, *, reason: str) -> None:
+    def _cancel_entry_pending_interactions(
+        self,
+        entry: AgentRunEntry,
+        *,
+        reason: str,
+        close_channel: bool = False,
+    ) -> None:
         try:
-            entry.channel.cancel_pending(reason)
+            if close_channel:
+                entry.channel.shutdown(reason)
+            else:
+                entry.channel.cancel_pending(reason)
         except Exception:
             logger.exception(
                 "Failed to cancel pending interaction for agent '%s' (%s)",

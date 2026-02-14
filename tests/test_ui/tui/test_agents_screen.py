@@ -37,9 +37,12 @@ class _Static:
 class _RichLog:
     def __init__(self) -> None:
         self.lines = []
+        self.is_vertical_scroll_end = True
+        self.scroll_end_calls = []
 
-    def write(self, message: str) -> None:
+    def write(self, message: str, scroll_end=None) -> None:
         self.lines.append(message)
+        self.scroll_end_calls.append(scroll_end)
 
 
 class _Manager:
@@ -206,9 +209,11 @@ def test_button_press_routes_to_actions(monkeypatch) -> None:
     monkeypatch.setattr("lsm.ui.tui.screens.agents.get_agent_runtime_manager", lambda: manager)
     screen.on_mount()
     screen.widgets["#agents-topic-input"].value = "topic"
+    screen.on_input_submitted(
+        SimpleNamespace(input=SimpleNamespace(id="agents-topic-input"))
+    )
 
     for button_id in (
-        "agents-start-button",
         "agents-status-button",
         "agents-pause-button",
         "agents-resume-button",
@@ -221,3 +226,16 @@ def test_button_press_routes_to_actions(monkeypatch) -> None:
         screen.on_button_pressed(SimpleNamespace(button=SimpleNamespace(id=button_id)))
 
     assert manager.started == ("research", "topic")
+
+
+def test_log_append_autoscrolls_only_when_at_bottom() -> None:
+    screen = _screen()
+    log_widget = screen.widgets["#agents-log"]
+
+    log_widget.is_vertical_scroll_end = True
+    screen._append_log("first")
+    assert log_widget.scroll_end_calls[-1] is True
+
+    log_widget.is_vertical_scroll_end = False
+    screen._append_log("second")
+    assert log_widget.scroll_end_calls[-1] is False

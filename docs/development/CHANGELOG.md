@@ -66,6 +66,15 @@ All notable changes to Local Second Mind are documented here.
 - Updated settings UX from dense per-field forms to a table + command input model for faster navigation and lower render overhead.
 - Updated settings tab shortcuts to function-key schema (`F2`-`F9`) and focused command input on settings load/tab switch for immediate editing.
 
+### Fixed
+
+- Multi-agent stop/shutdown interaction cancellation now closes per-run interaction channels, preventing stopped/completed runs from continuing to enqueue new user-interaction prompts.
+- Session tool approvals selected with `approve_session` are now remembered across subsequent agent runs in the same runtime manager session.
+- Agents TUI log panel now preserves manual scroll position:
+  - log updates auto-scroll only when the viewer is already at the bottom
+  - when scrolled up, incoming log refreshes no longer force-jump to the end
+- Agents launch UX now starts runs on topic-input submit (`Enter`) and keeps control buttons in the status panel.
+
 ## 0.5.0 - 2026-02-13
 
 ### Added

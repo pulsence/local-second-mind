@@ -143,6 +143,90 @@ class _InteractionAgent:
         self.state.set_status(AgentStatus.RUNNING)
 
 
+class _RepeatInteractionAgent:
+    def __init__(self, channel) -> None:
+        self.state = AgentState()
+        self._channel = channel
+
+    def run(self, context) -> AgentState:
+        _ = context
+        self.state.set_status(AgentStatus.RUNNING)
+        try:
+            self._channel.post_request(
+                InteractionRequest(
+                    request_id="perm-1",
+                    request_type="permission",
+                    tool_name="write_file",
+                    reason="Need approval",
+                    prompt="Allow write_file?",
+                )
+            )
+        except Exception:
+            pass
+        # This second request should be blocked once stop() closes the channel.
+        try:
+            self._channel.post_request(
+                InteractionRequest(
+                    request_id="perm-2",
+                    request_type="permission",
+                    tool_name="write_file",
+                    reason="Need approval again",
+                    prompt="Allow write_file again?",
+                )
+            )
+        except Exception:
+            pass
+        self.state.set_status(AgentStatus.COMPLETED)
+        return self.state
+
+    def stop(self) -> None:
+        self.state.set_status(AgentStatus.COMPLETED)
+
+    def pause(self) -> None:
+        self.state.set_status(AgentStatus.PAUSED)
+
+    def resume(self) -> None:
+        self.state.set_status(AgentStatus.RUNNING)
+
+
+class _SinglePermissionAgent:
+    def __init__(self, channel, request_id: str = "perm-1") -> None:
+        self.state = AgentState()
+        self._channel = channel
+        self._request_id = request_id
+
+    def run(self, context) -> AgentState:
+        _ = context
+        self.state.set_status(AgentStatus.RUNNING)
+        response = self._channel.post_request(
+            InteractionRequest(
+                request_id=self._request_id,
+                request_type="permission",
+                tool_name="write_file",
+                reason="Need approval",
+                prompt="Allow write_file?",
+            )
+        )
+        self.state.add_log(
+            AgentLogEntry(
+                timestamp=datetime.utcnow(),
+                actor="agent",
+                content=f"decision={response.decision}",
+            )
+        )
+        self.state.set_status(AgentStatus.COMPLETED)
+        return self.state
+
+    def stop(self) -> None:
+        self.state.set_status(AgentStatus.COMPLETED)
+
+    def pause(self) -> None:
+        self.state.set_status(AgentStatus.PAUSED)
+
+    def resume(self) -> None:
+        self.state.set_status(AgentStatus.RUNNING)
+
+
 def _app(max_concurrent: int = 2) -> SimpleNamespace:
     return SimpleNamespace(
         config=SimpleNamespace(
@@ -305,6 +389,63 @@ def test_multi_agent_shutdown_cancels_pending_and_joins(monkeypatch) -> None:
     assert manager.list_running() == []
     assert manager.get_pending_interactions() == []
     assert "Status: completed" in manager.status(agent_id=agent_id)
+
+
+def test_multi_agent_stop_closes_channel_and_prevents_reprompt(monkeypatch) -> None:
+    monkeypatch.setattr(agent_commands, "create_default_tool_registry", lambda *args, **kwargs: _DummyRegistry())
+    monkeypatch.setattr(agent_commands, "ToolSandbox", _DummySandbox)
+    monkeypatch.setattr(agent_commands, "AgentHarness", _DummyHarness)
+    monkeypatch.setattr(
+        agent_commands,
+        "create_agent",
+        lambda **kwargs: _RepeatInteractionAgent(kwargs["sandbox"].channel),
+    )
+
+    manager = agent_commands.AgentRuntimeManager(join_timeout_s=1.0)
+    app = _app(max_concurrent=1)
+    agent_id = _extract_agent_id(manager.start(app, "research", "blocking"))
+    assert _wait_until(lambda: len(manager.get_pending_interactions()) == 1)
+
+    stop_out = manager.stop(agent_id=agent_id)
+    assert "Stop requested for agent" in stop_out
+    assert _wait_until(lambda: len(manager.list_running()) == 0)
+    assert manager.get_pending_interactions() == []
+
+
+def test_multi_agent_approve_session_persists_across_runs(monkeypatch) -> None:
+    counter = {"idx": 0}
+
+    def _create_agent(**kwargs):
+        counter["idx"] += 1
+        return _SinglePermissionAgent(
+            kwargs["sandbox"].channel,
+            request_id=f"perm-{counter['idx']}",
+        )
+
+    monkeypatch.setattr(agent_commands, "create_default_tool_registry", lambda *args, **kwargs: _DummyRegistry())
+    monkeypatch.setattr(agent_commands, "ToolSandbox", _DummySandbox)
+    monkeypatch.setattr(agent_commands, "AgentHarness", _DummyHarness)
+    monkeypatch.setattr(agent_commands, "create_agent", _create_agent)
+
+    manager = agent_commands.AgentRuntimeManager(join_timeout_s=1.0)
+    app = _app(max_concurrent=1)
+
+    first_id = _extract_agent_id(manager.start(app, "research", "first"))
+    assert _wait_until(lambda: len(manager.get_pending_interactions()) == 1)
+    approve_out = manager.respond_to_interaction(
+        first_id,
+        {
+            "decision": "approve_session",
+        },
+    )
+    assert "Posted interaction response" in approve_out
+    assert _wait_until(lambda: len(manager.list_running()) == 0)
+
+    second_id = _extract_agent_id(manager.start(app, "research", "second"))
+    assert _wait_until(lambda: len(manager.list_running()) == 0)
+    assert manager.get_pending_interactions() == []
+    second_log = manager.log(agent_id=second_id)
+    assert "decision=approve_session" in second_log
 
 
 def test_multi_agent_completed_history_pruning(monkeypatch) -> None:

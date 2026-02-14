@@ -91,15 +91,6 @@ class AgentsScreen(Widget):
                             placeholder="Research topic",
                             id="agents-topic-input",
                         )
-                        with Vertical(id="agents-buttons"):
-                            with Horizontal(classes="agents-button-row"):
-                                yield Button("Start", id="agents-start-button", variant="primary")
-                                yield Button("Status", id="agents-status-button")
-                                yield Button("Pause", id="agents-pause-button")
-                            with Horizontal(classes="agents-button-row"):
-                                yield Button("Resume", id="agents-resume-button")
-                                yield Button("Stop", id="agents-stop-button", variant="error")
-                                yield Button("Log", id="agents-log-button")
                     with Container(id="agents-interaction-panel"):
                         yield Static("Interaction Request", classes="agents-section-title")
                         yield Static(
@@ -147,6 +138,14 @@ class AgentsScreen(Widget):
                     with Container(id="agents-status-panel"):
                         yield Static("Status", classes="agents-section-title")
                         yield Static("No active agent.", id="agents-status-output", markup=False)
+                        with Vertical(id="agents-buttons"):
+                            with Horizontal(classes="agents-button-row"):
+                                yield Button("Status", id="agents-status-button")
+                                yield Button("Pause", id="agents-pause-button")
+                                yield Button("Resume", id="agents-resume-button")
+                            with Horizontal(classes="agents-button-row"):
+                                yield Button("Stop", id="agents-stop-button", variant="error")
+                                yield Button("Log", id="agents-log-button")
                     with Container(id="agents-meta-panel"):
                         yield Static("Meta Agent", classes="agents-section-title")
                         yield DataTable(id="agents-meta-task-table")
@@ -227,7 +226,7 @@ class AgentsScreen(Widget):
                 with Container(id="agents-log-panel"):
                     yield Static("Agent Log", classes="agents-section-title")
                     with ScrollableContainer(id="agents-log-scroll"):
-                        yield RichLog(id="agents-log", auto_scroll=True, wrap=True)
+                        yield RichLog(id="agents-log", auto_scroll=False, wrap=True)
 
     def on_mount(self) -> None:
         """Initialize agent select options and focus."""
@@ -282,9 +281,6 @@ class AgentsScreen(Widget):
     def on_button_pressed(self, event: Button.Pressed) -> None:
         """Handle control button presses."""
         button_id = event.button.id or ""
-        if button_id == "agents-start-button":
-            self._start_agent()
-            return
         if button_id == "agents-status-button":
             self._show_status()
             return
@@ -1222,6 +1218,7 @@ class AgentsScreen(Widget):
         if not message:
             return
         log_widget = self.query_one("#agents-log", RichLog)
+        should_scroll_end = self._is_log_scrolled_to_bottom(log_widget)
         if replace:
             clear_fn = getattr(log_widget, "clear", None)
             if callable(clear_fn):
@@ -1229,4 +1226,32 @@ class AgentsScreen(Widget):
                     clear_fn()
                 except Exception:
                     pass
-        log_widget.write(message.rstrip() + "\n")
+        entry = message.rstrip() + "\n"
+        write_fn = getattr(log_widget, "write", None)
+        if not callable(write_fn):
+            return
+        try:
+            write_fn(entry, scroll_end=should_scroll_end)
+        except TypeError:
+            write_fn(entry)
+
+    def _is_log_scrolled_to_bottom(self, log_widget: RichLog) -> bool:
+        at_end_attr = getattr(log_widget, "is_vertical_scroll_end", None)
+        if callable(at_end_attr):
+            try:
+                return bool(at_end_attr())
+            except Exception:
+                pass
+        if isinstance(at_end_attr, bool):
+            return at_end_attr
+        scroll_y = self._coerce_float(getattr(log_widget, "scroll_y", None))
+        max_scroll_y = self._coerce_float(getattr(log_widget, "max_scroll_y", None))
+        if scroll_y is not None and max_scroll_y is not None:
+            return scroll_y >= max_scroll_y
+        return True
+
+    def _coerce_float(self, value: Any) -> Optional[float]:
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return None
