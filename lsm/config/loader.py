@@ -952,6 +952,18 @@ def save_config_to_file(config: LSMConfig, path: Path | str) -> None:
         )
 
 
+def clone_config(config: LSMConfig) -> LSMConfig:
+    """
+    Create a normalized deep copy of a configuration object.
+
+    The clone round-trips through ``config_to_raw`` and ``build_config_from_raw`` so
+    path handling, defaults, and normalization are applied consistently.
+    """
+    path = config.config_path or Path("config.json")
+    raw = config_to_raw(config)
+    return build_config_from_raw(raw, path)
+
+
 def config_to_raw(config: LSMConfig) -> Dict[str, Any]:
     """
     Serialize LSMConfig into a JSON/YAML-friendly dict.

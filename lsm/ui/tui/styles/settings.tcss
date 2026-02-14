@@ -59,9 +59,33 @@
     width: 100%;
 }
 
-.settings-scroll {
+.settings-tab-panel {
     height: 1fr;
     width: 100%;
+    layout: vertical;
+}
+
+.settings-kv-table {
+    height: 1fr;
+    width: 100%;
+    overflow-y: auto;
+    overflow-x: hidden;
+}
+
+.settings-command-input {
+    width: 100%;
+    margin-top: 1;
+}
+
+.settings-command-help {
+    min-height: 1;
+    margin-top: 1;
+    color: $text-muted;
+}
+
+.settings-tab-view {
+    width: 100%;
+    height: auto;
 }
 
 .settings-field {

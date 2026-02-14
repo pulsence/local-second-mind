@@ -47,7 +47,10 @@ def _select_field(
 def _set_input(owner: Widget, field_id: str, value: str) -> None:
     """Set an Input widget value if the widget exists."""
     try:
-        owner.query_one(f"#{field_id}", Input).value = value or ""
+        input_widget = owner.query_one(f"#{field_id}", Input)
+        next_value = value or ""
+        if input_widget.value != next_value:
+            input_widget.value = next_value
     except Exception:
         return
 
@@ -55,7 +58,10 @@ def _set_input(owner: Widget, field_id: str, value: str) -> None:
 def _set_switch(owner: Widget, field_id: str, value: bool) -> None:
     """Set a Switch widget value if the widget exists."""
     try:
-        owner.query_one(f"#{field_id}", Switch).value = bool(value)
+        switch_widget = owner.query_one(f"#{field_id}", Switch)
+        next_value = bool(value)
+        if bool(switch_widget.value) != next_value:
+            switch_widget.value = next_value
     except Exception:
         return
 
@@ -71,7 +77,9 @@ def _set_select_options(owner: Widget, field_id: str, values: list[str]) -> None
 def _set_select_value(owner: Widget, field_id: str, value: str) -> None:
     """Set a Select value if the widget exists."""
     try:
-        owner.query_one(f"#{field_id}", Select).value = value
+        select_widget = owner.query_one(f"#{field_id}", Select)
+        if str(select_widget.value or "") != str(value or ""):
+            select_widget.value = value
     except Exception:
         return
 
@@ -115,14 +123,6 @@ class BaseSettingsTab(Widget):
     def refresh_fields(self, config: Any) -> None:
         """Refresh tab widgets from config values."""
         raise NotImplementedError("Settings tab must implement refresh_fields().")
-
-    def apply_update(self, field_id: str, value: Any, config: Any) -> None:
-        """Apply a single field update to the config object."""
-        raise NotImplementedError("Settings tab must implement apply_update().")
-
-    def handle_button(self, button_id: str, config: Any) -> bool:
-        """Handle a tab-scoped button action. Returns True when handled."""
-        return False
 
     def guarded_refresh_fields(self, config: Any) -> None:
         """Run refresh with `_is_refreshing` guard enabled."""

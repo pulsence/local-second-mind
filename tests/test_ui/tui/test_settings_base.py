@@ -85,9 +85,6 @@ class _TestSettingsTab(BaseSettingsTab):
         if config.get("reentrant"):
             self.guarded_refresh_fields({"reentrant": False})
 
-    def apply_update(self, field_id: str, value: Any, config: Any) -> None:
-        return None
-
     def query_one(self, selector, _cls=None):  # type: ignore[override]
         key = selector if isinstance(selector, str) else selector
         if key in self.widgets:
@@ -190,18 +187,12 @@ def test_base_tab_post_status_prefers_parent_controller() -> None:
     assert tab.posted_messages[0].error is False
 
 
-def test_base_tab_requires_refresh_and_update_overrides() -> None:
+def test_base_tab_requires_refresh_override() -> None:
     tab = BaseSettingsTab()
 
     try:
         tab.refresh_fields({})
         assert False, "Expected refresh_fields to require override"
-    except NotImplementedError:
-        pass
-
-    try:
-        tab.apply_update("field", "value", {})
-        assert False, "Expected apply_update to require override"
     except NotImplementedError:
         pass
 

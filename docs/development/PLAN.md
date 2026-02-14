@@ -232,7 +232,7 @@ Slim `settings.py` down to ~150-200 lines. It becomes the controller that:
 **Post-block:** Update `tests/test_ui/tui/test_settings_screen.py` to test controller behavior
 with tab widgets, run `pytest tests/ -v`, commit.
 
-### 2.5: AppState/ViewModel for Settings + Global UI State
+### 2.5: AppState/ViewModel for Settings + Global UI State (COMPLETED)
 
 Introduce a typed UI state layer so screens render from immutable snapshots/state transitions
 instead of directly mutating runtime config objects.
@@ -250,6 +250,7 @@ instead of directly mutating runtime config objects.
 - Add global UI state container for cross-screen concerns (active context, density mode, notifications,
   selected agent id) with typed read/write APIs
 - Keep save boundary explicit: only ViewModel/controller writes through config loader/serializer
+- Remove any comptaibility wrappers to have a clean implementation
 
 **Files to create:**
 - `lsm/ui/tui/state/settings_view_model.py`

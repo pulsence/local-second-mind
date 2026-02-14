@@ -356,6 +356,7 @@ class TestLSMAppBehavior:
 
         app.action_switch_settings()
         assert app.current_context == "settings"
+        assert app.ui_state.active_context == "settings"
         assert tabs.active == "settings"
         assert seen["count"] == 1
 
@@ -395,16 +396,21 @@ class TestLSMAppBehavior:
 
         app.action_switch_ingest()
         assert app.current_context == "ingest"
+        assert app.ui_state.active_context == "ingest"
         app.action_switch_query()
         assert app.current_context == "query"
+        assert app.ui_state.active_context == "query"
         app.action_switch_remote()
         assert app.current_context == "remote"
+        assert app.ui_state.active_context == "remote"
         app.action_switch_settings()
         assert app.current_context == "settings"
+        assert app.ui_state.active_context == "settings"
 
         event = SimpleNamespace(tab=SimpleNamespace(id="query-tab"), tabbed_content=tabs)
         app.on_tabbed_content_tab_activated(event)
         assert app.current_context == "query"
+        assert app.ui_state.active_context == "query"
 
         event_bad = SimpleNamespace(tab=SimpleNamespace(id="unknown-tab"), tabbed_content=tabs)
         app.on_tabbed_content_tab_activated(event_bad)
@@ -447,6 +453,19 @@ class TestLSMAppBehavior:
         assert pushed["screen"] is not None
         app.action_quit()
         assert pushed["quit"] is True
+
+    def test_notify_event_records_ui_state(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+        from lsm.ui.tui.app import LSMApp
+
+        app = LSMApp(_build_config(tmp_path))
+        seen = []
+        monkeypatch.setattr(app, "notify", lambda msg, **kwargs: seen.append((msg, kwargs)))
+
+        app.notify_event("Saved", severity="info", timeout=2)
+
+        assert seen == [("Saved", {"severity": "info", "timeout": 2})]
+        assert len(app.ui_state.notifications) == 1
+        assert app.ui_state.notifications[0].message == "Saved"
 
     def test_watch_methods_update_status_bar(self, tmp_path: Path):
         from lsm.ui.tui.app import LSMApp
@@ -587,6 +606,7 @@ class TestLSMAppDensity:
         assert success is True
         assert app.density_mode == "comfortable"
         assert app.effective_density == "comfortable"
+        assert app.ui_state.density_mode == "comfortable"
         assert cfg.global_settings.tui_density_mode == "comfortable"
 
         success, message = app.set_density_mode("invalid")

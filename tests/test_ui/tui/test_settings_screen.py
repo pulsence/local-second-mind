@@ -5,12 +5,13 @@ from types import SimpleNamespace
 from typing import Any, Optional
 
 from lsm.ui.tui.screens.settings import SettingsScreen
-from lsm.ui.tui.widgets.settings_base import BaseSettingsTab
+from lsm.ui.tui.state import SettingTableRow, SettingsActionResult
 
 
 class _Tabs:
     def __init__(self) -> None:
-        self.active = ""
+        self.id = "settings-tabs"
+        self.active = "settings-global"
         self.focused = False
 
     def focus(self) -> None:
@@ -25,42 +26,84 @@ class _StaticWidget:
         self.last = value
 
 
-class _FakeTab(BaseSettingsTab):
-    def __init__(self, name: str) -> None:
-        super().__init__(id=f"tab-{name}")
-        self.tab_name = name
-        self.refresh_calls = 0
-        self.apply_calls: list[tuple[str, Any]] = []
-        self.button_calls: list[str] = []
-        self.next_apply_handled = True
-        self.next_button_handled = True
-        self.apply_error: Optional[Exception] = None
-        self.button_error: Optional[Exception] = None
-        self.apply_hook = None
+class _Table:
+    def __init__(self) -> None:
+        self.columns: list[str] = []
+        self.rows: list[tuple[str, str, str]] = []
+        self.cursor_type = ""
+        self.zebra_stripes = False
 
-    def refresh_fields(self, config: Any) -> None:
-        self.refresh_calls += 1
+    def add_columns(self, *columns: str) -> None:
+        self.columns.extend(columns)
 
-    def apply_update(self, field_id: str, value: Any, config: Any) -> bool:
-        self.apply_calls.append((field_id, value))
-        if self.apply_error is not None:
-            raise self.apply_error
-        if callable(self.apply_hook):
-            self.apply_hook(field_id, value, config)
-        return self.next_apply_handled
+    def add_row(self, key: str, value: str, state: str) -> None:
+        self.rows.append((key, value, state))
 
-    def handle_button(self, button_id: str, config: Any) -> bool:
-        self.button_calls.append(button_id)
-        if self.button_error is not None:
-            raise self.button_error
-        return self.next_button_handled
+    def clear(self) -> None:
+        self.rows = []
+
+
+class _FakeViewModel:
+    def __init__(self, config: Any) -> None:
+        self.persisted_config = config
+        self.draft_config = config
+        self.table_rows_calls: list[str] = []
+        self.set_calls: list[tuple[str, str, str]] = []
+        self.unset_calls: list[tuple[str, str]] = []
+        self.delete_calls: list[tuple[str, str]] = []
+        self.reset_key_calls: list[tuple[str, str]] = []
+        self.default_key_calls: list[tuple[str, str]] = []
+        self.reset_tab_calls: list[str] = []
+        self.save_calls = 0
+        self.load_calls: list[Any] = []
+
+        self.next_result = SettingsActionResult(handled=True, changed_tabs=("settings-global",))
+        self.next_save_result = SettingsActionResult(handled=True, changed_tabs=("settings-global",))
+
+    def table_rows(self, tab_id: str) -> list[SettingTableRow]:
+        self.table_rows_calls.append(tab_id)
+        return [SettingTableRow(key="sample", value=tab_id, state="")]
+
+    def load(self, config: Any) -> SettingsActionResult:
+        self.load_calls.append(config)
+        self.persisted_config = config
+        self.draft_config = config
+        return SettingsActionResult(handled=True, changed_tabs=("settings-global",))
+
+    def set_key(self, tab_id: str, key: str, value: str) -> SettingsActionResult:
+        self.set_calls.append((tab_id, key, value))
+        return self.next_result
+
+    def unset_key(self, tab_id: str, key: str) -> SettingsActionResult:
+        self.unset_calls.append((tab_id, key))
+        return self.next_result
+
+    def delete_key(self, tab_id: str, key: str) -> SettingsActionResult:
+        self.delete_calls.append((tab_id, key))
+        return self.next_result
+
+    def reset_key(self, tab_id: str, key: str) -> SettingsActionResult:
+        self.reset_key_calls.append((tab_id, key))
+        return self.next_result
+
+    def default_key(self, tab_id: str, key: str) -> SettingsActionResult:
+        self.default_key_calls.append((tab_id, key))
+        return self.next_result
+
+    def reset_tab(self, tab_id: str) -> SettingsActionResult:
+        self.reset_tab_calls.append(tab_id)
+        return self.next_result
+
+    def save(self) -> SettingsActionResult:
+        self.save_calls += 1
+        return self.next_save_result
 
 
 class _TestableSettingsScreen(SettingsScreen):
     def __init__(self, app):
         super().__init__()
         self._test_app = app
-        self.widgets = {}
+        self.widgets: dict[str, Any] = {}
 
     @property
     def app(self):  # type: ignore[override]
@@ -76,230 +119,130 @@ class _TestableSettingsScreen(SettingsScreen):
         fn()
 
 
-class _DeferredRefreshSettingsScreen(_TestableSettingsScreen):
-    def __init__(self, app):
-        super().__init__(app)
-        self.after_refresh = None
-
-    def call_after_refresh(self, fn):  # type: ignore[override]
-        self.after_refresh = fn
-
-
 def _config() -> Any:
     return SimpleNamespace(
         config_path=Path("config.json"),
         query=SimpleNamespace(mode="grounded"),
-        ingest=SimpleNamespace(),
-        llm=SimpleNamespace(),
-        vectordb=SimpleNamespace(),
-        modes={},
-        remote_providers=[],
-        remote_provider_chains=[],
-        notes=SimpleNamespace(),
-        chats=SimpleNamespace(),
     )
 
 
-def _screen(context: str = "settings") -> _TestableSettingsScreen:
+def _screen(context: str = "settings") -> tuple[_TestableSettingsScreen, _FakeViewModel]:
     app = SimpleNamespace(config=_config(), current_context=context)
     screen = _TestableSettingsScreen(app)
-    screen._tabs = {
-        "settings-global": _FakeTab("global"),
-        "settings-ingest": _FakeTab("ingest"),
-        "settings-query": _FakeTab("query"),
-        "settings-llm": _FakeTab("llm"),
-        "settings-vdb": _FakeTab("vdb"),
-        "settings-modes": _FakeTab("modes"),
-        "settings-remote": _FakeTab("remote"),
-        "settings-chats-notes": _FakeTab("chats-notes"),
-    }
-    return screen
+    vm = _FakeViewModel(app.config)
+    screen._view_model = vm
+    screen._source_config = app.config
+
+    screen.widgets["#settings-status"] = _StaticWidget()
+    screen.widgets["#settings-tabs"] = _Tabs()
+    for tab_id, _ in screen._TAB_LAYOUT:
+        screen.widgets[f"#{tab_id}-table"] = _Table()
+
+    return screen, vm
 
 
-def test_focus_and_tab_actions() -> None:
-    screen = _screen()
-    tabs = _Tabs()
-    screen.widgets["#settings-tabs"] = tabs
-
-    screen.on_mount()
-    assert tabs.focused is True
-
-    screen.action_settings_tab_1()
-    assert tabs.active == "settings-global"
-    screen.action_settings_tab_8()
-    assert tabs.active == "settings-chats-notes"
+def test_settings_bindings_use_ctrl_numbers() -> None:
+    keys = [binding.key for binding in SettingsScreen.BINDINGS]
+    assert keys == ["ctrl+1", "ctrl+2", "ctrl+3", "ctrl+4", "ctrl+5", "ctrl+6", "ctrl+7", "ctrl+8"]
 
 
-def test_refresh_from_config_delegates_to_all_tabs() -> None:
-    screen = _screen()
+def test_refresh_from_config_populates_only_active_table() -> None:
+    screen, vm = _screen()
 
     screen.refresh_from_config()
 
-    for tab in screen._tabs.values():
-        assert tab.refresh_calls == 1
+    assert vm.table_rows_calls == ["settings-global"]
+    assert screen.widgets["#settings-global-table"].rows
+    assert screen.widgets["#settings-query-table"].rows == []
 
 
-def test_on_show_refreshes_values_even_if_context_is_stale() -> None:
-    screen = _screen(context="query")
+def test_tab_activation_refreshes_stale_selected_tab() -> None:
+    screen, vm = _screen()
+    tabs = screen.widgets["#settings-tabs"]
 
-    screen.on_show()
+    tabs.active = "settings-llm"
+    event = SimpleNamespace(tabbed_content=tabs, tab=SimpleNamespace(id="settings-llm-tab"))
 
-    for tab in screen._tabs.values():
-        assert tab.refresh_calls == 1
+    screen.on_tabbed_content_tab_activated(event)
 
-
-def test_refresh_keeps_guard_until_after_refresh_callback_runs() -> None:
-    app = SimpleNamespace(config=_config(), current_context="settings")
-    screen = _DeferredRefreshSettingsScreen(app)
-    screen._tabs = {
-        "settings-global": _FakeTab("global"),
-        "settings-ingest": _FakeTab("ingest"),
-        "settings-query": _FakeTab("query"),
-        "settings-llm": _FakeTab("llm"),
-        "settings-vdb": _FakeTab("vdb"),
-        "settings-modes": _FakeTab("modes"),
-        "settings-remote": _FakeTab("remote"),
-        "settings-chats-notes": _FakeTab("chats-notes"),
-    }
-
-    screen.refresh_from_config()
-
-    assert screen._is_refreshing is True
-    assert callable(screen.after_refresh)
-
-    screen.after_refresh()
-    assert screen._is_refreshing is False
+    assert vm.table_rows_calls == ["settings-llm"]
+    assert screen.widgets["#settings-llm-table"].rows
 
 
-def test_input_update_routes_to_query_tab_by_field_prefix() -> None:
-    screen = _screen()
+def test_set_command_routes_to_view_model() -> None:
+    screen, vm = _screen()
 
-    event = SimpleNamespace(input=SimpleNamespace(id="settings-query-k"), value="20")
-    screen.on_input_changed(event)
+    event = SimpleNamespace(
+        input=SimpleNamespace(id="settings-global-command", value="set global_folder /tmp"),
+        value="set global_folder /tmp",
+    )
+    screen.on_input_submitted(event)
 
-    query_tab = screen._tabs["settings-query"]
-    assert query_tab.apply_calls == [("settings-query-k", "20")]
-
-
-def test_switch_update_routes_to_chats_notes_tab() -> None:
-    screen = _screen()
-
-    event = SimpleNamespace(switch=SimpleNamespace(id="settings-notes-enabled"), value=True)
-    screen.on_switch_changed(event)
-
-    chats_notes_tab = screen._tabs["settings-chats-notes"]
-    assert chats_notes_tab.apply_calls == [("settings-notes-enabled", True)]
+    assert vm.set_calls == [("settings-global", "global_folder", "/tmp")]
+    assert event.input.value == ""
 
 
-def test_select_update_routes_to_vectordb_tab() -> None:
-    screen = _screen()
+def test_save_command_updates_app_config() -> None:
+    screen, vm = _screen()
+    persisted = _config()
+    persisted.query.mode = "insight"
+    vm.persisted_config = persisted
 
-    event = SimpleNamespace(select=SimpleNamespace(id="settings-vdb-provider"), value="postgresql")
-    screen.on_select_changed(event)
+    event = SimpleNamespace(
+        input=SimpleNamespace(id="settings-query-command", value="save"),
+        value="save",
+    )
+    screen.on_input_submitted(event)
 
-    vdb_tab = screen._tabs["settings-vdb"]
-    assert vdb_tab.apply_calls == [("settings-vdb-provider", "postgresql")]
-
-
-def test_mode_change_syncs_query_and_modes_tabs() -> None:
-    screen = _screen()
-    cfg = screen.app.config
-
-    query_tab = screen._tabs["settings-query"]
-
-    def _apply_mode(field_id: str, value: Any, config: Any) -> None:
-        if field_id == "settings-query-mode":
-            config.query.mode = str(value)
-
-    query_tab.apply_hook = _apply_mode
-
-    event = SimpleNamespace(select=SimpleNamespace(id="settings-query-mode"), value="insight")
-    screen.on_select_changed(event)
-
-    assert cfg.query.mode == "insight"
-    assert screen.current_mode == "insight"
-    assert screen._tabs["settings-query"].refresh_calls == 1
-    assert screen._tabs["settings-modes"].refresh_calls == 1
+    assert vm.save_calls == 1
+    assert screen.app.config is persisted
+    status = screen.widgets["#settings-status"].last
+    assert "Configuration saved" in status
 
 
-def test_update_uses_source_tab_when_available() -> None:
-    screen = _screen()
-    source = SimpleNamespace(parent=screen._tabs["settings-remote"])
+def test_reset_without_key_routes_to_tab_reset() -> None:
+    screen, vm = _screen()
 
-    handled = screen._apply_update("settings-query-k", "14", source)
+    event = SimpleNamespace(
+        input=SimpleNamespace(id="settings-ingest-command", value="reset"),
+        value="reset",
+    )
+    screen.on_input_submitted(event)
 
-    assert handled is True
-    assert screen._tabs["settings-remote"].apply_calls == [("settings-query-k", "14")]
-    assert screen._tabs["settings-query"].apply_calls == []
-
-
-def test_save_and_reset_buttons(monkeypatch) -> None:
-    screen = _screen()
-    status = _StaticWidget()
-    screen.widgets["#settings-status"] = status
-
-    saved = {"called": False}
-    reset = {"called": False}
-    monkeypatch.setattr(screen, "_save_config", lambda: saved.__setitem__("called", True))
-    monkeypatch.setattr(screen, "_reset_config", lambda: reset.__setitem__("called", True))
-
-    screen.on_button_pressed(SimpleNamespace(button=SimpleNamespace(id="settings-save-global")))
-    screen.on_button_pressed(SimpleNamespace(button=SimpleNamespace(id="settings-reset-global")))
-
-    assert saved["called"] is True
-    assert reset["called"] is True
+    assert vm.reset_tab_calls == ["settings-ingest"]
 
 
-def test_button_routes_to_remote_tab_handler() -> None:
-    screen = _screen()
+def test_invalid_command_sets_error_status() -> None:
+    screen, _ = _screen()
 
-    handled = screen._handle_structured_button("settings-remote-chain-add")
+    event = SimpleNamespace(
+        input=SimpleNamespace(id="settings-global-command", value="wat"),
+        value="wat",
+    )
+    screen.on_input_submitted(event)
 
-    assert handled is True
-    assert screen._tabs["settings-remote"].button_calls == ["settings-remote-chain-add"]
-
-
-def test_invalid_field_update_sets_error_status() -> None:
-    screen = _screen()
-    status = _StaticWidget()
-    screen.widgets["#settings-status"] = status
-
-    query_tab = screen._tabs["settings-query"]
-    query_tab.apply_error = ValueError("bad value")
-
-    screen._apply_live_update("settings-query-k", "oops")
-
-    assert "Invalid value for settings-query-k" in status.last
+    assert "Unknown command" in screen.widgets["#settings-status"].last
 
 
-def test_button_handler_exception_sets_error_status() -> None:
-    screen = _screen()
-    status = _StaticWidget()
-    screen.widgets["#settings-status"] = status
+def test_command_error_is_reported() -> None:
+    screen, vm = _screen()
+    vm.next_result = SettingsActionResult(handled=True, changed_tabs=("settings-global",), error="bad key")
 
-    remote_tab = screen._tabs["settings-remote"]
-    remote_tab.button_error = ValueError("cannot remove")
+    event = SimpleNamespace(
+        input=SimpleNamespace(id="settings-global-command", value="set nope x"),
+        value="set nope x",
+    )
+    screen.on_input_submitted(event)
 
-    handled = screen._handle_structured_button("settings-remote-provider-remove-0")
-
-    assert handled is True
-    assert "cannot remove" in status.last
+    assert "bad key" in screen.widgets["#settings-status"].last
 
 
-def test_reset_config_reloads_from_disk_and_refreshes(monkeypatch) -> None:
-    screen = _screen()
-    status = _StaticWidget()
-    screen.widgets["#settings-status"] = status
-
+def test_refresh_loads_external_config_object() -> None:
+    screen, vm = _screen()
     new_config = _config()
     new_config.query.mode = "hybrid"
+    screen.app.config = new_config
 
-    import lsm.ui.tui.screens.settings as settings_module
+    screen.refresh_from_config()
 
-    monkeypatch.setattr(settings_module, "load_config_from_file", lambda _path: new_config)
-
-    screen._reset_config()
-
-    assert screen.app.config.query.mode == "hybrid"
-    assert screen._tabs["settings-global"].refresh_calls == 1
-    assert "Configuration reloaded from disk" in status.last
+    assert vm.load_calls == [new_config]

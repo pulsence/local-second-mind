@@ -17,6 +17,10 @@ from lsm.ui.tui.widgets.settings_base import BaseSettingsTab
 class IngestSettingsTab(BaseSettingsTab):
     """Settings view for ingest configuration fields."""
 
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self._roots_signature: Optional[tuple[tuple[str, tuple[str, ...], str], ...]] = None
+
     def compose(self) -> ComposeResult:
         yield Container(
             Static("Ingest Settings", classes="settings-section-title"),
@@ -227,6 +231,18 @@ class IngestSettingsTab(BaseSettingsTab):
 
     def _refresh_roots_fields(self, config: Any) -> None:
         roots = list(getattr(config.ingest, "roots", None) or [])
+        signature = tuple(
+            (
+                str(getattr(root, "path", "")),
+                tuple(getattr(root, "tags", None) or ()),
+                str(getattr(root, "content_type", None) or ""),
+            )
+            for root in roots
+        )
+        if signature == self._roots_signature:
+            return
+
+        self._roots_signature = signature
         root_widgets = []
         if not roots:
             root_widgets.append(Static("No ingest roots configured.", classes="settings-label"))

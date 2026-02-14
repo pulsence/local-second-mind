@@ -10,7 +10,7 @@ Provides a rich terminal interface using Textual with:
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Optional, Literal, TYPE_CHECKING, cast
+from typing import Any, Optional, Literal, TYPE_CHECKING, cast
 import logging
 import sys
 
@@ -22,6 +22,7 @@ from textual.reactive import reactive
 from textual.timer import Timer
 
 from lsm.logging import get_logger
+from lsm.ui.tui.state import AppState
 from lsm.ui.tui.widgets.status import StatusBar
 
 if TYPE_CHECKING:
@@ -112,6 +113,7 @@ class LSMApp(App):
         self._effective_density: EffectiveDensity = "comfortable"
         self._pending_resize_dimensions: tuple[int, int] | None = None
         self._density_resize_timer: Timer | None = None
+        self.ui_state = AppState(active_context="query", density_mode=self._density_mode)
 
     def compose(self) -> ComposeResult:
         """Compose the application layout."""
@@ -150,7 +152,7 @@ class LSMApp(App):
         try:
             tabbed_content = self.query_one(TabbedContent)
             tabbed_content.active = "query"
-            self.current_context = "query"
+            self._set_active_context("query")
         except Exception:
             pass
         width, height = self._terminal_size()
@@ -266,6 +268,7 @@ class LSMApp(App):
             )
 
         self._density_mode = cast(DensityMode, normalized)
+        self.ui_state.set_density_mode(self._density_mode)
 
         # Keep config in sync so save operations persist the latest mode choice.
         global_settings = getattr(self.config, "global_settings", None)
@@ -469,25 +472,30 @@ class LSMApp(App):
     # Actions (bound to keyboard shortcuts)
     # -------------------------------------------------------------------------
 
+    def _set_active_context(self, context: ContextType) -> None:
+        """Update active context in both reactive state and typed app state."""
+        self.current_context = context
+        self.ui_state.set_active_context(context)
+
     def action_switch_ingest(self) -> None:
         """Switch to ingest tab."""
         tabbed_content = self.query_one(TabbedContent)
         tabbed_content.active = "ingest"
-        self.current_context = "ingest"
+        self._set_active_context("ingest")
         logger.debug("Switched to ingest context")
 
     def action_switch_query(self) -> None:
         """Switch to query tab."""
         tabbed_content = self.query_one(TabbedContent)
         tabbed_content.active = "query"
-        self.current_context = "query"
+        self._set_active_context("query")
         logger.debug("Switched to query context")
 
     def action_switch_settings(self) -> None:
         """Switch to settings tab."""
         tabbed_content = self.query_one(TabbedContent)
         tabbed_content.active = "settings"
-        self.current_context = "settings"
+        self._set_active_context("settings")
         self._refresh_settings_screen()
         logger.debug("Switched to settings context")
 
@@ -495,14 +503,14 @@ class LSMApp(App):
         """Switch to remote tab."""
         tabbed_content = self.query_one(TabbedContent)
         tabbed_content.active = "remote"
-        self.current_context = "remote"
+        self._set_active_context("remote")
         logger.debug("Switched to remote context")
 
     def action_switch_agents(self) -> None:
         """Switch to agents tab."""
         tabbed_content = self.query_one(TabbedContent)
         tabbed_content.active = "agents"
-        self.current_context = "agents"
+        self._set_active_context("agents")
         logger.debug("Switched to agents context")
 
     def _activate_settings_tab(self, tab_id: str) -> None:
@@ -581,7 +589,7 @@ class LSMApp(App):
             # Remove the "-tab" suffix if present
             context = tab_id.replace("-tab", "")
             if context in ("ingest", "query", "settings", "remote", "agents"):
-                self.current_context = context
+                self._set_active_context(cast(ContextType, context))
                 if context == "settings":
                     self._refresh_settings_screen()
                 logger.debug(f"Tab activated: {context}")
@@ -607,6 +615,10 @@ class LSMApp(App):
             status_bar.mode = mode
         except Exception:
             pass
+
+    def watch_current_context(self, context: ContextType) -> None:
+        """Keep typed app state context synchronized with reactive context changes."""
+        self.ui_state.set_active_context(context)
 
     def watch_chunk_count(self, count: int) -> None:
         """Sync chunk count changes to StatusBar."""
@@ -647,6 +659,29 @@ class LSMApp(App):
     def query_state(self):
         """Get the query session state (may be None if not initialized)."""
         return self._query_state
+
+    @property
+    def selected_agent_id(self) -> Optional[str]:
+        """Get currently selected agent id for cross-screen interactions."""
+        return self.ui_state.selected_agent_id
+
+    def set_selected_agent_id(self, agent_id: Optional[str]) -> None:
+        """Set currently selected agent id for cross-screen interactions."""
+        self.ui_state.set_selected_agent_id(agent_id)
+
+    def notify_event(
+        self,
+        message: str,
+        *,
+        severity: Literal["info", "warning", "error"] = "info",
+        timeout: Optional[float] = None,
+    ) -> None:
+        """Emit and record a UI notification event."""
+        self.ui_state.push_notification(message, severity=severity)
+        kwargs: dict[str, Any] = {"severity": severity}
+        if timeout is not None:
+            kwargs["timeout"] = timeout
+        self.notify(message, **kwargs)
 
     def update_cost(self, amount: float) -> None:
         """
