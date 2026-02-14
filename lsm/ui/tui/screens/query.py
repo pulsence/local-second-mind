@@ -11,12 +11,10 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Optional, List, Any
 import asyncio
-from pathlib import Path
-from datetime import datetime
 
 from textual.app import ComposeResult
 from textual.binding import Binding
-from textual.containers import Container, Vertical, Horizontal, ScrollableContainer
+from textual.containers import Container, Vertical, Horizontal
 from textual.widgets import Static, RichLog, TabbedContent
 from textual.widget import Widget
 from textual.message import Message
@@ -26,21 +24,17 @@ from lsm.logging import get_logger
 from lsm.ui.tui.widgets.results import ResultsPanel, CitationSelected, CitationExpanded
 from lsm.ui.tui.widgets.input import CommandInput, CommandSubmitted
 from lsm.ui.tui.completions import create_completer
-from lsm.query.cost_tracking import estimate_query_cost
+from lsm.ui.helpers.commands.query import execute_query_command
 from lsm.ui.utils import (
     display_provider_name,
     format_feature_label,
-    open_file,
 )
 from lsm.query.session import SessionState
 from lsm.query.cost_tracking import CostTracker
 from lsm.providers import create_provider
 from lsm.vectordb import create_vectordb_provider, list_available_providers
 from lsm.remote import get_registered_providers
-from lsm.query.citations import export_citations_from_note, export_citations_from_sources
-from lsm.query.notes import get_note_filename, generate_note_content, resolve_notes_dir
 from lsm.ui.tui.widgets.status import StatusBar
-from lsm.ui.shell.commands.agents import handle_agent_command, handle_memory_command
 
 if TYPE_CHECKING:
     from lsm.query.session import Candidate
@@ -191,49 +185,11 @@ class QueryScreen(Widget):
             command: Command string (e.g., "/help", "/show S1")
         """
         normalized = command.strip().lower()
-        parts = command.strip().split()
         if normalized in {"/ingest", "/i"}:
             self.app.action_switch_ingest()
             return
         if normalized in {"/query", "/q"}:
             self.app.action_switch_query()
-            return
-        if normalized.startswith("/models"):
-            self._ensure_query_state()
-            output = self._format_models(command.strip())
-            if output:
-                self._show_message(output)
-            return
-        if normalized == "/model" and len(parts) == 1:
-            self._ensure_query_state()
-            output = self._format_model_selection()
-            if output:
-                self._show_message(output)
-            return
-        if normalized == "/providers":
-            output = self._format_providers()
-            if output:
-                self._show_message(output)
-            return
-        if normalized == "/provider-status":
-            output = self._format_provider_status()
-            if output:
-                self._show_message(output)
-            return
-        if normalized == "/vectordb-providers":
-            output = self._format_vectordb_providers()
-            if output:
-                self._show_message(output)
-            return
-        if normalized == "/vectordb-status":
-            output = self._format_vectordb_status()
-            if output:
-                self._show_message(output)
-            return
-        if normalized == "/remote-providers":
-            output = self._format_remote_providers()
-            if output:
-                self._show_message(output)
             return
 
         output = await self._run_query_command(command)
@@ -632,452 +588,14 @@ class QueryScreen(Widget):
         return "\n".join(lines)
 
     def _execute_query_command(self, command: str) -> CommandResult:
-        """Run the query command handler and capture output."""
+        """Run the query command handler via shared command helpers."""
         try:
-            q = command.strip()
-            if not q.startswith("/"):
-                return CommandResult(output="", handled=False)
-
-            parts = q.split()
-            cmd = parts[0].lower()
-
-            if cmd in {"/exit"}:
-                return CommandResult(output="", should_exit=True)
-
-            if cmd in {"/help", "/?"}:
-                return CommandResult(output=self._get_help_text())
-
-            if cmd == "/debug":
-                return CommandResult(output=self.app.query_state.format_debug())
-
-            if cmd == "/costs":
-                tracker = self.app.query_state.cost_tracker
-                if not tracker:
-                    return CommandResult(output="Cost tracking is not initialized.\n")
-                if len(parts) == 1:
-                    return CommandResult(output=self.app.query_state.format_costs())
-                if len(parts) >= 2 and parts[1].lower() == "export":
-                    if len(parts) >= 3:
-                        export_path = Path(parts[2])
-                    else:
-                        timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-                        export_path = Path(f"costs-{timestamp}.csv")
-                    try:
-                        tracker.export_csv(export_path)
-                        return CommandResult(output=f"Cost data exported to: {export_path}\n")
-                    except Exception as exc:
-                        return CommandResult(output=f"Failed to export costs: {exc}\n")
-                return CommandResult(output="Usage:\n  /costs\n  /costs export <path>\n")
-
-            if cmd == "/budget":
-                tracker = self.app.query_state.cost_tracker
-                if not tracker:
-                    return CommandResult(output="Cost tracking is not initialized.\n")
-                if len(parts) == 1:
-                    if tracker.budget_limit is None:
-                        return CommandResult(output="No budget set.\n")
-                    return CommandResult(output=f"Budget limit: ${tracker.budget_limit:.4f}\n")
-                if len(parts) == 3 and parts[1].lower() == "set":
-                    try:
-                        tracker.budget_limit = float(parts[2])
-                        return CommandResult(
-                            output=f"Budget limit set to: ${tracker.budget_limit:.4f}\n"
-                        )
-                    except ValueError:
-                        return CommandResult(output="Invalid budget amount. Use a numeric value.\n")
-                return CommandResult(output="Usage:\n  /budget\n  /budget set <amount>\n")
-
-            if cmd == "/cost-estimate":
-                if len(parts) < 2:
-                    return CommandResult(output="Usage: /cost-estimate <query>\n")
-                query = q.split(maxsplit=1)[1].strip()
-                cost = estimate_query_cost(
-                    query,
-                    self.app.config,
-                    self.app.query_state,
-                    self.app.query_embedder,
-                    self.app.query_provider,
-                )
-                return CommandResult(output=f"Estimated cost: ${cost:.4f}\n")
-
-            if cmd == "/export-citations":
-                fmt = parts[1].strip().lower() if len(parts) > 1 else "bibtex"
-                note_path = Path(parts[2]) if len(parts) > 2 else None
-                if fmt not in {"bibtex", "zotero"}:
-                    return CommandResult(output="Format must be 'bibtex' or 'zotero'.\n")
-                try:
-                    if note_path:
-                        output_path = export_citations_from_note(note_path, fmt=fmt)
-                    else:
-                        if not self.app.query_state.last_label_to_candidate:
-                            return CommandResult(
-                                output="No last query sources available to export.\n"
-                            )
-                        sources = [
-                            {
-                                "source_path": c.source_path,
-                                "source_name": c.source_name,
-                                "chunk_index": c.chunk_index,
-                                "ext": c.ext,
-                                "label": label,
-                                "title": (c.meta or {}).get("title"),
-                                "author": (c.meta or {}).get("author"),
-                                "mtime_ns": (c.meta or {}).get("mtime_ns"),
-                                "ingested_at": (c.meta or {}).get("ingested_at"),
-                            }
-                            for label, c in self.app.query_state.last_label_to_candidate.items()
-                        ]
-                        output_path = export_citations_from_sources(sources, fmt=fmt)
-                    return CommandResult(output=f"Citations exported to: {output_path}\n")
-                except Exception as exc:
-                    return CommandResult(output=f"Failed to export citations: {exc}\n")
-
-            if cmd == "/model":
-                if len(parts) != 4:
-                    return CommandResult(
-                        output=(
-                            "Usage:\n"
-                            "  /model                   (show current)\n"
-                            "  /model <task> <provider> <model>  (set model for a task)\n"
-                            "  /models [provider]       (list available models)\n"
-                        )
-                    )
-                task = parts[1].strip().lower()
-                provider_name = parts[2].strip()
-                model_name = parts[3].strip()
-                task_map = {
-                    "query": "query",
-                    "tag": "tagging",
-                    "tagging": "tagging",
-                    "rerank": "ranking",
-                    "ranking": "ranking",
-                }
-                feature = task_map.get(task)
-                if not feature:
-                    return CommandResult(output="Unknown task. Use: query, tag, rerank\n")
-                try:
-                    provider_names = self.app.config.llm.get_provider_names()
-                    normalized = provider_name
-                    if provider_name == "anthropic" and "claude" in provider_names:
-                        normalized = "claude"
-                    elif provider_name == "claude" and "anthropic" in provider_names:
-                        normalized = "anthropic"
-
-                    self.app.config.llm.set_feature_selection(feature, normalized, model_name)
-                    if feature == "query":
-                        self.app.query_state.model = model_name
-                    label = format_feature_label(feature)
-                    return CommandResult(
-                        output=(
-                            f"Model set: {label} = {display_provider_name(normalized)}/{model_name}\n"
-                        )
-                    )
-                except Exception as exc:
-                    return CommandResult(output=f"Failed to set model: {exc}\n")
-
-            if cmd == "/mode":
-                if len(parts) == 1:
-                    current_mode = self.app.config.query.mode
-                    mode_config = self.app.config.get_mode_config(current_mode)
-                    lines = [
-                        f"Current mode: {current_mode}",
-                        f"  Chat mode: {getattr(self.app.config.query, 'chat_mode', 'single')}",
-                        f"  Synthesis style: {mode_config.synthesis_style}",
-                        f"  Local sources: enabled (k={mode_config.source_policy.local.k})",
-                        f"  Remote sources: {'enabled' if mode_config.source_policy.remote.enabled else 'disabled'}",
-                        f"  LLM server cache: {'enabled' if getattr(self.app.config.query, 'enable_llm_server_cache', True) else 'disabled'}",
-                        f"  Model knowledge: "
-                        f"{'enabled' if mode_config.source_policy.model_knowledge.enabled else 'disabled'}",
-                        f"  Notes: {'enabled' if self.app.config.notes.enabled else 'disabled'}",
-                        f"\nAvailable modes: {', '.join(self.app.config.modes.keys())}\n",
-                    ]
-                    return CommandResult(output="\n".join(lines))
-                if parts[1].lower() == "set":
-                    if len(parts) != 4:
-                        return CommandResult(
-                            output=(
-                                "Usage:\n  /mode set <setting> <on|off>\n"
-                                "Settings: model_knowledge, remote, notes (global), llm_cache\n"
-                            )
-                        )
-                    setting = parts[2].strip().lower()
-                    value = parts[3].strip().lower()
-                    enabled = value in {"on", "true", "yes", "1"}
-                    mode_config = self.app.config.get_mode_config()
-                    if setting in {"model_knowledge", "model-knowledge"}:
-                        mode_config.source_policy.model_knowledge.enabled = enabled
-                    elif setting in {"remote", "remote_sources", "remote-sources"}:
-                        mode_config.source_policy.remote.enabled = enabled
-                    elif setting in {"notes"}:
-                        self.app.config.notes.enabled = enabled
-                    elif setting in {"llm_cache", "llm-cache", "server_cache", "server-cache"}:
-                        self.app.config.query.enable_llm_server_cache = enabled
-                    else:
-                        return CommandResult(
-                            output=(
-                                f"Unknown setting: {setting}\n"
-                                "Settings: model_knowledge, remote, notes (global), llm_cache\n"
-                            )
-                        )
-                    return CommandResult(
-                        output=f"Mode setting '{setting}' set to: {'on' if enabled else 'off'}\n"
-                    )
-                if len(parts) != 2:
-                    return CommandResult(
-                        output=(
-                            "Usage:\n  /mode           (show current)\n"
-                            "  /mode <name>    (switch query source mode)\n"
-                            "  /mode chat|single (switch conversation mode)\n"
-                        )
-                    )
-                mode_name = parts[1].strip()
-                if mode_name in {"chat", "single"}:
-                    self.app.config.query.chat_mode = mode_name
-                    return CommandResult(
-                        output=f"Chat mode set to: {mode_name}\n"
-                    )
-                if mode_name not in self.app.config.modes:
-                    return CommandResult(
-                        output=(
-                            f"Mode not found: {mode_name}\n"
-                            f"Available modes: {', '.join(self.app.config.modes.keys())}\n"
-                        )
-                    )
-                self.app.config.query.mode = mode_name
-                mode_config = self.app.config.get_mode_config(mode_name)
-                lines = [
-                    f"Mode switched to: {mode_name}",
-                    f"  Synthesis style: {mode_config.synthesis_style}",
-                    f"  Remote sources: "
-                    f"{'enabled' if mode_config.source_policy.remote.enabled else 'disabled'}",
-                    f"  Model knowledge: "
-                    f"{'enabled' if mode_config.source_policy.model_knowledge.enabled else 'disabled'}\n",
-                ]
-                return CommandResult(output="\n".join(lines))
-
-            if cmd == "/context":
-                if len(parts) == 1:
-                    docs = self.app.query_state.context_documents or []
-                    chunks = self.app.query_state.context_chunks or []
-                    lines = [
-                        "Context anchors:",
-                        f"  Documents: {', '.join(docs) if docs else '(none)'}",
-                        f"  Chunks: {', '.join(chunks) if chunks else '(none)'}",
-                        "",
-                        "Usage:",
-                        "  /context doc <path> [more paths...]",
-                        "  /context chunk <id> [more ids...]",
-                        "  /context clear",
-                    ]
-                    return CommandResult(output="\n".join(lines))
-                action = parts[1].strip().lower()
-                if action == "clear":
-                    self.app.query_state.context_documents = []
-                    self.app.query_state.context_chunks = []
-                    return CommandResult(output="Cleared context anchors.\n")
-                if action == "doc":
-                    if len(parts) < 3:
-                        return CommandResult(output="Usage: /context doc <path> [more paths...]\n")
-                    self.app.query_state.context_documents = parts[2:]
-                    return CommandResult(
-                        output=f"Context document anchors set ({len(parts[2:])}).\n"
-                    )
-                if action == "chunk":
-                    if len(parts) < 3:
-                        return CommandResult(output="Usage: /context chunk <id> [more ids...]\n")
-                    self.app.query_state.context_chunks = parts[2:]
-                    return CommandResult(
-                        output=f"Context chunk anchors set ({len(parts[2:])}).\n"
-                    )
-                return CommandResult(output="Usage: /context [doc|chunk|clear] ...\n")
-
-            if cmd == "/agent":
-                output = handle_agent_command(q, self.app)
-                return CommandResult(output=output)
-
-            if cmd == "/memory":
-                output = handle_memory_command(q, self.app)
-                return CommandResult(output=output)
-
-            if cmd == "/ui":
-                if len(parts) == 1:
-                    status = getattr(self.app, "density_status_text", None)
-                    if callable(status):
-                        return CommandResult(output=f"{status()}\n")
-                    return CommandResult(output="UI status is unavailable.\n")
-
-                subcommand = parts[1].strip().lower()
-                if subcommand != "density":
-                    return CommandResult(output="Usage: /ui density [auto|compact|comfortable]\n")
-
-                if len(parts) == 2:
-                    status = getattr(self.app, "density_status_text", None)
-                    if callable(status):
-                        return CommandResult(output=f"{status()}\n")
-                    return CommandResult(output="UI density status is unavailable.\n")
-
-                if len(parts) > 3:
-                    return CommandResult(output="Usage: /ui density [auto|compact|comfortable]\n")
-
-                setter = getattr(self.app, "set_density_mode", None)
-                if not callable(setter):
-                    return CommandResult(output="UI density control is unavailable.\n")
-
-                success, message = setter(parts[2])
-                if not success:
-                    return CommandResult(output=f"{message}\n")
-                return CommandResult(output=f"{message}\n")
-
-            if cmd in {"/note", "/notes"}:
-                if not self.app.query_state.last_question:
-                    return CommandResult(output="No query to save. Run a query first.\n")
-                try:
-                    notes_config = self.app.config.notes
-
-                    notes_dir = resolve_notes_dir(self.app.config, notes_config.dir)
-
-                    notes_dir.mkdir(parents=True, exist_ok=True)
-
-                    content = generate_note_content(
-                        query=self.app.query_state.last_question,
-                        answer=self.app.query_state.last_answer or "No answer generated",
-                        local_sources=self.app.query_state.last_local_sources_for_notes,
-                        remote_sources=self.app.query_state.last_remote_sources,
-                        mode=self.app.config.query.mode,
-                        use_wikilinks=notes_config.wikilinks,
-                        include_backlinks=notes_config.backlinks,
-                        include_tags=notes_config.include_tags,
-                    )
-
-                    filename_override = q.split(maxsplit=1)[1].strip() if len(parts) > 1 else None
-                    if filename_override:
-                        filename = filename_override
-                        if not filename.lower().endswith(".md"):
-                            filename += ".md"
-                        note_path = Path(filename)
-                        if not note_path.is_absolute():
-                            note_path = notes_dir / note_path
-                    else:
-                        filename = get_note_filename(
-                            self.app.query_state.last_question,
-                            format=notes_config.filename_format,
-                        )
-                        note_path = notes_dir / filename
-
-                    note_path.write_text(content, encoding="utf-8")
-                    return CommandResult(output=f"Note saved to: {note_path}\n")
-                except Exception as exc:
-                    logger.error(f"Note save error: {exc}")
-                    return CommandResult(output=f"Failed to save note: {exc}\n")
-
-            if cmd == "/load":
-                if len(parts) < 2:
-                    return CommandResult(
-                        output=(
-                            "Usage: /load <file_path>\n"
-                            "Example: /load /docs/important.md\n\n"
-                            "This pins a document for forced inclusion in next query context.\n"
-                            "Use /load clear to clear pinned chunks.\n"
-                        )
-                    )
-                arg = q.split(maxsplit=1)[1].strip()
-                if arg.lower() == "clear":
-                    self.app.query_state.pinned_chunks = []
-                    return CommandResult(output="Cleared all pinned chunks.\n")
-                file_path = arg
-                lines = [f"Loading chunks from: {file_path}", "Searching collection..."]
-                try:
-                    result = self.app.query_provider.get(
-                        filters={"source_path": file_path},
-                        include=["metadatas"],
-                    )
-                    if not result.ids:
-                        lines.append(f"\nNo chunks found for path: {file_path}")
-                        lines.append("Tip: Path must match exactly. Use /explore to find exact paths.\n")
-                        return CommandResult(output="\n".join(lines))
-
-                    chunk_ids = result.ids
-                    for chunk_id in chunk_ids:
-                        if chunk_id not in self.app.query_state.pinned_chunks:
-                            self.app.query_state.pinned_chunks.append(chunk_id)
-
-                    lines.append(f"\nPinned {len(chunk_ids)} chunks from {file_path}")
-                    lines.append(f"Total pinned chunks: {len(self.app.query_state.pinned_chunks)}")
-                    lines.append("\nThese chunks will be forcibly included in your next query.")
-                    lines.append("Use /load clear to unpin all chunks.\n")
-                except Exception as exc:
-                    lines.append(f"Error loading chunks: {exc}\n")
-                    logger.error(f"Load command error: {exc}")
-                return CommandResult(output="\n".join(lines))
-
-            if cmd in {"/show", "/expand"}:
-                label = parts[1].strip() if len(parts) > 1 else None
-                expanded = cmd == "/expand"
-                if not label:
-                    usage = "/show S#   (e.g., /show S2)" if not expanded else "/expand S#   (e.g., /expand S2)"
-                    return CommandResult(output=f"Usage: {usage}\n")
-                normalized_label = label.strip().upper()
-                candidate = self.app.query_state.last_label_to_candidate.get(normalized_label)
-                if not candidate:
-                    return CommandResult(output=f"No such label in last results: {normalized_label}\n")
-                output = candidate.format(label=normalized_label, expanded=expanded)
-                return CommandResult(output=output)
-
-            if cmd == "/open":
-                label = parts[1].strip() if len(parts) > 1 else None
-                if not label:
-                    return CommandResult(output="Usage: /open S#   (e.g., /open S2)\n")
-                normalized_label = label.strip().upper()
-                candidate = self.app.query_state.last_label_to_candidate.get(normalized_label)
-                if not candidate:
-                    return CommandResult(output=f"No such label in last results: {normalized_label}\n")
-                path = (candidate.meta or {}).get("source_path")
-                if not path:
-                    return CommandResult(output="No source_path available for this citation.\n")
-                if open_file(path):
-                    return CommandResult(output=f"Opened: {path}\n")
-                return CommandResult(output=f"Failed to open file: {path}\n")
-
-            if cmd == "/set":
-                key = parts[1].strip() if len(parts) > 1 else None
-                values = parts[2:] if len(parts) > 2 else []
-                if not key or not values:
-                    return CommandResult(
-                        output=(
-                            "Usage:\n  /set path_contains <substring> [more...]\n"
-                            "  /set ext_allow .md .pdf\n"
-                            "  /set ext_deny .txt\n"
-                        )
-                    )
-                if key == "path_contains":
-                    self.app.query_state.path_contains = values if len(values) > 1 else values[0]
-                    return CommandResult(
-                        output=f"path_contains set to: {self.app.query_state.path_contains}\n"
-                    )
-                if key == "ext_allow":
-                    self.app.query_state.ext_allow = values
-                    return CommandResult(output=f"ext_allow set to: {self.app.query_state.ext_allow}\n")
-                if key == "ext_deny":
-                    self.app.query_state.ext_deny = values
-                    return CommandResult(output=f"ext_deny set to: {self.app.query_state.ext_deny}\n")
-                return CommandResult(output=f"Unknown filter key: {key}\n")
-
-            if cmd == "/clear":
-                key = parts[1].strip() if len(parts) > 1 else None
-                if not key:
-                    return CommandResult(output="Usage: /clear path_contains|ext_allow|ext_deny\n")
-                if key == "path_contains":
-                    self.app.query_state.path_contains = None
-                    return CommandResult(output="path_contains cleared.\n")
-                if key == "ext_allow":
-                    self.app.query_state.ext_allow = None
-                    return CommandResult(output="ext_allow cleared.\n")
-                if key == "ext_deny":
-                    self.app.query_state.ext_deny = None
-                    return CommandResult(output="ext_deny cleared.\n")
-                return CommandResult(output=f"Unknown filter key: {key}\n")
-
-            return CommandResult(output=self._get_help_text())
+            helper_result = execute_query_command(self, command)
+            return CommandResult(
+                output=helper_result.output,
+                handled=helper_result.handled,
+                should_exit=helper_result.should_exit,
+            )
         except SystemExit:
             return CommandResult(output="", should_exit=True)
         except Exception as exc:

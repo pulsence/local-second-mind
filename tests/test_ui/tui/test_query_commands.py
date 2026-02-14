@@ -215,7 +215,7 @@ def test_execute_budget_and_estimate(monkeypatch: pytest.MonkeyPatch) -> None:
     assert "Budget limit set to: $2.5000" in screen._execute_query_command("/budget set 2.5").output
     assert "Budget limit: $2.5000" in screen._execute_query_command("/budget").output
 
-    monkeypatch.setattr("lsm.ui.tui.screens.query.estimate_query_cost", lambda *args, **kwargs: 1.2345)
+    monkeypatch.setattr("lsm.ui.helpers.commands.query.estimate_query_cost", lambda *args, **kwargs: 1.2345)
     assert "Estimated cost: $1.2345" in screen._execute_query_command("/cost-estimate test query").output
 
 
@@ -257,7 +257,10 @@ def test_execute_export_and_load(monkeypatch: pytest.MonkeyPatch) -> None:
 
     cand = Candidate(cid="1", text="t", meta={"source_path": "/a.md", "source_name": "a.md", "chunk_index": 0, "ext": ".md"}, distance=0.1)
     screen.app.query_state.last_label_to_candidate = {"S1": cand}
-    monkeypatch.setattr("lsm.ui.tui.screens.query.export_citations_from_sources", lambda sources, fmt: Path("out.bib"))
+    monkeypatch.setattr(
+        "lsm.ui.helpers.commands.query.export_citations_from_sources",
+        lambda sources, fmt: Path("out.bib"),
+    )
     assert "Citations exported to: out.bib" in screen._execute_query_command("/export-citations bibtex").output
 
     assert "Usage: /load <file_path>" in screen._execute_query_command("/load").output
@@ -289,9 +292,9 @@ def test_execute_show_open_set_clear_and_run_command(monkeypatch: pytest.MonkeyP
     assert "S1:False" in screen._execute_query_command("/show s1").output
     assert "S1:True" in screen._execute_query_command("/expand s1").output
 
-    monkeypatch.setattr("lsm.ui.tui.screens.query.open_file", lambda path: True)
+    monkeypatch.setattr("lsm.ui.helpers.commands.query.open_file", lambda path: True)
     assert "Opened: /doc.md" in screen._execute_query_command("/open S1").output
-    monkeypatch.setattr("lsm.ui.tui.screens.query.open_file", lambda path: False)
+    monkeypatch.setattr("lsm.ui.helpers.commands.query.open_file", lambda path: False)
     assert "Failed to open file" in screen._execute_query_command("/open S1").output
 
     assert "path_contains set to: one" in screen._execute_query_command("/set path_contains one").output
@@ -311,11 +314,11 @@ def test_execute_show_open_set_clear_and_run_command(monkeypatch: pytest.MonkeyP
 def test_execute_routes_agent_and_memory_commands(monkeypatch: pytest.MonkeyPatch) -> None:
     screen = _screen()
     monkeypatch.setattr(
-        "lsm.ui.tui.screens.query.handle_agent_command",
+        "lsm.ui.helpers.commands.query.handle_agent_command",
         lambda command, app: f"agent:{command}",
     )
     monkeypatch.setattr(
-        "lsm.ui.tui.screens.query.handle_memory_command",
+        "lsm.ui.helpers.commands.query.handle_memory_command",
         lambda command, app: f"memory:{command}",
     )
 
@@ -324,6 +327,27 @@ def test_execute_routes_agent_and_memory_commands(monkeypatch: pytest.MonkeyPatc
 
     assert out_agent == "agent:/agent status"
     assert out_memory == "memory:/memory candidates"
+
+
+def test_execute_remote_commands(monkeypatch: pytest.MonkeyPatch) -> None:
+    screen = _screen()
+    monkeypatch.setattr(
+        "lsm.ui.helpers.commands.query.run_remote_search",
+        lambda provider, query, config, max_results=5: f"{provider}:{query}:{max_results}",
+    )
+    monkeypatch.setattr(
+        "lsm.ui.helpers.commands.query.run_remote_search_all",
+        lambda query, config, state: f"all:{query}",
+    )
+
+    assert "Usage: /remote-search <provider> <query>" in screen._execute_query_command("/remote-search").output
+    assert "Usage: /remote-search-all <query>" in screen._execute_query_command("/remote-search-all").output
+
+    search_out = screen._execute_query_command("/remote-search brave local rag").output
+    all_out = screen._execute_query_command("/remote-search-all philosophy of mind").output
+
+    assert search_out == "brave:local rag:5"
+    assert all_out == "all:philosophy of mind"
 
 
 def test_execute_ui_density_commands() -> None:

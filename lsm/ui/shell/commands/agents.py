@@ -7,7 +7,6 @@ from __future__ import annotations
 from collections import deque
 import json
 import re
-import shlex
 import threading
 import time
 from dataclasses import dataclass, field
@@ -32,6 +31,11 @@ from lsm.agents.tools import ToolSandbox, create_default_tool_registry
 from lsm.config.loader import save_config_to_file
 from lsm.config.models import ScheduleConfig
 from lsm.logging import get_logger
+from lsm.ui.helpers.commands.common import (
+    CommandParseError,
+    format_command_error,
+    tokenize_command,
+)
 
 logger = get_logger(__name__)
 
@@ -1356,9 +1360,9 @@ class AgentRuntimeManager:
 
     def handle_schedule_command(self, app: Any, command: str) -> str:
         try:
-            parts = shlex.split(command)
-        except ValueError as exc:
-            return f"Invalid command syntax: {exc}\n"
+            parts = tokenize_command(command, use_shlex=True)
+        except CommandParseError as exc:
+            return format_command_error(f"Invalid command syntax: {exc}")
 
         if len(parts) < 3:
             return _schedule_help()
@@ -1736,7 +1740,7 @@ def handle_memory_command(command: str, app: Any) -> str:
     - `/memory ttl <candidate_id> <days>`
     """
     text = command.strip()
-    parts = text.split()
+    parts = tokenize_command(text)
     if len(parts) < 2:
         return _memory_help()
 
@@ -1790,9 +1794,9 @@ def handle_agent_command(command: str, app: Any) -> str:
     """
     text = command.strip()
     try:
-        parts = shlex.split(text)
-    except ValueError as exc:
-        return f"Invalid command syntax: {exc}\n"
+        parts = tokenize_command(text, use_shlex=True)
+    except CommandParseError as exc:
+        return format_command_error(f"Invalid command syntax: {exc}")
     if len(parts) < 2:
         return _agent_help()
 

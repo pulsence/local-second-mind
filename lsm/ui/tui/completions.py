@@ -9,6 +9,13 @@ from __future__ import annotations
 from typing import List, Dict, Optional, Literal
 
 from lsm.logging import get_logger
+from lsm.ui.helpers.commands.common import (
+    QUERY_CONTEXT_ACTIONS,
+    QUERY_EXPORT_FORMATS,
+    QUERY_MODE_SETTINGS,
+    QUERY_MODE_VALUES,
+    UI_DENSITY_VALUES as QUERY_UI_DENSITY_VALUES,
+)
 
 logger = get_logger(__name__)
 
@@ -72,11 +79,11 @@ QUERY_COMMANDS: Dict[str, str] = {
 }
 
 # Subcommand completions
-MODE_VALUES = ["grounded", "insight", "hybrid", "chat", "single"]
-MODE_SETTINGS = ["model_knowledge", "remote", "notes", "llm_cache"]
+MODE_VALUES = list(QUERY_MODE_VALUES)
+MODE_SETTINGS = list(QUERY_MODE_SETTINGS)
 BUILD_OPTIONS = ["--force"]
 TAG_OPTIONS = ["--max"]
-EXPORT_FORMATS = ["bibtex", "zotero"]
+EXPORT_FORMATS = list(QUERY_EXPORT_FORMATS)
 MEMORY_SUBCOMMANDS = ["candidates", "promote", "reject", "ttl"]
 AGENT_SUBCOMMANDS = [
     "start",
@@ -99,7 +106,7 @@ AGENT_SUBCOMMANDS = [
 AGENT_SCHEDULE_SUBCOMMANDS = ["add", "list", "enable", "disable", "remove", "status"]
 AGENT_META_SUBCOMMANDS = ["start", "status", "log"]
 UI_SUBCOMMANDS = ["density"]
-UI_DENSITY_VALUES = ["auto", "compact", "comfortable"]
+UI_DENSITY_VALUES = list(QUERY_UI_DENSITY_VALUES)
 
 
 def get_commands(context: ContextType) -> Dict[str, str]:
@@ -220,7 +227,7 @@ def _get_argument_completions(
             return sorted(matches)
 
     if cmd == "/context":
-        options = ["doc", "chunk", "clear"]
+        options = list(QUERY_CONTEXT_ACTIONS)
         matches = [opt for opt in options if opt.startswith(arg)]
         return matches
 
