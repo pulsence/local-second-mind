@@ -142,7 +142,7 @@ Summarize Phase 1 changes into `docs/development/CHANGELOG.md`.
 
 ---
 
-## Phase 2: Settings Screen MVC Refactoring
+## Phase 2: Settings Screen MVC Refactoring (COMPLETED)
 
 The Settings screen is a 1,310-line monolith that directly mutates config objects from UI event handlers.
 This phase breaks it into an MVC architecture:
@@ -265,7 +265,7 @@ instead of directly mutating runtime config objects.
 **Post-block:** Add tests for ViewModel action flows, validation, dirty tracking, save/reset,
 and cross-tab synchronization. Run `pytest tests/ -v`, commit.
 
-### 2.6: Phase 2 Changelog
+### 2.6: Phase 2 Changelog (COMPLETED)
 
 Summarize Phase 2 changes into `docs/development/CHANGELOG.md`.
 

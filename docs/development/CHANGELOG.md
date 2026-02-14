@@ -17,6 +17,14 @@ All notable changes to Local Second Mind are documented here.
 - New TUI style regression coverage for density behavior and agents layout:
   - `tests/test_ui/tui/test_compact_layout.py`
   - `tests/test_ui/tui/test_agents_layout_css.py`
+- Phase 2 settings state/view-model foundation and global UI state:
+  - new `lsm/ui/tui/state/settings_view_model.py` with draft vs persisted config buckets, typed actions (`update_field`, `add_item`, `remove_item`, `rename_key`, `reset_tab`, `reset_all`, `save`), dirty tracking, and validation error state
+  - new `lsm/ui/tui/state/app_state.py` with typed cross-screen UI state (`active_context`, `density_mode`, notifications, selected agent id)
+  - state exports in `lsm/ui/tui/state/__init__.py` for shared screen access
+- Settings command-table workflow and coverage:
+  - command-driven settings editing (`set`, `unset`, `delete`, `reset`, `default`, `save`) per tab
+  - key/value table rendering with dirty-state markers and tab-local refresh behavior
+  - new/updated tests: `tests/test_ui/tui/test_app_state.py`, `tests/test_ui/tui/test_settings_view_model.py`, `tests/test_ui/tui/test_settings_screen.py`
 
 ### Changed
 
@@ -24,6 +32,11 @@ All notable changes to Local Second Mind are documented here.
   - `base.tcss`, `widgets.tcss`, `query.tcss`, `ingest.tcss`, `settings.tcss`, `remote.tcss`, `agents.tcss`
 - Updated `LSMApp.CSS_PATH` to load split style files in deterministic order.
 - Updated CSS-path expectations and CSS-loading helpers in TUI tests for the split stylesheet layout.
+- Refactored settings architecture from direct in-screen mutation to state-driven controller flow:
+  - `SettingsScreen` now coordinates tab activation, status, save boundary, and view-model action dispatch
+  - settings rendering now uses active-tab refresh + stale-tab tracking to avoid full-screen redraw churn
+- Updated settings UX from dense per-field forms to a table + command input model for faster navigation and lower render overhead.
+- Updated settings tab shortcuts to function-key schema (`F2`-`F9`) and focused command input on settings load/tab switch for immediate editing.
 
 ## 0.5.0 - 2026-02-13
 
