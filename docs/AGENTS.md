@@ -271,6 +271,8 @@ When waiting on a user interaction request, harness status is set to `WAITING_US
   - row-based log targeting for concurrent sessions
   - an interaction request panel that supports permission decisions and clarification replies per `agent_id`
   - urgency indicator styling for pending interaction requests
+  - launch-first panel order (launch panel, `Running Agents`, then status/control panel)
+  - live-log follow behavior that only auto-scrolls when already at the end, with `Log` forcing a jump to latest output
 
 Per-run workspace is created as:
 
@@ -351,10 +353,13 @@ Shared workspace + synthesis (Phase 6.3):
 
 Open the **Agents** tab:
 
-- choose an agent
-- enter a topic
-- start/pause/resume/stop
-- inspect live status/log output
+- in the launch panel, choose an agent, enter a topic, and press `Enter` to start
+- in **Running Agents**, pick the active run row (`F6`/`F7` also move selection)
+- in the status panel, use status/pause/resume/stop/log controls for the selected run
+- inspect live status/log output (auto-follows only when scrolled to the bottom)
+- press **Log** to reload persisted run log output and jump to the log end
+- when a run is stopping, the stop flow waits for in-flight work to finish, then persists run logs/artifacts before reporting completion
+- approve/deny/reply in **Interaction Request** when permission/clarification prompts appear
 - review the Meta panel task graph table
 - review per-sub-agent run status/workspaces in the Meta panel
 - inspect meta artifact paths (`final_result.md`, `meta_log.md`) from the Meta panel

@@ -309,6 +309,7 @@ Fields:
 - `max_tokens_budget: int = 200000`
 - `max_iterations: int = 25`
 - `max_concurrent: int = 5`
+- `log_stream_queue_limit: int = 500`
 - `context_window_strategy: str = compact` (`compact` or `fresh`)
 - `sandbox: SandboxConfig`
 - `memory: MemoryConfig`

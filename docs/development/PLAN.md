@@ -271,7 +271,7 @@ Summarize Phase 2 changes into `docs/development/CHANGELOG.md`.
 
 ---
 
-## Phase 3: Interactive Agent System
+## Phase 3: Interactive Agent System (COMPLETED)
 
 Currently, when an agent needs user permission, `ToolSandbox._enforce_tool_permissions()` raises
 `PermissionError` and the agent crashes. The `WAITING_USER` status exists in `AgentStatus` but is
@@ -479,9 +479,10 @@ so the UI shows log entries as they happen.
 
 **Post-block:** Run pytest tests/ -v, and then provide git commit message for this phase.
 
-### 3.8: Phase 3 Changelog
+### 3.8: Phase 3 Changelog (COMPLETED)
 
-Summarize Phase 3 changes into `docs/development/CHANGELOG.md`.
+Summarize Phase 3 changes into `docs/development/CHANGELOG.md` and ensure all other docs are up
+to date with Phase 3 changes.
 
 ---
 

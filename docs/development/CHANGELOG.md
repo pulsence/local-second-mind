@@ -80,6 +80,9 @@ All notable changes to Local Second Mind are documented here.
   - settings rendering now uses active-tab refresh + stale-tab tracking to avoid full-screen redraw churn
 - Updated settings UX from dense per-field forms to a table + command input model for faster navigation and lower render overhead.
 - Updated settings tab shortcuts to function-key schema (`F2`-`F9`) and focused command input on settings load/tab switch for immediate editing.
+- removed temporary compatibility fallback branches in runtime harness construction and sandbox interaction-channel wiring
+- standardized Agents TUI manager call paths to finalized `agent_id`/`max_entries` signatures
+- aligned shell/TUI test doubles with finalized interfaces and added callback-wiring assertions for runtime startup
 
 ### Fixed
 
@@ -88,6 +91,7 @@ All notable changes to Local Second Mind are documented here.
 - Agents TUI log panel now preserves manual scroll position:
   - log updates auto-scroll only when the viewer is already at the bottom
   - when scrolled up, incoming log refreshes no longer force-jump to the end
+  - clicking `Log` now reloads persisted output and jumps to the bottom of the log panel
 - Agents launch UX now starts runs on topic-input submit (`Enter`) and keeps control buttons in the status panel.
 - Agent stop behavior now drains in-flight work more reliably before returning:
   - runtime stop waits for graceful thread completion (with bounded wait) after issuing stop

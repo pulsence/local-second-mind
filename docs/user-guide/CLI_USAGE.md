@@ -11,13 +11,14 @@ lsm
 ```
 
 The TUI provides:
-- **Tabbed interface** - Switch between Query, Ingest, Remote, and Settings tabs
-- **Keyboard shortcuts** - Navigate with Ctrl+Q/I/S, build with Ctrl+B, etc.
+- **Tabbed interface** - Switch between Query, Ingest, Remote, Agents, and Settings tabs
+- **Keyboard shortcuts** - Navigate with Ctrl+Q/N/R/G/S, build with Ctrl+B, etc.
 - **Autocomplete** - Tab completion for commands (press Tab)
 - **Command history** - Up/Down arrow navigation through previous commands
 - **Status bar** - Real-time mode, cost, and chunk count display
 - **Results panel** - Scrollable results with expandable citations
 - **File browser** - Directory tree for exploring indexed files (Ingest tab)
+- **Interactive agents** - Run multiple agents, approve/deny interaction requests, and stream logs in real time (Agents tab)
 
 **TUI Screens:**
 
@@ -26,6 +27,7 @@ The TUI provides:
 | Query | Search your knowledge base with natural language queries |
 | Ingest | Manage document ingestion, build pipeline, view statistics |
 | Remote | Test and inspect remote providers |
+| Agents | Launch and manage concurrent agent runs, interactions, schedules, and memory candidates |
 | Settings | Edit config sections with live updates and section save/reset |
 
 **TUI Keyboard Shortcuts:**
@@ -35,17 +37,29 @@ The TUI provides:
 | Ctrl+N | Switch to Ingest tab |
 | Ctrl+Q | Switch to Query tab |
 | Ctrl+R | Switch to Remote tab |
+| Ctrl+G | Switch to Agents tab |
 | Ctrl+S | Switch to Settings tab |
 | F1 | Show help modal |
 | Ctrl+C | Quit application |
 | Ctrl+B | Run build (Ingest) |
 | Ctrl+T | Run tagging (Ingest) |
-| Ctrl+R | Refresh stats (Ingest) |
+| Ctrl+Shift+R | Refresh stats (Ingest) |
 | Ctrl+E | Expand selected citation (Query) |
 | Ctrl+O | Open source file (Query) |
 | Tab | Autocomplete command |
 | Up/Down | Navigate command history |
 | Escape | Clear input |
+
+**Agents Tab Shortcuts:**
+
+| Shortcut | Action |
+|----------|--------|
+| Enter (Topic input) | Launch selected agent with current topic |
+| F6 / F7 | Select previous/next running agent |
+| F8 | Approve pending interaction |
+| F9 | Approve pending interaction for session |
+| F10 | Deny pending interaction |
+| F11 | Reply to clarification/feedback interaction |
 
 ## Single-Shot Commands
 
@@ -86,6 +100,31 @@ lsm
 
 Then use the Query tab for interactive questions, citations, mode switching,
 notes, and chat mode.
+
+### Agents and Interaction Commands
+
+Agent runtime and interaction commands are available in interactive mode:
+
+```bash
+lsm
+```
+
+Common commands:
+
+- `/agent start <name> <topic>`
+- `/agent list`
+- `/agent status [agent_id]`
+- `/agent pause [agent_id]`
+- `/agent resume [agent_id] [message]`
+- `/agent stop [agent_id]`
+- `/agent log [agent_id]`
+- `/agent interact [agent_id]`
+- `/agent approve <agent_id>`
+- `/agent deny <agent_id> [reason]`
+- `/agent approve-session <agent_id>`
+- `/agent reply <agent_id> <message>`
+- `/agent queue [agent_id] <message>`
+- `/agent select <agent_id>`
 
 ## Configuration
 

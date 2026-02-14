@@ -132,6 +132,27 @@ Use the Query tab in the TUI:
 lsm
 ```
 
+## First Agent Run
+
+You can now run interactive agents directly in the TUI:
+
+1. Launch TUI and switch to the Agents tab (`Ctrl+G`).
+2. In the launch panel, select an agent (for example `research`), enter a topic, and press `Enter`.
+3. Use **Running Agents** to select the active run and the status panel controls to inspect status, pause/resume, stop, or open logs.
+4. If an interaction request appears, respond from the **Interaction Request** panel (approve, approve-session, deny, or reply).
+
+Shell equivalents are also available from interactive command input:
+
+```text
+/agent start research "<topic>"
+/agent list
+/agent interact
+/agent approve <agent_id>
+/agent approve-session <agent_id>
+/agent deny <agent_id> [reason]
+/agent reply <agent_id> <message>
+```
+
 ## Understanding Query Results
 
 LSM provides rich, cited answers:

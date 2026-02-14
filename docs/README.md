@@ -42,6 +42,7 @@ This project is maintained for personal use first.
 
 ## Development
 
+- [Planned Timeline](../TODO)
 - [Contributing](../CONTRIBUTING.md)
 - [Setup](development/SETUP.md)
 - [Testing](development/TESTING.md)

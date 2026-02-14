@@ -1,6 +1,6 @@
-﻿# TUI Command Reference
+# TUI Command Reference
 
-LSM uses the TUI as the only interactive interface. This document lists the available commands in the Query and Ingest tabs, along with keyboard shortcuts and side effects.
+LSM uses the TUI as the primary interactive interface. This document lists commands in Query, Ingest, and Agent workflows, along with keyboard shortcuts and side effects.
 
 ## TUI (Textual User Interface)
 
@@ -12,22 +12,24 @@ lsm
 
 ### TUI Structure
 
-```
-lsm/gui/shell/tui/
-|-- __init__.py           # Module exports (LSMApp, run_tui)
+```text
+lsm/ui/tui/
+|-- __init__.py
 |-- app.py                # Main LSMApp class
 |-- styles/               # Split Textual CSS files (base + per-screen + widgets)
 |-- completions.py        # Autocomplete logic
 |-- screens/
-|   |-- main.py           # Main layout screen
+|   |-- main.py
 |   |-- query.py          # Query interface
 |   |-- ingest.py         # Ingest management
+|   |-- remote.py         # Remote provider workflows
+|   |-- agents.py         # Interactive multi-agent workflows
 |   |-- settings.py       # Configuration panel
 |   `-- help.py           # Help modal
 `-- widgets/
-    |-- results.py        # Results display with citations
-    |-- input.py          # Command input with history
-    `-- status.py         # Status bar
+    |-- results.py
+    |-- input.py
+    `-- status.py
 ```
 
 ### TUI Keyboard Shortcuts
@@ -36,19 +38,20 @@ lsm/gui/shell/tui/
 - `Ctrl+N` - Switch to Ingest tab
 - `Ctrl+Q` - Switch to Query tab
 - `Ctrl+R` - Switch to Remote tab
+- `Ctrl+G` - Switch to Agents tab
 - `Ctrl+S` - Switch to Settings tab
 - `F1` - Show help modal
 - `Ctrl+C` - Quit application
 
 **Settings View:**
-- `Ctrl+O` - Settings Global sub-tab
-- `Ctrl+G` - Settings Ingest sub-tab
-- `Ctrl+Q` - Settings Query sub-tab
-- `Ctrl+L` - Settings LLM sub-tab
-- `Ctrl+B` - Settings Vector DB sub-tab
-- `Ctrl+D` - Settings Modes sub-tab
-- `Ctrl+R` - Settings Remote sub-tab
-- `Ctrl+N` - Settings Chats/Notes sub-tab
+- `F2` - Settings Global sub-tab
+- `F3` - Settings Ingest sub-tab
+- `F4` - Settings Query sub-tab
+- `F5` - Settings LLM sub-tab
+- `F6` - Settings Vector DB sub-tab
+- `F7` - Settings Modes sub-tab
+- `F8` - Settings Remote sub-tab
+- `F9` - Settings Chats/Notes sub-tab
 
 **Query View:**
 - `Enter` - Submit query
@@ -61,10 +64,19 @@ lsm/gui/shell/tui/
 **Ingest View:**
 - `Ctrl+B` - Run build
 - `Ctrl+T` - Run tagging
-- `Ctrl+R` - Refresh stats
+- `Ctrl+Shift+R` - Refresh stats
 - `Up/Down` - Command history
 - `Tab` - Autocomplete
 - `Escape` - Clear input
+
+**Agents View:**
+- `Enter` (topic input) - Start selected agent
+- `F6` - Select previous running agent
+- `F7` - Select next running agent
+- `F8` - Approve pending interaction
+- `F9` - Approve pending interaction for session
+- `F10` - Deny pending interaction
+- `F11` - Reply to pending clarification/feedback interaction
 
 ## Ingest Commands (TUI)
 
@@ -170,6 +182,51 @@ Side effects:
 - `/model` overrides the model for the current session only.
 - `/mode` overrides the mode for the current session only.
 - `/load` pins chunk IDs for the next query.
+
+## Agent Commands (TUI/REPL)
+
+- `/agent start <name> <topic>`:
+  - start an agent run
+- `/agent list`:
+  - list running agents and recent completed runs
+- `/agent select <agent_id>`:
+  - set selected agent for no-id control/status/log commands
+- `/agent status [agent_id]`:
+  - show run status
+- `/agent pause [agent_id]`:
+  - pause run
+- `/agent resume [agent_id] [message]`:
+  - resume run; optional message is queued first
+- `/agent stop [agent_id]`:
+  - request stop and wait for graceful completion
+- `/agent log [agent_id]`:
+  - show persisted run log
+- `/agent queue [agent_id] <message>`:
+  - queue user message into active run context
+- `/agent interact [agent_id]`:
+  - show pending interaction requests
+- `/agent approve <agent_id>`:
+  - approve pending permission request
+- `/agent approve-session <agent_id>`:
+  - approve pending permission and remember for this manager session
+- `/agent deny <agent_id> [reason]`:
+  - deny pending permission request
+- `/agent reply <agent_id> <message>`:
+  - reply to clarification/feedback request
+- `/agent schedule add <agent_name> <interval> [--params '{...}'] [--concurrency_policy skip|queue|cancel] [--confirmation_mode auto|confirm|deny]`:
+  - add schedule entry
+- `/agent schedule list|enable|disable|remove|status`:
+  - manage schedules
+- `/agent meta start <goal>`:
+  - start meta-agent orchestration
+- `/agent meta status|log`:
+  - inspect active/recent meta-agent run state
+
+Side effects:
+
+- `/agent start` creates run workspaces and persisted state/log artifacts under `agents.agents_folder`.
+- `/agent approve-session` caches tool approval for later matching requests in the same runtime-manager session.
+- live log lines stream to the Agents tab log panel via per-agent bounded queues.
 
 ## Exit Codes and Errors
 

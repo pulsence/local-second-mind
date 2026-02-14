@@ -365,6 +365,7 @@ Agents are configured under the top-level `agents` key.
   "max_tokens_budget": 200000,
   "max_iterations": 25,
   "max_concurrent": 5,
+  "log_stream_queue_limit": 500,
   "context_window_strategy": "compact",
   "sandbox": {
     "allowed_read_paths": ["./docs", "./notes", "./.ingest", "./.chroma"],
@@ -394,6 +395,7 @@ Agents are configured under the top-level `agents` key.
 | `max_tokens_budget` | int | `200000` | Per-run token budget cap. |
 | `max_iterations` | int | `25` | Per-run action-loop cap. |
 | `max_concurrent` | int | `5` | Maximum simultaneous agent runs. |
+| `log_stream_queue_limit` | int | `500` | Max buffered live-log entries per running agent before oldest entries are dropped. |
 | `context_window_strategy` | string | `compact` | Agent loop context strategy: `compact` or `fresh`. |
 | `sandbox` | object | see defaults | Tool path/network/permission/runner restrictions. |
 | `memory` | object | see defaults | Memory backend + TTL configuration. |
