@@ -49,6 +49,7 @@ def test_agent_config_validate_happy_path() -> None:
         max_tokens_budget=1000,
         max_iterations=5,
         max_concurrent=3,
+        log_stream_queue_limit=256,
         context_window_strategy="compact",
         sandbox=SandboxConfig(
             allowed_read_paths=[Path(".")],
@@ -80,6 +81,7 @@ def test_build_config_reads_agents_section(tmp_path: Path) -> None:
         "max_tokens_budget": 12000,
         "max_iterations": 18,
         "max_concurrent": 4,
+        "log_stream_queue_limit": 333,
         "context_window_strategy": "fresh",
         "sandbox": {
             "allowed_read_paths": [str(tmp_path)],
@@ -120,6 +122,7 @@ def test_build_config_reads_agents_section(tmp_path: Path) -> None:
     assert config.agents.max_tokens_budget == 12000
     assert config.agents.max_iterations == 18
     assert config.agents.max_concurrent == 4
+    assert config.agents.log_stream_queue_limit == 333
     assert config.agents.context_window_strategy == "fresh"
     assert config.agents.sandbox.allow_url_access is True
     assert config.agents.sandbox.require_user_permission["write_file"] is True
@@ -161,6 +164,7 @@ def test_config_to_raw_includes_agents_section(tmp_path: Path) -> None:
         "max_tokens_budget": 999,
         "max_iterations": 3,
         "max_concurrent": 2,
+        "log_stream_queue_limit": 77,
         "context_window_strategy": "compact",
         "sandbox": {
             "allowed_read_paths": [str(tmp_path)],
@@ -198,6 +202,7 @@ def test_config_to_raw_includes_agents_section(tmp_path: Path) -> None:
     assert serialized["agents"]["max_tokens_budget"] == 999
     assert serialized["agents"]["max_iterations"] == 3
     assert serialized["agents"]["max_concurrent"] == 2
+    assert serialized["agents"]["log_stream_queue_limit"] == 77
     assert serialized["agents"]["context_window_strategy"] == "compact"
     assert serialized["agents"]["sandbox"]["require_user_permission"]["write_file"] is True
     assert serialized["agents"]["sandbox"]["require_permission_by_risk"]["writes_workspace"] is True
@@ -266,4 +271,10 @@ def test_interaction_config_validate_rejects_invalid_timeout_action() -> None:
 def test_agent_config_validate_rejects_non_positive_max_concurrent() -> None:
     cfg = AgentConfig(max_concurrent=0)
     with pytest.raises(ValueError, match="max_concurrent"):
+        cfg.validate()
+
+
+def test_agent_config_validate_rejects_non_positive_log_stream_queue_limit() -> None:
+    cfg = AgentConfig(log_stream_queue_limit=0)
+    with pytest.raises(ValueError, match="log_stream_queue_limit"):
         cfg.validate()

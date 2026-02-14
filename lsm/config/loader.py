@@ -620,6 +620,7 @@ def build_agent_config(raw: Dict[str, Any] | None) -> AgentConfig | None:
         max_tokens_budget=int(raw.get("max_tokens_budget", 200_000)),
         max_iterations=int(raw.get("max_iterations", 25)),
         max_concurrent=int(raw.get("max_concurrent", 5)),
+        log_stream_queue_limit=int(raw.get("log_stream_queue_limit", 500)),
         context_window_strategy=str(raw.get("context_window_strategy", "compact")),
         sandbox=build_sandbox_config(raw.get("sandbox", {})),
         memory=build_memory_config(raw.get("memory", {})),
@@ -1112,6 +1113,7 @@ def config_to_raw(config: LSMConfig) -> Dict[str, Any]:
             "max_tokens_budget": config.agents.max_tokens_budget,
             "max_iterations": config.agents.max_iterations,
             "max_concurrent": config.agents.max_concurrent,
+            "log_stream_queue_limit": config.agents.log_stream_queue_limit,
             "context_window_strategy": config.agents.context_window_strategy,
             "sandbox": {
                 "allowed_read_paths": [str(p) for p in config.agents.sandbox.allowed_read_paths],

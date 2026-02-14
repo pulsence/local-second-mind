@@ -130,6 +130,7 @@
     "max_tokens_budget": 200000,
     "max_iterations": 25,
     "max_concurrent": 5,
+    "log_stream_queue_limit": 500,
     "context_window_strategy": "compact",
     "sandbox": {
       "allowed_read_paths": ["./docs", "./notes", "./.ingest", "./.chroma"],

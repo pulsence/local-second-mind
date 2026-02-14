@@ -64,6 +64,7 @@ Agents are configured in top-level `agents`:
   "max_tokens_budget": 200000,
   "max_iterations": 25,
   "max_concurrent": 5,
+  "log_stream_queue_limit": 500,
   "context_window_strategy": "compact",
   "sandbox": {
     "allowed_read_paths": ["./notes", "./docs"],
@@ -112,6 +113,7 @@ Agents are configured in top-level `agents`:
 - `max_tokens_budget`: approximate token cap per run
 - `max_iterations`: max action loop iterations
 - `max_concurrent`: max concurrently running agents (used by multi-agent runtime managers)
+- `log_stream_queue_limit`: max buffered live-log entries per agent before oldest entries are dropped
 - `context_window_strategy`: `compact` or `fresh`
 - `interaction.timeout_seconds`: wait timeout for an interaction response (default `300`)
 - `interaction.timeout_action`: timeout fallback (`deny` or `approve`, default `deny`)

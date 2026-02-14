@@ -313,6 +313,9 @@ class AgentConfig:
     max_concurrent: int = 5
     """Maximum number of concurrent agent runs."""
 
+    log_stream_queue_limit: int = 500
+    """Maximum buffered log entries per agent stream before oldest entries are dropped."""
+
     context_window_strategy: str = "compact"
     """Context strategy: 'compact' or 'fresh'."""
 
@@ -335,6 +338,7 @@ class AgentConfig:
         self.agents_folder = Path(self.agents_folder).expanduser()
         self.context_window_strategy = (self.context_window_strategy or "compact").strip().lower()
         self.max_concurrent = int(self.max_concurrent)
+        self.log_stream_queue_limit = int(self.log_stream_queue_limit)
         if isinstance(self.interaction, dict):
             self.interaction = InteractionConfig(**self.interaction)
         elif not isinstance(self.interaction, InteractionConfig):
@@ -357,6 +361,8 @@ class AgentConfig:
             raise ValueError("agents.max_iterations must be positive")
         if self.max_concurrent < 1:
             raise ValueError("agents.max_concurrent must be >= 1")
+        if self.log_stream_queue_limit < 1:
+            raise ValueError("agents.log_stream_queue_limit must be >= 1")
         if self.context_window_strategy not in {"compact", "fresh"}:
             raise ValueError("agents.context_window_strategy must be 'compact' or 'fresh'")
         if not isinstance(self.agent_configs, dict):

@@ -264,13 +264,49 @@ class _StopAwareAgent:
         self.state.set_status(AgentStatus.RUNNING)
 
 
-def _app(max_concurrent: int = 2) -> SimpleNamespace:
+class _BurstLogAgent:
+    def __init__(self, *, count: int = 8) -> None:
+        self.state = AgentState()
+        self._count = max(1, int(count))
+
+    def run(self, context) -> AgentState:
+        _ = context
+        self.state.set_status(AgentStatus.RUNNING)
+        for idx in range(self._count):
+            self.state.add_log(
+                AgentLogEntry(
+                    timestamp=datetime.utcnow(),
+                    actor="tool",
+                    content=f"msg-{idx}",
+                    action="echo",
+                    action_arguments={"index": idx},
+                )
+            )
+        self.state.set_status(AgentStatus.COMPLETED)
+        return self.state
+
+    def stop(self) -> None:
+        self.state.set_status(AgentStatus.COMPLETED)
+
+    def pause(self) -> None:
+        self.state.set_status(AgentStatus.PAUSED)
+
+    def resume(self) -> None:
+        self.state.set_status(AgentStatus.RUNNING)
+
+
+def _app(
+    max_concurrent: int = 2,
+    *,
+    log_stream_queue_limit: int = 500,
+) -> SimpleNamespace:
     return SimpleNamespace(
         config=SimpleNamespace(
             agents=SimpleNamespace(
                 enabled=True,
                 max_tokens_budget=1000,
                 max_concurrent=max_concurrent,
+                log_stream_queue_limit=log_stream_queue_limit,
                 memory=SimpleNamespace(enabled=False),
                 interaction=SimpleNamespace(timeout_seconds=2, timeout_action="deny"),
                 sandbox=SimpleNamespace(
@@ -551,3 +587,56 @@ def test_multi_agent_completed_history_pruning(monkeypatch) -> None:
     assert ids[0] not in retained
     assert ids[1] in retained
     assert ids[2] in retained
+
+
+def test_multi_agent_log_stream_drains_entries(monkeypatch) -> None:
+    monkeypatch.setattr(agent_commands, "create_default_tool_registry", lambda *args, **kwargs: _DummyRegistry())
+    monkeypatch.setattr(agent_commands, "ToolSandbox", _DummySandbox)
+    monkeypatch.setattr(agent_commands, "AgentHarness", _DummyHarness)
+    monkeypatch.setattr(
+        agent_commands,
+        "create_agent",
+        lambda **kwargs: _BurstLogAgent(count=4),
+    )
+
+    manager = agent_commands.AgentRuntimeManager(join_timeout_s=1.0)
+    app = _app(max_concurrent=1, log_stream_queue_limit=32)
+
+    agent_id = _extract_agent_id(manager.start(app, "research", "stream"))
+    assert _wait_until(lambda: len(manager.list_running()) == 0)
+
+    payload = manager.drain_log_stream(agent_id, max_entries=10)
+    assert payload["agent_id"] == agent_id
+    entries = payload["entries"]
+    assert len(entries) == 4
+    assert entries[0]["action"] == "echo"
+    assert entries[-1]["content"] == "msg-3"
+    assert payload["dropped_count"] == 0
+
+    empty_payload = manager.drain_log_stream(agent_id, max_entries=10)
+    assert empty_payload["entries"] == []
+    assert empty_payload["dropped_count"] == 0
+
+
+def test_multi_agent_log_stream_backpressure_reports_drops(monkeypatch) -> None:
+    monkeypatch.setattr(agent_commands, "create_default_tool_registry", lambda *args, **kwargs: _DummyRegistry())
+    monkeypatch.setattr(agent_commands, "ToolSandbox", _DummySandbox)
+    monkeypatch.setattr(agent_commands, "AgentHarness", _DummyHarness)
+    monkeypatch.setattr(
+        agent_commands,
+        "create_agent",
+        lambda **kwargs: _BurstLogAgent(count=7),
+    )
+
+    manager = agent_commands.AgentRuntimeManager(join_timeout_s=1.0)
+    app = _app(max_concurrent=1, log_stream_queue_limit=2)
+
+    agent_id = _extract_agent_id(manager.start(app, "research", "backpressure"))
+    assert _wait_until(lambda: len(manager.list_running()) == 0)
+
+    payload = manager.drain_log_stream(agent_id, max_entries=10)
+    entries = payload["entries"]
+    assert len(entries) == 2
+    assert payload["dropped_count"] >= 5
+    assert entries[0]["content"] == "msg-5"
+    assert entries[1]["content"] == "msg-6"

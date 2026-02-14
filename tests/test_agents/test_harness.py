@@ -107,6 +107,57 @@ def test_harness_executes_tool_then_done(monkeypatch, tmp_path: Path) -> None:
     assert state_file.exists()
 
 
+def test_harness_log_callback_receives_entries(monkeypatch, tmp_path: Path) -> None:
+    class FakeProvider:
+        name = "fake"
+        model = "fake-model"
+
+        def __init__(self):
+            self._responses = [
+                json.dumps(
+                    {
+                        "response": "Using tool now",
+                        "action": "echo",
+                        "action_arguments": {"text": "callback"},
+                    }
+                ),
+                json.dumps(
+                    {
+                        "response": "Done.",
+                        "action": "DONE",
+                        "action_arguments": {},
+                    }
+                ),
+            ]
+
+        def synthesize(self, question, context, mode="insight", **kwargs):
+            _ = question, context, mode, kwargs
+            return self._responses.pop(0)
+
+    monkeypatch.setattr("lsm.agents.harness.create_provider", lambda config: FakeProvider())
+
+    raw = _base_raw(tmp_path)
+    config = build_config_from_raw(raw, tmp_path / "config.json")
+    registry = ToolRegistry()
+    registry.register(EchoTool())
+    sandbox = ToolSandbox(config.agents.sandbox)
+    callback_entries: list[AgentLogEntry] = []
+
+    harness = AgentHarness(
+        config.agents,
+        registry,
+        config.llm,
+        sandbox,
+        agent_name="callback",
+        log_callback=lambda entry: callback_entries.append(entry),
+    )
+    state = harness.run(AgentContext(messages=[{"role": "user", "content": "callback"}]))
+
+    assert state.status.value == "completed"
+    assert len(callback_entries) == len(state.log_entries)
+    assert any(entry.actor == "tool" and entry.action == "echo" for entry in callback_entries)
+
+
 def test_harness_writes_run_summary_json(monkeypatch, tmp_path: Path) -> None:
     class FakeProvider:
         name = "fake"

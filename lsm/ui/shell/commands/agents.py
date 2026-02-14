@@ -4,15 +4,16 @@ Shell-level agent command helpers.
 
 from __future__ import annotations
 
+from collections import deque
 import json
 import re
 import shlex
 import threading
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Callable, Optional
 from uuid import uuid4
 
 from lsm.agents import (
@@ -53,6 +54,17 @@ class AgentRunEntry:
     completed_at: Optional[datetime] = None
 
 
+@dataclass
+class _AgentLogStream:
+    """
+    Thread-safe buffered stream state for a single agent's live logs.
+    """
+
+    max_entries: int
+    entries: deque[dict[str, Any]] = field(default_factory=deque)
+    dropped_count: int = 0
+
+
 class _NoopHarness:
     """
     Fallback harness used when the full harness cannot be initialized.
@@ -73,16 +85,19 @@ class AgentRuntimeManager:
     Manage active agent runtime instances for UI command surfaces.
     """
 
+    _DEFAULT_LOG_STREAM_QUEUE_LIMIT = 500
+
     def __init__(self, *, completed_retention: int = 10, join_timeout_s: float = 5.0) -> None:
         self._agents: dict[str, AgentRunEntry] = {}
         self._completed_runs: dict[str, AgentRunEntry] = {}
         self._completed_order: list[str] = []
+        self._log_streams: dict[str, _AgentLogStream] = {}
         self._selected_agent_id: Optional[str] = None
         self._session_tool_approvals: set[str] = set()
         self._completed_retention = max(1, int(completed_retention))
         self._join_timeout_s = max(0.1, float(join_timeout_s))
         self._scheduler: Optional[AgentScheduler] = None
-        self._lock = threading.Lock()
+        self._lock = threading.RLock()
 
     def start(self, app: Any, agent_name: str, topic: str) -> str:
         with self._lock:
@@ -149,6 +164,15 @@ class AgentRuntimeManager:
                 sandbox=sandbox,
                 agent_config=agent_cfg,
             )
+            agent_id = uuid4().hex
+            log_queue_limit = self._resolve_log_stream_queue_limit(app)
+            self._log_streams[agent_id] = _AgentLogStream(
+                max_entries=log_queue_limit,
+            )
+
+            def _log_callback(entry: AgentLogEntry) -> None:
+                self._enqueue_log_stream_entry(agent_id, entry)
+
             harness = self._build_harness(
                 app=app,
                 sandbox=sandbox,
@@ -158,6 +182,7 @@ class AgentRuntimeManager:
                 agent=agent,
                 memory_store=memory_store,
                 interaction_channel=channel,
+                log_callback=_log_callback,
             )
 
             context = AgentContext(
@@ -169,7 +194,6 @@ class AgentRuntimeManager:
                     "started_at": datetime.utcnow().isoformat(),
                 },
             )
-            agent_id = uuid4().hex
 
             def _run() -> None:
                 try:
@@ -207,6 +231,10 @@ class AgentRuntimeManager:
                 started_at=datetime.utcnow(),
                 topic=normalized_topic,
                 context=context,
+            )
+            self._attach_log_stream_to_agent(
+                agent_id=agent_id,
+                agent=agent,
             )
             self._selected_agent_id = agent_id
             thread.start()
@@ -621,6 +649,64 @@ class AgentRuntimeManager:
             )
         return output
 
+    def drain_log_stream(
+        self,
+        agent_id: str,
+        *,
+        max_entries: int = 200,
+    ) -> dict[str, Any]:
+        normalized = str(agent_id or "").strip()
+        if not normalized:
+            return {"agent_id": "", "entries": [], "dropped_count": 0, "has_more": False}
+        limit = max(1, int(max_entries))
+        with self._lock:
+            self._cleanup_finished_locked()
+            try:
+                entry = self._lookup_entry_locked(normalized, include_completed=True)
+            except ValueError as exc:
+                return {
+                    "agent_id": normalized,
+                    "entries": [],
+                    "dropped_count": 0,
+                    "has_more": False,
+                    "error": str(exc),
+                }
+            if entry is None:
+                return {"agent_id": normalized, "entries": [], "dropped_count": 0, "has_more": False}
+
+            stream = self._log_streams.get(entry.agent_id)
+            if stream is None:
+                return {"agent_id": entry.agent_id, "entries": [], "dropped_count": 0, "has_more": False}
+
+            drained: list[dict[str, Any]] = []
+            while stream.entries and len(drained) < limit:
+                drained.append(stream.entries.popleft())
+            dropped = int(stream.dropped_count)
+            stream.dropped_count = 0
+            return {
+                "agent_id": entry.agent_id,
+                "entries": drained,
+                "dropped_count": dropped,
+                "has_more": bool(stream.entries),
+            }
+
+    def clear_log_stream(self, agent_id: str) -> None:
+        normalized = str(agent_id or "").strip()
+        if not normalized:
+            return
+        with self._lock:
+            try:
+                entry = self._lookup_entry_locked(normalized, include_completed=True)
+            except ValueError:
+                return
+            if entry is None:
+                return
+            stream = self._log_streams.get(entry.agent_id)
+            if stream is None:
+                return
+            stream.entries.clear()
+            stream.dropped_count = 0
+
     def get_pending_interactions(
         self,
         agent_id: Optional[str] = None,
@@ -736,6 +822,85 @@ class AgentRuntimeManager:
         except Exception:
             return 5
 
+    def _resolve_log_stream_queue_limit(self, app: Any) -> int:
+        agent_cfg = getattr(getattr(app, "config", None), "agents", None)
+        if agent_cfg is None:
+            return self._DEFAULT_LOG_STREAM_QUEUE_LIMIT
+        try:
+            return max(
+                1,
+                int(
+                    getattr(
+                        agent_cfg,
+                        "log_stream_queue_limit",
+                        self._DEFAULT_LOG_STREAM_QUEUE_LIMIT,
+                    )
+                ),
+            )
+        except Exception:
+            return self._DEFAULT_LOG_STREAM_QUEUE_LIMIT
+
+    def _attach_log_stream_to_agent(
+        self,
+        *,
+        agent_id: str,
+        agent: Any,
+    ) -> None:
+        state = getattr(agent, "state", None)
+        if state is None:
+            return
+        add_log = getattr(state, "add_log", None)
+        if not callable(add_log):
+            return
+        if bool(getattr(state, "_lsm_log_stream_wrapped", False)):
+            return
+
+        original_add_log = add_log
+
+        def _wrapped_add_log(entry: AgentLogEntry) -> None:
+            original_add_log(entry)
+            self._enqueue_log_stream_entry(agent_id, entry)
+
+        try:
+            setattr(state, "add_log", _wrapped_add_log)
+            setattr(state, "_lsm_log_stream_wrapped", True)
+        except Exception:
+            logger.exception(
+                "Failed to attach log stream wrapper to agent '%s' (%s)",
+                getattr(agent, "name", "agent"),
+                agent_id,
+            )
+
+    def _serialize_stream_log_entry(self, entry: AgentLogEntry) -> dict[str, Any]:
+        action_arguments = entry.action_arguments
+        if isinstance(action_arguments, dict):
+            normalized_args: Any = dict(action_arguments)
+        else:
+            normalized_args = action_arguments
+        return {
+            "timestamp": entry.timestamp.isoformat(),
+            "actor": str(entry.actor or "").strip().lower(),
+            "provider_name": str(entry.provider_name or "").strip(),
+            "model_name": str(entry.model_name or "").strip(),
+            "content": str(entry.content or ""),
+            "action": str(entry.action or "").strip(),
+            "action_arguments": normalized_args,
+        }
+
+    def _enqueue_log_stream_entry(self, agent_id: str, entry: AgentLogEntry) -> None:
+        serialized = self._serialize_stream_log_entry(entry)
+        with self._lock:
+            stream = self._log_streams.get(agent_id)
+            if stream is None:
+                stream = _AgentLogStream(
+                    max_entries=self._DEFAULT_LOG_STREAM_QUEUE_LIMIT,
+                )
+                self._log_streams[agent_id] = stream
+            while len(stream.entries) >= max(1, int(stream.max_entries)):
+                stream.entries.popleft()
+                stream.dropped_count += 1
+            stream.entries.append(serialized)
+
     def _build_harness(
         self,
         *,
@@ -747,21 +912,39 @@ class AgentRuntimeManager:
         agent: Any,
         memory_store: Any,
         interaction_channel: InteractionChannel,
+        log_callback: Optional[Callable[[AgentLogEntry], None]] = None,
     ) -> Any:
         try:
             effective_agent_cfg = getattr(agent, "agent_config", agent_cfg)
             tool_allowlist = getattr(agent, "tool_allowlist", None)
-            return AgentHarness(
-                effective_agent_cfg,
-                tool_registry,
-                app.config.llm,
-                sandbox,
-                agent_name=agent_name,
-                tool_allowlist=tool_allowlist,
-                vectordb_config=getattr(app.config, "vectordb", None),
-                memory_store=memory_store,
-                interaction_channel=interaction_channel,
-            )
+            harness_kwargs: dict[str, Any] = {
+                "agent_name": agent_name,
+                "tool_allowlist": tool_allowlist,
+                "vectordb_config": getattr(app.config, "vectordb", None),
+                "memory_store": memory_store,
+                "interaction_channel": interaction_channel,
+            }
+            if log_callback is not None:
+                harness_kwargs["log_callback"] = log_callback
+            try:
+                return AgentHarness(
+                    effective_agent_cfg,
+                    tool_registry,
+                    app.config.llm,
+                    sandbox,
+                    **harness_kwargs,
+                )
+            except TypeError as exc:
+                if "log_callback" not in str(exc):
+                    raise
+                harness_kwargs.pop("log_callback", None)
+                return AgentHarness(
+                    effective_agent_cfg,
+                    tool_registry,
+                    app.config.llm,
+                    sandbox,
+                    **harness_kwargs,
+                )
         except Exception as exc:
             logger.warning(
                 "Failed to initialize AgentHarness for run '%s': %s",
@@ -864,6 +1047,7 @@ class AgentRuntimeManager:
         while len(self._completed_order) > self._completed_retention:
             oldest_id = self._completed_order.pop(0)
             oldest = self._completed_runs.pop(oldest_id, None)
+            self._log_streams.pop(oldest_id, None)
             if oldest is None:
                 continue
             try:

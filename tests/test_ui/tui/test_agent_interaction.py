@@ -121,6 +121,9 @@ class _Manager:
         self.pending_rows: list[dict] = []
         self.log_requests: list[str | None] = []
         self.responses: list[tuple[str, dict]] = []
+        self.stream_payloads: dict[str, list[dict]] = {}
+        self.stream_dropped: dict[str, int] = {}
+        self.cleared_stream_ids: list[str] = []
 
     def list_running(self):
         return list(self.running_rows)
@@ -130,6 +133,26 @@ class _Manager:
         if agent_id:
             return f"log for {agent_id}\n"
         return "combined log\n"
+
+    def clear_log_stream(self, agent_id: str) -> None:
+        self.cleared_stream_ids.append(str(agent_id))
+        self.stream_payloads[str(agent_id)] = []
+        self.stream_dropped[str(agent_id)] = 0
+
+    def drain_log_stream(self, agent_id: str, max_entries: int = 200) -> dict:
+        normalized = str(agent_id)
+        rows = list(self.stream_payloads.get(normalized, []))
+        limit = max(1, int(max_entries))
+        drained = rows[:limit]
+        self.stream_payloads[normalized] = rows[limit:]
+        dropped = int(self.stream_dropped.get(normalized, 0))
+        self.stream_dropped[normalized] = 0
+        return {
+            "agent_id": normalized,
+            "entries": drained,
+            "dropped_count": dropped,
+            "has_more": bool(self.stream_payloads.get(normalized)),
+        }
 
     def get_pending_interactions(self):
         return list(self.pending_rows)
@@ -258,12 +281,14 @@ def test_running_agents_selection_routes_log(monkeypatch) -> None:
     assert len(running_table.rows) == 2
     assert screen._selected_agent_id == "aaaaaaaa11111111"
     assert manager.log_requests[-1] == "aaaaaaaa11111111"
+    assert manager.cleared_stream_ids[-1] == "aaaaaaaa11111111"
 
     screen.on_data_table_row_selected(
         SimpleNamespace(data_table=running_table, cursor_row=1)
     )
     assert screen._selected_agent_id == "bbbbbbbb22222222"
     assert manager.log_requests[-1] == "bbbbbbbb22222222"
+    assert manager.cleared_stream_ids[-1] == "bbbbbbbb22222222"
 
 
 def test_permission_interaction_panel_and_deny(monkeypatch) -> None:
@@ -365,3 +390,42 @@ def test_running_navigation_actions(monkeypatch) -> None:
 
     screen.action_running_prev()
     assert screen._selected_agent_id == "aaaaaaaa11111111"
+
+
+def test_log_stream_drain_appends_formatted_entries_and_drop_notice(monkeypatch) -> None:
+    screen = _screen()
+    manager = _Manager()
+    monkeypatch.setattr(
+        "lsm.ui.tui.screens.agents.AgentRegistry",
+        lambda: SimpleNamespace(list_agents=lambda: ["research", "writing"]),
+    )
+    monkeypatch.setattr(
+        "lsm.ui.tui.screens.agents.get_agent_runtime_manager",
+        lambda: manager,
+    )
+
+    screen.on_mount()
+    selected = str(screen._selected_agent_id or "")
+    manager.stream_payloads[selected] = [
+        {
+            "timestamp": "2026-02-14T12:00:00",
+            "actor": "tool",
+            "action": "write_file",
+            "action_arguments": {"path": "./notes.md", "content": "hello"},
+            "content": "Wrote file successfully",
+        },
+        {
+            "timestamp": "2026-02-14T12:00:01",
+            "actor": "llm",
+            "action": "DONE",
+            "action_arguments": {},
+            "content": "Finished task",
+        },
+    ]
+    manager.stream_dropped[selected] = 2
+
+    screen._drain_selected_log_stream()
+    rendered_lines = [str(line) for line in screen.widgets["#agents-log"].lines]
+    assert any("Dropped 2 log entries" in line for line in rendered_lines)
+    assert any("[TOOL]" in line and "write_file(" in line and "->" in line for line in rendered_lines)
+    assert any("[LLM]" in line and "action=DONE" in line for line in rendered_lines)

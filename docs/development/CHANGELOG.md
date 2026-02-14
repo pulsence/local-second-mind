@@ -59,6 +59,15 @@ All notable changes to Local Second Mind are documented here.
   - no-id control/log/status commands now target selected agent when available in multi-agent sessions
   - added command/parser coverage in `tests/test_ui/shell/test_agent_interaction_commands.py`
   - updated `/agent ...` completion suggestions in `lsm/ui/tui/completions.py` and `tests/test_ui/tui/test_completions.py`
+- Real-time agent log streaming across harness, runtime manager, and TUI:
+  - `AgentHarness` now supports optional `log_callback` invocation on every appended `AgentLogEntry`
+  - `AgentRuntimeManager` now maintains bounded per-agent live log queues with dropped-entry counters and exposes `drain_log_stream(...)` for UI polling
+  - running-agent startup now wires stream callbacks for both harness-produced logs and direct agent-state logs
+  - agents TUI now polls selected-agent stream every 500ms and appends formatted live lines with actor prefixes (`[LLM]`, `[TOOL]`, `[AGENT]`, `[USER]`)
+  - tool log lines now render as `tool(args) -> result` summaries for real-time readability
+  - queue-pressure truncation is surfaced in the log panel with dropped-entry notices
+  - added optional `agents.log_stream_queue_limit` config with loader/serializer and `example_config.json` coverage
+  - added/updated tests in `tests/test_agents/test_harness.py`, `tests/test_ui/shell/test_multi_agent_manager.py`, `tests/test_ui/tui/test_agent_interaction.py`, and `tests/test_config/test_agents_config.py`
 
 ### Changed
 

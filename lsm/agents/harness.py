@@ -11,7 +11,7 @@ import time
 from dataclasses import dataclass, replace
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, Optional, Set
+from typing import Any, Callable, Dict, Optional, Set
 
 from lsm.config.models import AgentConfig, LLMRegistryConfig, VectorDBConfig
 from lsm.config.models.agents import SandboxConfig
@@ -65,6 +65,7 @@ class AgentHarness:
         memory_store: Optional[BaseMemoryStore] = None,
         memory_context_builder: Optional[MemoryContextBuilder] = None,
         interaction_channel: Optional[InteractionChannel] = None,
+        log_callback: Optional[Callable[[AgentLogEntry], None]] = None,
     ) -> None:
         self.agent_config = agent_config
         self.tool_registry = tool_registry
@@ -74,6 +75,7 @@ class AgentHarness:
         self.tool_allowlist = self._normalize_allowlist(tool_allowlist)
         self.vectordb_config = vectordb_config
         self.interaction_channel = interaction_channel or sandbox.interaction_channel
+        self.log_callback = log_callback
 
         self.state = AgentState()
         self.context: Optional[AgentContext] = None
@@ -548,6 +550,15 @@ class AgentHarness:
     def _append_log(self, entry: AgentLogEntry) -> None:
         entry.content = redact_secrets(entry.content)
         self.state.add_log(entry)
+        if self.log_callback is None:
+            return
+        try:
+            self.log_callback(entry)
+        except Exception:
+            logger.exception(
+                "AgentHarness log callback failed for agent '%s'",
+                self.agent_name,
+            )
 
     def _parse_tool_response(self, raw_response: str) -> ToolResponse:
         text = str(raw_response or "").strip()

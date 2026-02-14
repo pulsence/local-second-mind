@@ -443,7 +443,7 @@ Add CLI commands for responding to agent interaction requests.
 
 **Post-block:** `tests/test_ui/shell/test_agent_interaction_commands.py`, run `pytest tests/ -v`, commit.
 
-### 3.6: Real-Time Agent Log Streaming
+### 3.6: Real-Time Agent Log Streaming (COMPLETED)
 
 Currently the agent log is only visible when explicitly refreshed. Add a streaming mechanism
 so the UI shows log entries as they happen.

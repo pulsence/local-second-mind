@@ -8,6 +8,7 @@ import json
 import threading
 from typing import Any, Optional
 
+from rich.text import Text
 from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Container, Vertical, Horizontal, ScrollableContainer
@@ -64,6 +65,7 @@ class AgentsScreen(Widget):
         self._pending_interaction: Optional[dict[str, Any]] = None
         self._running_refresh_timer: Optional[Timer] = None
         self._interaction_poll_timer: Optional[Timer] = None
+        self._log_stream_timer: Optional[Timer] = None
         self._stop_worker: Optional[threading.Thread] = None
 
     def compose(self) -> ComposeResult:
@@ -249,10 +251,18 @@ class AgentsScreen(Widget):
             interval_seconds=1.0,
             callback=self._refresh_interaction_panel,
         )
+        self._log_stream_timer = self._start_timer(
+            interval_seconds=0.5,
+            callback=self._drain_selected_log_stream,
+        )
         self._focus_default_input()
 
     def on_unmount(self) -> None:
-        for timer in (self._running_refresh_timer, self._interaction_poll_timer):
+        for timer in (
+            self._running_refresh_timer,
+            self._interaction_poll_timer,
+            self._log_stream_timer,
+        ):
             if timer is None:
                 continue
             try:
@@ -261,6 +271,7 @@ class AgentsScreen(Widget):
                 continue
         self._running_refresh_timer = None
         self._interaction_poll_timer = None
+        self._log_stream_timer = None
 
     def action_running_prev(self) -> None:
         self._move_running_selection(-1)
@@ -511,6 +522,7 @@ class AgentsScreen(Widget):
         except Exception:
             return
 
+        previous_selected = str(self._selected_agent_id or "").strip()
         manager = get_agent_runtime_manager()
         try:
             running = list(manager.list_running())
@@ -561,7 +573,8 @@ class AgentsScreen(Widget):
             pass
 
         output_widget.update(f"{len(self._running_agent_ids)} running agent(s).")
-        self._show_selected_agent_log()
+        if str(self._selected_agent_id or "").strip() != previous_selected:
+            self._show_selected_agent_log()
 
     def _format_duration(self, duration_seconds: float) -> str:
         seconds = max(0, int(duration_seconds))
@@ -600,6 +613,12 @@ class AgentsScreen(Widget):
         manager = get_agent_runtime_manager()
         output = self._call_manager_with_agent_id(manager.log, agent_id)
         self._replace_log(output)
+        clear_stream = getattr(manager, "clear_log_stream", None)
+        if callable(clear_stream):
+            try:
+                clear_stream(agent_id)
+            except Exception:
+                pass
 
     def _call_manager_with_agent_id(self, method, agent_id: Optional[str]) -> str:
         if agent_id:
@@ -611,6 +630,41 @@ class AgentsScreen(Widget):
             return method(agent_id=None)
         except TypeError:
             return method()
+
+    def _drain_selected_log_stream(self) -> None:
+        agent_id = str(self._selected_agent_id or "").strip()
+        if not agent_id:
+            return
+        manager = get_agent_runtime_manager()
+        drain = getattr(manager, "drain_log_stream", None)
+        if not callable(drain):
+            return
+        try:
+            payload = drain(agent_id, max_entries=200)
+        except TypeError:
+            try:
+                payload = drain(agent_id)
+            except Exception:
+                return
+        except Exception:
+            return
+        if not isinstance(payload, dict):
+            return
+
+        drained_agent_id = str(payload.get("agent_id", "")).strip()
+        if drained_agent_id and drained_agent_id != agent_id:
+            return
+        dropped_count = self._coerce_int(payload.get("dropped_count"))
+        if dropped_count and dropped_count > 0:
+            self._append_log(self._format_stream_drop_notice(dropped_count))
+
+        entries = payload.get("entries")
+        if not isinstance(entries, list):
+            return
+        for row in entries:
+            if not isinstance(row, dict):
+                continue
+            self._append_log(self._format_stream_log_entry(row))
 
     def _refresh_interaction_panel(self) -> None:
         try:
@@ -1249,12 +1303,14 @@ class AgentsScreen(Widget):
     def _set_meta_status(self, message: str) -> None:
         self._update_static("#agents-meta-output", message)
 
-    def _append_log(self, message: str) -> None:
-        if not message:
+    def _append_log(self, message: Any) -> None:
+        if message is None:
+            return
+        if isinstance(message, str) and not message:
             return
         self._write_log(message, replace=False)
 
-    def _replace_log(self, message: str, *, force_scroll_end: bool = False) -> None:
+    def _replace_log(self, message: Any, *, force_scroll_end: bool = False) -> None:
         self._write_log(
             message,
             replace=True,
@@ -1263,12 +1319,14 @@ class AgentsScreen(Widget):
 
     def _write_log(
         self,
-        message: str,
+        message: Any,
         *,
         replace: bool,
         force_scroll_end: bool = False,
     ) -> None:
-        if not message:
+        if message is None:
+            return
+        if isinstance(message, str) and not message:
             return
         log_widget = self.query_one("#agents-log", RichLog)
         should_scroll_end = force_scroll_end or self._is_log_scrolled_to_bottom(log_widget)
@@ -1279,7 +1337,10 @@ class AgentsScreen(Widget):
                     clear_fn()
                 except Exception:
                     pass
-        entry = message.rstrip() + "\n"
+        if isinstance(message, str):
+            entry = message.rstrip() + "\n"
+        else:
+            entry = message
         write_fn = getattr(log_widget, "write", None)
         if not callable(write_fn):
             return
@@ -1321,6 +1382,85 @@ class AgentsScreen(Widget):
         if scroll_y is not None and max_scroll_y is not None:
             return scroll_y >= max_scroll_y
         return True
+
+    def _format_stream_log_entry(self, row: dict[str, Any]) -> Text:
+        actor = str(row.get("actor", "")).strip().lower()
+        prefix_label, prefix_style = self._stream_prefix(actor)
+        content = str(row.get("content", "")).strip()
+        action = str(row.get("action", "")).strip()
+        args_summary = self._summarize_stream_args(row.get("action_arguments"))
+        summary = self._summarize_stream_content(content)
+
+        if actor == "tool":
+            action_name = action or "tool"
+            if args_summary:
+                body = f"{action_name}({args_summary}) -> {summary}"
+            else:
+                body = f"{action_name} -> {summary}"
+        elif actor == "llm":
+            if action:
+                body = f"{summary} (action={action})"
+            else:
+                body = summary
+        else:
+            body = summary
+
+        line = Text(f"[{prefix_label}] ", style=prefix_style)
+        line.append(body)
+        return line
+
+    def _format_stream_drop_notice(self, dropped_count: int) -> Text:
+        line = Text("[STREAM] ", style="bold yellow")
+        line.append(
+            f"Dropped {dropped_count} log entr{'y' if dropped_count == 1 else 'ies'} due to queue pressure.",
+            style="yellow",
+        )
+        return line
+
+    def _stream_prefix(self, actor: str) -> tuple[str, str]:
+        normalized = str(actor or "").strip().lower()
+        if normalized == "llm":
+            return "LLM", "bright_cyan"
+        if normalized == "tool":
+            return "TOOL", "bright_magenta"
+        if normalized == "user":
+            return "USER", "bright_yellow"
+        if normalized == "agent":
+            return "AGENT", "bright_green"
+        return "EVENT", "grey70"
+
+    def _summarize_stream_args(self, value: Any) -> str:
+        if value is None:
+            return ""
+        if value == "":
+            return ""
+        if isinstance(value, dict) and not value:
+            return ""
+        try:
+            if isinstance(value, str):
+                text = value
+            else:
+                text = json.dumps(value, ensure_ascii=True, sort_keys=True)
+        except Exception:
+            text = str(value)
+        text = text.replace("\n", " ").strip()
+        if len(text) > 100:
+            return text[:97].rstrip() + "..."
+        return text
+
+    def _summarize_stream_content(self, content: str) -> str:
+        text = str(content or "").replace("\n", " ").strip()
+        if not text:
+            return "(empty)"
+        if len(text) > 180:
+            return text[:177].rstrip() + "..."
+        return text
+
+    def _coerce_int(self, value: Any) -> Optional[int]:
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            return None
 
     def _coerce_float(self, value: Any) -> Optional[float]:
         try:
