@@ -150,7 +150,7 @@ This phase breaks it into an MVC architecture:
 - **Controller**: `SettingsScreen` (slimmed) — routes events, coordinates tabs, manages save/reset
 - **Views**: 8 separate tab widget files — each handles composing and refreshing its own fields
 
-### 2.1: Create Settings Utilities Module
+### 2.1: Create Settings Utilities Module (COMPLETED)
 
 Extract shared field-creation helpers and widget-query utilities from `settings.py` into a reusable
 module that all tab widgets will import.

@@ -61,6 +61,22 @@ pytest tests/ -v -m "not integration and not performance"
 
 # Run live PostgreSQL vector DB tests
 pytest tests/test_vectordb/test_live_postgresql.py tests/test_vectordb/test_live_migration_chromadb_to_postgres.py -v -m "live"
+
+# Bootstrap local PostgreSQL test instance from your DSN
+scripts/ensure_test_postgres.sh --dsn "$LSM_TEST_POSTGRES_CONNECTION_STRING"
+```
+
+## Local PostgreSQL Bootstrap
+
+Live PostgreSQL fixtures in `tests/conftest.py` automatically run `scripts/ensure_test_postgres.sh`
+when:
+- `LSM_TEST_POSTGRES_CONNECTION_STRING` points to `localhost`/`127.0.0.1`
+- `LSM_TEST_AUTO_START_POSTGRES` is not disabled
+
+Disable auto-bootstrap by setting:
+
+```bash
+export LSM_TEST_AUTO_START_POSTGRES=0
 ```
 
 ## Synthetic Fixtures

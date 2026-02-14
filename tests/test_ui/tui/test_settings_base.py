@@ -68,6 +68,11 @@ class _Controller:
         self.calls.append((message, error))
 
 
+class _ParentNode:
+    def __init__(self, parent: Any = None) -> None:
+        self.parent = parent
+
+
 class _TestSettingsTab(BaseSettingsTab):
     def __init__(self) -> None:
         super().__init__()
@@ -183,3 +188,29 @@ def test_base_tab_post_status_prefers_parent_controller() -> None:
     assert isinstance(tab.posted_messages[0], BaseSettingsTab.StatusUpdate)
     assert tab.posted_messages[0].message == "Fallback"
     assert tab.posted_messages[0].error is False
+
+
+def test_base_tab_requires_refresh_and_update_overrides() -> None:
+    tab = BaseSettingsTab()
+
+    try:
+        tab.refresh_fields({})
+        assert False, "Expected refresh_fields to require override"
+    except NotImplementedError:
+        pass
+
+    try:
+        tab.apply_update("field", "value", {})
+        assert False, "Expected apply_update to require override"
+    except NotImplementedError:
+        pass
+
+
+def test_base_tab_post_status_walks_parent_chain() -> None:
+    tab = _TestSettingsTab()
+    controller = _Controller()
+    tab._parent = _ParentNode(_ParentNode(controller))
+
+    tab.post_status("Chained status", False)
+    assert controller.calls == [("Chained status", False)]
+    assert tab.posted_messages == []

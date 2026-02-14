@@ -120,6 +120,10 @@ class BaseSettingsTab(Widget):
         """Apply a single field update to the config object."""
         raise NotImplementedError("Settings tab must implement apply_update().")
 
+    def handle_button(self, button_id: str, config: Any) -> bool:
+        """Handle a tab-scoped button action. Returns True when handled."""
+        return False
+
     def guarded_refresh_fields(self, config: Any) -> None:
         """Run refresh with `_is_refreshing` guard enabled."""
         if self._is_refreshing:

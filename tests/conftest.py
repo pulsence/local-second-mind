@@ -6,10 +6,13 @@ including mock configurations, sample documents, and temporary directories.
 """
 
 import json
+import os
 import shutil
+import subprocess
 import pytest
 from pathlib import Path
 from typing import Dict, Any
+from urllib.parse import urlparse
 from uuid import uuid4
 
 from lsm.config.models import (
@@ -292,6 +295,36 @@ def synthetic_data_root(tmp_path: Path) -> Path:
 # Tier-Aware Test Infrastructure Fixtures
 # -----------------------------------------------------------------------------
 
+def _maybe_ensure_local_test_postgres(dsn: str) -> None:
+    """
+    Bootstrap local PostgreSQL test infrastructure when configured for localhost.
+
+    This keeps live PostgreSQL tests ergonomic on developer machines while
+    avoiding side effects for remote/non-local DSNs.
+    """
+    parsed = urlparse(dsn)
+    host = (parsed.hostname or "").strip().lower()
+    if host not in {"localhost", "127.0.0.1", "::1"}:
+        return
+
+    auto_start = os.getenv("LSM_TEST_AUTO_START_POSTGRES", "1").strip().lower()
+    if auto_start in {"0", "false", "no", "off"}:
+        return
+
+    script_path = Path(__file__).resolve().parent.parent / "scripts" / "ensure_test_postgres.sh"
+    if not script_path.exists():
+        return
+
+    result = subprocess.run(
+        [str(script_path), "--dsn", dsn],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if result.returncode != 0:
+        details = (result.stderr or result.stdout).strip() or "unknown failure"
+        raise RuntimeError(f"{script_path} failed: {details}")
+
 @pytest.fixture(scope="session")
 def test_config() -> TestConfig:
     """
@@ -321,6 +354,11 @@ def live_postgres_connection_string(test_config: TestConfig) -> str:
         import psycopg2
     except Exception as exc:
         pytest.skip(f"psycopg2 is unavailable for PostgreSQL live tests: {exc}")
+
+    try:
+        _maybe_ensure_local_test_postgres(dsn)
+    except Exception as exc:
+        pytest.skip(f"Unable to prepare local PostgreSQL test database: {exc}")
 
     try:
         conn = psycopg2.connect(dsn)

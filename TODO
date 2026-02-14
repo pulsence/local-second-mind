@@ -203,6 +203,7 @@
 - Make sure that different DB migration tests truly load complete DBs and successfully migrate
   in both directions SQLite <-> PG, and Chroma <-> PG
 - Expand performance test suite beyond the TUI startup SLA
+- Ensure there are PDf ingest tests and PDF OCR ingest tests
 
 ### v0.10.0: Extra Control Paths
 - Add ability to send email/txt notifications
