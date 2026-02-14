@@ -4,12 +4,15 @@ Sandbox wrapper for agent tool execution.
 
 from __future__ import annotations
 
+import json
 import os
 from pathlib import Path
-from typing import Any, Dict, Iterable, Optional
+from typing import Any, Callable, Dict, Iterable, Optional
+from uuid import uuid4
 
+from lsm.agents.interaction import InteractionChannel, InteractionRequest
 from lsm.agents.log_redactor import redact_secrets
-from lsm.agents.permission_gate import PermissionGate
+from lsm.agents.permission_gate import PermissionDecision, PermissionGate
 from lsm.config.models.agents import SandboxConfig
 from lsm.logging import get_logger
 
@@ -38,12 +41,16 @@ class ToolSandbox:
         *,
         local_runner: Optional[BaseRunner] = None,
         docker_runner: Optional[BaseRunner] = None,
+        interaction_channel: Optional[InteractionChannel] = None,
+        waiting_state_callback: Optional[Callable[[bool], None]] = None,
     ) -> None:
         self.config = config
         self.global_sandbox = global_sandbox
         self.permission_gate = PermissionGate(config)
         self.local_runner: BaseRunner = local_runner or self._build_local_runner()
         self.docker_runner: Optional[BaseRunner] = docker_runner or self._build_docker_runner()
+        self.interaction_channel = interaction_channel
+        self.waiting_state_callback = waiting_state_callback
         self.last_execution_result: Optional[ToolExecutionResult] = None
         self._validate_not_exceeding_global()
 
@@ -102,11 +109,88 @@ class ToolSandbox:
     def _enforce_tool_permissions(self, tool: BaseTool, args: Dict[str, Any]) -> None:
         decision = self.permission_gate.check(tool, args)
         if decision.requires_confirmation:
-            raise PermissionError(decision.reason)
-        if not decision.allowed:
+            self._handle_permission_confirmation(decision, args)
+        elif not decision.allowed:
             raise PermissionError(decision.reason)
         if self._is_network_tool(tool) and not self._allow_url_access():
             raise PermissionError("Network access is disabled by sandbox policy")
+
+    def set_interaction_channel(
+        self,
+        interaction_channel: Optional[InteractionChannel],
+        *,
+        waiting_state_callback: Optional[Callable[[bool], None]] = None,
+    ) -> None:
+        """
+        Update interaction channel and optional waiting-state callback.
+        """
+        self.interaction_channel = interaction_channel
+        self.waiting_state_callback = waiting_state_callback
+
+    def _handle_permission_confirmation(
+        self,
+        decision: PermissionDecision,
+        args: Dict[str, Any],
+    ) -> None:
+        channel = self.interaction_channel
+        if channel is None:
+            raise PermissionError(decision.reason)
+
+        tool_name = str(decision.tool_name or "").strip()
+        if tool_name and channel.has_session_approval(tool_name):
+            return
+
+        request = InteractionRequest(
+            request_id=f"perm-{uuid4().hex}",
+            request_type="permission",
+            tool_name=tool_name or None,
+            risk_level=str(decision.risk_level or "").strip() or None,
+            reason=str(decision.reason or "").strip() or None,
+            args_summary=self._summarize_args(args),
+            prompt=(
+                f"Allow tool '{tool_name or 'unknown_tool'}' "
+                f"(risk: {str(decision.risk_level or 'read_only')})?"
+            ),
+        )
+
+        self._notify_waiting_state(waiting=True)
+        try:
+            response = channel.post_request(request)
+        except RuntimeError as exc:
+            raise PermissionError(str(exc)) from exc
+        finally:
+            self._notify_waiting_state(waiting=False)
+
+        if response.decision == "approve":
+            return
+        if response.decision == "approve_session":
+            if tool_name:
+                channel.approve_for_session(tool_name)
+            return
+
+        denial_reason = str(response.user_message or "").strip()
+        if not denial_reason:
+            denial_reason = decision.reason
+        raise PermissionError(denial_reason)
+
+    def _notify_waiting_state(self, *, waiting: bool) -> None:
+        callback = self.waiting_state_callback
+        if callback is None:
+            return
+        try:
+            callback(waiting)
+        except Exception:
+            logger.exception("Waiting-state callback failed")
+
+    @staticmethod
+    def _summarize_args(args: Dict[str, Any]) -> str:
+        try:
+            text = json.dumps(args, ensure_ascii=True, sort_keys=True)
+        except Exception:
+            text = str(args)
+        if len(text) > 500:
+            return text[:497] + "..."
+        return text
 
     def _enforce_args(self, tool: BaseTool, args: Dict[str, Any]) -> None:
         self._validate_args_schema(tool, args)

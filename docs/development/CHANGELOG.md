@@ -17,7 +17,7 @@ All notable changes to Local Second Mind are documented here.
 - New TUI style regression coverage for density behavior and agents layout:
   - `tests/test_ui/tui/test_compact_layout.py`
   - `tests/test_ui/tui/test_agents_layout_css.py`
-- Phase 2 settings state/view-model foundation and global UI state:
+- Settings state/view-model foundation and global UI state:
   - new `lsm/ui/tui/state/settings_view_model.py` with draft vs persisted config buckets, typed actions (`update_field`, `add_item`, `remove_item`, `rename_key`, `reset_tab`, `reset_all`, `save`), dirty tracking, and validation error state
   - new `lsm/ui/tui/state/app_state.py` with typed cross-screen UI state (`active_context`, `density_mode`, notifications, selected agent id)
   - state exports in `lsm/ui/tui/state/__init__.py` for shared screen access
@@ -25,13 +25,20 @@ All notable changes to Local Second Mind are documented here.
   - command-driven settings editing (`set`, `unset`, `delete`, `reset`, `default`, `save`) per tab
   - key/value table rendering with dirty-state markers and tab-local refresh behavior
   - new/updated tests: `tests/test_ui/tui/test_app_state.py`, `tests/test_ui/tui/test_settings_view_model.py`, `tests/test_ui/tui/test_settings_screen.py`
-- Phase 3.1 interaction-channel foundation for interactive agent handshakes:
+- Interaction-channel foundation for interactive agent handshakes:
   - new `lsm/agents/interaction.py` with `InteractionRequest`, `InteractionResponse`, and thread-safe `InteractionChannel`
   - channel capabilities: blocking request wait, non-blocking pending polling, response posting, cancellation/shutdown unblocking, and session approval caching
   - new agent config fields in `AgentConfig`: `max_concurrent` and `interaction` (`timeout_seconds`, `timeout_action`)
   - loader/serializer round-trip support for `agents.max_concurrent` and `agents.interaction`
   - configuration examples updated in `example_config.json`
   - coverage added in `tests/test_agents/test_interaction_channel.py` and expanded `tests/test_config/test_agents_config.py`
+- Interaction integration across sandbox, harness, and clarification flows:
+  - `ToolSandbox` now supports interactive permission confirmations through `InteractionChannel`, including session approval reuse and deterministic cancellation/shutdown unblocking
+  - `AgentHarness` now accepts and propagates interaction channels, manages `WAITING_USER` status transitions while blocked on user responses, and cancels pending requests on stop
+  - new built-in `ask_user` tool in `lsm/agents/tools/ask_user.py` for `"clarification"` requests, with runtime binding through harness interaction APIs
+  - default tool registry now includes `ask_user`, and allowlist filtering keeps `ask_user` always available in harness/base-agent tool definitions
+  - sub-agent harness/sandbox creation now inherits the parent interaction channel for consistent prompt handling across meta-agent workflows
+  - coverage added in `tests/test_agents/test_sandbox_interaction.py` and `tests/test_agents/test_ask_user_tool.py`, with registry/metadata assertions updated in `tests/test_agents/test_new_tools.py` and `tests/test_agents/test_tool_risk_metadata.py`
 
 ### Changed
 

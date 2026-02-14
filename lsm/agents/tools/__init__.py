@@ -24,6 +24,7 @@ from .source_map import SourceMapTool
 from .memory_put import MemoryPutTool
 from .memory_search import MemorySearchTool
 from .memory_remove import MemoryRemoveTool
+from .ask_user import AskUserTool
 from .spawn_agent import SpawnAgentTool
 from .await_agent import AwaitAgentTool
 from .collect_artifacts import CollectArtifactsTool
@@ -57,6 +58,7 @@ __all__ = [
     "MemoryPutTool",
     "MemorySearchTool",
     "MemoryRemoveTool",
+    "AskUserTool",
     "SpawnAgentTool",
     "AwaitAgentTool",
     "CollectArtifactsTool",
@@ -129,6 +131,7 @@ def create_default_tool_registry(
         registry.register(MemoryPutTool(memory_store))
         registry.register(MemoryRemoveTool(memory_store))
         registry.register(MemorySearchTool(memory_store))
+    registry.register(AskUserTool())
     registry.register(SpawnAgentTool())
     registry.register(AwaitAgentTool())
     registry.register(CollectArtifactsTool())

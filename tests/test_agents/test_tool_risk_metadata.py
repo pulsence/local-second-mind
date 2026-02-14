@@ -3,6 +3,7 @@ from __future__ import annotations
 import pytest
 
 from lsm.agents.tools import (
+    AskUserTool,
     AwaitAgentTool,
     AppendFileTool,
     CollectArtifactsTool,
@@ -62,6 +63,7 @@ def test_base_tool_definition_includes_risk_metadata_defaults() -> None:
         (ExtractSnippetsTool, "read_only", False),
         (SimilaritySearchTool, "read_only", False),
         (SourceMapTool, "read_only", False),
+        (AskUserTool, "read_only", False),
         (MemorySearchTool, "read_only", False),
         (QueryEmbeddingsTool, "read_only", False),
         (MemoryPutTool, "writes_workspace", False),

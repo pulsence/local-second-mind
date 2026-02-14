@@ -47,6 +47,7 @@ Tooling:
 - `lsm/agents/tools/spawn_agent.py`: meta-system tool for sub-agent spawning
 - `lsm/agents/tools/await_agent.py`: meta-system tool for sub-agent completion waits
 - `lsm/agents/tools/collect_artifacts.py`: meta-system tool for sub-agent artifact collection
+- `lsm/agents/tools/ask_user.py`: clarification tool for runtime user interaction
 - `lsm/agents/tools/*.py`: built-in tool implementations
 - Tool metadata includes `risk_level`, `preferred_runner`, and `needs_network`
 
@@ -134,6 +135,12 @@ Timeout behavior is configurable via `agents.interaction`:
 - `timeout_action="deny"` raises `PermissionError` on timeout (safe default)
 - `timeout_action="approve"` auto-approves timed-out requests
 
+Runtime usage:
+
+- `ToolSandbox` posts `"permission"` requests through the channel when a tool requires confirmation
+- `AgentHarness` posts clarification requests (for example through `ask_user`) and transitions `RUNNING -> WAITING_USER -> RUNNING`
+- `AgentHarness.stop()` cancels any pending request so blocked tool execution unblocks deterministically
+
 ## Sandbox Model
 
 Sandbox rules are defined in `agents.sandbox` and enforced by `ToolSandbox`.
@@ -219,6 +226,7 @@ Default tool registry (`create_default_tool_registry`) includes:
 - `query_remote` (`risk_level=network`, `needs_network=true`)
 - `query_remote_chain` (`risk_level=network`, `needs_network=true`)
 - `memory_search` (`risk_level=read_only`) (registered when memory is enabled and a memory backend is provided to the default registry)
+- `ask_user` (`risk_level=read_only`) (always available in harness/base-agent allowlist filtering)
 - `spawn_agent` (`risk_level=exec`, `requires_permission=true`)
 - `await_agent` (`risk_level=exec`, `requires_permission=true`)
 - `collect_artifacts` (`risk_level=exec`, `requires_permission=true`)
@@ -235,9 +243,11 @@ Default tool registry (`create_default_tool_registry`) includes:
 1. Prepare standing memory context (if available) + filtered tool definitions (`tool_allowlist` when provided)
 2. Call LLM
 3. Parse strict JSON action response
-4. Execute tool via sandbox when requested (reject unlisted tools)
+4. Execute tool via sandbox when requested (reject unlisted tools; interactive permission checks block on channel responses when configured)
 5. Append tool output to context
 6. Stop on `DONE`, stop request, budget exhaustion, or iteration cap
+
+When waiting on a user interaction request, harness status is set to `WAITING_USER` and restored to `RUNNING` after a response (or `COMPLETED` when a stop request arrives during the wait).
 
 Per-run workspace is created as:
 

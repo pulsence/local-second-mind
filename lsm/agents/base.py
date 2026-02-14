@@ -101,6 +101,7 @@ class BaseAgent(ABC):
     name: str = "base"
     description: str = "Base agent"
     tool_allowlist: Optional[set[str]] = None
+    _always_available_tools: set[str] = {"ask_user"}
 
     def __init__(self, name: Optional[str] = None, description: Optional[str] = None) -> None:
         self.name = name or self.name
@@ -197,6 +198,7 @@ class BaseAgent(ABC):
         if not tool_allowlist:
             return definitions
         allowed = {name.strip() for name in tool_allowlist if str(name).strip()}
+        allowed |= set(self._always_available_tools)
         return [item for item in definitions if str(item.get("name", "")).strip() in allowed]
 
     def _format_tool_definitions_for_prompt(

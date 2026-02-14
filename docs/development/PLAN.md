@@ -277,7 +277,7 @@ Currently, when an agent needs user permission, `ToolSandbox._enforce_tool_permi
 `PermissionError` and the agent crashes. The `WAITING_USER` status exists in `AgentStatus` but is
 never used. This phase adds bidirectional communication and multi-agent support.
 
-### 3.1: Create Interaction Channel
+### 3.1: Create Interaction Channel (COMPLETED)
 
 A thread-safe communication channel between the agent harness (background thread) and the UI
 (main thread). The harness posts requests; the UI posts responses.
@@ -320,7 +320,7 @@ A thread-safe communication channel between the agent harness (background thread
 session approvals, cancellation/shutdown), plus config round-trip tests in
 `tests/test_config/test_agents_config.py`, run `pytest tests/ -v`, commit.
 
-### 3.2: Integrate Channel into Sandbox, Harness, and Clarification Flow
+### 3.2: Integrate Channel into Sandbox, Harness, and Clarification Flow (COMPLETED)
 
 When `requires_confirmation=True`, instead of raising `PermissionError`, the sandbox pauses and
 sends a request through the channel.

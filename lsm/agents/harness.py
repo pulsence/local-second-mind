@@ -18,6 +18,7 @@ from lsm.config.models.agents import SandboxConfig
 from lsm.logging import get_logger
 from lsm.providers.factory import create_provider
 
+from .interaction import InteractionChannel, InteractionRequest, InteractionResponse
 from .log_redactor import redact_secrets
 from .base import AgentState, AgentStatus
 from .factory import create_agent
@@ -50,6 +51,8 @@ class AgentHarness:
     Runtime engine for agent execution loops.
     """
 
+    _ALWAYS_AVAILABLE_TOOLS = {"ask_user"}
+
     def __init__(
         self,
         agent_config: AgentConfig,
@@ -61,6 +64,7 @@ class AgentHarness:
         vectordb_config: Optional[VectorDBConfig] = None,
         memory_store: Optional[BaseMemoryStore] = None,
         memory_context_builder: Optional[MemoryContextBuilder] = None,
+        interaction_channel: Optional[InteractionChannel] = None,
     ) -> None:
         self.agent_config = agent_config
         self.tool_registry = tool_registry
@@ -69,6 +73,7 @@ class AgentHarness:
         self.agent_name = agent_name
         self.tool_allowlist = self._normalize_allowlist(tool_allowlist)
         self.vectordb_config = vectordb_config
+        self.interaction_channel = interaction_channel or sandbox.interaction_channel
 
         self.state = AgentState()
         self.context: Optional[AgentContext] = None
@@ -86,6 +91,10 @@ class AgentHarness:
         self._sub_agent_runs: Dict[str, _SubAgentRun] = {}
         self._sub_agent_counter = 0
         self._meta_tool_names = {"spawn_agent", "await_agent", "collect_artifacts"}
+        self.sandbox.set_interaction_channel(
+            self.interaction_channel,
+            waiting_state_callback=self._set_waiting_for_user,
+        )
 
         self._initialize_memory_context_builder(memory_context_builder)
         self._bind_runtime_tools()
@@ -184,6 +193,16 @@ class AgentHarness:
                         allowed=False,
                         reason=str(exc),
                     )
+                    if self._stop_event.is_set():
+                        self.state.set_status(AgentStatus.COMPLETED)
+                        self._append_log(
+                            AgentLogEntry(
+                                timestamp=datetime.utcnow(),
+                                actor="agent",
+                                content=f"Execution stopped: {exc}",
+                            )
+                        )
+                        break
                     raise
 
                 self._record_permission_decision(
@@ -278,6 +297,8 @@ class AgentHarness:
     def stop(self) -> None:
         """Stop execution and persist state."""
         self._stop_event.set()
+        if self.interaction_channel is not None:
+            self.interaction_channel.cancel_pending("Agent stopped")
         for run in list(self._sub_agent_runs.values()):
             try:
                 run.harness.stop()
@@ -356,6 +377,7 @@ class AgentHarness:
             vectordb_config=self.vectordb_config,
             memory_store=self.memory_store,
             memory_context_builder=self.memory_context_builder,
+            interaction_channel=self.interaction_channel,
         )
         topic = str(
             normalized_params.get("topic", normalized_params.get("goal", ""))
@@ -784,6 +806,9 @@ class AgentHarness:
             }
             allowlist &= requested
 
+        if any(str(tool.name).strip() == "ask_user" for tool in child_registry.list_tools()):
+            allowlist.add("ask_user")
+
         return allowlist
 
     def _build_sub_agent_sandbox(
@@ -852,6 +877,7 @@ class AgentHarness:
             global_sandbox=parent,
             local_runner=self.sandbox.local_runner,
             docker_runner=self.sandbox.docker_runner,
+            interaction_channel=self.interaction_channel,
         )
 
     def _path_allowed_by_parent(self, path: Path, *, action: str) -> bool:
@@ -869,6 +895,7 @@ class AgentHarness:
         if not tool_allowlist:
             return None
         normalized = {str(name).strip() for name in tool_allowlist if str(name).strip()}
+        normalized.add("ask_user")
         return normalized or None
 
     def _list_tool_definitions(self) -> list[Dict[str, Any]]:
@@ -878,13 +905,45 @@ class AgentHarness:
         return [
             definition
             for definition in definitions
-            if str(definition.get("name", "")).strip() in self.tool_allowlist
+            if (
+                str(definition.get("name", "")).strip() in self.tool_allowlist
+                or str(definition.get("name", "")).strip()
+                in self._ALWAYS_AVAILABLE_TOOLS
+            )
         ]
 
     def _is_tool_allowed(self, tool_name: str) -> bool:
+        normalized = str(tool_name).strip()
+        if normalized in self._ALWAYS_AVAILABLE_TOOLS:
+            return True
         if self.tool_allowlist is None:
             return True
-        return str(tool_name).strip() in self.tool_allowlist
+        return normalized in self.tool_allowlist
+
+    def request_interaction(self, request: InteractionRequest) -> InteractionResponse:
+        """
+        Post an interaction request and block for a user response.
+        """
+        if self.interaction_channel is None:
+            raise RuntimeError("Interaction channel is not configured for this harness")
+        self._set_waiting_for_user(True)
+        try:
+            return self.interaction_channel.post_request(request)
+        finally:
+            self._set_waiting_for_user(False)
+
+    def _set_waiting_for_user(self, waiting: bool) -> None:
+        if waiting:
+            if self.state.status == AgentStatus.RUNNING:
+                self.state.set_status(AgentStatus.WAITING_USER)
+                self.save_state()
+            return
+        if self.state.status == AgentStatus.WAITING_USER:
+            if self._stop_event.is_set():
+                self.state.set_status(AgentStatus.COMPLETED)
+            else:
+                self.state.set_status(AgentStatus.RUNNING)
+            self.save_state()
 
     def _initialize_memory_context_builder(
         self,
