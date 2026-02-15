@@ -12,7 +12,7 @@ import time
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Any, Callable, Optional
+from typing import Any, Callable, Optional, Literal
 from uuid import uuid4
 
 from lsm.agents import (
@@ -38,6 +38,28 @@ from lsm.ui.helpers.commands.common import (
 )
 
 logger = get_logger(__name__)
+
+AgentRuntimeUIEventType = Literal[
+    "run_started",
+    "run_completed",
+    "interaction_response",
+]
+
+
+@dataclass(frozen=True)
+class AgentRuntimeUIEvent:
+    """Typed runtime event emitted by manager threads for UI consumers."""
+
+    event_type: AgentRuntimeUIEventType
+    agent_id: str
+    agent_name: str
+    topic: str = ""
+    status: str = ""
+    request_id: str = ""
+    request_type: str = ""
+    decision: str = ""
+    metadata: dict[str, Any] = field(default_factory=dict)
+    created_at: datetime = field(default_factory=datetime.utcnow)
 
 
 @dataclass
@@ -101,7 +123,16 @@ class AgentRuntimeManager:
         self._completed_retention = max(1, int(completed_retention))
         self._join_timeout_s = max(0.1, float(join_timeout_s))
         self._scheduler: Optional[AgentScheduler] = None
+        self._ui_event_sink: Optional[Callable[[AgentRuntimeUIEvent], None]] = None
         self._lock = threading.RLock()
+
+    def set_ui_event_sink(
+        self,
+        sink: Optional[Callable[[AgentRuntimeUIEvent], None]],
+    ) -> None:
+        """Set callback for typed runtime UI events."""
+        with self._lock:
+            self._ui_event_sink = sink
 
     def start(self, app: Any, agent_name: str, topic: str) -> str:
         with self._lock:
@@ -242,6 +273,15 @@ class AgentRuntimeManager:
             )
             self._selected_agent_id = agent_id
             thread.start()
+            self._emit_ui_event(
+                AgentRuntimeUIEvent(
+                    event_type="run_started",
+                    agent_id=agent_id,
+                    agent_name=normalized_agent_name,
+                    topic=normalized_topic,
+                    status="running",
+                )
+            )
             return (
                 f"Started agent '{normalized_agent_name}' "
                 f"(id={agent_id}) with topic: {normalized_topic}\n"
@@ -769,6 +809,17 @@ class AgentRuntimeManager:
         if approved_tool:
             with self._lock:
                 self._session_tool_approvals.add(approved_tool)
+        self._emit_ui_event(
+            AgentRuntimeUIEvent(
+                event_type="interaction_response",
+                agent_id=entry.agent_id,
+                agent_name=entry.agent_name,
+                topic=entry.topic,
+                request_id=str(pending.request_id or "").strip(),
+                request_type=str(pending.request_type or "").strip(),
+                decision=str(parsed.decision or "").strip(),
+            )
+        )
         return (
             f"Posted interaction response to agent '{entry.agent_name}' "
             f"({entry.agent_id}).\n"
@@ -811,11 +862,21 @@ class AgentRuntimeManager:
             )
 
     def _mark_run_completed(self, agent_id: str) -> None:
+        event: Optional[AgentRuntimeUIEvent] = None
         with self._lock:
             entry = self._agents.get(agent_id)
             if entry is None:
                 return
+            event = AgentRuntimeUIEvent(
+                event_type="run_completed",
+                agent_id=entry.agent_id,
+                agent_name=entry.agent_name,
+                topic=entry.topic,
+                status=self._entry_status_value(entry),
+            )
             self._finalize_entry_locked(entry)
+        if event is not None:
+            self._emit_ui_event(event)
 
     def _resolve_max_concurrent(self, app: Any) -> int:
         agent_cfg = getattr(getattr(app, "config", None), "agents", None)
@@ -904,6 +965,21 @@ class AgentRuntimeManager:
                 stream.entries.popleft()
                 stream.dropped_count += 1
             stream.entries.append(serialized)
+
+    def _emit_ui_event(self, event: AgentRuntimeUIEvent) -> None:
+        sink: Optional[Callable[[AgentRuntimeUIEvent], None]]
+        with self._lock:
+            sink = self._ui_event_sink
+        if not callable(sink):
+            return
+        try:
+            sink(event)
+        except Exception:
+            logger.exception(
+                "Failed to emit runtime UI event '%s' for agent '%s'.",
+                event.event_type,
+                event.agent_id,
+            )
 
     def _build_harness(
         self,

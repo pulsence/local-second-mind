@@ -12,6 +12,7 @@ from rich.text import Text
 from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Container, Vertical, Horizontal, ScrollableContainer
+from textual.message import Message
 from textual.timer import Timer
 from textual.widgets import Static, Input, Button, Select, RichLog, DataTable
 from textual.widget import Widget
@@ -19,6 +20,22 @@ from textual.widget import Widget
 from lsm.logging import get_logger
 
 logger = get_logger(__name__)
+
+
+class AgentStopWorkerCompleted(Message):
+    """Stop-worker completion payload queued back to UI thread."""
+
+    def __init__(self, output: str) -> None:
+        self.output = output
+        super().__init__()
+
+
+class AgentRuntimeEventMessage(Message):
+    """Runtime event forwarded from app-level manager sink."""
+
+    def __init__(self, event: Any) -> None:
+        self.event = event
+        super().__init__()
 
 
 def AgentRegistry():
@@ -322,6 +339,23 @@ class AgentsScreen(Widget):
         self._interaction_poll_timer = None
         self._log_stream_timer = None
 
+    def on_agent_stop_worker_completed(self, message: AgentStopWorkerCompleted) -> None:
+        """Apply stop action output on the UI thread after worker completion."""
+        self._stop_worker = None
+        self._apply_control_action_output(message.output)
+
+    def on_agent_runtime_event_message(self, message: AgentRuntimeEventMessage) -> None:
+        """Handle manager runtime events routed through app-level event queue."""
+        event_type = str(getattr(message.event, "event_type", "")).strip().lower()
+        if event_type in {"run_started", "run_completed"}:
+            self._refresh_running_agents()
+            self._refresh_interaction_panel()
+            self._refresh_meta_panel()
+            return
+        if event_type == "interaction_response":
+            self._refresh_interaction_panel()
+            self._refresh_running_agents()
+
     def action_running_prev(self) -> None:
         self._move_running_selection(-1)
 
@@ -552,20 +586,10 @@ class AgentsScreen(Widget):
 
         def _worker() -> None:
             output = self._call_manager_with_agent_id(manager.stop, target_id)
-
-            def _finish() -> None:
-                self._stop_worker = None
-                self._apply_control_action_output(output)
-
-            app_obj = getattr(self, "app", None)
-            callback = getattr(app_obj, "call_from_thread", None)
-            if callable(callback):
-                try:
-                    callback(_finish)
-                    return
-                except Exception:
-                    pass
-            _finish()
+            self._post_ui_message(
+                AgentStopWorkerCompleted(output),
+                source="agents-stop-worker",
+            )
 
         self._stop_worker = threading.Thread(
             target=_worker,
@@ -573,6 +597,29 @@ class AgentsScreen(Widget):
             name="AgentsScreenStopAction",
         )
         self._stop_worker.start()
+
+    def _post_ui_message(self, message: Message, *, source: str) -> None:
+        """Queue UI updates through app/main-thread message flow."""
+        app_obj = getattr(self, "app", None)
+        post_message = getattr(app_obj, "post_ui_message", None)
+        if callable(post_message):
+            try:
+                post_message(message, source=source)
+                return
+            except Exception:
+                pass
+
+        callback = getattr(app_obj, "call_from_thread", None)
+        if callable(callback):
+            try:
+                callback(lambda: self.post_message(message))
+                return
+            except Exception:
+                pass
+        try:
+            self.post_message(message)
+        except Exception:
+            return
 
     def _show_log(self) -> None:
         manager = get_agent_runtime_manager()
@@ -643,6 +690,7 @@ class AgentsScreen(Widget):
         options: list[tuple[str, str]],
         value: str,
     ) -> None:
+        self._assert_ui_thread("_set_select_options")
         try:
             select_widget = self.query_one(selector, Select)
         except Exception:
@@ -654,6 +702,7 @@ class AgentsScreen(Widget):
             return
 
     def _set_button_label(self, selector: str, label: str) -> None:
+        self._assert_ui_thread("_set_button_label")
         try:
             button = self.query_one(selector, Button)
         except Exception:
@@ -1194,12 +1243,14 @@ class AgentsScreen(Widget):
         self._update_static("#agents-interaction-status-output", message)
 
     def _update_static(self, selector: str, message: str) -> None:
+        self._assert_ui_thread("_update_static")
         try:
             self.query_one(selector, Static).update(message)
         except Exception:
             return
 
     def _set_widget_disabled(self, selector: str, *, disabled: bool) -> None:
+        self._assert_ui_thread("_set_widget_disabled")
         try:
             widget = self.query_one(selector)
         except Exception:
@@ -1224,12 +1275,14 @@ class AgentsScreen(Widget):
         widget.value = ""
 
     def _set_display(self, widget, *, visible: bool) -> None:
+        self._assert_ui_thread("_set_display")
         try:
             widget.display = bool(visible)
         except Exception:
             return
 
     def _toggle_class(self, widget, class_name: str, *, enabled: bool) -> None:
+        self._assert_ui_thread("_toggle_class")
         try:
             if enabled:
                 widget.add_class(class_name)
@@ -1631,6 +1684,15 @@ class AgentsScreen(Widget):
         self._schedule_row_index = row_index
         return self._schedule_ids[row_index].strip()
 
+    def _assert_ui_thread(self, action: str) -> bool:
+        checker = getattr(getattr(self, "app", None), "assert_ui_thread", None)
+        if not callable(checker):
+            return True
+        try:
+            return bool(checker(action=action))
+        except TypeError:
+            return bool(checker())
+
     def _set_status(self, message: str) -> None:
         self._update_static("#agents-status-output", message)
 
@@ -1800,6 +1862,7 @@ class AgentsScreen(Widget):
         replace: bool,
         force_scroll_end: bool = False,
     ) -> None:
+        self._assert_ui_thread("_write_log")
         if message is None:
             return
         if isinstance(message, str) and not message:

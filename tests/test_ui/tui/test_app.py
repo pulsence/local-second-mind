@@ -206,6 +206,89 @@ class TestLSMAppMethods:
         app.run_on_ui_thread(_cb)
         assert seen["called"] is True
 
+    def test_post_ui_message_uses_call_from_thread(self):
+        """post_ui_message should enqueue message dispatch through call_from_thread."""
+        from lsm.ui.tui.app import LSMApp, TUILogEvent
+
+        mock_config = Mock()
+        mock_config.vectordb = Mock()
+        mock_config.query = Mock()
+        mock_config.query.mode = "grounded"
+
+        app = LSMApp(mock_config)
+        callbacks = []
+        posted = []
+
+        def _call_from_thread(fn):
+            callbacks.append(fn)
+            fn()
+
+        app.call_from_thread = _call_from_thread  # type: ignore[assignment]
+        app.post_message = lambda message: posted.append(message)  # type: ignore[assignment]
+
+        app.post_ui_message(TUILogEvent("queued"), source="test")
+
+        assert len(callbacks) == 1
+        assert len(posted) == 1
+        assert isinstance(posted[0], TUILogEvent)
+        assert posted[0].message == "queued"
+
+    def test_on_tui_log_event_routes_to_writer(self):
+        """TUILogEvent handler should route to _write_tui_log."""
+        from lsm.ui.tui.app import LSMApp, TUILogEvent
+
+        mock_config = Mock()
+        mock_config.vectordb = Mock()
+        mock_config.query = Mock()
+        mock_config.query.mode = "grounded"
+
+        app = LSMApp(mock_config)
+        seen = []
+        app._write_tui_log = lambda message: seen.append(message)  # type: ignore[assignment]
+
+        app.on_tui_log_event(TUILogEvent("line"))
+        assert seen == ["line"]
+
+    def test_on_agent_runtime_event_forwards_to_agents_screen(self):
+        """Agent runtime events should be forwarded as screen messages."""
+        from lsm.ui.tui.app import LSMApp, AgentRuntimeEvent
+        from lsm.ui.tui.screens.agents import AgentRuntimeEventMessage
+
+        mock_config = Mock()
+        mock_config.vectordb = Mock()
+        mock_config.query = Mock()
+        mock_config.query.mode = "grounded"
+
+        app = LSMApp(mock_config)
+        seen = []
+        screen = SimpleNamespace(post_message=lambda message: seen.append(message))
+        app.query_one = lambda selector, _cls=None: screen  # type: ignore[assignment]
+
+        runtime_event = SimpleNamespace(
+            event_type="run_started",
+            agent_id="agent-1",
+            agent_name="research",
+        )
+        app.on_agent_runtime_event(AgentRuntimeEvent(runtime_event))
+
+        assert len(seen) == 1
+        assert isinstance(seen[0], AgentRuntimeEventMessage)
+        assert seen[0].event is runtime_event
+
+    def test_assert_ui_thread_flags_off_thread_access(self):
+        """assert_ui_thread should return False when thread id does not match."""
+        from lsm.ui.tui.app import LSMApp
+
+        mock_config = Mock()
+        mock_config.vectordb = Mock()
+        mock_config.query = Mock()
+        mock_config.query.mode = "grounded"
+
+        app = LSMApp(mock_config)
+        app._ui_thread_id = app._ui_thread_id + 1  # type: ignore[assignment]
+
+        assert app.assert_ui_thread(action="test") is False
+
     def test_setup_tui_logging_keeps_std_streams(self, tmp_path: Path):
         """_setup_tui_logging should not replace sys.stdout/sys.stderr."""
         from lsm.ui.tui.app import LSMApp

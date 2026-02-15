@@ -378,6 +378,65 @@ def test_multi_agent_start_enforces_max_concurrent(monkeypatch) -> None:
     assert all(callable(row.get("log_callback")) for row in _DummyHarness.init_calls)
 
 
+def test_runtime_manager_emits_typed_ui_events(monkeypatch) -> None:
+    monkeypatch.setattr(agent_commands, "create_default_tool_registry", lambda *args, **kwargs: _DummyRegistry())
+    monkeypatch.setattr(agent_commands, "ToolSandbox", _DummySandbox)
+    monkeypatch.setattr(agent_commands, "AgentHarness", _DummyHarness)
+    monkeypatch.setattr(agent_commands, "create_agent", lambda **kwargs: _LoopAgent())
+
+    manager = agent_commands.AgentRuntimeManager()
+    app = _app(max_concurrent=1)
+    events = []
+    manager.set_ui_event_sink(events.append)
+
+    agent_id = _extract_agent_id(manager.start(app, "research", "topic"))
+    assert any(
+        event.event_type == "run_started" and event.agent_id == agent_id
+        for event in events
+    )
+
+    assert "Stop requested for agent" in manager.stop(agent_id=agent_id)
+    assert _wait_until(
+        lambda: any(
+            event.event_type == "run_completed" and event.agent_id == agent_id
+            for event in events
+        )
+    )
+
+
+def test_runtime_manager_emits_interaction_response_events(monkeypatch) -> None:
+    monkeypatch.setattr(agent_commands, "create_default_tool_registry", lambda *args, **kwargs: _DummyRegistry())
+    monkeypatch.setattr(agent_commands, "ToolSandbox", _DummySandbox)
+    monkeypatch.setattr(agent_commands, "AgentHarness", _DummyHarness)
+    monkeypatch.setattr(
+        agent_commands,
+        "create_agent",
+        lambda **kwargs: _InteractionAgent(kwargs["sandbox"].channel),
+    )
+
+    manager = agent_commands.AgentRuntimeManager(join_timeout_s=0.5)
+    app = _app(max_concurrent=1)
+    events = []
+    manager.set_ui_event_sink(events.append)
+
+    agent_id = _extract_agent_id(manager.start(app, "research", "needs-answer"))
+    assert _wait_until(lambda: len(manager.get_pending_interactions()) == 1)
+
+    response = manager.respond_to_interaction(
+        agent_id,
+        {"decision": "reply", "user_message": "yes"},
+    )
+    assert "Posted interaction response" in response
+
+    assert any(
+        event.event_type == "interaction_response"
+        and event.agent_id == agent_id
+        and event.request_type == "clarification"
+        and event.decision == "reply"
+        for event in events
+    )
+
+
 def test_multi_agent_controls_target_by_id_and_keep_single_agent_compat(monkeypatch) -> None:
     monkeypatch.setattr(agent_commands, "create_default_tool_registry", lambda *args, **kwargs: _DummyRegistry())
     monkeypatch.setattr(agent_commands, "ToolSandbox", _DummySandbox)

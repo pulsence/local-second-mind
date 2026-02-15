@@ -705,3 +705,59 @@ def test_interaction_panel_mode_switches_permission_to_clarification(monkeypatch
     assert "Type: clarification" in screen.widgets["#agents-interaction-type"].last
     assert screen.widgets["#agents-interaction-approve-button"].disabled is True
     assert screen.widgets["#agents-interaction-reply-button"].disabled is False
+
+
+def test_runtime_event_message_triggers_refresh_paths() -> None:
+    from lsm.ui.tui.screens.agents import AgentRuntimeEventMessage
+
+    screen = _screen()
+    calls = {"running": 0, "interaction": 0, "meta": 0}
+
+    screen._refresh_running_agents = lambda: calls.__setitem__(  # type: ignore[method-assign]
+        "running",
+        calls["running"] + 1,
+    )
+    screen._refresh_interaction_panel = lambda: calls.__setitem__(  # type: ignore[method-assign]
+        "interaction",
+        calls["interaction"] + 1,
+    )
+    screen._refresh_meta_panel = lambda: calls.__setitem__(  # type: ignore[method-assign]
+        "meta",
+        calls["meta"] + 1,
+    )
+
+    screen.on_agent_runtime_event_message(
+        AgentRuntimeEventMessage(SimpleNamespace(event_type="run_completed"))
+    )
+    assert calls == {"running": 1, "interaction": 1, "meta": 1}
+
+    screen.on_agent_runtime_event_message(
+        AgentRuntimeEventMessage(SimpleNamespace(event_type="interaction_response"))
+    )
+    assert calls == {"running": 2, "interaction": 2, "meta": 1}
+
+
+def test_stop_worker_queues_completion_message(monkeypatch) -> None:
+    from lsm.ui.tui.screens.agents import AgentStopWorkerCompleted
+
+    screen = _screen()
+    screen.app.call_from_thread = lambda callback, *args, **kwargs: callback(*args, **kwargs)
+    manager = _Manager()
+    monkeypatch.setattr(
+        "lsm.ui.tui.screens.agents.get_agent_runtime_manager",
+        lambda: manager,
+    )
+    queued: list[tuple[object, str]] = []
+
+    def _capture(message, *, source):
+        queued.append((message, source))
+
+    screen._post_ui_message = _capture  # type: ignore[method-assign]
+    screen._run_control_action("stop")
+    worker = screen._stop_worker
+    assert worker is not None
+    worker.join(timeout=1.0)
+
+    assert len(queued) == 1
+    assert isinstance(queued[0][0], AgentStopWorkerCompleted)
+    assert queued[0][1] == "agents-stop-worker"

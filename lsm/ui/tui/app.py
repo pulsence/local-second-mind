@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any, Optional, Literal, TYPE_CHECKING, cast
 import logging
 import sys
+import threading
 
 from textual.app import App, ComposeResult
 from textual.binding import Binding
@@ -20,6 +21,7 @@ from textual import events
 from textual.widgets import Header, Footer, TabbedContent, TabPane, RichLog
 from textual.reactive import reactive
 from textual.timer import Timer
+from textual.message import Message
 
 from lsm.logging import get_logger
 from lsm.ui.tui.state import AppState
@@ -27,6 +29,7 @@ from lsm.ui.tui.widgets.status import StatusBar
 
 if TYPE_CHECKING:
     from lsm.config.models import LSMConfig
+    from lsm.ui.shell.commands.agents import AgentRuntimeUIEvent
 
 logger = get_logger(__name__)
 
@@ -34,6 +37,22 @@ logger = get_logger(__name__)
 ContextType = Literal["ingest", "query", "settings", "remote", "agents"]
 DensityMode = Literal["auto", "compact", "comfortable"]
 EffectiveDensity = Literal["compact", "comfortable"]
+
+
+class TUILogEvent(Message):
+    """Queued log line from background logging threads."""
+
+    def __init__(self, message: str) -> None:
+        self.message = message
+        super().__init__()
+
+
+class AgentRuntimeEvent(Message):
+    """Queued runtime event from AgentRuntimeManager worker threads."""
+
+    def __init__(self, event: "AgentRuntimeUIEvent") -> None:
+        self.event = event
+        super().__init__()
 
 
 class LSMApp(App):
@@ -115,6 +134,8 @@ class LSMApp(App):
         self._effective_density: EffectiveDensity = "comfortable"
         self._pending_resize_dimensions: tuple[int, int] | None = None
         self._density_resize_timer: Timer | None = None
+        self._ui_thread_id: int = threading.get_ident()
+        self._strict_ui_thread_checks: bool = False
         self.ui_state = AppState(active_context="query", density_mode=self._density_mode)
 
     def compose(self) -> ComposeResult:
@@ -161,6 +182,7 @@ class LSMApp(App):
         self._update_responsive_classes(width, height)
         self._apply_density_mode(force=True)
         self._setup_tui_logging()
+        self._bind_agent_runtime_events()
         logger.info("Query context initialization is lazy and will run on first query.")
 
     def _setup_tui_logging(self) -> None:
@@ -189,14 +211,10 @@ class LSMApp(App):
                 try:
                     message = self.format(record)
                     self._app._tui_log_buffer.append(message)
-
-                    def update() -> None:
-                        try:
-                            self._app._write_tui_log(message)
-                        except Exception:
-                            pass
-
-                    self._app.run_on_ui_thread(update)
+                    self._app.post_ui_message(
+                        TUILogEvent(message),
+                        source="logging",
+                    )
                 except Exception:
                     pass
 
@@ -209,6 +227,7 @@ class LSMApp(App):
 
     def _write_tui_log(self, message: str) -> None:
         """Write log messages to available TUI log widgets."""
+        self.assert_ui_thread(action="_write_tui_log")
         context = getattr(self, "current_context", "query")
         selector = "#remote-log" if context == "remote" else "#query-log"
         try:
@@ -216,6 +235,15 @@ class LSMApp(App):
             log_widget.write(f"{message}\n")
         except Exception:
             return
+
+    def on_tui_log_event(self, message: TUILogEvent) -> None:
+        """Handle queued log events on the UI thread."""
+        self._write_tui_log(message.message)
+
+    def post_ui_message(self, message: Message, *, source: str = "unknown") -> None:
+        """Queue a Textual message to this app from any thread."""
+        _ = source
+        self.run_on_ui_thread(lambda: self.post_message(message))
 
     def run_on_ui_thread(self, callback) -> None:
         """Run a callback on the app UI thread from either same or worker thread."""
@@ -227,6 +255,70 @@ class LSMApp(App):
                 callback()
                 return
             raise
+
+    def assert_ui_thread(self, *, action: str = "") -> bool:
+        """
+        Detect unsafe off-thread UI mutation attempts.
+
+        Returns:
+            True when running on the UI thread.
+        """
+        current_id = threading.get_ident()
+        if current_id == self._ui_thread_id:
+            return True
+        detail = f" during {action}" if action else ""
+        message = (
+            "Off-thread UI mutation attempt detected"
+            f"{detail}: current_thread={current_id}, ui_thread={self._ui_thread_id}"
+        )
+        logger.error(message)
+        if self._strict_ui_thread_checks:
+            raise RuntimeError(message)
+        return False
+
+    def _bind_agent_runtime_events(self) -> None:
+        """Bind manager runtime events to app-level queued UI messages."""
+        try:
+            from lsm.ui.shell.commands.agents import get_agent_runtime_manager
+
+            manager = get_agent_runtime_manager()
+            binder = getattr(manager, "set_ui_event_sink", None)
+            if callable(binder):
+                binder(self._on_agent_runtime_event_from_any_thread)
+        except Exception:
+            logger.exception("Failed to bind agent runtime UI event sink")
+
+    def _unbind_agent_runtime_events(self) -> None:
+        """Detach manager runtime event sink during app shutdown."""
+        try:
+            from lsm.ui.shell.commands.agents import get_agent_runtime_manager
+
+            manager = get_agent_runtime_manager()
+            binder = getattr(manager, "set_ui_event_sink", None)
+            if callable(binder):
+                binder(None)
+        except Exception:
+            logger.exception("Failed to unbind agent runtime UI event sink")
+
+    def _on_agent_runtime_event_from_any_thread(
+        self,
+        event: "AgentRuntimeUIEvent",
+    ) -> None:
+        """Queue runtime events emitted from worker threads."""
+        self.post_ui_message(
+            AgentRuntimeEvent(event),
+            source="agent-runtime",
+        )
+
+    def on_agent_runtime_event(self, message: AgentRuntimeEvent) -> None:
+        """Forward runtime events to the agents screen via message queue."""
+        try:
+            from lsm.ui.tui.screens.agents import AgentRuntimeEventMessage
+
+            agents_screen = self.query_one("#agents-screen")
+            agents_screen.post_message(AgentRuntimeEventMessage(message.event))
+        except Exception:
+            return
 
     # -------------------------------------------------------------------------
     # Density and Responsive Layout
@@ -566,6 +658,7 @@ class LSMApp(App):
     def action_quit(self) -> None:
         """Quit the application."""
         logger.info("User requested quit")
+        self._unbind_agent_runtime_events()
         self.exit()
 
     # -------------------------------------------------------------------------
@@ -679,6 +772,7 @@ class LSMApp(App):
         timeout: Optional[float] = None,
     ) -> None:
         """Emit and record a UI notification event."""
+        self.assert_ui_thread(action="notify_event")
         effective_timeout = timeout
         if effective_timeout is None:
             effective_timeout = (

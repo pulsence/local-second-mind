@@ -641,7 +641,7 @@ Add lightweight structural assertions to catch UI regressions early.
 
 **Post-block:** Run `pytest tests/ -v`, commit.
 
-### 5.2: Thread-Safe UI Event Model
+### 5.2: Thread-Safe UI Event Model (COMPLETED)
 
 Ensure all background work communicates with the UI through a single event/message pattern.
 
