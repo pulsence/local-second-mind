@@ -71,6 +71,7 @@ class AgentsScreen(Widget):
         Binding("f10", "interaction_deny", "Deny", show=False),
         Binding("f11", "interaction_reply", "Reply", show=False),
     ]
+    _STOP_WORKER_TIMEOUT_SECONDS = 5.0
 
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
@@ -338,10 +339,13 @@ class AgentsScreen(Widget):
         self._running_refresh_timer = None
         self._interaction_poll_timer = None
         self._log_stream_timer = None
+        self._cancel_managed_workers(reason="agents-unmount")
+        self._stop_worker = None
 
     def on_agent_stop_worker_completed(self, message: AgentStopWorkerCompleted) -> None:
         """Apply stop action output on the UI thread after worker completion."""
         self._stop_worker = None
+        self._clear_managed_worker("stop-action")
         self._apply_control_action_output(message.output)
 
     def on_agent_runtime_event_message(self, message: AgentRuntimeEventMessage) -> None:
@@ -597,6 +601,11 @@ class AgentsScreen(Widget):
             name="AgentsScreenStopAction",
         )
         self._stop_worker.start()
+        self._register_managed_worker(
+            key="stop-action",
+            worker=self._stop_worker,
+            timeout_s=self._STOP_WORKER_TIMEOUT_SECONDS,
+        )
 
     def _post_ui_message(self, message: Message, *, source: str) -> None:
         """Queue UI updates through app/main-thread message flow."""
@@ -620,6 +629,66 @@ class AgentsScreen(Widget):
             self.post_message(message)
         except Exception:
             return
+
+    def _worker_owner_token(self) -> str:
+        widget_id = str(getattr(self, "id", "") or "").strip()
+        if widget_id:
+            return widget_id
+        return self.__class__.__name__
+
+    def _register_managed_worker(
+        self,
+        *,
+        key: str,
+        worker: Any,
+        timeout_s: float,
+    ) -> None:
+        app_obj = getattr(self, "app", None)
+        register = getattr(app_obj, "register_managed_worker", None)
+        if not callable(register):
+            return
+        try:
+            register(
+                owner=self._worker_owner_token(),
+                key=key,
+                worker=worker,
+                timeout_s=timeout_s,
+            )
+        except Exception:
+            logger.exception("Failed to register agents managed worker '%s'.", key)
+
+    def _clear_managed_worker(self, key: str) -> None:
+        app_obj = getattr(self, "app", None)
+        clear = getattr(app_obj, "clear_managed_worker", None)
+        if not callable(clear):
+            return
+        try:
+            clear(owner=self._worker_owner_token(), key=key)
+        except Exception:
+            logger.exception("Failed to clear agents managed worker '%s'.", key)
+
+    def _cancel_managed_workers(self, *, reason: str) -> None:
+        app_obj = getattr(self, "app", None)
+        cancel_owner = getattr(app_obj, "cancel_managed_workers_for_owner", None)
+        if callable(cancel_owner):
+            try:
+                results = cancel_owner(
+                    owner=self._worker_owner_token(),
+                    reason=reason,
+                )
+            except Exception:
+                logger.exception("Failed to cancel agents managed workers (%s).", reason)
+                results = {}
+            if any(not bool(result) for result in results.values()):
+                self._set_status("Some background workers did not exit before timeout.")
+            return
+
+        worker = self._stop_worker
+        if worker is None or not worker.is_alive():
+            return
+        worker.join(timeout=self._STOP_WORKER_TIMEOUT_SECONDS)
+        if worker.is_alive():
+            self._set_status("Stop worker did not exit before timeout.")
 
     def _show_log(self) -> None:
         manager = get_agent_runtime_manager()

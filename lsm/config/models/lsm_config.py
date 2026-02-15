@@ -76,24 +76,20 @@ class LSMConfig:
 
     def __post_init__(self):
         """Resolve relative paths and initialize defaults."""
-        gf = self.global_settings.global_folder
-        if gf is not None and not gf.is_absolute() and self.config_path:
-            self.global_settings.global_folder = (
-                self.config_path.parent / gf
-            ).resolve()
         ensure_global_folders(self.global_settings.global_folder)
 
-        if self.config_path:
+        base_dir: Optional[Path] = self.global_settings.global_folder
+        if base_dir is None and self.config_path is not None:
             base_dir = self.config_path.parent
 
-            if not self.ingest.persist_dir.is_absolute():
-                self.ingest.persist_dir = (base_dir / self.ingest.persist_dir).resolve()
-
+        if base_dir is not None:
+            if self.vectordb and not self.vectordb.persist_dir.is_absolute():
+                self.vectordb.persist_dir = (base_dir / self.vectordb.persist_dir).resolve()
             if not self.ingest.manifest.is_absolute():
                 self.ingest.manifest = (base_dir / self.ingest.manifest).resolve()
 
-            if self.vectordb and not self.vectordb.persist_dir.is_absolute():
-                self.vectordb.persist_dir = (base_dir / self.vectordb.persist_dir).resolve()
+        # Keep ingest cache/storage paths aligned with the vector DB location.
+        self.ingest.persist_dir = self.vectordb.persist_dir
 
         if self.agents is not None and not self.agents.agents_folder.is_absolute():
             if self.global_settings.global_folder is not None:

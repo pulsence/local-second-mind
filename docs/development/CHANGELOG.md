@@ -98,6 +98,11 @@ All notable changes to Local Second Mind are documented here.
   - stop-aware completion ensures per-run log artifacts are written before stop reports success in normal cases
 - Agents TUI stop control now runs stop requests on a background worker to prevent UI hangs during graceful-stop waits.
 - Agents screen panel order updated so launch appears first and status/control appears immediately after launch.
+- Config path resolution is now consistent for vector persistence and ingest artifacts:
+  - relative `global.global_folder` now resolves from the config file directory
+  - `vectordb.persist_dir` is the single source of truth; `ingest.persist_dir` is ignored on load and no longer serialized
+  - relative `ingest.manifest` now resolves under `global.global_folder` (falling back to config directory when `global_folder` is unset)
+  - ingest stats cache now reads and writes under `vectordb.persist_dir`
 
 ## 0.5.0 - 2026-02-13
 

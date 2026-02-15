@@ -61,7 +61,7 @@ def get_collection_stats(
         if progress_callback:
             progress_callback(analyzed, count)
 
-    cache_path = config.ingest.persist_dir / "stats_cache.json"
+    cache_path = config.vectordb.persist_dir / "stats_cache.json"
     stats = _get_collection_stats(
         provider,
         limit=None,
@@ -130,7 +130,7 @@ def run_ingest(
 
     # Invalidate stats cache after ingest
     from lsm.ingest.stats_cache import StatsCache
-    StatsCache(config.ingest.persist_dir / "stats_cache.json").invalidate()
+    StatsCache(config.vectordb.persist_dir / "stats_cache.json").invalidate()
 
     return IngestResult(
         total_files=int(result.get("total_files", 0)),

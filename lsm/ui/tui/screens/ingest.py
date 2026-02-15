@@ -11,7 +11,7 @@ Provides the document ingestion interface with:
 from __future__ import annotations
 
 from pathlib import Path
-from typing import TYPE_CHECKING, Optional, Dict, Any, Deque, List
+from typing import TYPE_CHECKING, Optional, Dict, Any, Deque, List, Callable
 from collections import deque
 import asyncio
 
@@ -62,6 +62,8 @@ class IngestScreen(Widget):
     build_progress: reactive[float] = reactive(0.0)
     chunk_count: reactive[int] = reactive(0)
     file_count: reactive[int] = reactive(0)
+    _INGEST_COMMAND_WORKER_TIMEOUT_SECONDS = 45.0
+    _INGEST_STATS_WORKER_TIMEOUT_SECONDS = 15.0
 
     def __init__(
         self,
@@ -158,9 +160,17 @@ class IngestScreen(Widget):
     def _activate_ingest_context(self) -> None:
         """Perform ingest-tab-only initialization when tab is active."""
         if not self._stats_initialized:
-            self.run_worker(self._refresh_stats(), exclusive=True)
+            self._start_managed_worker(
+                worker_key="ingest-refresh-stats",
+                work_factory=self._refresh_stats,
+                timeout_s=self._INGEST_STATS_WORKER_TIMEOUT_SECONDS,
+                exclusive=True,
+            )
             self._stats_initialized = True
         self.query_one("#ingest-command-input", CommandInput).focus()
+
+    def on_unmount(self) -> None:
+        self._cancel_managed_workers(reason="ingest-unmount")
 
     async def on_command_submitted(self, event: CommandSubmitted) -> None:
         """Handle command input submission from CommandInput widget."""
@@ -168,8 +178,12 @@ class IngestScreen(Widget):
         if not command:
             return
 
-        # Process command
-        await self._process_command(command)
+        self._start_managed_worker(
+            worker_key="ingest-command",
+            work_factory=lambda: self._process_command(command),
+            timeout_s=self._INGEST_COMMAND_WORKER_TIMEOUT_SECONDS,
+            exclusive=True,
+        )
 
     async def _process_command(self, command: str) -> None:
         """
@@ -550,17 +564,80 @@ class IngestScreen(Widget):
 
     def action_run_build(self) -> None:
         """Run the build operation."""
-        self.run_worker(self._process_command("/build"), exclusive=True)
+        self._start_managed_worker(
+            worker_key="ingest-command",
+            work_factory=lambda: self._process_command("/build"),
+            timeout_s=self._INGEST_COMMAND_WORKER_TIMEOUT_SECONDS,
+            exclusive=True,
+        )
 
     def action_run_tagging(self) -> None:
         """Run the tagging operation."""
-        self.run_worker(self._process_command("/tag"), exclusive=True)
+        self._start_managed_worker(
+            worker_key="ingest-command",
+            work_factory=lambda: self._process_command("/tag"),
+            timeout_s=self._INGEST_COMMAND_WORKER_TIMEOUT_SECONDS,
+            exclusive=True,
+        )
 
     def action_refresh_stats(self) -> None:
         """Refresh statistics."""
-        self.run_worker(self._refresh_stats(), exclusive=True)
+        self._start_managed_worker(
+            worker_key="ingest-refresh-stats",
+            work_factory=self._refresh_stats,
+            timeout_s=self._INGEST_STATS_WORKER_TIMEOUT_SECONDS,
+            exclusive=True,
+        )
 
     def action_clear_input(self) -> None:
         """Clear the input field."""
         command_input = self.query_one("#ingest-command-input", CommandInput)
         command_input.clear()
+
+    def _worker_owner_token(self) -> str:
+        widget_id = str(getattr(self, "id", "") or "").strip()
+        if widget_id:
+            return widget_id
+        return self.__class__.__name__
+
+    def _start_managed_worker(
+        self,
+        *,
+        worker_key: str,
+        work_factory: Callable[[], Any],
+        timeout_s: float,
+        exclusive: bool,
+    ) -> None:
+        app_obj = getattr(self, "app", None)
+        starter = getattr(app_obj, "start_managed_worker", None)
+        if callable(starter):
+            try:
+                starter(
+                    owner=self._worker_owner_token(),
+                    key=worker_key,
+                    timeout_s=timeout_s,
+                    start=lambda: self.run_worker(work_factory(), exclusive=exclusive),
+                )
+                return
+            except Exception:
+                logger.exception("Failed to start managed ingest worker '%s'.", worker_key)
+        self.run_worker(work_factory(), exclusive=exclusive)
+
+    def _cancel_managed_workers(self, *, reason: str) -> None:
+        app_obj = getattr(self, "app", None)
+        cancel_owner = getattr(app_obj, "cancel_managed_workers_for_owner", None)
+        if not callable(cancel_owner):
+            return
+        try:
+            results = cancel_owner(
+                owner=self._worker_owner_token(),
+                reason=reason,
+            )
+        except Exception:
+            logger.exception("Failed to cancel ingest managed workers (%s).", reason)
+            return
+        if any(not bool(result) for result in results.values()):
+            logger.warning(
+                "Ingest worker shutdown hit timeout for owner '%s'.",
+                self._worker_owner_token(),
+            )

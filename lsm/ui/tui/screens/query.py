@@ -9,7 +9,7 @@ Provides the query interface with:
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Optional, List, Any
+from typing import TYPE_CHECKING, Optional, List, Any, Callable
 import asyncio
 
 from textual.app import ComposeResult
@@ -88,6 +88,7 @@ class QueryScreen(Widget):
     # Reactive state
     is_loading: reactive[bool] = reactive(False)
     selected_citation: reactive[Optional[int]] = reactive(None)
+    _QUERY_INPUT_WORKER_TIMEOUT_SECONDS = 45.0
 
     def __init__(
         self,
@@ -152,8 +153,15 @@ class QueryScreen(Widget):
         if not command:
             return
 
-        # Process the input
-        await self._process_input(command)
+        self._start_managed_worker(
+            worker_key="query-input",
+            work_factory=lambda: self._process_input(command),
+            timeout_s=self._QUERY_INPUT_WORKER_TIMEOUT_SECONDS,
+            exclusive=True,
+        )
+
+    def on_unmount(self) -> None:
+        self._cancel_managed_workers(reason="query-unmount")
 
     def on_citation_selected(self, event: CitationSelected) -> None:
         """Handle citation selection from ResultsPanel."""
@@ -1005,3 +1013,51 @@ Use /mode to switch between grounded, insight, and hybrid modes."""
         for message in self.app._tui_log_buffer:
             log_widget.write(f"{message}\n")
         log_widget.scroll_end()
+
+    def _worker_owner_token(self) -> str:
+        widget_id = str(getattr(self, "id", "") or "").strip()
+        if widget_id:
+            return widget_id
+        return self.__class__.__name__
+
+    def _start_managed_worker(
+        self,
+        *,
+        worker_key: str,
+        work_factory: Callable[[], Any],
+        timeout_s: float,
+        exclusive: bool,
+    ) -> None:
+        app_obj = getattr(self, "app", None)
+        starter = getattr(app_obj, "start_managed_worker", None)
+        if callable(starter):
+            try:
+                starter(
+                    owner=self._worker_owner_token(),
+                    key=worker_key,
+                    timeout_s=timeout_s,
+                    start=lambda: self.run_worker(work_factory(), exclusive=exclusive),
+                )
+                return
+            except Exception:
+                logger.exception("Failed to start managed query worker '%s'.", worker_key)
+        self.run_worker(work_factory(), exclusive=exclusive)
+
+    def _cancel_managed_workers(self, *, reason: str) -> None:
+        app_obj = getattr(self, "app", None)
+        cancel_owner = getattr(app_obj, "cancel_managed_workers_for_owner", None)
+        if not callable(cancel_owner):
+            return
+        try:
+            results = cancel_owner(
+                owner=self._worker_owner_token(),
+                reason=reason,
+            )
+        except Exception:
+            logger.exception("Failed to cancel query managed workers (%s).", reason)
+            return
+        if any(not bool(result) for result in results.values()):
+            logger.warning(
+                "Query worker shutdown hit timeout for owner '%s'.",
+                self._worker_owner_token(),
+            )

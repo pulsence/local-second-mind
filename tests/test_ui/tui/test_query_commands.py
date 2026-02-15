@@ -112,6 +112,8 @@ class _FakeApp:
         self.notified = []
         self.exited = False
         self._tui_log_buffer = ["a", "b"]
+        self.start_managed_worker = lambda **kwargs: kwargs["start"]()
+        self.cancel_managed_workers_for_owner = lambda **kwargs: {}
 
     def notify(self, msg: str, severity: str = "info"):
         self.notified.append((msg, severity))
@@ -309,6 +311,49 @@ def test_execute_show_open_set_clear_and_run_command(monkeypatch: pytest.MonkeyP
     out = asyncio.run(screen._run_query_command("/quit"))
     assert out == ""
     assert screen.app.exited is True
+
+
+def test_on_command_submitted_uses_managed_worker() -> None:
+    screen = _screen()
+    seen = {}
+
+    def _start_managed_worker(*, owner, key, start, timeout_s=None, cancel_existing=True):
+        seen["owner"] = owner
+        seen["key"] = key
+        seen["timeout_s"] = timeout_s
+        seen["cancel_existing"] = cancel_existing
+        return start()
+
+    def _run_worker(coro, exclusive=True):
+        seen["exclusive"] = exclusive
+        coro.close()
+        return SimpleNamespace(cancel=lambda: None)
+
+    screen.app.start_managed_worker = _start_managed_worker
+    screen.run_worker = _run_worker  # type: ignore[method-assign]
+
+    asyncio.run(screen.on_command_submitted(SimpleNamespace(command="what is local rag?")))
+
+    assert seen["key"] == "query-input"
+    assert seen["cancel_existing"] is True
+    assert seen["exclusive"] is True
+    assert float(seen["timeout_s"]) > 0
+
+
+def test_on_unmount_cancels_managed_workers() -> None:
+    screen = _screen()
+    seen = {}
+
+    def _cancel_owner(*, owner, reason, timeout_s=None):
+        seen["owner"] = owner
+        seen["reason"] = reason
+        seen["timeout_s"] = timeout_s
+        return {"query-input": True}
+
+    screen.app.cancel_managed_workers_for_owner = _cancel_owner
+    screen.on_unmount()
+
+    assert seen["reason"] == "query-unmount"
 
 
 def test_execute_routes_agent_and_memory_commands(monkeypatch: pytest.MonkeyPatch) -> None:

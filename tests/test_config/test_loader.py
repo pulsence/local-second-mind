@@ -193,7 +193,7 @@ def test_config_to_raw_uses_global_and_ingest_sections(tmp_path: Path) -> None:
     assert "ingest" in serialized
     assert "roots" in serialized["ingest"]
     assert "chunk_size" in serialized["ingest"]
-    assert "persist_dir" in serialized["ingest"]
+    assert "persist_dir" not in serialized["ingest"]
 
     # No flat top-level ingest/global fields
     assert "roots" not in serialized
@@ -206,6 +206,35 @@ def test_config_to_raw_uses_global_and_ingest_sections(tmp_path: Path) -> None:
     # vectordb still present
     assert serialized["vectordb"]["persist_dir"].endswith(".chroma")
     assert serialized["vectordb"]["collection"] == "test_collection"
+
+
+def test_build_config_paths_resolve_relative_to_global_folder(tmp_path: Path) -> None:
+    project_dir = tmp_path / "project"
+    project_dir.mkdir(parents=True)
+    config_path = project_dir / "config.json"
+    raw = _base_raw(tmp_path)
+    raw["global"]["global_folder"] = "lsm-global"
+    raw["vectordb"]["persist_dir"] = ".chroma"
+    raw["ingest"]["manifest"] = ".ingest/manifest.json"
+
+    config = build_config_from_raw(raw, config_path)
+
+    expected_global = (project_dir / "lsm-global").resolve()
+    assert config.global_folder == expected_global
+    assert config.vectordb.persist_dir == (expected_global / ".chroma").resolve()
+    assert config.ingest.persist_dir == config.vectordb.persist_dir
+    assert config.ingest.manifest == (expected_global / ".ingest/manifest.json").resolve()
+
+
+def test_build_config_ignores_ingest_persist_dir_and_uses_vectordb(tmp_path: Path) -> None:
+    raw = _base_raw(tmp_path)
+    raw["ingest"]["persist_dir"] = str(tmp_path / "ingest-chroma")
+    raw["vectordb"]["persist_dir"] = str(tmp_path / "vectordb-chroma")
+
+    config = build_config_from_raw(raw, tmp_path / "config.json")
+
+    assert config.vectordb.persist_dir == (tmp_path / "vectordb-chroma").resolve()
+    assert config.ingest.persist_dir == config.vectordb.persist_dir
 
 
 def test_build_config_supports_global_folder(tmp_path: Path) -> None:

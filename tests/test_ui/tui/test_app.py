@@ -6,6 +6,7 @@ import asyncio
 import importlib
 import logging
 import sys
+import threading
 import pytest
 from unittest.mock import Mock, MagicMock, patch
 from pathlib import Path
@@ -288,6 +289,53 @@ class TestLSMAppMethods:
         app._ui_thread_id = app._ui_thread_id + 1  # type: ignore[assignment]
 
         assert app.assert_ui_thread(action="test") is False
+
+    def test_cancel_managed_worker_times_out_for_thread(self):
+        """Thread workers should return False when join timeout elapses."""
+        from lsm.ui.tui.app import LSMApp
+
+        mock_config = Mock()
+        mock_config.vectordb = Mock()
+        mock_config.query = Mock()
+        mock_config.query.mode = "grounded"
+
+        app = LSMApp(mock_config)
+        stop_event = threading.Event()
+
+        def _target() -> None:
+            stop_event.wait(timeout=2.0)
+
+        worker = threading.Thread(target=_target, daemon=True)
+        worker.start()
+        app.register_managed_worker(owner="test", key="thread", worker=worker, timeout_s=0.01)
+
+        completed = app.cancel_managed_worker(owner="test", key="thread", timeout_s=0.01)
+        assert completed is False
+
+        stop_event.set()
+        worker.join(timeout=1.0)
+
+    def test_cancel_managed_worker_calls_cancel_for_cancelable_objects(self):
+        """Cancelable worker objects should receive cancel() during shutdown."""
+        from lsm.ui.tui.app import LSMApp
+
+        mock_config = Mock()
+        mock_config.vectordb = Mock()
+        mock_config.query = Mock()
+        mock_config.query.mode = "grounded"
+
+        app = LSMApp(mock_config)
+        seen = {"cancelled": False}
+
+        class _Worker:
+            def cancel(self):
+                seen["cancelled"] = True
+
+        app.register_managed_worker(owner="test", key="cancelable", worker=_Worker())
+        completed = app.cancel_managed_worker(owner="test", key="cancelable")
+
+        assert completed is True
+        assert seen["cancelled"] is True
 
     def test_setup_tui_logging_keeps_std_streams(self, tmp_path: Path):
         """_setup_tui_logging should not replace sys.stdout/sys.stderr."""

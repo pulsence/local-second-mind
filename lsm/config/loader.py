@@ -200,7 +200,7 @@ def build_llm_config(raw: Dict[str, Any]) -> LLMRegistryConfig:
     raise ValueError("Config 'llms' must be an object with 'providers' and 'services' keys")
 
 
-def build_global_config(raw: Dict[str, Any]) -> GlobalConfig:
+def build_global_config(raw: Dict[str, Any], config_path: Path | None = None) -> GlobalConfig:
     """
     Build GlobalConfig from raw configuration.
 
@@ -209,6 +209,7 @@ def build_global_config(raw: Dict[str, Any]) -> GlobalConfig:
 
     Args:
         raw: Raw config dictionary
+        config_path: Optional config file path for resolving relative paths
 
     Returns:
         GlobalConfig instance
@@ -218,6 +219,8 @@ def build_global_config(raw: Dict[str, Any]) -> GlobalConfig:
     global_folder = global_raw.get("global_folder")
     if global_folder is not None:
         global_folder = Path(global_folder)
+        if config_path is not None and not global_folder.is_absolute():
+            global_folder = (config_path.parent / global_folder).resolve()
 
     embedding_dimension_raw = global_raw.get("embedding_dimension")
     embedding_dimension = (
@@ -258,6 +261,7 @@ def build_ingest_config(raw: Dict[str, Any], config_path: Path) -> IngestConfig:
     Raises:
         ValueError: If required fields are missing or invalid
     """
+    _ = config_path
     ingest_raw = raw.get("ingest", {})
 
     # Required field
@@ -265,7 +269,7 @@ def build_ingest_config(raw: Dict[str, Any], config_path: Path) -> IngestConfig:
     if not roots or not isinstance(roots, list):
         raise ValueError("Config ingest section must include 'roots' as a non-empty list of directory paths")
 
-    persist_dir = ingest_raw.get("persist_dir", IngestConfig.persist_dir)
+    _ = ingest_raw.get("persist_dir")
     collection = ingest_raw.get("collection", IngestConfig.collection)
 
     # Build root configs (supports both strings and dicts)
@@ -285,7 +289,7 @@ def build_ingest_config(raw: Dict[str, Any], config_path: Path) -> IngestConfig:
     # Build config
     config = IngestConfig(
         roots=root_configs,
-        persist_dir=Path(persist_dir),
+        persist_dir=Path(IngestConfig.persist_dir),
         collection=collection,
         chroma_flush_interval=int(ingest_raw.get("chroma_flush_interval", IngestConfig.chroma_flush_interval)),
         manifest=Path(ingest_raw.get("manifest", ".ingest/manifest.json")),
@@ -342,7 +346,7 @@ def build_config_from_raw(raw: Dict[str, Any], path: Path | str) -> LSMConfig:
         path = Path(path)
 
     path = path.expanduser().resolve()
-    global_config = build_global_config(raw)
+    global_config = build_global_config(raw, path)
     llm_config = build_llm_config(raw)
     ingest_config = build_ingest_config(raw, path)
     query_config = build_query_config(raw)
@@ -1172,7 +1176,6 @@ def config_to_raw(config: LSMConfig) -> Dict[str, Any]:
                 )
                 for rc in config.ingest.roots
             ],
-            "persist_dir": str(config.ingest.persist_dir),
             "collection": config.ingest.collection,
             "chroma_flush_interval": config.ingest.chroma_flush_interval,
             "manifest": str(config.ingest.manifest),

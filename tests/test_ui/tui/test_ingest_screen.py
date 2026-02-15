@@ -91,6 +91,11 @@ class _TestableIngestScreen(ingest_screen_mod.IngestScreen):
 
 def _screen(current_context: str = "ingest"):
     notifications = []
+
+    def _start_managed_worker(*, owner, key, start, timeout_s=None, cancel_existing=True):
+        _ = owner, key, timeout_s, cancel_existing
+        return start()
+
     app = SimpleNamespace(
         ingest_provider=SimpleNamespace(count=lambda: 3),
         config=SimpleNamespace(collection="kb", vectordb=SimpleNamespace(provider="chromadb")),
@@ -101,6 +106,8 @@ def _screen(current_context: str = "ingest"):
         exit=lambda: None,
         notifications=notifications,
         notify_event=lambda message, **kwargs: notifications.append((message, kwargs)),
+        start_managed_worker=_start_managed_worker,
+        cancel_managed_workers_for_owner=lambda **kwargs: {},
     )
     screen = _TestableIngestScreen(app)
     screen.widgets["#ingest-output"] = _Static()
@@ -268,3 +275,46 @@ def test_on_mount_runs_stats_when_ingest_active() -> None:
     screen.on_mount()
     assert called["count"] == 1
     assert screen.widgets["#ingest-command-input"].focused is True
+
+
+def test_on_command_submitted_uses_managed_worker(monkeypatch: pytest.MonkeyPatch) -> None:
+    screen = _screen()
+    seen = {}
+
+    def _start_managed_worker(*, owner, key, start, timeout_s=None, cancel_existing=True):
+        seen["owner"] = owner
+        seen["key"] = key
+        seen["timeout_s"] = timeout_s
+        seen["cancel_existing"] = cancel_existing
+        return start()
+
+    def _run_worker(coro, exclusive=True):
+        seen["exclusive"] = exclusive
+        coro.close()
+        return SimpleNamespace(cancel=lambda: None)
+
+    screen.app.start_managed_worker = _start_managed_worker
+    screen.run_worker = _run_worker  # type: ignore[method-assign]
+
+    asyncio.run(screen.on_command_submitted(SimpleNamespace(command="/stats")))
+
+    assert seen["key"] == "ingest-command"
+    assert seen["cancel_existing"] is True
+    assert seen["exclusive"] is True
+    assert float(seen["timeout_s"]) > 0
+
+
+def test_on_unmount_cancels_managed_workers() -> None:
+    screen = _screen()
+    seen = {}
+
+    def _cancel_owner(*, owner, reason, timeout_s=None):
+        seen["owner"] = owner
+        seen["reason"] = reason
+        seen["timeout_s"] = timeout_s
+        return {"ingest-command": True}
+
+    screen.app.cancel_managed_workers_for_owner = _cancel_owner
+    screen.on_unmount()
+
+    assert seen["reason"] == "ingest-unmount"

@@ -9,11 +9,13 @@ Provides a rich terminal interface using Textual with:
 
 from __future__ import annotations
 
+from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Optional, Literal, TYPE_CHECKING, cast
+from typing import Any, Optional, Literal, TYPE_CHECKING, cast, Callable
 import logging
 import sys
 import threading
+import time
 
 from textual.app import App, ComposeResult
 from textual.binding import Binding
@@ -55,6 +57,17 @@ class AgentRuntimeEvent(Message):
         super().__init__()
 
 
+@dataclass
+class _ManagedWorker:
+    """Lifecycle metadata for an app-managed worker object."""
+
+    owner: str
+    key: str
+    worker: Any
+    timeout_s: float
+    started_at: float = field(default_factory=time.monotonic)
+
+
 class LSMApp(App):
     """
     Local Second Mind TUI Application.
@@ -83,6 +96,7 @@ class LSMApp(App):
     _DENSITY_RESIZE_DEBOUNCE_SECONDS = 0.15
     _NOTIFY_TIMEOUT_SECONDS = 5.0
     _NOTIFY_ERROR_TIMEOUT_SECONDS = 10.0
+    _DEFAULT_WORKER_TIMEOUT_SECONDS = 3.0
 
     BINDINGS = [
         Binding("ctrl+n", "switch_ingest", "Ingest", show=False),
@@ -136,6 +150,8 @@ class LSMApp(App):
         self._density_resize_timer: Timer | None = None
         self._ui_thread_id: int = threading.get_ident()
         self._strict_ui_thread_checks: bool = False
+        self._managed_workers: dict[tuple[str, str], _ManagedWorker] = {}
+        self._managed_workers_lock = threading.RLock()
         self.ui_state = AppState(active_context="query", density_mode=self._density_mode)
 
     def compose(self) -> ComposeResult:
@@ -275,6 +291,185 @@ class LSMApp(App):
         if self._strict_ui_thread_checks:
             raise RuntimeError(message)
         return False
+
+    def _normalize_worker_token(self, value: str, *, fallback: str) -> str:
+        normalized = str(value or "").strip()
+        return normalized or fallback
+
+    def _normalize_worker_timeout(self, timeout_s: Optional[float]) -> float:
+        try:
+            parsed = (
+                self._DEFAULT_WORKER_TIMEOUT_SECONDS
+                if timeout_s is None
+                else float(timeout_s)
+            )
+        except (TypeError, ValueError):
+            parsed = self._DEFAULT_WORKER_TIMEOUT_SECONDS
+        return max(0.05, parsed)
+
+    def _worker_kind(self, worker: Any) -> str:
+        if isinstance(worker, threading.Thread):
+            return "thread"
+        if callable(getattr(worker, "cancel", None)):
+            return "cancelable"
+        return "unknown"
+
+    def register_managed_worker(
+        self,
+        *,
+        owner: str,
+        key: str,
+        worker: Any,
+        timeout_s: Optional[float] = None,
+    ) -> None:
+        """Register a worker object for lifecycle management."""
+        owner_token = self._normalize_worker_token(owner, fallback="app")
+        key_token = self._normalize_worker_token(key, fallback="worker")
+        record = _ManagedWorker(
+            owner=owner_token,
+            key=key_token,
+            worker=worker,
+            timeout_s=self._normalize_worker_timeout(timeout_s),
+        )
+        with self._managed_workers_lock:
+            self._managed_workers[(owner_token, key_token)] = record
+
+    def clear_managed_worker(self, *, owner: str, key: str) -> None:
+        """Remove a worker from lifecycle tracking without cancelling it."""
+        owner_token = self._normalize_worker_token(owner, fallback="app")
+        key_token = self._normalize_worker_token(key, fallback="worker")
+        with self._managed_workers_lock:
+            self._managed_workers.pop((owner_token, key_token), None)
+
+    def start_managed_worker(
+        self,
+        *,
+        owner: str,
+        key: str,
+        start: Callable[[], Any],
+        timeout_s: Optional[float] = None,
+        cancel_existing: bool = True,
+    ) -> Any:
+        """Start and register a worker with standardized cancellation semantics."""
+        owner_token = self._normalize_worker_token(owner, fallback="app")
+        key_token = self._normalize_worker_token(key, fallback="worker")
+        timeout_value = self._normalize_worker_timeout(timeout_s)
+        if cancel_existing:
+            self.cancel_managed_worker(
+                owner=owner_token,
+                key=key_token,
+                reason="replaced",
+                timeout_s=timeout_value,
+            )
+        worker = start()
+        if worker is None:
+            return None
+        self.register_managed_worker(
+            owner=owner_token,
+            key=key_token,
+            worker=worker,
+            timeout_s=timeout_value,
+        )
+        return worker
+
+    def cancel_managed_worker(
+        self,
+        *,
+        owner: str,
+        key: str,
+        reason: str = "",
+        timeout_s: Optional[float] = None,
+    ) -> bool:
+        """Cancel and join a managed worker, returning True when it terminates."""
+        owner_token = self._normalize_worker_token(owner, fallback="app")
+        key_token = self._normalize_worker_token(key, fallback="worker")
+        with self._managed_workers_lock:
+            record = self._managed_workers.pop((owner_token, key_token), None)
+        if record is None:
+            return True
+        timeout_value = self._normalize_worker_timeout(
+            record.timeout_s if timeout_s is None else timeout_s
+        )
+        worker = record.worker
+        kind = self._worker_kind(worker)
+        detail = f" ({reason})" if reason else ""
+
+        cancel_fn = getattr(worker, "cancel", None)
+        if callable(cancel_fn):
+            try:
+                cancel_fn()
+            except Exception:
+                logger.exception(
+                    "Failed to cancel worker %s:%s%s",
+                    owner_token,
+                    key_token,
+                    detail,
+                )
+
+        if kind != "thread":
+            # Async/textual workers complete cooperatively after cancel(); avoid blocking UI thread.
+            return True
+
+        try:
+            worker.join(timeout=timeout_value)
+        except Exception:
+            logger.exception(
+                "Failed while joining worker %s:%s%s",
+                owner_token,
+                key_token,
+                detail,
+            )
+            return False
+        if worker.is_alive():
+            logger.warning(
+                "Timed out waiting %.2fs for worker %s:%s%s to exit.",
+                timeout_value,
+                owner_token,
+                key_token,
+                detail,
+            )
+            return False
+        return True
+
+    def cancel_managed_workers_for_owner(
+        self,
+        *,
+        owner: str,
+        reason: str = "",
+        timeout_s: Optional[float] = None,
+    ) -> dict[str, bool]:
+        """Cancel all workers registered for a screen/owner."""
+        owner_token = self._normalize_worker_token(owner, fallback="app")
+        with self._managed_workers_lock:
+            keys = [key for (worker_owner, key) in self._managed_workers if worker_owner == owner_token]
+        results: dict[str, bool] = {}
+        for key in keys:
+            results[key] = self.cancel_managed_worker(
+                owner=owner_token,
+                key=key,
+                reason=reason,
+                timeout_s=timeout_s,
+            )
+        return results
+
+    def shutdown_managed_workers(
+        self,
+        *,
+        reason: str = "",
+        timeout_s: Optional[float] = None,
+    ) -> dict[str, bool]:
+        """Cancel all tracked workers during app shutdown."""
+        with self._managed_workers_lock:
+            worker_keys = list(self._managed_workers.keys())
+        results: dict[str, bool] = {}
+        for owner_token, key_token in worker_keys:
+            results[f"{owner_token}:{key_token}"] = self.cancel_managed_worker(
+                owner=owner_token,
+                key=key_token,
+                reason=reason,
+                timeout_s=timeout_s,
+            )
+        return results
 
     def _bind_agent_runtime_events(self) -> None:
         """Bind manager runtime events to app-level queued UI messages."""
@@ -658,6 +853,7 @@ class LSMApp(App):
     def action_quit(self) -> None:
         """Quit the application."""
         logger.info("User requested quit")
+        self.shutdown_managed_workers(reason="app-quit")
         self._unbind_agent_runtime_events()
         self.exit()
 

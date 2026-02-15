@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+import threading
 import time
 from types import SimpleNamespace
 
@@ -390,6 +391,39 @@ def test_stop_action_runs_async_when_call_from_thread_available(monkeypatch) -> 
     assert "Stopping agent" in screen.widgets["#agents-status-output"].last
     worker = screen._stop_worker
     assert worker is not None
+    worker.join(timeout=1.0)
+
+
+def test_on_unmount_cancels_managed_workers_via_app() -> None:
+    screen = _screen()
+    seen = {}
+
+    def _cancel_owner(*, owner, reason, timeout_s=None):
+        seen["owner"] = owner
+        seen["reason"] = reason
+        seen["timeout_s"] = timeout_s
+        return {"stop-action": True}
+
+    screen.app.cancel_managed_workers_for_owner = _cancel_owner
+    screen.on_unmount()
+
+    assert seen["reason"] == "agents-unmount"
+
+
+def test_on_unmount_sets_status_when_stop_worker_times_out() -> None:
+    screen = _screen()
+    screen._STOP_WORKER_TIMEOUT_SECONDS = 0.01  # type: ignore[attr-defined]
+
+    def _slow() -> None:
+        time.sleep(0.2)
+
+    worker = threading.Thread(target=_slow, daemon=True)
+    worker.start()
+    screen._stop_worker = worker
+
+    screen.on_unmount()
+
+    assert "did not exit before timeout" in screen.widgets["#agents-status-output"].last
     worker.join(timeout=1.0)
 
 
