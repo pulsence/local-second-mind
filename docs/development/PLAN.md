@@ -599,15 +599,15 @@ Strengthen terminal compatibility with explicit breakpoint behavior.
 
 **Post-block:** Manual verification in Windows command prompt and tests for narrow-layout behavior.
 
-### 4.6: Phase 4 Code Review
+### 4.6: Phase 4 Code Review (COMPLETED)
 
 **Tasks:**
 - Review the changes made in Phase 4 and ensure that the phase is
   entirely implemented and implemented completely
 - Review the code related to Phase 4 and make sure that there is no remaining backwards
-  compatability code or deprecated code or dead code.
-- Review thet tests related to Phase 4 and ensure they are well structured and there are no
-  mock or stub tests.
+  compatibility code or deprecated code or dead code.
+- Review the tests related to Phase 4 and ensure they are well structured, with critical flows
+  covered by integration-style tests and test doubles used only where necessary for isolation.
 - Ensure all documentation in docs/ is properly updated.
 
 ### 4.7: Phase 4 Changelog

@@ -150,7 +150,9 @@ class TestHelpScreen:
         assert "Approve pending action" not in ingest_text
 
     def test_all_commands_and_whats_new_sections_present(self):
-        """All-commands and v0.6.0 feature text should include agent interaction highlights."""
+        """All-commands and current-version feature text should include interaction highlights."""
+        from lsm import __version__
+        from lsm.ui.tui.screens import help as help_module
         from lsm.ui.tui.screens.help import HelpScreen
 
         screen = HelpScreen(context="query")
@@ -159,7 +161,8 @@ class TestHelpScreen:
 
         assert "Query: /mode" in all_commands
         assert "Ingest: /info" in all_commands
-        assert "Version: v0.6.0" in whats_new
+        assert f"Version: v{__version__}" in whats_new
+        assert help_module._WHATS_NEW_SECTION_TITLE == f"WHAT'S NEW IN v{__version__}"
         assert "Interactive agent approvals and replies" in whats_new
 
 

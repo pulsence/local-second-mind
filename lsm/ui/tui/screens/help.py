@@ -10,6 +10,7 @@ from textual.containers import Container, ScrollableContainer
 from textual.screen import ModalScreen
 from textual.widgets import Button, Static
 
+from lsm import __version__
 from lsm.logging import get_logger
 
 logger = get_logger(__name__)
@@ -127,8 +128,11 @@ _ALL_COMMANDS: tuple[str, ...] = (
     "Global: /help /exit /quit",
 )
 
+_WHATS_NEW_VERSION = f"v{__version__}"
+_WHATS_NEW_SECTION_TITLE = f"WHAT'S NEW IN {_WHATS_NEW_VERSION}"
+
 _WHATS_NEW: tuple[str, ...] = (
-    "Version: v0.6.0",
+    f"Version: {_WHATS_NEW_VERSION}",
     "Interactive agent approvals and replies directly in the Agents screen.",
     "Live agent log streaming with actor-labeled entries and tool summaries.",
     "Multi-agent controls with running-agent selection and keyboard shortcuts.",
@@ -206,7 +210,7 @@ class HelpScreen(ModalScreen):
                     markup=False,
                 )
 
-                yield Static("WHAT'S NEW IN v0.6.0", classes="help-section")
+                yield Static(_WHATS_NEW_SECTION_TITLE, classes="help-section")
                 yield Static(self._whats_new_text(), markup=False)
 
                 yield Button("Close", id="close-help", variant="primary")

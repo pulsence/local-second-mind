@@ -908,31 +908,6 @@ Ctrl+C          Quit
 Enter your question to search your knowledge base.
 Use /mode to switch between grounded, insight, and hybrid modes."""
 
-    def _show_mode(self) -> None:
-        """Display current mode."""
-        app = self.app
-
-        if hasattr(app, 'current_mode'):
-            mode = app.current_mode
-            self._show_message(
-                f"Current mode: {mode}\n\n"
-                "Available modes:\n- grounded\n- insight\n- hybrid\n\n"
-                "Use /mode <name> to switch."
-            )
-        else:
-            self._show_message("Mode information not available.")
-
-    async def _set_mode(self, mode: str) -> None:
-        """Set the query mode."""
-        app = self.app
-
-        valid_modes = ["grounded", "insight", "hybrid"]
-        if mode.lower() in valid_modes:
-            app.current_mode = mode.lower()
-            self._show_message(f"Switched to {mode} mode.")
-        else:
-            self._show_message(f"Invalid mode: {mode}\n\nValid modes: {', '.join(valid_modes)}")
-
     def _show_citation(self, citation: str) -> None:
         """Show a specific citation."""
         # Parse citation number (S1, S2, etc.)
@@ -968,38 +943,6 @@ Use /mode to switch between grounded, insight, and hybrid modes."""
             results_panel.expand_citation(index)
         except (ValueError, AttributeError):
             self._show_message(f"Invalid citation format: {citation}\n\nUse S# format (e.g., S1, S2)")
-
-    def _show_costs(self) -> None:
-        """Show session costs."""
-        app = self.app
-
-        if hasattr(app, 'total_cost'):
-            cost = app.total_cost
-            self._show_message(f"Session Cost Summary\n\nTotal: ${cost:.4f}")
-        else:
-            self._show_message("Cost tracking not available.")
-
-    def _show_debug(self) -> None:
-        """Show debug information."""
-        app = self.app
-        debug_info = ["Debug Information", "=" * 40]
-
-        if hasattr(app, 'current_mode'):
-            debug_info.append(f"Mode: {app.current_mode}")
-        if hasattr(app, 'chunk_count'):
-            debug_info.append(f"Chunks: {app.chunk_count:,}")
-        if hasattr(app, 'query_provider') and app.query_provider:
-            debug_info.append("Query provider: initialized")
-        else:
-            debug_info.append("Query provider: not initialized")
-        if hasattr(app, 'query_embedder') and app.query_embedder:
-            debug_info.append("Embedder: initialized")
-        else:
-            debug_info.append("Embedder: not initialized")
-
-        debug_info.append(f"\nLast candidates: {len(self._last_candidates)}")
-
-        self._show_message("\n".join(debug_info))
 
     # -------------------------------------------------------------------------
     # Actions

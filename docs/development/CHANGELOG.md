@@ -10,7 +10,7 @@ All notable changes to Local Second Mind are documented here.
   - persisted `global.tui_density_mode` config support in loader/serializer and `GlobalConfig`
   - `/ui density` query command for runtime status and mode switching
   - auto-density terminal sizing with resize re-evaluation and debounce/hysteresis behavior
-  - narrow-terminal responsive layout fallbacks for query, remote, and agents panes
+  - narrow-terminal responsive layout fallbacks for query, remote, agents, and ingest panes
 - Dedicated agents screen styling for layout consistency and small-terminal usability:
   - explicit panel/layout rules for `#agents-layout`, `#agents-top`, `#agents-left`, and `#agents-log-panel`
   - dedicated section, button-group, and DataTable styling for status/meta/schedule/memory panels
@@ -68,6 +68,13 @@ All notable changes to Local Second Mind are documented here.
   - queue-pressure truncation is surfaced in the log panel with dropped-entry notices
   - added optional `agents.log_stream_queue_limit` config with loader/serializer and `example_config.json` coverage
   - added/updated tests in `tests/test_agents/test_harness.py`, `tests/test_ui/shell/test_multi_agent_manager.py`, `tests/test_ui/tui/test_agent_interaction.py`, and `tests/test_config/test_agents_config.py`
+- Phase 4 TUI UX polish updates:
+  - toast notification system via `LSMApp.notify_event(...)` with severity-specific default timeouts (`info`/`warning` 5s, `error` 10s)
+  - notifications emitted for running-agent lifecycle events, pending user interaction prompts, schedule triggers, ingest build outcomes, and settings saves
+  - context-sensitive Help modal (`HelpScreen(context=...)`) that shows active-tab commands/shortcuts plus an expandable all-commands section
+  - "What's New" help content now reads version from `lsm.__version__` to keep release text and heading in sync
+  - query command dispatch extracted into `lsm/ui/helpers/commands/query.py` with shared parsing/constants in `lsm/ui/helpers/commands/common.py`
+  - agents panel refresh controls for running rows and interaction polling, with selectable intervals, unread-log counters, and follow-log toggle behavior
 
 ### Changed
 
