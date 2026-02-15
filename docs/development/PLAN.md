@@ -486,7 +486,7 @@ to date with Phase 3 changes.
 
 ---
 
-## Phase 4: TUI UX and Interaction Polish
+## Phase 4: TUI UX and Interaction Polish (COMPLETED)
 
 This phase focuses on user-facing usability and interaction improvements that directly affect
 day-to-day TUI operation.
@@ -610,7 +610,7 @@ Strengthen terminal compatibility with explicit breakpoint behavior.
   covered by integration-style tests and test doubles used only where necessary for isolation.
 - Ensure all documentation in docs/ is properly updated.
 
-### 4.7: Phase 4 Changelog
+### 4.7: Phase 4 Changelog (COMPLETED)
 
 Summarize Phase 4 changes into `docs/development/CHANGELOG.md`.
 
@@ -620,7 +620,7 @@ Summarize Phase 4 changes into `docs/development/CHANGELOG.md`.
 
 This phase hardens runtime safety and evolves the UI architecture for maintainability.
 
-### 5.1: TUI Structural Regression Tests
+### 5.1: TUI Structural Regression Tests (COMPLETED)
 
 Add lightweight structural assertions to catch UI regressions early.
 

@@ -193,7 +193,25 @@ def test_schedule_panel_refresh_toggle_and_status(monkeypatch) -> None:
 
     screen.on_mount()
     schedule_table = screen.widgets["#agents-schedule-table"]
+    assert schedule_table.columns == [
+        "ID",
+        "Agent",
+        "Interval",
+        "Enabled",
+        "Status",
+        "Next Run",
+        "Last Run",
+    ]
     assert len(schedule_table.rows) == 1
+    assert schedule_table.rows[0] == (
+        "0:research",
+        "research",
+        "daily",
+        "yes",
+        "idle",
+        "2026-02-13T12:00:00+00:00",
+        "-",
+    )
     assert "Loaded 1 schedule(s)." in screen.widgets["#agents-schedule-output"].last
 
     screen._disable_selected_schedule()

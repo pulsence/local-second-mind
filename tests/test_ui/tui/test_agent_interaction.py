@@ -599,3 +599,109 @@ def test_unread_log_counters_increment_and_clear(monkeypatch) -> None:
         SimpleNamespace(button=SimpleNamespace(id="agents-clear-unread-button"))
     )
     assert all(count == 0 for count in screen._unread_log_counts.values())
+
+
+def test_timer_lifecycle_starts_restarts_and_stops_without_leaks(monkeypatch) -> None:
+    screen = _screen()
+    manager = _Manager()
+    monkeypatch.setattr(
+        "lsm.ui.tui.screens.agents.AgentRegistry",
+        lambda: SimpleNamespace(list_agents=lambda: ["research", "writing"]),
+    )
+    monkeypatch.setattr(
+        "lsm.ui.tui.screens.agents.get_agent_runtime_manager",
+        lambda: manager,
+    )
+
+    class _Timer:
+        def __init__(self) -> None:
+            self.stop_calls = 0
+
+        def stop(self) -> None:
+            self.stop_calls += 1
+
+    started: list[_Timer] = []
+
+    def _fake_start_timer(*, interval_seconds, callback):
+        _ = interval_seconds, callback
+        timer = _Timer()
+        started.append(timer)
+        return timer
+
+    screen._start_timer = _fake_start_timer  # type: ignore[method-assign]
+    screen.on_mount()
+    assert len(started) == 3
+
+    original_running_timer = screen._running_refresh_timer
+    assert original_running_timer is started[0]
+
+    screen.on_select_changed(
+        SimpleNamespace(
+            select=screen.widgets["#agents-running-refresh-interval-select"],
+            value="5.0",
+        )
+    )
+    assert original_running_timer.stop_calls == 1
+    assert screen._running_refresh_timer is not original_running_timer
+
+    running_timer = screen._running_refresh_timer
+    interaction_timer = screen._interaction_poll_timer
+    log_timer = screen._log_stream_timer
+
+    screen.on_unmount()
+    assert screen._running_refresh_timer is None
+    assert screen._interaction_poll_timer is None
+    assert screen._log_stream_timer is None
+    assert running_timer is not None and running_timer.stop_calls == 1
+    assert interaction_timer is not None and interaction_timer.stop_calls == 1
+    assert log_timer is not None and log_timer.stop_calls == 1
+
+
+def test_interaction_panel_mode_switches_permission_to_clarification(monkeypatch) -> None:
+    screen = _screen()
+    manager = _Manager()
+    manager.pending_rows = [
+        {
+            "agent_id": "bbbbbbbb22222222",
+            "agent_name": "writing",
+            "request_id": "perm-1",
+            "request_type": "permission",
+            "tool_name": "write_file",
+            "risk_level": "writes_workspace",
+            "reason": "Tool requires confirmation",
+            "args_summary": '{"path":"./notes.md"}',
+            "prompt": "Allow write?",
+        }
+    ]
+    monkeypatch.setattr(
+        "lsm.ui.tui.screens.agents.AgentRegistry",
+        lambda: SimpleNamespace(list_agents=lambda: ["research", "writing"]),
+    )
+    monkeypatch.setattr(
+        "lsm.ui.tui.screens.agents.get_agent_runtime_manager",
+        lambda: manager,
+    )
+
+    screen.on_mount()
+    assert "Type: permission" in screen.widgets["#agents-interaction-type"].last
+    assert screen.widgets["#agents-interaction-approve-button"].disabled is False
+    assert screen.widgets["#agents-interaction-reply-button"].disabled is True
+
+    manager.pending_rows = [
+        {
+            "agent_id": "aaaaaaaa11111111",
+            "agent_name": "research",
+            "request_id": "clarify-1",
+            "request_type": "clarification",
+            "tool_name": "ask_user",
+            "risk_level": "read_only",
+            "reason": "Need user detail",
+            "args_summary": '{"prompt":"Which source?"}',
+            "prompt": "Which source should I use?",
+        }
+    ]
+    screen._refresh_interaction_panel()
+
+    assert "Type: clarification" in screen.widgets["#agents-interaction-type"].last
+    assert screen.widgets["#agents-interaction-approve-button"].disabled is True
+    assert screen.widgets["#agents-interaction-reply-button"].disabled is False

@@ -193,8 +193,26 @@ def test_meta_panel_renders_task_graph_runs_and_artifacts(monkeypatch) -> None:
     screen.on_mount()
     task_table = screen.widgets["#agents-meta-task-table"]
     runs_table = screen.widgets["#agents-meta-runs-table"]
+    assert task_table.columns == ["Task", "Agent", "Status", "Depends On"]
+    assert runs_table.columns == ["Task", "Sub-Agent", "Status", "Workspace", "Artifacts"]
     assert len(task_table.rows) == 2
     assert len(runs_table.rows) == 2
+    assert task_table.rows[0] == ("research_1", "research", "completed", "-")
+    assert task_table.rows[1] == ("writing_1", "writing", "completed", "research_1")
+    assert runs_table.rows[0] == (
+        "research_1",
+        "research",
+        "completed",
+        "/tmp/meta/sub_agents/research_001",
+        "0",
+    )
+    assert runs_table.rows[1] == (
+        "writing_1",
+        "writing",
+        "completed",
+        "/tmp/meta/sub_agents/writing_001",
+        "1",
+    )
     assert "tasks=2 completed=2 failed=0" in screen.widgets["#agents-meta-output"].last
     assert "final_result: /tmp/meta/final_result.md" in screen.widgets[
         "#agents-meta-artifacts-output"

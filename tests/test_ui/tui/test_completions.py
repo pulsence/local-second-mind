@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import textwrap
+
 import pytest
 
 from lsm.ui.tui.completions import (
@@ -224,6 +226,102 @@ class TestFormatCommandHelp:
         assert "/mode" in help_text
         assert "/memory" in help_text
         assert "/help" in help_text
+
+    def test_query_help_output_snapshot(self):
+        """Query help output should keep stable section ordering and formatting."""
+        expected = textwrap.dedent(
+            """\
+            Available commands (query):
+
+              Navigation:
+                /exit                Exit
+                /quit                Exit the application
+                /help                Show help
+
+              Information:
+                /debug               Show retrieval diagnostics
+                /costs               Show session cost summary
+
+              Exploration:
+                /show                Show cited chunk (requires: S# e.g., S1)
+
+              Operations:
+                /load                Pin document for context (requires: path)
+
+              Query:
+                /mode                Show or switch query mode
+                /show                Show cited chunk (requires: S# e.g., S1)
+                /expand              Expand citation (requires: S# e.g., S1)
+                /open                Open source file (requires: S#)
+                /note                Save last query as note (optional: name)
+                /notes               Alias for /note
+
+              Agents:
+                /agent               Run or inspect agent workflows
+                /memory              Manage agent memory candidates
+
+              UI:
+                /ui                  Inspect or change TUI UI settings
+
+              Providers:
+                /providers           List available LLM providers
+                /provider-status     Show provider health
+                /model               Show or set current model
+                /models              List available models (optional: provider)
+                /vectordb-providers  List vector DB providers
+                /vectordb-status     Show vector DB status
+                /remote-providers    List remote source providers
+                /remote-search       Test remote provider (requires: provider query)
+                /remote-search-all   Search all providers (requires: query)
+
+              Export:
+                /export-citations    Export citations (optional: format path)
+                /budget              Set session budget (requires: set amount)
+                /cost-estimate       Estimate query cost (requires: query)
+
+              Filters:
+                /set                 Set session filter (requires: filter value)
+                /clear               Clear session filter
+                /context             Show or set context anchors
+            """
+        ).strip()
+        assert format_command_help("query").strip() == expected
+
+    def test_ingest_help_output_snapshot(self):
+        """Ingest help output should keep stable section ordering and formatting."""
+        expected = textwrap.dedent(
+            """\
+            Available commands (ingest):
+
+              Navigation:
+                /exit                Exit
+                /quit                Exit the application
+                /help                Show help
+
+              Information:
+                /info                Show collection information
+                /stats               Show detailed statistics
+
+              Exploration:
+                /explore             Browse indexed files (optional: path filter)
+                /show                Show chunks for a file (requires: path)
+                /search              Search metadata (requires: query)
+                /tags                Show all tags in collection
+
+              Operations:
+                /build               Run ingest pipeline (optional: --force)
+                /tag                 Run AI tagging (optional: --max N)
+                /wipe                Clear collection (requires confirmation)
+
+              Query:
+                /show                Show chunks for a file (requires: path)
+
+              Providers:
+                /vectordb-providers  List available vector DB providers
+                /vectordb-status     Show vector DB provider status
+            """
+        ).strip()
+        assert format_command_help("ingest").strip() == expected
 
 
 class TestCreateCompleter:
