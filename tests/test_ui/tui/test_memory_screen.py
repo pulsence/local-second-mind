@@ -134,6 +134,7 @@ def test_memory_panel_refresh_approve_reject_and_ttl(monkeypatch) -> None:
     )
 
     screen.on_mount()
+    screen._ensure_deferred_init()
     memory_select = screen.widgets["#agents-memory-select"]
     assert memory_select.value == "cand-1"
     assert len(memory_select.options) == 1
@@ -175,4 +176,5 @@ def test_memory_panel_refresh_handles_error(monkeypatch) -> None:
     )
 
     screen.on_mount()
+    screen._ensure_deferred_init()
     assert "Agent memory is disabled." in screen.widgets["#agents-memory-output"].last

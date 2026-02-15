@@ -99,6 +99,23 @@ All notable changes to Local Second Mind are documented here.
   - `tests/test_ui/tui/presenters/` for presenter-focused tests
   - `tests/test_ui/helpers/` for helper-level tests
   - Updated test organization conventions in `TESTING.md`
+- TUI startup performance instrumentation and lazy background loading:
+  - `StartupTimeline` dataclass in `lsm/ui/tui/app.py` records named milestones (`init_start`, `init_complete`, `mount_start`, `query_interactive`, `tui_logging_ready`, `mount_complete`, `agent_runtime_bound`) with elapsed-ms tracking
+  - `_schedule_background_init()` defers `_bind_agent_runtime_events()` past first render via `call_after_refresh`, keeping the query screen interactive immediately on launch
+  - `_agent_runtime_bound` flag tracks whether agent runtime binding completed for safe cleanup
+  - `_trigger_agents_deferred_init()` helper triggers agents screen full init from tab activation and action switches
+- AgentsScreen deferred initialization:
+  - `on_mount()` reduced from 13 initialization calls to 3 minimal calls (`_initialize_running_controls`, `_initialize_refresh_controls`, `_focus_default_input`)
+  - new `_ensure_deferred_init()` runs remaining 10 init calls + 3 timer starts on first activation, guarded by `_deferred_init_done` flag
+  - deferred init triggered by: agents tab activation, runtime event messages, button presses
+- TUI startup smoke tests (`tests/test_ui/tui/test_startup_smoke.py`):
+  - `TestStartupSmoke`: init, compose source inspection, on_mount context, deferred agent binding, missing tabbed content resilience, lazy provider verification
+  - `TestScreenImportSmoke`: all 5 screen classes importable, query screen compose source inspection
+- TUI startup performance budget tests (`tests/test_ui/tui/test_performance.py`):
+  - `TestStartupTimeline`: milestone recording, unknown milestone lookup, timing growth, copy safety
+  - `TestStartupPerformanceBudget`: query-interactive-under-budget enforcement (configurable via `LSM_TEST_STARTUP_BUDGET_MS`), milestone presence, milestone ordering, background init deferral verification
+  - `TestAgentsDeferredInit`: minimal on_mount verification, idempotent ensure-deferred-init, runtime event trigger path
+- `create_startup_mock_config()` factory in `tests/test_ui/tui/fixtures/app.py` for startup and performance test reuse
 
 ### Changed
 
@@ -114,6 +131,8 @@ All notable changes to Local Second Mind are documented here.
 - removed temporary compatibility fallback branches in runtime harness construction and sandbox interaction-channel wiring
 - standardized Agents TUI manager call paths to finalized `agent_id`/`max_entries` signatures
 - aligned shell/TUI test doubles with finalized interfaces and added callback-wiring assertions for runtime startup
+- AgentsScreen `on_mount()` no longer runs full initialization; all agents-related tests now call `screen._ensure_deferred_init()` after `on_mount()` to trigger full panel setup
+- `LSMApp.on_mount()` no longer calls `_bind_agent_runtime_events()` synchronously; binding is deferred via `_schedule_background_init()` to reduce startup latency
 
 ### Fixed
 

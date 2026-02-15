@@ -79,6 +79,47 @@ class _ManagedTimer:
     started_at: float = field(default_factory=time.monotonic)
 
 
+@dataclass
+class _StartupMilestone:
+    """Single startup timing measurement."""
+
+    name: str
+    elapsed_ms: float
+
+
+@dataclass
+class StartupTimeline:
+    """Collects startup timing milestones for performance tracking.
+
+    Records named milestones with elapsed time from timeline creation.
+    Used to instrument TUI startup and enforce performance budgets.
+    """
+
+    _start_time: float = field(default_factory=time.monotonic)
+    _milestones: list[_StartupMilestone] = field(default_factory=list)
+
+    def mark(self, name: str) -> None:
+        """Record a named milestone with current elapsed time."""
+        elapsed = (time.monotonic() - self._start_time) * 1000
+        self._milestones.append(_StartupMilestone(name=name, elapsed_ms=elapsed))
+
+    def elapsed_ms(self, milestone_name: str) -> float | None:
+        """Return elapsed time for a named milestone, or None if not found."""
+        for m in self._milestones:
+            if m.name == milestone_name:
+                return m.elapsed_ms
+        return None
+
+    @property
+    def milestones(self) -> list[_StartupMilestone]:
+        """Return a copy of recorded milestones."""
+        return list(self._milestones)
+
+    def total_ms(self) -> float:
+        """Return total elapsed time since timeline creation."""
+        return (time.monotonic() - self._start_time) * 1000
+
+
 class LSMApp(App):
     """
     Local Second Mind TUI Application.
@@ -142,6 +183,8 @@ class LSMApp(App):
         Args:
             config: LSM configuration
         """
+        self._startup_timeline = StartupTimeline()
+        self._startup_timeline.mark("init_start")
         super().__init__(*args, **kwargs)
         self.config = config
 
@@ -171,6 +214,8 @@ class LSMApp(App):
         self._ui_error_count: int = 0
         self._last_ui_error_summary: str = ""
         self.ui_state = AppState(active_context="query", density_mode=self._density_mode)
+        self._agent_runtime_bound: bool = False
+        self._startup_timeline.mark("init_complete")
 
     def compose(self) -> ComposeResult:
         """Compose the application layout."""
@@ -205,6 +250,7 @@ class LSMApp(App):
 
     async def on_mount(self) -> None:
         """Handle application mount - initialize providers."""
+        self._startup_timeline.mark("mount_start")
         logger.info("LSM TUI application mounted")
         try:
             tabbed_content = self.query_one(TabbedContent)
@@ -215,9 +261,29 @@ class LSMApp(App):
         width, height = self._terminal_size()
         self._update_responsive_classes(width, height)
         self._apply_density_mode(force=True)
+        self._startup_timeline.mark("query_interactive")
         self._setup_tui_logging()
-        self._bind_agent_runtime_events()
-        logger.info("Query context initialization is lazy and will run on first query.")
+        self._startup_timeline.mark("tui_logging_ready")
+        self._schedule_background_init()
+        self._startup_timeline.mark("mount_complete")
+        logger.info(
+            "Startup milestones: %s",
+            [(m.name, f"{m.elapsed_ms:.0f}ms") for m in self._startup_timeline.milestones],
+        )
+
+    def _schedule_background_init(self) -> None:
+        """Defer non-critical startup initialization past the first render."""
+
+        def _background_init() -> None:
+            try:
+                self._bind_agent_runtime_events()
+                self._startup_timeline.mark("agent_runtime_bound")
+            except Exception:
+                logger.exception("Background agent runtime binding failed")
+            self._startup_timeline.mark("background_init_complete")
+            logger.info("Background initialization complete")
+
+        self.call_after_refresh(_background_init)
 
     def _setup_tui_logging(self) -> None:
         """Route LSM logs to the query log panel when running in TUI."""
@@ -613,6 +679,7 @@ class LSMApp(App):
             binder = getattr(manager, "set_ui_event_sink", None)
             if callable(binder):
                 binder(self._on_agent_runtime_event_from_any_thread)
+                self._agent_runtime_bound = True
         except Exception:
             logger.exception("Failed to bind agent runtime UI event sink")
 
@@ -1022,6 +1089,7 @@ class LSMApp(App):
         tabbed_content = self.query_one(TabbedContent)
         tabbed_content.active = "agents"
         self._set_active_context("agents")
+        self._trigger_agents_deferred_init()
         logger.debug("Switched to agents context")
 
     def _activate_settings_tab(self, tab_id: str) -> None:
@@ -1136,6 +1204,8 @@ class LSMApp(App):
                 self._set_active_context(cast(ContextType, context))
                 if context == "settings":
                     self._refresh_settings_screen()
+                if context == "agents":
+                    self._trigger_agents_deferred_init()
                 logger.debug(f"Tab activated: {context}")
 
     def _refresh_settings_screen(self) -> None:
@@ -1145,6 +1215,16 @@ class LSMApp(App):
             refresh = getattr(settings_screen, "refresh_from_config", None)
             if callable(refresh):
                 refresh()
+        except Exception:
+            return
+
+    def _trigger_agents_deferred_init(self) -> None:
+        """Trigger deferred initialization on the agents screen."""
+        try:
+            agents_screen = self.query_one("#agents-screen")
+            init_fn = getattr(agents_screen, "_ensure_deferred_init", None)
+            if callable(init_fn):
+                init_fn()
         except Exception:
             return
 

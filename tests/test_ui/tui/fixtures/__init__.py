@@ -25,7 +25,7 @@ from tests.test_ui.tui.fixtures.widgets import (
     FakeRichLog,
     FakeButton,
 )
-from tests.test_ui.tui.fixtures.app import create_fake_app
+from tests.test_ui.tui.fixtures.app import create_fake_app, create_startup_mock_config
 
 __all__ = [
     "FakeStatic",
@@ -34,4 +34,5 @@ __all__ = [
     "FakeRichLog",
     "FakeButton",
     "create_fake_app",
+    "create_startup_mock_config",
 ]

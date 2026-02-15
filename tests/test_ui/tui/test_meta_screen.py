@@ -191,6 +191,7 @@ def test_meta_panel_renders_task_graph_runs_and_artifacts(monkeypatch) -> None:
     )
 
     screen.on_mount()
+    screen._ensure_deferred_init()
     task_table = screen.widgets["#agents-meta-task-table"]
     runs_table = screen.widgets["#agents-meta-runs-table"]
     assert task_table.columns == ["Task", "Agent", "Status", "Depends On"]
@@ -233,6 +234,7 @@ def test_meta_panel_handles_no_active_meta(monkeypatch) -> None:
     )
 
     screen.on_mount()
+    screen._ensure_deferred_init()
     assert "No active meta-agent." in screen.widgets["#agents-meta-output"].last
 
 
@@ -248,6 +250,7 @@ def test_meta_log_button_writes_to_log(monkeypatch) -> None:
         lambda: manager,
     )
     screen.on_mount()
+    screen._ensure_deferred_init()
 
     screen.on_button_pressed(SimpleNamespace(button=SimpleNamespace(id="agents-meta-log-button")))
     assert any("Meta Log" in line for line in screen.widgets["#agents-log"].lines)

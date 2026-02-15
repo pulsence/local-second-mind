@@ -129,6 +129,8 @@ tests/test_ui/
     test_agents_screen.py            # Agents behavior + binding tests
     test_remote_screen.py            # Remote behavior + binding tests
     test_presenters.py               # Presenter unit tests
+    test_startup_smoke.py            # Startup crash-free launch tests
+    test_performance.py              # Startup performance budget tests
 ```
 
 ### Test Categories
@@ -139,6 +141,8 @@ tests/test_ui/
 - **Binding tests** - Verify keybinding sets and conflict-freedom
 - **Presenter tests** - Verify pure formatting functions independently
 - **Mixin tests** - Verify shared lifecycle helpers
+- **Smoke tests** - Verify crash-free startup and screen imports
+- **Performance tests** - Verify startup timing budget and milestone recording
 
 ### Naming Conventions
 
@@ -148,6 +152,37 @@ tests/test_ui/
 - `test_<concept>.py` - Cross-cutting concept tests
 
 See the [TUI Architecture Guide](TUI_ARCHITECTURE.md) for full conventions.
+
+### Startup Smoke Tests
+
+`tests/test_ui/tui/test_startup_smoke.py` verifies crash-free TUI startup:
+
+- `LSMApp.__init__` completes without raising
+- `compose()` references all 5 screen classes and tab IDs
+- `on_mount()` reaches Query context as default home screen
+- Startup survives failure of non-critical components (logging, agent binding)
+- All screen classes are importable without error
+- Providers remain lazy (not initialized at startup)
+
+These tests run in the default test suite (no `live` or `docker` markers).
+
+### Startup Performance Budget
+
+`tests/test_ui/tui/test_performance.py` enforces startup timing:
+
+- **SLA**: Query/Home interactive in < 1.0 second
+- **Threshold override**: Set `LSM_TEST_STARTUP_BUDGET_MS` env var for CI
+- Tests verify `StartupTimeline` milestone recording, ordering, and budget compliance
+- Tests verify non-critical work (agent runtime binding) is deferred to background
+- Tests verify `AgentsScreen` deferred initialization runs on first activation
+
+```bash
+# Run startup performance tests
+.venv-wsl/bin/python -m pytest tests/test_ui/tui/test_performance.py -v
+
+# Override budget threshold for slow CI
+LSM_TEST_STARTUP_BUDGET_MS=2000 .venv-wsl/bin/python -m pytest tests/test_ui/tui/test_performance.py -v
+```
 
 ## Security Suite
 

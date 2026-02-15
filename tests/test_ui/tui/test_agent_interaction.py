@@ -304,6 +304,7 @@ def test_running_agents_selection_routes_log(monkeypatch) -> None:
     )
 
     screen.on_mount()
+    screen._ensure_deferred_init()
     running_table = screen.widgets["#agents-running-table"]
     assert len(running_table.rows) == 2
     assert screen._selected_agent_id == "aaaaaaaa11111111"
@@ -344,6 +345,7 @@ def test_permission_interaction_panel_and_deny(monkeypatch) -> None:
     )
 
     screen.on_mount()
+    screen._ensure_deferred_init()
     indicator = screen.widgets["#agents-interaction-indicator"]
     panel = screen.widgets["#agents-interaction-panel"]
     assert "pending (1)" in indicator.last.lower()
@@ -386,6 +388,7 @@ def test_clarification_interaction_reply(monkeypatch) -> None:
     )
 
     screen.on_mount()
+    screen._ensure_deferred_init()
     assert screen.widgets["#agents-interaction-approve-button"].disabled is True
     assert screen.widgets["#agents-interaction-reply-button"].disabled is False
     assert screen.widgets["#agents-interaction-reply-input"].disabled is False
@@ -410,6 +413,7 @@ def test_running_navigation_actions(monkeypatch) -> None:
     )
 
     screen.on_mount()
+    screen._ensure_deferred_init()
     assert screen._selected_agent_id == "aaaaaaaa11111111"
 
     screen.action_running_next()
@@ -432,6 +436,7 @@ def test_log_stream_drain_appends_formatted_entries_and_drop_notice(monkeypatch)
     )
 
     screen.on_mount()
+    screen._ensure_deferred_init()
     selected = str(screen._selected_agent_id or "")
     manager.stream_payloads[selected] = [
         {
@@ -483,6 +488,7 @@ def test_refresh_controls_toggle_and_interval_updates(monkeypatch) -> None:
 
     screen._start_timer = _fake_start_timer  # type: ignore[method-assign]
     screen.on_mount()
+    screen._ensure_deferred_init()
 
     running_toggle = screen.widgets["#agents-running-refresh-toggle-button"]
     interaction_toggle = screen.widgets["#agents-interaction-refresh-toggle-button"]
@@ -531,6 +537,7 @@ def test_follow_toggle_controls_log_autoscroll(monkeypatch) -> None:
     )
 
     screen.on_mount()
+    screen._ensure_deferred_init()
     log_widget = screen.widgets["#agents-log"]
     log_widget.is_vertical_scroll_end = False
 
@@ -563,6 +570,7 @@ def test_unread_log_counters_increment_and_clear(monkeypatch) -> None:
     )
 
     screen.on_mount()
+    screen._ensure_deferred_init()
     assert screen._selected_agent_id == "aaaaaaaa11111111"
 
     manager.stream_payloads["bbbbbbbb22222222"] = [
@@ -630,6 +638,7 @@ def test_timer_lifecycle_starts_restarts_and_stops_without_leaks(monkeypatch) ->
 
     screen._start_timer = _fake_start_timer  # type: ignore[method-assign]
     screen.on_mount()
+    screen._ensure_deferred_init()
     assert len(started) == 3
 
     original_running_timer = screen._running_refresh_timer
@@ -686,10 +695,12 @@ def test_timer_lifecycle_repeated_mount_restarts_all_timers(monkeypatch) -> None
 
     screen._start_timer = _fake_start_timer  # type: ignore[method-assign]
     screen.on_mount()
+    screen._ensure_deferred_init()
     first_generation = list(started)
     assert len(first_generation) == 3
 
     screen.on_mount()
+    screen._ensure_deferred_init()
     second_generation = started[3:]
     assert len(second_generation) == 3
     assert all(timer.stop_calls == 1 for timer in first_generation)
@@ -725,6 +736,7 @@ def test_interaction_panel_mode_switches_permission_to_clarification(monkeypatch
     )
 
     screen.on_mount()
+    screen._ensure_deferred_init()
     assert "Type: permission" in screen.widgets["#agents-interaction-type"].last
     assert screen.widgets["#agents-interaction-approve-button"].disabled is False
     assert screen.widgets["#agents-interaction-reply-button"].disabled is True
@@ -753,6 +765,7 @@ def test_runtime_event_message_triggers_refresh_paths() -> None:
     from lsm.ui.tui.screens.agents import AgentRuntimeEventMessage
 
     screen = _screen()
+    screen._deferred_init_done = True
     calls = {"running": 0, "interaction": 0, "meta": 0}
 
     screen._refresh_running_agents = lambda: calls.__setitem__(  # type: ignore[method-assign]

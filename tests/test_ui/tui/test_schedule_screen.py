@@ -192,6 +192,7 @@ def test_schedule_panel_refresh_toggle_and_status(monkeypatch) -> None:
     )
 
     screen.on_mount()
+    screen._ensure_deferred_init()
     schedule_table = screen.widgets["#agents-schedule-table"]
     assert schedule_table.columns == [
         "ID",
@@ -239,6 +240,7 @@ def test_schedule_panel_add_and_remove(monkeypatch) -> None:
     )
 
     screen.on_mount()
+    screen._ensure_deferred_init()
     screen.widgets["#agents-schedule-agent-input"].value = "curator"
     screen.widgets["#agents-schedule-interval-input"].value = "weekly"
     screen.widgets["#agents-schedule-params-input"].value = '{"topic":"--mode memory"}'
@@ -271,4 +273,5 @@ def test_schedule_panel_refresh_handles_error(monkeypatch) -> None:
     )
 
     screen.on_mount()
+    screen._ensure_deferred_init()
     assert "Scheduler unavailable." in screen.widgets["#agents-schedule-output"].last

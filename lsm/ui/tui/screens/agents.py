@@ -104,6 +104,7 @@ class AgentsScreen(ManagedScreenMixin, Widget):
         self._selected_agent_id: Optional[str] = None
         self._pending_interaction: Optional[dict[str, Any]] = None
         self._known_pending_interaction_ids: set[str] = set()
+        self._deferred_init_done: bool = False
         self._interaction_notifications_initialized: bool = False
         self._running_refresh_timer: Optional[Timer] = None
         self._interaction_poll_timer: Optional[Timer] = None
@@ -326,10 +327,18 @@ class AgentsScreen(ManagedScreenMixin, Widget):
                         yield RichLog(id="agents-log", auto_scroll=False, wrap=True)
 
     def on_mount(self) -> None:
-        """Initialize agent select options and focus."""
-        self._refresh_agent_options()
+        """Initialize minimal widget state; defer heavy init to first activation."""
+        self._deferred_init_done = False
         self._initialize_running_controls()
         self._initialize_refresh_controls()
+        self._focus_default_input()
+
+    def _ensure_deferred_init(self) -> None:
+        """Run deferred initialization once on first activation or interaction."""
+        if self._deferred_init_done:
+            return
+        self._deferred_init_done = True
+        self._refresh_agent_options()
         self._refresh_running_agents()
         self._refresh_interaction_panel()
         self._initialize_meta_controls()
@@ -340,7 +349,6 @@ class AgentsScreen(ManagedScreenMixin, Widget):
         self._restart_running_refresh_timer()
         self._restart_interaction_poll_timer()
         self._restart_log_stream_timer()
-        self._focus_default_input()
 
     def on_unmount(self) -> None:
         self._stop_managed_timers(reason="agents-unmount")
@@ -358,6 +366,7 @@ class AgentsScreen(ManagedScreenMixin, Widget):
 
     def on_agent_runtime_event_message(self, message: AgentRuntimeEventMessage) -> None:
         """Handle manager runtime events routed through app-level event queue."""
+        self._ensure_deferred_init()
         event_type = str(getattr(message.event, "event_type", "")).strip().lower()
         if event_type in {"run_started", "run_completed"}:
             self._refresh_running_agents()
@@ -398,6 +407,7 @@ class AgentsScreen(ManagedScreenMixin, Widget):
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         """Handle control button presses."""
+        self._ensure_deferred_init()
         button_id = event.button.id or ""
         if button_id == "agents-running-refresh-toggle-button":
             self._toggle_running_refresh()

@@ -274,6 +274,7 @@ def test_on_mount_populates_options_and_focus(monkeypatch) -> None:
     monkeypatch.setattr("lsm.ui.tui.screens.agents.get_agent_runtime_manager", lambda: _Manager())
     monkeypatch.setattr("lsm.ui.tui.screens.agents.AgentRegistry", lambda: SimpleNamespace(list_agents=lambda: ["research"]))
     screen.on_mount()
+    screen._ensure_deferred_init()
     select = screen.widgets["#agents-select"]
     assert ("research", "research") in select.options
     assert select.value == "research"
@@ -288,6 +289,7 @@ def test_start_status_and_controls(monkeypatch) -> None:
     monkeypatch.setattr("lsm.ui.tui.screens.agents.AgentRegistry", lambda: SimpleNamespace(list_agents=lambda: ["research"]))
     monkeypatch.setattr("lsm.ui.tui.screens.agents.get_agent_runtime_manager", lambda: manager)
     screen.on_mount()
+    screen._ensure_deferred_init()
 
     screen.widgets["#agents-topic-input"].value = ""
     screen._start_agent()
@@ -331,6 +333,7 @@ def test_button_press_routes_to_actions(monkeypatch) -> None:
     monkeypatch.setattr("lsm.ui.tui.screens.agents.AgentRegistry", lambda: SimpleNamespace(list_agents=lambda: ["research"]))
     monkeypatch.setattr("lsm.ui.tui.screens.agents.get_agent_runtime_manager", lambda: manager)
     screen.on_mount()
+    screen._ensure_deferred_init()
     screen.widgets["#agents-topic-input"].value = "topic"
     screen.on_input_submitted(
         SimpleNamespace(input=SimpleNamespace(id="agents-topic-input"))
