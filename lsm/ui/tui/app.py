@@ -1084,12 +1084,31 @@ class LSMApp(App):
         self.push_screen(HelpScreen(context=self.current_context))
 
     def action_quit(self) -> None:
-        """Quit the application."""
+        """Quit the application, prompting if settings have unsaved changes."""
+        if self._settings_has_unsaved_changes():
+            self.notify(
+                "Settings have unsaved changes. Use 'save' or 'discard' in Settings, then quit again.",
+                severity="warning",
+                timeout=self._NOTIFY_ERROR_TIMEOUT_SECONDS,
+            )
+            return
+        self._force_quit()
+
+    def _force_quit(self) -> None:
+        """Unconditionally quit the application."""
         logger.info("User requested quit")
         self.shutdown_managed_timers(reason="app-quit")
         self.shutdown_managed_workers(reason="app-quit")
         self._unbind_agent_runtime_events()
         self.exit()
+
+    def _settings_has_unsaved_changes(self) -> bool:
+        """Check if the settings screen has unsaved draft changes."""
+        try:
+            settings_screen = self.query_one("#settings-screen")
+            return bool(getattr(settings_screen, "has_unsaved_changes", False))
+        except Exception:
+            return False
 
     # -------------------------------------------------------------------------
     # Tab Change Handler

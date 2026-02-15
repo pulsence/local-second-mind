@@ -583,3 +583,66 @@ def test_schedule_trigger_notification_emitted_on_last_run_change(monkeypatch) -
             {"severity": "info"},
         )
     ]
+
+
+# -------------------------------------------------------------------------
+# 5.7: Keyboard-first interaction parity
+# -------------------------------------------------------------------------
+
+
+def test_agents_bindings_include_refresh_log_status() -> None:
+    """New keybindings for Ctrl+Shift+R, Ctrl+L, Ctrl+I exist on AgentsScreen."""
+    binding_keys = {b.key for b in AgentsScreen.BINDINGS}
+    assert "ctrl+shift+r" in binding_keys
+    assert "ctrl+l" in binding_keys
+    assert "ctrl+i" in binding_keys
+
+
+def test_agents_bindings_no_conflict_with_app() -> None:
+    """Agents screen bindings must not conflict with app-level bindings."""
+    from lsm.ui.tui.app import LSMApp
+
+    agents_keys = {b.key for b in AgentsScreen.BINDINGS}
+    app_keys = {b.key for b in LSMApp.BINDINGS}
+    # Tab/shift+tab are shared by design; focus navigation is expected overlap
+    shared_ok = {"tab", "shift+tab"}
+    conflicts = (agents_keys & app_keys) - shared_ok
+    assert not conflicts, f"Key conflicts: {conflicts}"
+
+
+def test_action_refresh_running_calls_refresh(monkeypatch) -> None:
+    screen = _screen_with_runtime_widgets()
+    manager = _Manager()
+    monkeypatch.setattr("lsm.ui.tui.screens.agents.get_agent_runtime_manager", lambda: manager)
+
+    manager.running_rows = []
+    manager.pending_rows = []
+
+    screen.action_refresh_running()
+
+    # Should have attempted to populate the running table and interaction panel
+    assert "No running agents" in screen.widgets["#agents-running-output"].last
+
+
+def test_action_show_agent_log_calls_log(monkeypatch) -> None:
+    screen = _screen_with_runtime_widgets()
+    manager = _Manager()
+    monkeypatch.setattr("lsm.ui.tui.screens.agents.get_agent_runtime_manager", lambda: manager)
+
+    screen._selected_agent_id = "agent-1"
+    screen.action_show_agent_log()
+
+    # Log should have been written
+    assert screen.widgets["#agents-log"].lines
+
+
+def test_action_show_agent_status_calls_status(monkeypatch) -> None:
+    screen = _screen_with_runtime_widgets()
+    manager = _Manager()
+    monkeypatch.setattr("lsm.ui.tui.screens.agents.get_agent_runtime_manager", lambda: manager)
+
+    screen._selected_agent_id = "agent-1"
+    screen.action_show_agent_status()
+
+    # Status output should have been set
+    assert "Status" in screen.widgets["#agents-status-output"].last or "running" in screen.widgets["#agents-status-output"].last

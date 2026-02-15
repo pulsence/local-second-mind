@@ -105,6 +105,50 @@ Validation test:
 .venv\Scripts\python -m pytest tests/ -v -m "live_vectordb"
 ```
 
+## TUI Tests
+
+TUI tests use lightweight fake widget doubles instead of full Textual app mounts.
+
+### Test Organization
+
+```
+tests/test_ui/
+  test_command_parsing_contracts.py  # Command grammar contract tests
+  helpers/
+    test_fixtures_sanity.py          # Shared fixture validation
+  tui/
+    fixtures/                        # Shared test doubles and factories
+      widgets.py                     # FakeStatic, FakeInput, FakeSelect, etc.
+      app.py                         # create_fake_app() factory
+    presenters/                      # Presenter-focused tests
+      test_agents_presenters.py      # Agent log formatting tests
+    test_base_screen_mixin.py        # Shared lifecycle mixin tests
+    test_layout_structure.py         # Widget composition structure tests
+    test_compact_layout.py           # Density/CSS structure tests
+    test_settings_screen.py          # Settings behavior tests
+    test_agents_screen.py            # Agents behavior + binding tests
+    test_remote_screen.py            # Remote behavior + binding tests
+    test_presenters.py               # Presenter unit tests
+```
+
+### Test Categories
+
+- **Contract tests** - Verify parsing grammar and command validation
+- **Structure tests** - Verify widget composition and CSS class presence
+- **Behavior tests** - Verify interaction flows through fake doubles
+- **Binding tests** - Verify keybinding sets and conflict-freedom
+- **Presenter tests** - Verify pure formatting functions independently
+- **Mixin tests** - Verify shared lifecycle helpers
+
+### Naming Conventions
+
+- `test_<screen>_screen.py` - Screen-level behavior tests
+- `test_<feature>_contracts.py` - Grammar/protocol contract tests
+- `test_<module>_presenters.py` - Presenter formatting tests
+- `test_<concept>.py` - Cross-cutting concept tests
+
+See the [TUI Architecture Guide](TUI_ARCHITECTURE.md) for full conventions.
+
 ## Security Suite
 
 Agent sandbox security tests are adversarial and should run as part of default validation when changing `lsm/agents/` or `lsm/agents/tools/`.

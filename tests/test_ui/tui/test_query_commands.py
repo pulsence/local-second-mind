@@ -181,7 +181,7 @@ def test_format_helpers_and_models(monkeypatch: pytest.MonkeyPatch) -> None:
     screen = _screen()
     assert "query: openai/gpt-test" in screen._format_model_selection()
 
-    monkeypatch.setattr("lsm.ui.tui.screens.query.create_provider", lambda cfg: SimpleNamespace(list_models=lambda: ["m2", "m1"]))
+    monkeypatch.setattr("lsm.ui.tui.presenters.query.provider_info.create_provider", lambda cfg: SimpleNamespace(list_models=lambda: ["m2", "m1"]))
     out = screen._format_models("/models")
     assert "openai:" in out
     assert "m1" in out and "m2" in out

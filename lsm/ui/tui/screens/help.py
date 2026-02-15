@@ -78,6 +78,8 @@ _CONTEXT_COMMANDS: dict[ContextType, tuple[str, ...]] = {
         "reset [key]                    Reset tab or key to persisted values",
         "default <key>                  Reset key to model default",
         "save                           Persist draft config to disk",
+        "discard                        Discard all unsaved changes",
+        "discard tab                    Discard current tab unsaved changes",
     ),
 }
 
@@ -97,6 +99,8 @@ _CONTEXT_SHORTCUTS: dict[ContextType, tuple[str, ...]] = {
     "remote": (
         "Next field (Tab)",
         "Previous field (Shift+Tab)",
+        "Run search (Ctrl+Enter or Enter in query field)",
+        "Refresh providers (Ctrl+Shift+R)",
     ),
     "agents": (
         "Previous running agent (F6)",
@@ -105,6 +109,9 @@ _CONTEXT_SHORTCUTS: dict[ContextType, tuple[str, ...]] = {
         "Approve interaction for session (F9)",
         "Deny interaction (F10)",
         "Reply to interaction (F11)",
+        "Refresh running agents (Ctrl+Shift+R)",
+        "Show agent log (Ctrl+L)",
+        "Show agent status (Ctrl+I)",
     ),
     "settings": (
         "Global tab (F2)",

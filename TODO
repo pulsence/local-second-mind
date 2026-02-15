@@ -14,6 +14,45 @@
   - There should be a list of agents running
 
 ## Future Items (INGORE ALL THE FOLLOWING FOR PLANNING)
+### Transition Work
+- docs/ should be reworked to be designed only for end user use. Detailed architecure
+  documentation which is more usefull for understanding the project structure and
+  file purpose should be moved to .agents/docs/.
+- Rename .claude_files/ to .agents/ and create a docs/ folder in .agents/
+  - This .agents/doc/ folder is to serve for the source of all the project documentation.
+  - In .agents/doc/ there should be an INDEX.md which acts as a highlevel
+    directory of the other docs for agent. It should be compact and let the agent
+    know what is in the other doc files so it can selectively read them.
+  - CLAUDE.md should be used as the base for the INDEX.md, but then ## Architecture
+    and ## Key Files should be broken out into a single combined ARCHITECTURE.md.
+  - There should be a .agents/docs/architecture/ folder. In this folder should be a
+    markdown file which provides an overview of every python package. Each one section
+    will note the sub packages in the package and another section will note the modules
+    or files in the package. Example:
+    ```
+    ## lsm.ui
+    Description: <ONE TO TWO SENTENCE DESCRIPTION OF THIS PACKAGE>
+    Folder Path: <PATH TO THIS PACKAGE>
+
+    ### Sub Packages
+    - [lsm.ui.desktop](PATH TO FILE DESCRIBING PACKAGE): <ONE SENTENCE DESCRIPTION OF THIS PACKAGE>
+    - [lsm.ui.helpers](PATH TO FILE DESCRIBING PACKAGE): <ONE SENTENCE DESCRIPTION OF THIS PACKAGE>
+    - [lsm.ui.shell](PATH TO FILE DESCRIBING PACKAGE): <ONE SENTENCE DESCRIPTION OF THIS PACKAGE>
+    - [lsm.ui.tui](PATH TO FILE DESCRIBING PACKAGE): <ONE SENTENCE DESCRIPTION OF THIS PACKAGE>
+    - [lsm.ui.web](PATH TO FILE DESCRIBING PACKAGE): <ONE SENTENCE DESCRIPTION OF THIS PACKAGE>
+
+    ### Modules
+    - [__init__.py](PATH TO ACTUAL FILE): <ONE TO TWO SENTENCE DESCRIPTION OF THIS FILE>
+    - [utils.py](PATH TO ACTUAL FILE): <ONE TO TWO SENTENCE DESCRIPTION OF THIS FILE>
+    ```
+  - The final ARCHITECTURE.md file should serve as the index for the primary packages (e.g., lsm.*)
+    and architectual design patterns.
+  - Ultimately there should be no developer documentation in docs/ since there is currently no
+    plan for external developer contributions. All developer docs should be in .agents/doc/
+    and linked in INDEX.md and written for Claude/Codex to use. The docs/ folder should contain
+    the documentation needed for an end user to use LSM and understand at a highlevel how
+    the system works.
+
 
 ### v0.7.0: Agents and Remote Sources
 #### Architecture
@@ -25,7 +64,7 @@
 - Analyze ways that SQLite (or PGSql) could be leverage for storing
   data.
 
-#### Agents and Tools
+#### General Agents and Tools
 - All agents should have the ability to ask the user a question for clarification. This can be
   exposed as a tool to all agents no matter how they are configured.
     - Provide ability to config ignore request the request and respond "continue with work."
@@ -35,15 +74,15 @@
   - Agent logs by default save in their workspace.
 - Agent logs output to plain text instead of json and add the ability to produce
   normal/verbose/debug logs
-- When an agent requires the user to approve an action it should pause until the user
-  gives the approval.
-  - The user should be able to approve the action for this session, for this agent, for
-    all future uses.
 - Update sending tools to use AI Model API field `tools=[...]` (function calling API) where possible and only
   otherwise when that is not available to creating a human readable list.
   - When a human readable list must be used, it should mimic the JSON structure used for the function.
-- Sort how to create a tool that runs shell commands. This prevents from having to recreate
-  the shell commands in system, but we need to make sure to protect against sandbox escapes.
+
+#### Tools
+- Fully implement Docker runner.
+  - Explore hot loading docker and then launching in the docker instance vs launching a docker
+    instance whenever it is needed.
+- Implement WSL2 Runner
 - Core manipulation tools are find/read/write/edit:
   - Creating a line harsh which is then sent to llm can greatly assist in editing a file. By edit
     we mean, selectively replacing a section of a file with a new section. See https://blog.can.ac/2026/02/12/the-harness-problem/
@@ -66,12 +105,13 @@
   - Extensive testing needs to be done to see if this is more effecient than replace()
   - Find_File tool should file by name or content in file
   - Find_Section tool should find section in specified file or find file with related sections
+- Sort how to create a tool that runs shell commands. This prevents from having to recreate
+  the shell commands in system, but we need to make sure to protect against sandbox escapes.
+
+#### Agents
+- Added Agent types, so a user can view the different kinds of agents. E.g., study or assistants.
 - Enable Meta-Agent to decide when to run sub agents in parallel instead
   of just in series.
-- Fully implement Docker runner.
-  - Explore hot loading docker and then launching in the docker instance vs launching a docker
-    instance whenever it is needed.
-- Added Agent types, so a user can view the different kinds of agents. E.g., study or assistants.
 - Create a Librarian Agent who task it to explore the embeddings DB and create a graph of ideas
 - Agent Assistant:
   - This agent acts as an assitant to review the work produced by all other agents and produce
@@ -172,16 +212,6 @@
 - Ensure that the config document explains all possible configuration settings.
   - Note that it can treat tools and agents in general. Each tool and agent
     should clearly document their configuration settings.
-- docs/ should be reworked to be designed only for end user use. Detailed architecular
-  documentation which is more usefull for understanding the project structure and
-  file purpose should be moved to .agents/docs/
-- Rename .claude_files/ to .agents/ and create a docs/ folder in .agents/
-  - This .agents/doc/ folder is to serve for the source of all the project documentation.
-  - In .agents/doc/ there should be an INDEX.md which acts as a highlevel
-    directory of the other docs for agent. It should be compact and let the agent
-    know what is in the other doc files so it can selectively read them.
-  - CLAUDE.md should be used as the base for the INDEX.md, but then ## Architecture
-    and ## Key Files should be broken out into a single combined ARCHITECTURE.md.
 
 #### Code Quality
 - Do a checking for large files that could be refactored into small files.

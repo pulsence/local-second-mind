@@ -172,3 +172,8 @@
 .provider-status-error {
     color: $error;
 }
+
+/* Dirty-state indicator for unsaved settings status */
+#settings-status.settings-dirty {
+    color: $warning;
+}

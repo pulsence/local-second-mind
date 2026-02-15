@@ -37,6 +37,8 @@ class RemoteScreen(Widget):
     BINDINGS = [
         Binding("tab", "focus_next", "Next", show=False),
         Binding("shift+tab", "focus_previous", "Previous", show=False),
+        Binding("ctrl+enter", "run_search", "Search", show=False),
+        Binding("ctrl+shift+r", "refresh_providers", "Refresh", show=False),
     ]
 
     def compose(self) -> ComposeResult:
@@ -88,6 +90,14 @@ class RemoteScreen(Widget):
             for message in self.app._tui_log_buffer:
                 log_widget.write(f"{message}\n")
             log_widget.scroll_end()
+
+    def action_run_search(self) -> None:
+        """Run remote search from keybinding."""
+        self.run_worker(self._run_search(), exclusive=True)
+
+    def action_refresh_providers(self) -> None:
+        """Refresh provider list from keybinding."""
+        self._refresh_provider_list()
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         """Handle button presses."""

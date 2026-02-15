@@ -18,6 +18,16 @@ from textual.widgets import Static, Input, Button, Select, RichLog, DataTable
 from textual.widget import Widget
 
 from lsm.logging import get_logger
+from lsm.ui.tui.screens.base import ManagedScreenMixin
+from lsm.ui.tui.presenters.agents import (
+    format_duration as _fmt_duration,
+    format_interval_label as _fmt_interval,
+    format_stream_log_entry as _fmt_stream_entry,
+    format_stream_drop_notice as _fmt_stream_drop,
+    stream_prefix as _stream_prefix,
+    summarize_stream_args as _summarize_args,
+    summarize_stream_content as _summarize_content,
+)
 
 logger = get_logger(__name__)
 
@@ -56,7 +66,7 @@ def get_agent_runtime_manager():
     return _get_runtime_manager()
 
 
-class AgentsScreen(Widget):
+class AgentsScreen(ManagedScreenMixin, Widget):
     """
     UI surface for starting and controlling agents.
     """
@@ -70,6 +80,9 @@ class AgentsScreen(Widget):
         Binding("f9", "interaction_approve_session", "Approve Session", show=False),
         Binding("f10", "interaction_deny", "Deny", show=False),
         Binding("f11", "interaction_reply", "Reply", show=False),
+        Binding("ctrl+shift+r", "refresh_running", "Refresh", show=False),
+        Binding("ctrl+l", "show_agent_log", "Log", show=False),
+        Binding("ctrl+i", "show_agent_status", "Status", show=False),
     ]
     _STOP_WORKER_TIMEOUT_SECONDS = 5.0
     _RUNNING_REFRESH_TIMER_KEY = "running-refresh"
@@ -373,6 +386,16 @@ class AgentsScreen(Widget):
     def action_interaction_reply(self) -> None:
         self._reply_to_interaction()
 
+    def action_refresh_running(self) -> None:
+        self._refresh_running_agents()
+        self._refresh_interaction_panel()
+
+    def action_show_agent_log(self) -> None:
+        self._show_log()
+
+    def action_show_agent_status(self) -> None:
+        self._show_status()
+
     def on_button_pressed(self, event: Button.Pressed) -> None:
         """Handle control button presses."""
         button_id = event.button.id or ""
@@ -625,44 +648,11 @@ class AgentsScreen(Widget):
         except Exception:
             return
 
-    def _worker_owner_token(self) -> str:
-        widget_id = str(getattr(self, "id", "") or "").strip()
-        if widget_id:
-            return widget_id
-        return self.__class__.__name__
-
-    def _register_managed_worker(
-        self,
-        *,
-        key: str,
-        worker: Any,
-        timeout_s: float,
-    ) -> None:
-        app_obj = getattr(self, "app", None)
-        register = getattr(app_obj, "register_managed_worker", None)
-        if not callable(register):
-            return
-        try:
-            register(
-                owner=self._worker_owner_token(),
-                key=key,
-                worker=worker,
-                timeout_s=timeout_s,
-            )
-        except Exception:
-            logger.exception("Failed to register agents managed worker '%s'.", key)
-
-    def _clear_managed_worker(self, key: str) -> None:
-        app_obj = getattr(self, "app", None)
-        clear = getattr(app_obj, "clear_managed_worker", None)
-        if not callable(clear):
-            return
-        try:
-            clear(owner=self._worker_owner_token(), key=key)
-        except Exception:
-            logger.exception("Failed to clear agents managed worker '%s'.", key)
+    # _worker_owner_token, _register_managed_worker, _clear_managed_worker
+    # inherited from ManagedScreenMixin.
 
     def _cancel_managed_workers(self, *, reason: str) -> None:
+        """Override: includes fallback for legacy _stop_worker thread."""
         app_obj = getattr(self, "app", None)
         cancel_owner = getattr(app_obj, "cancel_managed_workers_for_owner", None)
         if callable(cancel_owner):
@@ -700,77 +690,11 @@ class AgentsScreen(Widget):
         self._append_log(output)
         self._refresh_meta_panel()
 
-    def _start_timer(
-        self,
-        *,
-        interval_seconds: float,
-        callback,
-    ) -> Optional[Timer]:
-        app_obj = getattr(self, "app", None)
-        if app_obj is None or not hasattr(app_obj, "set_interval"):
-            return None
-        try:
-            return self.set_interval(interval_seconds, callback)
-        except Exception:
-            return None
-
-    def _start_managed_timer(
-        self,
-        *,
-        key: str,
-        interval_seconds: float,
-        callback,
-    ) -> Optional[Timer]:
-        app_obj = getattr(self, "app", None)
-        start_timer = getattr(app_obj, "start_managed_timer", None)
-        if callable(start_timer):
-            try:
-                return start_timer(
-                    owner=self._worker_owner_token(),
-                    key=key,
-                    start=lambda: self._start_timer(
-                        interval_seconds=interval_seconds,
-                        callback=callback,
-                    ),
-                    restart=False,
-                )
-            except Exception:
-                logger.exception("Failed to start managed timer '%s'.", key)
-        return self._start_timer(
-            interval_seconds=interval_seconds,
-            callback=callback,
-        )
-
-    def _stop_timer(self, timer: Optional[Timer]) -> None:
-        if timer is None:
-            return
-        try:
-            timer.stop()
-        except Exception:
-            return
-
-    def _stop_managed_timer(
-        self,
-        *,
-        key: str,
-        timer: Optional[Timer],
-        reason: str,
-    ) -> None:
-        app_obj = getattr(self, "app", None)
-        stop_timer = getattr(app_obj, "stop_managed_timer", None)
-        if callable(stop_timer):
-            try:
-                stop_timer(
-                    owner=self._worker_owner_token(),
-                    key=key,
-                    reason=reason,
-                )
-                return
-            except Exception:
-                logger.exception("Failed to stop managed timer '%s'.", key)
-        self._stop_timer(timer)
+    # _start_timer, _start_managed_timer, _stop_timer, _stop_managed_timer
+    # inherited from ManagedScreenMixin.
 
     def _stop_managed_timers(self, *, reason: str) -> None:
+        """Override: includes fallback for explicit timer stops."""
         app_obj = getattr(self, "app", None)
         stop_owner = getattr(app_obj, "stop_managed_timers_for_owner", None)
         if callable(stop_owner):
@@ -946,7 +870,7 @@ class AgentsScreen(Widget):
         return parsed
 
     def _format_interval_label(self, interval_seconds: float) -> str:
-        return f"{float(interval_seconds):.1f}s"
+        return _fmt_interval(interval_seconds)
 
     def _initialize_running_controls(self) -> None:
         try:
@@ -1067,12 +991,7 @@ class AgentsScreen(Widget):
             self._show_selected_agent_log()
 
     def _format_duration(self, duration_seconds: float) -> str:
-        seconds = max(0, int(duration_seconds))
-        hours, remainder = divmod(seconds, 3600)
-        minutes, secs = divmod(remainder, 60)
-        if hours > 0:
-            return f"{hours:02d}:{minutes:02d}:{secs:02d}"
-        return f"{minutes:02d}:{secs:02d}"
+        return _fmt_duration(duration_seconds)
 
     def _move_running_selection(self, delta: int) -> None:
         if not self._running_agent_ids:
@@ -2080,77 +1999,19 @@ class AgentsScreen(Widget):
         return True
 
     def _format_stream_log_entry(self, row: dict[str, Any]) -> Text:
-        actor = str(row.get("actor", "")).strip().lower()
-        prefix_label, prefix_style = self._stream_prefix(actor)
-        content = str(row.get("content", "")).strip()
-        action = str(row.get("action", "")).strip()
-        args_summary = self._summarize_stream_args(row.get("action_arguments"))
-        summary = self._summarize_stream_content(content)
-
-        if actor == "tool":
-            action_name = action or "tool"
-            if args_summary:
-                body = f"{action_name}({args_summary}) -> {summary}"
-            else:
-                body = f"{action_name} -> {summary}"
-        elif actor == "llm":
-            if action:
-                body = f"{summary} (action={action})"
-            else:
-                body = summary
-        else:
-            body = summary
-
-        line = Text(f"[{prefix_label}] ", style=prefix_style)
-        line.append(body)
-        return line
+        return _fmt_stream_entry(row)
 
     def _format_stream_drop_notice(self, dropped_count: int) -> Text:
-        line = Text("[STREAM] ", style="bold yellow")
-        line.append(
-            f"Dropped {dropped_count} log entr{'y' if dropped_count == 1 else 'ies'} due to queue pressure.",
-            style="yellow",
-        )
-        return line
+        return _fmt_stream_drop(dropped_count)
 
     def _stream_prefix(self, actor: str) -> tuple[str, str]:
-        normalized = str(actor or "").strip().lower()
-        if normalized == "llm":
-            return "LLM", "bright_cyan"
-        if normalized == "tool":
-            return "TOOL", "bright_magenta"
-        if normalized == "user":
-            return "USER", "bright_yellow"
-        if normalized == "agent":
-            return "AGENT", "bright_green"
-        return "EVENT", "grey70"
+        return _stream_prefix(actor)
 
     def _summarize_stream_args(self, value: Any) -> str:
-        if value is None:
-            return ""
-        if value == "":
-            return ""
-        if isinstance(value, dict) and not value:
-            return ""
-        try:
-            if isinstance(value, str):
-                text = value
-            else:
-                text = json.dumps(value, ensure_ascii=True, sort_keys=True)
-        except Exception:
-            text = str(value)
-        text = text.replace("\n", " ").strip()
-        if len(text) > 100:
-            return text[:97].rstrip() + "..."
-        return text
+        return _summarize_args(value)
 
     def _summarize_stream_content(self, content: str) -> str:
-        text = str(content or "").replace("\n", " ").strip()
-        if not text:
-            return "(empty)"
-        if len(text) > 180:
-            return text[:177].rstrip() + "..."
-        return text
+        return _summarize_content(content)
 
     def _coerce_int(self, value: Any) -> Optional[int]:
         try:

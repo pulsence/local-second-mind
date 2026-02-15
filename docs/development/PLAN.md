@@ -616,7 +616,7 @@ Summarize Phase 4 changes into `docs/development/CHANGELOG.md`.
 
 ---
 
-## Phase 5: TUI Reliability and Architecture
+## Phase 5: TUI Reliability and Architecture (COMPLETED)
 
 This phase hardens runtime safety and evolves the UI architecture for maintainability.
 
@@ -694,7 +694,7 @@ Prevent leaked timers and duplicate polling loops.
 
 **Post-block:** Add timer lifecycle tests, run `pytest tests/ -v`, commit.
 
-### 5.5: UI Error Boundary and Recovery
+### 5.5: UI Error Boundary and Recovery (COMPLETED)
 
 Keep the TUI resilient to screen-level exceptions.
 
@@ -711,7 +711,7 @@ Keep the TUI resilient to screen-level exceptions.
 
 **Post-block:** Add tests for recoverable screen errors, run `pytest tests/ -v`, commit.
 
-### 5.6: Dirty-State and Unsaved-Change Guards
+### 5.6: Dirty-State and Unsaved-Change Guards (COMPLETED)
 
 Prevent accidental configuration/data loss during navigation.
 
@@ -728,7 +728,7 @@ Prevent accidental configuration/data loss during navigation.
 
 **Post-block:** Add tests for dirty-state transitions and confirmation prompts, run `pytest tests/ -v`, commit.
 
-### 5.7: Keyboard-First Interaction Parity
+### 5.7: Keyboard-First Interaction Parity (COMPLETED)
 
 Ensure all major TUI workflows are fully keyboard operable.
 
@@ -746,25 +746,7 @@ Ensure all major TUI workflows are fully keyboard operable.
 
 **Post-block:** Add keybinding coverage tests, run `pytest tests/ -v`, commit.
 
-### 5.8: TUI Performance Budgets and Polling Guardrails
-
-Keep refresh loops performant and bounded under load.
-
-**Tasks:**
-- Define polling/refresh budget defaults (max frequency, max rows per tick, queue caps)
-- Add adaptive refresh backoff when no updates are pending
-- Cap per-tick render work to prevent UI stalls under high event volume
-- Add debug counters for drops/backpressure/render lag
-
-**Files to modify:**
-- `lsm/ui/tui/app.py`
-- `lsm/ui/tui/screens/agents.py`
-- `lsm/ui/tui/screens/query.py`
-- `lsm/config/models/agents.py` and `lsm/config/loader.py` (if exposed as config)
-
-**Post-block:** Add performance guardrail tests, run `pytest tests/ -v`, commit.
-
-### 5.9: Command Parsing Contract Tests
+### 5.9: Command Parsing Contract Tests (COMPLETED)
 
 Stabilize command behavior while refactoring handlers.
 
@@ -783,7 +765,7 @@ Stabilize command behavior while refactoring handlers.
 
 **Post-block:** Run command-contract suite + full tests, `pytest tests/ -v`, commit.
 
-### 5.10: TUI Architecture Guideline Documentation
+### 5.10: TUI Architecture Guideline Documentation (COMPLETED)
 
 Document architectural conventions so future TUI work remains consistent.
 
@@ -803,7 +785,7 @@ Document architectural conventions so future TUI work remains consistent.
 
 **Post-block:** Documentation review and consistency pass, commit.
 
-### 5.11: Screen Presenter/Controller Decomposition
+### 5.11: Screen Presenter/Controller Decomposition (COMPLETED)
 
 Reduce large screen complexity by splitting rendering, action handling, and async coordination into
 focused collaborators.
@@ -829,7 +811,7 @@ focused collaborators.
 
 **Post-block:** Add focused presenter/controller tests and regression checks, run `pytest tests/ -v`, commit.
 
-### 5.12: Shared Base Screen and UI Helpers Layer
+### 5.12: Shared Base Screen and UI Helpers Layer (COMPLETED)
 
 Create shared screen scaffolding so lifecycle, status, notifications, worker wiring, and timer wiring
 are implemented once and reused consistently.
@@ -858,7 +840,7 @@ are implemented once and reused consistently.
 
 **Post-block:** Add tests for shared lifecycle helpers and base-screen behavior, run `pytest tests/ -v`, commit.
 
-### 5.13: UI Test Architecture and Reusable Fixtures
+### 5.13: UI Test Architecture and Reusable Fixtures (COMPLETED)
 
 Align UI tests with TUI module boundaries and reduce duplicate setup logic.
 
@@ -881,7 +863,7 @@ Align UI tests with TUI module boundaries and reduce duplicate setup logic.
 
 **Post-block:** Run full UI test suite + full project tests, `pytest tests/ -v`, commit.
 
-### 5.14: Phase 5 Code Review
+### 5.14: Phase 5 Code Review (COMPLETED)
 
 **Tasks:**
 - Review the changes made in Phase 5 and ensure that the phase is
@@ -892,7 +874,7 @@ Align UI tests with TUI module boundaries and reduce duplicate setup logic.
   mock or stub tests.
 - Ensure all documentation in docs/ is properly updated.
 
-### 5.15: Phase 5 Changelog
+### 5.15: Phase 5 Changelog (COMPLETED)
 
 Summarize Phase 5 changes into `docs/development/CHANGELOG.md`.
 

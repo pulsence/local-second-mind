@@ -27,6 +27,12 @@ When requesting a feature, please include:
 - **What it would do** — expected behavior and usage
 - **Why it would improve the project** — the problem it solves or the value it adds
 
+## Developer Documentation
+
+- [TUI Architecture Guide](docs/development/TUI_ARCHITECTURE.md) - Conventions for TUI development (state, events, workers, timers, errors, testing)
+- [Testing Guide](docs/development/TESTING.md) - Test tiers, fixtures, and running tests
+- [Security Guide](docs/development/SECURITY.md) - Agent sandbox threat model and adversarial testing
+
 ## What Happens Next
 
 I will review submitted issues and assess how to handle them on my own schedule. There are no guarantees on timeline, but well-written issues with clear reproduction steps or strong rationale are much more likely to be acted on.

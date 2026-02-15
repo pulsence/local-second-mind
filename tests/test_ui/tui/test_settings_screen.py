@@ -62,11 +62,17 @@ class _FakeViewModel:
         self.reset_key_calls: list[tuple[str, str]] = []
         self.default_key_calls: list[tuple[str, str]] = []
         self.reset_tab_calls: list[str] = []
+        self.reset_all_calls: int = 0
         self.save_calls = 0
         self.load_calls: list[Any] = []
 
+        self._dirty_tabs: frozenset[str] = frozenset()
         self.next_result = SettingsActionResult(handled=True, changed_tabs=("settings-global",))
         self.next_save_result = SettingsActionResult(handled=True, changed_tabs=("settings-global",))
+
+    @property
+    def dirty_tabs(self) -> frozenset[str]:
+        return self._dirty_tabs
 
     def table_rows(self, tab_id: str) -> list[SettingTableRow]:
         self.table_rows_calls.append(tab_id)
@@ -104,7 +110,16 @@ class _FakeViewModel:
 
     def save(self) -> SettingsActionResult:
         self.save_calls += 1
+        self._dirty_tabs = frozenset()
         return self.next_save_result
+
+    def reset_all(self) -> SettingsActionResult:
+        self.reset_all_calls += 1
+        self._dirty_tabs = frozenset()
+        return SettingsActionResult(handled=True, changed_tabs=tuple(
+            "settings-global settings-ingest settings-query settings-llm "
+            "settings-vdb settings-modes settings-remote settings-chats-notes".split()
+        ))
 
 
 class _TestableSettingsScreen(SettingsScreen):
@@ -281,3 +296,66 @@ def test_refresh_loads_external_config_object() -> None:
     screen.refresh_from_config()
 
     assert vm.load_calls == [new_config]
+
+
+# -------------------------------------------------------------------------
+# 5.6: Dirty-state and unsaved-change guards
+# -------------------------------------------------------------------------
+
+
+def test_has_unsaved_changes_false_when_clean() -> None:
+    screen, vm = _screen()
+    assert screen.has_unsaved_changes is False
+    assert screen.dirty_tab_ids == frozenset()
+
+
+def test_has_unsaved_changes_true_when_dirty() -> None:
+    screen, vm = _screen()
+    vm._dirty_tabs = frozenset({"settings-global"})
+    assert screen.has_unsaved_changes is True
+    assert screen.dirty_tab_ids == frozenset({"settings-global"})
+
+
+def test_discard_command_resets_all() -> None:
+    screen, vm = _screen()
+    vm._dirty_tabs = frozenset({"settings-global", "settings-llm"})
+
+    event = SimpleNamespace(
+        input=SimpleNamespace(id="settings-global-command", value="discard"),
+        value="discard",
+    )
+    screen.on_input_submitted(event)
+
+    assert vm.reset_all_calls == 1
+    assert "discarded" in screen.widgets["#settings-status"].last.lower()
+
+
+def test_discard_tab_command_resets_active_tab() -> None:
+    screen, vm = _screen()
+    vm._dirty_tabs = frozenset({"settings-ingest"})
+
+    event = SimpleNamespace(
+        input=SimpleNamespace(id="settings-ingest-command", value="discard tab"),
+        value="discard tab",
+    )
+    screen.on_input_submitted(event)
+
+    assert vm.reset_tab_calls == ["settings-ingest"]
+
+
+def test_force_discard_and_leave_clears_dirty_state() -> None:
+    screen, vm = _screen()
+    vm._dirty_tabs = frozenset({"settings-query"})
+    assert screen.has_unsaved_changes is True
+
+    screen.force_discard_and_leave()
+
+    assert vm.reset_all_calls == 1
+    assert screen.has_unsaved_changes is False
+
+
+def test_has_unsaved_changes_false_when_no_view_model() -> None:
+    screen, _ = _screen()
+    screen._view_model = None
+    assert screen.has_unsaved_changes is False
+    assert screen.dirty_tab_ids == frozenset()

@@ -68,6 +68,38 @@ All notable changes to Local Second Mind are documented here.
   - queue-pressure truncation is surfaced in the log panel with dropped-entry notices
   - added optional `agents.log_stream_queue_limit` config with loader/serializer and `example_config.json` coverage
   - added/updated tests in `tests/test_agents/test_harness.py`, `tests/test_ui/shell/test_multi_agent_manager.py`, `tests/test_ui/tui/test_agent_interaction.py`, and `tests/test_config/test_agents_config.py`
+- Settings dirty-state and unsaved-change guards:
+  - tab-level dirty indicators (`*` prefix on tab labels) with automatic sync after actions
+  - `discard` and `discard tab` commands for resetting draft config
+  - quit guard blocks app exit when settings have unsaved changes
+  - `has_unsaved_changes` and `dirty_tab_ids` properties on `SettingsScreen`
+  - `force_discard_and_leave()` for forced context switches
+- Keyboard-first interaction parity across screens:
+  - Agents screen keybindings: `Ctrl+Shift+R` (refresh running agents), `Ctrl+L` (show agent log), `Ctrl+I` (show agent status)
+  - Remote screen keybindings: `Ctrl+Enter` (run search), `Ctrl+Shift+R` (refresh providers)
+  - Updated help modal with new shortcut documentation
+  - Keybinding conflict tests for all screens vs app-level bindings
+- Command parsing contract tests (`tests/test_ui/test_command_parsing_contracts.py`):
+  - `parse_slash_command` grammar contracts, `tokenize_command`, normalization, `parse_on_off_value`
+  - `/agent` and `/memory` command grammar validation
+  - Settings verb grammar and completions alignment tests
+- TUI architecture documentation (`docs/development/TUI_ARCHITECTURE.md`):
+  - Covers state management, worker/timer lifecycle, thread safety, error boundary, command parsing, keybinding conventions, CSS organization, and testing patterns
+  - Linked from `CONTRIBUTING.md`, `TESTING.md`, and `CLAUDE.md`
+- Screen presenter/controller decomposition:
+  - `lsm/ui/tui/presenters/query/provider_info.py` — extracted 7 formatting functions from QueryScreen
+  - `lsm/ui/tui/presenters/agents/log_formatting.py` — extracted 7 pure formatting functions from AgentsScreen
+  - QueryScreen and AgentsScreen delegate to presenter functions
+- Shared base screen mixin (`lsm/ui/tui/screens/base.py`):
+  - `ManagedScreenMixin` provides worker/timer lifecycle delegation
+  - QueryScreen, IngestScreen, AgentsScreen inherit from mixin
+  - Eliminated ~200 lines of duplicated lifecycle boilerplate across 3 screens
+- UI test architecture and reusable fixtures:
+  - `tests/test_ui/tui/fixtures/` with `FakeStatic`, `FakeInput`, `FakeSelect`, `FakeRichLog`, `FakeButton`, `create_fake_app`
+  - `tests/test_ui/tui/presenters/` for presenter-focused tests
+  - `tests/test_ui/helpers/` for helper-level tests
+  - Updated test organization conventions in `TESTING.md`
+
 ### Changed
 
 - Refactored TUI CSS from a monolithic `lsm/ui/tui/styles.tcss` into modular files under `lsm/ui/tui/styles/`:

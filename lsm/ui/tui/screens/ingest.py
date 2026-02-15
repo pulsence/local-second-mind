@@ -23,6 +23,7 @@ from textual.widget import Widget
 from textual.reactive import reactive
 
 from lsm.logging import get_logger
+from lsm.ui.tui.screens.base import ManagedScreenMixin
 from lsm.ui.tui.widgets.input import CommandInput, CommandSubmitted
 from lsm.ui.tui.completions import create_completer
 from lsm.ui.tui.commands.ingest import (
@@ -39,7 +40,7 @@ if TYPE_CHECKING:
 logger = get_logger(__name__)
 
 
-class IngestScreen(Widget):
+class IngestScreen(ManagedScreenMixin, Widget):
     """
     Document ingestion interface screen.
 
@@ -595,69 +596,4 @@ class IngestScreen(Widget):
         command_input = self.query_one("#ingest-command-input", CommandInput)
         command_input.clear()
 
-    def _worker_owner_token(self) -> str:
-        widget_id = str(getattr(self, "id", "") or "").strip()
-        if widget_id:
-            return widget_id
-        return self.__class__.__name__
-
-    def _start_managed_worker(
-        self,
-        *,
-        worker_key: str,
-        work_factory: Callable[[], Any],
-        timeout_s: float,
-        exclusive: bool,
-    ) -> None:
-        app_obj = getattr(self, "app", None)
-        starter = getattr(app_obj, "start_managed_worker", None)
-        if callable(starter):
-            try:
-                starter(
-                    owner=self._worker_owner_token(),
-                    key=worker_key,
-                    timeout_s=timeout_s,
-                    start=lambda: self.run_worker(work_factory(), exclusive=exclusive),
-                )
-                return
-            except Exception:
-                logger.exception("Failed to start managed ingest worker '%s'.", worker_key)
-        self.run_worker(work_factory(), exclusive=exclusive)
-
-    def _cancel_managed_workers(self, *, reason: str) -> None:
-        app_obj = getattr(self, "app", None)
-        cancel_owner = getattr(app_obj, "cancel_managed_workers_for_owner", None)
-        if not callable(cancel_owner):
-            return
-        try:
-            results = cancel_owner(
-                owner=self._worker_owner_token(),
-                reason=reason,
-            )
-        except Exception:
-            logger.exception("Failed to cancel ingest managed workers (%s).", reason)
-            return
-        if any(not bool(result) for result in results.values()):
-            logger.warning(
-                "Ingest worker shutdown hit timeout for owner '%s'.",
-                self._worker_owner_token(),
-            )
-
-    def _cancel_managed_timers(self, *, reason: str) -> None:
-        app_obj = getattr(self, "app", None)
-        cancel_owner = getattr(app_obj, "stop_managed_timers_for_owner", None)
-        if not callable(cancel_owner):
-            return
-        try:
-            results = cancel_owner(
-                owner=self._worker_owner_token(),
-                reason=reason,
-            )
-        except Exception:
-            logger.exception("Failed to stop ingest managed timers (%s).", reason)
-            return
-        if any(not bool(result) for result in results.values()):
-            logger.warning(
-                "Ingest timer shutdown had stop failures for owner '%s'.",
-                self._worker_owner_token(),
-            )
+    # Worker/timer lifecycle methods inherited from ManagedScreenMixin.

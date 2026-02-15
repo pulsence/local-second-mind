@@ -8,6 +8,7 @@ from typing import Any, Optional
 from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Vertical
+from textual.message import Message
 from textual.widget import Widget
 from textual.widgets import DataTable, Input, Static, TabbedContent, TabPane
 
@@ -22,6 +23,17 @@ class SettingsScreen(Widget):
 
     current_mode: str = "grounded"
     """Current selected mode name (for tests and UI state)."""
+
+    class UnsavedChangesBlocking(Message):
+        """Posted when the user attempts to leave settings with unsaved changes.
+
+        The app should show a confirmation prompt and call
+        ``force_discard_and_leave()`` if the user confirms.
+        """
+
+        def __init__(self, target_context: str) -> None:
+            super().__init__()
+            self.target_context = target_context
 
     BINDINGS = [
         Binding("f2", "local_settings_tab_1", "Global", show=True),
@@ -45,15 +57,17 @@ class SettingsScreen(Widget):
         ("settings-chats-notes", "Chats/Notes (F9)"),
     )
 
+    _TAB_CLEAN_LABELS: dict[str, str] = {tab_id: title for tab_id, title in _TAB_LAYOUT}
+
     _TAB_HELP: dict[str, str] = {
-        "settings-global": "Commands: set <key> <value> | unset <key> | delete <key> | reset <key> | default <key> | save",
-        "settings-ingest": "Commands: set roots[0].path <value> | set chunk_size 1200 | delete exclude_dirs | save",
-        "settings-query": "Commands: set mode insight | set k 12 | reset mode | default min_relevance | save",
-        "settings-llm": "Commands: set providers[0].provider_name openai | set services.query.model gpt-5.2 | save",
-        "settings-vdb": "Commands: set provider postgresql | set connection_string <value> | unset password | save",
-        "settings-modes": "Commands: set query.mode grounded | set modes.grounded.source_policy.remote.enabled true | save",
-        "settings-remote": "Commands: set remote_providers[0].name brave | delete remote_provider_chains[0].links[1] | save",
-        "settings-chats-notes": "Commands: set chats.enabled true | set notes.dir notes | default notes.template | save",
+        "settings-global": "Commands: set <key> <value> | unset <key> | delete <key> | reset <key> | default <key> | save | discard",
+        "settings-ingest": "Commands: set roots[0].path <value> | set chunk_size 1200 | delete exclude_dirs | save | discard",
+        "settings-query": "Commands: set mode insight | set k 12 | reset mode | default min_relevance | save | discard",
+        "settings-llm": "Commands: set providers[0].provider_name openai | set services.query.model gpt-5.2 | save | discard",
+        "settings-vdb": "Commands: set provider postgresql | set connection_string <value> | unset password | save | discard",
+        "settings-modes": "Commands: set query.mode grounded | set modes.grounded.source_policy.remote.enabled true | save | discard",
+        "settings-remote": "Commands: set remote_providers[0].name brave | delete remote_provider_chains[0].links[1] | save | discard",
+        "settings-chats-notes": "Commands: set chats.enabled true | set notes.dir notes | default notes.template | save | discard",
     }
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:
@@ -61,6 +75,7 @@ class SettingsScreen(Widget):
         self._view_model: Optional[SettingsViewModel] = None
         self._source_config: Any = None
         self._stale_tabs: set[str] = {tab_id for tab_id, _ in self._TAB_LAYOUT}
+        self._last_dirty_tabs: frozenset[str] = frozenset()
 
     def compose(self) -> ComposeResult:
         with Vertical(id="settings-layout"):
@@ -197,6 +212,16 @@ class SettingsScreen(Widget):
             key = tokens[1]
             result = view_model.default_key(tab_id, key)
             self._set_status(f"Defaulted {key}", result.error is not None)
+        elif verb == "discard":
+            if len(tokens) == 1:
+                result = view_model.reset_all()
+                self._set_status("All unsaved changes discarded.", result.error is not None)
+            elif len(tokens) == 2 and tokens[1] == "tab":
+                result = view_model.reset_tab(tab_id)
+                self._set_status("Tab changes discarded.", result.error is not None)
+            else:
+                self._set_status("Usage: discard | discard tab", True)
+                return
         else:
             self._set_status(f"Unknown command: {verb}", True)
             return
@@ -217,6 +242,8 @@ class SettingsScreen(Widget):
 
         if active_tab_id in self._stale_tabs:
             self._refresh_tab_from_view_model(active_tab_id)
+
+        self._sync_dirty_indicators()
 
     def _ensure_view_model(self) -> Optional[SettingsViewModel]:
         config = getattr(self.app, "config", None)
@@ -380,3 +407,53 @@ class SettingsScreen(Widget):
             notify(message, **kwargs)
         except Exception:
             logger.exception("Failed to emit settings notification")
+
+    # ------------------------------------------------------------------
+    # Dirty-state tracking and unsaved-change guards
+    # ------------------------------------------------------------------
+
+    @property
+    def has_unsaved_changes(self) -> bool:
+        """True when the draft config diverges from the persisted config."""
+        if self._view_model is None:
+            return False
+        return bool(self._view_model.dirty_tabs)
+
+    @property
+    def dirty_tab_ids(self) -> frozenset[str]:
+        """Tab ids that currently have unsaved edits."""
+        if self._view_model is None:
+            return frozenset()
+        return self._view_model.dirty_tabs
+
+    def force_discard_and_leave(self) -> None:
+        """Discard all unsaved changes and reset dirty state."""
+        if self._view_model is not None:
+            self._view_model.reset_all()
+        self._sync_dirty_indicators()
+
+    def _sync_dirty_indicators(self) -> None:
+        """Update tab labels and status area to reflect current dirty state."""
+        dirty = self.dirty_tab_ids
+        if dirty == self._last_dirty_tabs:
+            return
+        self._last_dirty_tabs = dirty
+
+        # Update tab pane titles with dirty markers
+        for tab_id, clean_title in self._TAB_CLEAN_LABELS.items():
+            label = f"* {clean_title}" if tab_id in dirty else clean_title
+            try:
+                tabs = self.query_one("#settings-tabs", TabbedContent)
+                tab_widget = tabs.get_tab(f"{tab_id}-tab")
+                if tab_widget is not None:
+                    tab_widget.label = label
+            except Exception:
+                continue
+
+        # Update status area with aggregate dirty summary
+        if dirty:
+            count = len(dirty)
+            noun = "tab has" if count == 1 else "tabs have"
+            self._set_status(f"{count} {noun} unsaved changes. Use 'save' to persist or 'discard' to reset.", False)
+        else:
+            self._set_status("", False)

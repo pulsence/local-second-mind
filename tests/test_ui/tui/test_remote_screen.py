@@ -275,3 +275,26 @@ def test_run_search_paths(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr("lsm.ui.tui.screens.remote.run_remote_search", _boom)
     asyncio.run(screen._run_search())
     assert "Remote search failed: fail" in output.last
+
+
+# -------------------------------------------------------------------------
+# 5.7: Keyboard-first interaction parity
+# -------------------------------------------------------------------------
+
+
+def test_remote_bindings_include_search_and_refresh() -> None:
+    """New keybindings for Ctrl+Enter and Ctrl+Shift+R exist on RemoteScreen."""
+    binding_keys = {b.key for b in RemoteScreen.BINDINGS}
+    assert "ctrl+enter" in binding_keys
+    assert "ctrl+shift+r" in binding_keys
+
+
+def test_remote_bindings_no_conflict_with_app() -> None:
+    """Remote screen bindings must not conflict with app-level bindings."""
+    from lsm.ui.tui.app import LSMApp
+
+    remote_keys = {b.key for b in RemoteScreen.BINDINGS}
+    app_keys = {b.key for b in LSMApp.BINDINGS}
+    shared_ok = {"tab", "shift+tab"}
+    conflicts = (remote_keys & app_keys) - shared_ok
+    assert not conflicts, f"Key conflicts: {conflicts}"
