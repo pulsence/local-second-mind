@@ -6,6 +6,7 @@ Provides structured logging with configurable levels and formatting.
 
 import logging
 import sys
+from types import TracebackType
 from typing import Optional
 
 
@@ -142,6 +143,44 @@ def get_logger(name: str) -> logging.Logger:
         name = f"lsm.{name}"
 
     return logging.getLogger(name)
+
+
+def format_exception_summary(
+    error: BaseException,
+    *,
+    max_length: int = 180,
+) -> str:
+    """
+    Build a concise one-line exception summary for user-facing error messages.
+
+    Args:
+        error: Exception instance.
+        max_length: Maximum output length.
+
+    Returns:
+        Single-line summary (trimmed when needed).
+    """
+    exception_name = error.__class__.__name__
+    detail = str(error or "").strip()
+    summary = exception_name if not detail else f"{exception_name}: {detail}"
+    if max_length > 3 and len(summary) > max_length:
+        return summary[: max_length - 3].rstrip() + "..."
+    return summary
+
+
+def exception_exc_info(
+    error: BaseException,
+) -> tuple[type[BaseException], BaseException, TracebackType | None]:
+    """
+    Build an ``exc_info`` tuple suitable for logger calls.
+
+    Args:
+        error: Exception instance.
+
+    Returns:
+        Tuple consumable by ``logging.Logger`` methods.
+    """
+    return (type(error), error, error.__traceback__)
 
 
 # Convenience function for quick setup

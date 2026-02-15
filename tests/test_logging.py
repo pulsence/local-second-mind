@@ -3,6 +3,8 @@ import logging
 from lsm.logging import (
     ColoredFormatter,
     configure_logging_from_args,
+    exception_exc_info,
+    format_exception_summary,
     get_logger,
     setup_logging,
 )
@@ -51,3 +53,25 @@ def test_configure_logging_from_args_selects_level(monkeypatch) -> None:
 
     assert calls[0][0] == "DEBUG"
     assert calls[1] == ("WARNING", "x.log")
+
+
+def test_format_exception_summary_truncates_long_messages() -> None:
+    error = RuntimeError("x" * 300)
+    summary = format_exception_summary(error, max_length=40)
+    assert summary.startswith("RuntimeError: ")
+    assert summary.endswith("...")
+    assert len(summary) == 40
+
+
+def test_exception_exc_info_contains_traceback() -> None:
+    captured: Exception | None = None
+    try:
+        raise ValueError("bad value")
+    except ValueError as exc:
+        captured = exc
+
+    assert captured is not None
+    exc_info = exception_exc_info(captured)
+    assert exc_info[0] is ValueError
+    assert exc_info[1] is captured
+    assert exc_info[2] is captured.__traceback__

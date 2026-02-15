@@ -32,6 +32,7 @@ _GLOBAL_SHORTCUTS: tuple[str, ...] = (
     "Switch to Agents tab (Ctrl+G)",
     "Switch to Settings tab (Ctrl+S)",
     "Show help (F1)",
+    "Return to safe Query screen (F12)",
     "Quit application (Ctrl+C / Ctrl+D / Ctrl+Z)",
 )
 
@@ -244,4 +245,75 @@ class HelpScreen(ModalScreen):
 
     def action_dismiss(self) -> None:
         """Dismiss the help screen."""
+        self.dismiss()
+
+
+class UIErrorRecoveryScreen(ModalScreen):
+    """Recoverable UI error boundary panel."""
+
+    BINDINGS = [
+        Binding("escape", "dismiss", "Close", show=True),
+        Binding("f12", "return_safe_screen", "Return To Query", show=True),
+    ]
+
+    def __init__(
+        self,
+        *,
+        error_id: int,
+        summary: str,
+    ) -> None:
+        super().__init__()
+        self.error_id = max(1, int(error_id))
+        self.summary = str(summary or "").strip() or "Unknown UI error."
+
+    def compose(self) -> ComposeResult:
+        """Compose the error recovery modal layout."""
+        with Container(classes="help-modal"):
+            with ScrollableContainer(classes="help-content"):
+                yield Static("Recoverable UI Error", classes="help-title")
+                yield Static(
+                    "A screen error was detected and the app recovered without exiting.",
+                    markup=False,
+                )
+                yield Static(
+                    "Return to Query to continue working. "
+                    "You can reopen Help (F1) if needed.",
+                    markup=False,
+                )
+                yield Static(
+                    f"Error #{self.error_id}: {self.summary}",
+                    classes="help-section",
+                    markup=False,
+                )
+                yield Button(
+                    "Return to Query",
+                    id="ui-error-return-safe",
+                    variant="primary",
+                )
+                yield Button(
+                    "Dismiss",
+                    id="ui-error-dismiss",
+                )
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        """Handle recovery panel actions."""
+        if event.button.id == "ui-error-return-safe":
+            self.action_return_safe_screen()
+            return
+        if event.button.id == "ui-error-dismiss":
+            self.dismiss()
+
+    def action_return_safe_screen(self) -> None:
+        """Return to safe query context and close the recovery panel."""
+        app_obj = getattr(self, "app", None)
+        handler = getattr(app_obj, "action_return_safe_screen", None)
+        if callable(handler):
+            try:
+                handler()
+            except Exception:
+                logger.exception("Failed to return to safe screen from UI error panel.")
+        self.dismiss()
+
+    def action_dismiss(self) -> None:
+        """Dismiss the recovery screen."""
         self.dismiss()

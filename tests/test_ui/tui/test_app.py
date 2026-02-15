@@ -464,6 +464,97 @@ class TestLSMAppMethods:
         assert "hello\n" in seen
         assert "world\n" in seen
 
+    def test_handle_exception_recovers_screen_errors(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+        """Screen-origin exceptions should route through recoverable UI boundary."""
+        from lsm.ui.tui.app import LSMApp
+
+        app = LSMApp(_build_config(tmp_path))
+        handled = {}
+        delegated = {}
+
+        def _handled(error: Exception) -> None:
+            handled["error"] = error
+
+        monkeypatch.setattr(app, "_present_recoverable_ui_error", _handled)
+        monkeypatch.setattr(
+            App,
+            "_handle_exception",
+            lambda self, error: delegated.setdefault("error", error),
+        )
+
+        exc: Exception
+        try:
+            compiled = compile(
+                "def _boom():\n    raise RuntimeError('screen failure')\n_boom()\n",
+                "lsm/ui/tui/screens/query.py",
+                "exec",
+            )
+            exec(compiled, {}, {})
+            raise AssertionError("Expected RuntimeError")
+        except RuntimeError as error:
+            exc = error
+
+        app._handle_exception(exc)
+        assert handled["error"] is exc
+        assert "error" not in delegated
+
+    def test_handle_exception_delegates_non_screen_errors(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+        """Non-screen exceptions should use Textual default exception path."""
+        from lsm.ui.tui.app import LSMApp
+
+        app = LSMApp(_build_config(tmp_path))
+        handled = {}
+        delegated = {}
+
+        monkeypatch.setattr(
+            app,
+            "_present_recoverable_ui_error",
+            lambda error: handled.setdefault("error", error),
+        )
+        monkeypatch.setattr(
+            App,
+            "_handle_exception",
+            lambda self, error: delegated.setdefault("error", error),
+        )
+
+        exc: Exception
+        try:
+            compiled = compile(
+                "def _boom():\n    raise RuntimeError('core failure')\n_boom()\n",
+                "lsm/query/api.py",
+                "exec",
+            )
+            exec(compiled, {}, {})
+            raise AssertionError("Expected RuntimeError")
+        except RuntimeError as error:
+            exc = error
+
+        app._handle_exception(exc)
+        assert "error" not in handled
+        assert delegated["error"] is exc
+
+    def test_present_recoverable_ui_error_pushes_recovery_modal(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ):
+        """Recoverable UI boundary should notify and display recovery modal."""
+        from lsm.ui.tui.app import LSMApp
+        from lsm.ui.tui.screens.help import UIErrorRecoveryScreen
+
+        app = LSMApp(_build_config(tmp_path))
+        notices = []
+        pushed = {}
+        monkeypatch.setattr(app, "notify", lambda msg, **kwargs: notices.append((msg, kwargs)))
+        monkeypatch.setattr(app, "push_screen", lambda screen: pushed.setdefault("screen", screen))
+
+        error = RuntimeError("widget mutation failed")
+        app._present_recoverable_ui_error(error)
+
+        assert isinstance(pushed["screen"], UIErrorRecoveryScreen)
+        assert "Recovered from screen error" in notices[0][0]
+        assert app._last_ui_error_summary.startswith("RuntimeError:")
+
 
 class TestLSMAppActions:
     """Tests for LSMApp action methods."""
@@ -483,12 +574,14 @@ class TestLSMAppActions:
         assert hasattr(app, 'action_switch_query')
         assert hasattr(app, 'action_switch_settings')
         assert hasattr(app, 'action_show_help')
+        assert hasattr(app, 'action_return_safe_screen')
         assert hasattr(app, 'action_quit')
 
         assert callable(app.action_switch_ingest)
         assert callable(app.action_switch_query)
         assert callable(app.action_switch_settings)
         assert callable(app.action_show_help)
+        assert callable(app.action_return_safe_screen)
         assert callable(app.action_quit)
 
 
@@ -646,6 +739,23 @@ class TestLSMAppBehavior:
         tabs.active = ""
         app.action_settings_tab_2()
         assert tabs.active == ""
+
+    def test_return_safe_screen_switches_to_query(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+        from lsm.ui.tui.app import LSMApp
+
+        app = LSMApp(_build_config(tmp_path))
+        tabs = SimpleNamespace(active="agents")
+        app.current_context = "agents"
+        notices = []
+
+        app.query_one = lambda *_args, **_kwargs: tabs  # type: ignore[assignment]
+        monkeypatch.setattr(app, "notify", lambda msg, **kwargs: notices.append((msg, kwargs)))
+
+        app.action_return_safe_screen()
+        assert tabs.active == "query"
+        assert app.current_context == "query"
+        assert app.ui_state.active_context == "query"
+        assert notices and "Returned to Query screen." in notices[0][0]
 
     def test_show_help_and_quit(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
         from lsm.ui.tui.app import LSMApp

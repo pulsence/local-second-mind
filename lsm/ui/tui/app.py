@@ -16,6 +16,7 @@ import logging
 import sys
 import threading
 import time
+import traceback
 
 from textual.app import App, ComposeResult
 from textual.binding import Binding
@@ -25,7 +26,7 @@ from textual.reactive import reactive
 from textual.timer import Timer
 from textual.message import Message
 
-from lsm.logging import get_logger
+from lsm.logging import get_logger, format_exception_summary, exception_exc_info
 from lsm.ui.tui.state import AppState
 from lsm.ui.tui.widgets.status import StatusBar
 
@@ -107,6 +108,7 @@ class LSMApp(App):
     _NOTIFY_TIMEOUT_SECONDS = 5.0
     _NOTIFY_ERROR_TIMEOUT_SECONDS = 10.0
     _DEFAULT_WORKER_TIMEOUT_SECONDS = 3.0
+    _UI_ERROR_SUMMARY_MAX_LENGTH = 180
 
     BINDINGS = [
         Binding("ctrl+n", "switch_ingest", "Ingest", show=False),
@@ -116,6 +118,7 @@ class LSMApp(App):
         Binding("ctrl+s", "switch_settings", "Settings", show=False),
         Binding("ctrl+p", "switch_remote", "Remote", show=False),
         Binding("f1", "show_help", "Help", show=False),
+        Binding("f12", "return_safe_screen", "Safe Screen", show=False),
         Binding("ctrl+c", "quit", "Quit", show=False),
         Binding("ctrl+d", "quit", "Quit", show=False),
         Binding("ctrl+z", "quit", "Quit", show=False),
@@ -164,6 +167,9 @@ class LSMApp(App):
         self._managed_workers_lock = threading.RLock()
         self._managed_timers: dict[tuple[str, str], _ManagedTimer] = {}
         self._managed_timers_lock = threading.RLock()
+        self._recovering_ui_error: bool = False
+        self._ui_error_count: int = 0
+        self._last_ui_error_summary: str = ""
         self.ui_state = AppState(active_context="query", density_mode=self._density_mode)
 
     def compose(self) -> ComposeResult:
@@ -643,6 +649,88 @@ class LSMApp(App):
             return
 
     # -------------------------------------------------------------------------
+    # UI Error Boundary
+    # -------------------------------------------------------------------------
+
+    def _is_recoverable_ui_exception(self, error: Exception) -> bool:
+        """Return True when an exception originated from a TUI screen module."""
+        tb = error.__traceback__
+        if tb is None:
+            return False
+        try:
+            frames = traceback.extract_tb(tb)
+        except Exception:
+            return False
+        for frame in frames:
+            filename = str(getattr(frame, "filename", "")).replace("\\", "/").lower()
+            if "lsm/ui/tui/screens/" in filename:
+                return True
+        return False
+
+    def _set_safe_query_context(self) -> None:
+        """Switch app focus back to the Query tab/context."""
+        try:
+            tabbed_content = self.query_one(TabbedContent)
+            tabbed_content.active = "query"
+        except Exception:
+            logger.exception("Failed to activate safe Query tab during UI error recovery.")
+        self._set_active_context("query")
+
+    def _present_recoverable_ui_error(self, error: Exception) -> None:
+        """Render recoverable UI error state and keep app running."""
+        self._ui_error_count += 1
+        error_id = self._ui_error_count
+        summary = format_exception_summary(
+            error,
+            max_length=self._UI_ERROR_SUMMARY_MAX_LENGTH,
+        )
+        self._last_ui_error_summary = summary
+        logger.error(
+            "Recoverable UI screen exception #%s",
+            error_id,
+            exc_info=exception_exc_info(error),
+        )
+
+        user_message = (
+            f"Recovered from screen error #{error_id}. "
+            "Press F12 to return to Query."
+        )
+        try:
+            self.notify_event(
+                user_message,
+                severity="error",
+            )
+        except Exception:
+            logger.exception("Failed to emit recoverable UI error notification.")
+
+        try:
+            from lsm.ui.tui.screens.help import UIErrorRecoveryScreen
+
+            self.push_screen(
+                UIErrorRecoveryScreen(
+                    error_id=error_id,
+                    summary=summary,
+                )
+            )
+        except Exception:
+            logger.exception("Failed to display UI error recovery panel.")
+            self._set_safe_query_context()
+
+    def _handle_exception(self, error: Exception) -> None:
+        """Handle unhandled exceptions with recoverable screen-level boundary."""
+        if self._recovering_ui_error:
+            super()._handle_exception(error)
+            return
+        if self._is_recoverable_ui_exception(error):
+            self._recovering_ui_error = True
+            try:
+                self._present_recoverable_ui_error(error)
+            finally:
+                self._recovering_ui_error = False
+            return
+        super()._handle_exception(error)
+
+    # -------------------------------------------------------------------------
     # Density and Responsive Layout
     # -------------------------------------------------------------------------
 
@@ -978,6 +1066,17 @@ class LSMApp(App):
     def action_settings_tab_8(self) -> None:
         """Switch to the settings chats/notes tab."""
         self._activate_settings_tab("settings-chats-notes")
+
+    def action_return_safe_screen(self) -> None:
+        """Return to the safe Query screen after recoverable UI issues."""
+        self._set_safe_query_context()
+        try:
+            self.notify_event(
+                "Returned to Query screen.",
+                severity="warning",
+            )
+        except Exception:
+            pass
 
     def action_show_help(self) -> None:
         """Show help modal."""

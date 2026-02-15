@@ -35,6 +35,11 @@ class TestScreenImports:
         from lsm.ui.tui.screens.help import HelpScreen
         assert HelpScreen is not None
 
+    def test_import_ui_error_recovery_screen(self):
+        """Should be able to import UIErrorRecoveryScreen."""
+        from lsm.ui.tui.screens.help import UIErrorRecoveryScreen
+        assert UIErrorRecoveryScreen is not None
+
     def test_import_main_screen(self):
         """Should be able to import MainScreen."""
         from lsm.ui.tui.screens.main import MainScreen
@@ -115,6 +120,11 @@ class TestHelpScreen:
         from lsm.ui.tui.screens.help import HelpScreen
         assert issubclass(HelpScreen, ModalScreen)
 
+    def test_ui_error_recovery_is_modal_screen(self):
+        """UIErrorRecoveryScreen should be a ModalScreen subclass."""
+        from lsm.ui.tui.screens.help import UIErrorRecoveryScreen
+        assert issubclass(UIErrorRecoveryScreen, ModalScreen)
+
     def test_has_dismiss_binding(self):
         """HelpScreen should have escape binding to dismiss."""
         from lsm.ui.tui.screens.help import HelpScreen
@@ -122,6 +132,14 @@ class TestHelpScreen:
         bindings = HelpScreen.BINDINGS
         escape_bindings = [b for b in bindings if b.key == "escape"]
         assert len(escape_bindings) > 0
+
+    def test_ui_error_recovery_defaults_summary(self):
+        """UIErrorRecoveryScreen should normalize empty summaries."""
+        from lsm.ui.tui.screens.help import UIErrorRecoveryScreen
+
+        screen = UIErrorRecoveryScreen(error_id=0, summary="")
+        assert screen.error_id == 1
+        assert screen.summary == "Unknown UI error."
 
     def test_defaults_to_query_context(self):
         """HelpScreen defaults to query context."""
