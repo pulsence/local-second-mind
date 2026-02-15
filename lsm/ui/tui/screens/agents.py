@@ -72,6 +72,9 @@ class AgentsScreen(Widget):
         Binding("f11", "interaction_reply", "Reply", show=False),
     ]
     _STOP_WORKER_TIMEOUT_SECONDS = 5.0
+    _RUNNING_REFRESH_TIMER_KEY = "running-refresh"
+    _INTERACTION_POLL_TIMER_KEY = "interaction-poll"
+    _LOG_STREAM_TIMER_KEY = "log-stream"
 
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
@@ -323,19 +326,11 @@ class AgentsScreen(Widget):
         self._refresh_memory_candidates()
         self._restart_running_refresh_timer()
         self._restart_interaction_poll_timer()
-        self._log_stream_timer = self._start_timer(
-            interval_seconds=0.5,
-            callback=self._drain_log_streams,
-        )
+        self._restart_log_stream_timer()
         self._focus_default_input()
 
     def on_unmount(self) -> None:
-        for timer in (
-            self._running_refresh_timer,
-            self._interaction_poll_timer,
-            self._log_stream_timer,
-        ):
-            self._stop_timer(timer)
+        self._stop_managed_timers(reason="agents-unmount")
         self._running_refresh_timer = None
         self._interaction_poll_timer = None
         self._log_stream_timer = None
@@ -719,6 +714,33 @@ class AgentsScreen(Widget):
         except Exception:
             return None
 
+    def _start_managed_timer(
+        self,
+        *,
+        key: str,
+        interval_seconds: float,
+        callback,
+    ) -> Optional[Timer]:
+        app_obj = getattr(self, "app", None)
+        start_timer = getattr(app_obj, "start_managed_timer", None)
+        if callable(start_timer):
+            try:
+                return start_timer(
+                    owner=self._worker_owner_token(),
+                    key=key,
+                    start=lambda: self._start_timer(
+                        interval_seconds=interval_seconds,
+                        callback=callback,
+                    ),
+                    restart=False,
+                )
+            except Exception:
+                logger.exception("Failed to start managed timer '%s'.", key)
+        return self._start_timer(
+            interval_seconds=interval_seconds,
+            callback=callback,
+        )
+
     def _stop_timer(self, timer: Optional[Timer]) -> None:
         if timer is None:
             return
@@ -726,6 +748,46 @@ class AgentsScreen(Widget):
             timer.stop()
         except Exception:
             return
+
+    def _stop_managed_timer(
+        self,
+        *,
+        key: str,
+        timer: Optional[Timer],
+        reason: str,
+    ) -> None:
+        app_obj = getattr(self, "app", None)
+        stop_timer = getattr(app_obj, "stop_managed_timer", None)
+        if callable(stop_timer):
+            try:
+                stop_timer(
+                    owner=self._worker_owner_token(),
+                    key=key,
+                    reason=reason,
+                )
+                return
+            except Exception:
+                logger.exception("Failed to stop managed timer '%s'.", key)
+        self._stop_timer(timer)
+
+    def _stop_managed_timers(self, *, reason: str) -> None:
+        app_obj = getattr(self, "app", None)
+        stop_owner = getattr(app_obj, "stop_managed_timers_for_owner", None)
+        if callable(stop_owner):
+            try:
+                stop_owner(
+                    owner=self._worker_owner_token(),
+                    reason=reason,
+                )
+                return
+            except Exception:
+                logger.exception("Failed to stop managed timers (%s).", reason)
+        for timer in (
+            self._running_refresh_timer,
+            self._interaction_poll_timer,
+            self._log_stream_timer,
+        ):
+            self._stop_timer(timer)
 
     def _initialize_refresh_controls(self) -> None:
         running_options = [
@@ -796,23 +858,45 @@ class AgentsScreen(Widget):
         )
 
     def _restart_running_refresh_timer(self) -> None:
-        self._stop_timer(self._running_refresh_timer)
+        self._stop_managed_timer(
+            key=self._RUNNING_REFRESH_TIMER_KEY,
+            timer=self._running_refresh_timer,
+            reason="running-refresh-restart",
+        )
         self._running_refresh_timer = None
         if not self._running_refresh_enabled:
             return
-        self._running_refresh_timer = self._start_timer(
+        self._running_refresh_timer = self._start_managed_timer(
+            key=self._RUNNING_REFRESH_TIMER_KEY,
             interval_seconds=self._running_refresh_interval_seconds,
             callback=self._refresh_running_agents,
         )
 
     def _restart_interaction_poll_timer(self) -> None:
-        self._stop_timer(self._interaction_poll_timer)
+        self._stop_managed_timer(
+            key=self._INTERACTION_POLL_TIMER_KEY,
+            timer=self._interaction_poll_timer,
+            reason="interaction-poll-restart",
+        )
         self._interaction_poll_timer = None
         if not self._interaction_poll_enabled:
             return
-        self._interaction_poll_timer = self._start_timer(
+        self._interaction_poll_timer = self._start_managed_timer(
+            key=self._INTERACTION_POLL_TIMER_KEY,
             interval_seconds=self._interaction_poll_interval_seconds,
             callback=self._refresh_interaction_panel,
+        )
+
+    def _restart_log_stream_timer(self) -> None:
+        self._stop_managed_timer(
+            key=self._LOG_STREAM_TIMER_KEY,
+            timer=self._log_stream_timer,
+            reason="log-stream-restart",
+        )
+        self._log_stream_timer = self._start_managed_timer(
+            key=self._LOG_STREAM_TIMER_KEY,
+            interval_seconds=0.5,
+            callback=self._drain_log_streams,
         )
 
     def _toggle_running_refresh(self) -> None:

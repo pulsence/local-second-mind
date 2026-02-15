@@ -657,6 +657,48 @@ def test_timer_lifecycle_starts_restarts_and_stops_without_leaks(monkeypatch) ->
     assert log_timer is not None and log_timer.stop_calls == 1
 
 
+def test_timer_lifecycle_repeated_mount_restarts_all_timers(monkeypatch) -> None:
+    screen = _screen()
+    manager = _Manager()
+    monkeypatch.setattr(
+        "lsm.ui.tui.screens.agents.AgentRegistry",
+        lambda: SimpleNamespace(list_agents=lambda: ["research", "writing"]),
+    )
+    monkeypatch.setattr(
+        "lsm.ui.tui.screens.agents.get_agent_runtime_manager",
+        lambda: manager,
+    )
+
+    class _Timer:
+        def __init__(self) -> None:
+            self.stop_calls = 0
+
+        def stop(self) -> None:
+            self.stop_calls += 1
+
+    started: list[_Timer] = []
+
+    def _fake_start_timer(*, interval_seconds, callback):
+        _ = interval_seconds, callback
+        timer = _Timer()
+        started.append(timer)
+        return timer
+
+    screen._start_timer = _fake_start_timer  # type: ignore[method-assign]
+    screen.on_mount()
+    first_generation = list(started)
+    assert len(first_generation) == 3
+
+    screen.on_mount()
+    second_generation = started[3:]
+    assert len(second_generation) == 3
+    assert all(timer.stop_calls == 1 for timer in first_generation)
+    assert all(timer.stop_calls == 0 for timer in second_generation)
+
+    screen.on_unmount()
+    assert all(timer.stop_calls == 1 for timer in second_generation)
+
+
 def test_interaction_panel_mode_switches_permission_to_clarification(monkeypatch) -> None:
     screen = _screen()
     manager = _Manager()

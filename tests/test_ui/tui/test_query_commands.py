@@ -114,6 +114,7 @@ class _FakeApp:
         self._tui_log_buffer = ["a", "b"]
         self.start_managed_worker = lambda **kwargs: kwargs["start"]()
         self.cancel_managed_workers_for_owner = lambda **kwargs: {}
+        self.stop_managed_timers_for_owner = lambda **kwargs: {}
 
     def notify(self, msg: str, severity: str = "info"):
         self.notified.append((msg, severity))
@@ -351,6 +352,21 @@ def test_on_unmount_cancels_managed_workers() -> None:
         return {"query-input": True}
 
     screen.app.cancel_managed_workers_for_owner = _cancel_owner
+    screen.on_unmount()
+
+    assert seen["reason"] == "query-unmount"
+
+
+def test_on_unmount_stops_managed_timers() -> None:
+    screen = _screen()
+    seen = {}
+
+    def _stop_owner(*, owner, reason):
+        seen["owner"] = owner
+        seen["reason"] = reason
+        return {"query-refresh": True}
+
+    screen.app.stop_managed_timers_for_owner = _stop_owner
     screen.on_unmount()
 
     assert seen["reason"] == "query-unmount"

@@ -68,6 +68,16 @@ class _ManagedWorker:
     started_at: float = field(default_factory=time.monotonic)
 
 
+@dataclass
+class _ManagedTimer:
+    """Lifecycle metadata for an app-managed timer object."""
+
+    owner: str
+    key: str
+    timer: Timer
+    started_at: float = field(default_factory=time.monotonic)
+
+
 class LSMApp(App):
     """
     Local Second Mind TUI Application.
@@ -152,6 +162,8 @@ class LSMApp(App):
         self._strict_ui_thread_checks: bool = False
         self._managed_workers: dict[tuple[str, str], _ManagedWorker] = {}
         self._managed_workers_lock = threading.RLock()
+        self._managed_timers: dict[tuple[str, str], _ManagedTimer] = {}
+        self._managed_timers_lock = threading.RLock()
         self.ui_state = AppState(active_context="query", density_mode=self._density_mode)
 
     def compose(self) -> ComposeResult:
@@ -334,12 +346,37 @@ class LSMApp(App):
         with self._managed_workers_lock:
             self._managed_workers[(owner_token, key_token)] = record
 
+    def register_managed_timer(
+        self,
+        *,
+        owner: str,
+        key: str,
+        timer: Timer,
+    ) -> None:
+        """Register a timer object for lifecycle management."""
+        owner_token = self._normalize_worker_token(owner, fallback="app")
+        key_token = self._normalize_worker_token(key, fallback="timer")
+        record = _ManagedTimer(
+            owner=owner_token,
+            key=key_token,
+            timer=timer,
+        )
+        with self._managed_timers_lock:
+            self._managed_timers[(owner_token, key_token)] = record
+
     def clear_managed_worker(self, *, owner: str, key: str) -> None:
         """Remove a worker from lifecycle tracking without cancelling it."""
         owner_token = self._normalize_worker_token(owner, fallback="app")
         key_token = self._normalize_worker_token(key, fallback="worker")
         with self._managed_workers_lock:
             self._managed_workers.pop((owner_token, key_token), None)
+
+    def clear_managed_timer(self, *, owner: str, key: str) -> None:
+        """Remove a timer from lifecycle tracking without stopping it."""
+        owner_token = self._normalize_worker_token(owner, fallback="app")
+        key_token = self._normalize_worker_token(key, fallback="timer")
+        with self._managed_timers_lock:
+            self._managed_timers.pop((owner_token, key_token), None)
 
     def start_managed_worker(
         self,
@@ -371,6 +408,33 @@ class LSMApp(App):
             timeout_s=timeout_value,
         )
         return worker
+
+    def start_managed_timer(
+        self,
+        *,
+        owner: str,
+        key: str,
+        start: Callable[[], Timer | None],
+        restart: bool = True,
+    ) -> Timer | None:
+        """Start and register a timer with idempotent restart semantics."""
+        owner_token = self._normalize_worker_token(owner, fallback="app")
+        key_token = self._normalize_worker_token(key, fallback="timer")
+        if restart:
+            self.stop_managed_timer(
+                owner=owner_token,
+                key=key_token,
+                reason="replaced",
+            )
+        timer = start()
+        if timer is None:
+            return None
+        self.register_managed_timer(
+            owner=owner_token,
+            key=key_token,
+            timer=timer,
+        )
+        return timer
 
     def cancel_managed_worker(
         self,
@@ -431,6 +495,33 @@ class LSMApp(App):
             return False
         return True
 
+    def stop_managed_timer(
+        self,
+        *,
+        owner: str,
+        key: str,
+        reason: str = "",
+    ) -> bool:
+        """Stop a managed timer, returning True when stop succeeds."""
+        owner_token = self._normalize_worker_token(owner, fallback="app")
+        key_token = self._normalize_worker_token(key, fallback="timer")
+        with self._managed_timers_lock:
+            record = self._managed_timers.pop((owner_token, key_token), None)
+        if record is None:
+            return True
+        detail = f" ({reason})" if reason else ""
+        try:
+            record.timer.stop()
+            return True
+        except Exception:
+            logger.exception(
+                "Failed to stop timer %s:%s%s",
+                owner_token,
+                key_token,
+                detail,
+            )
+            return False
+
     def cancel_managed_workers_for_owner(
         self,
         *,
@@ -452,6 +543,25 @@ class LSMApp(App):
             )
         return results
 
+    def stop_managed_timers_for_owner(
+        self,
+        *,
+        owner: str,
+        reason: str = "",
+    ) -> dict[str, bool]:
+        """Stop all timers registered for a screen/owner."""
+        owner_token = self._normalize_worker_token(owner, fallback="app")
+        with self._managed_timers_lock:
+            keys = [key for (timer_owner, key) in self._managed_timers if timer_owner == owner_token]
+        results: dict[str, bool] = {}
+        for key in keys:
+            results[key] = self.stop_managed_timer(
+                owner=owner_token,
+                key=key,
+                reason=reason,
+            )
+        return results
+
     def shutdown_managed_workers(
         self,
         *,
@@ -468,6 +578,23 @@ class LSMApp(App):
                 key=key_token,
                 reason=reason,
                 timeout_s=timeout_s,
+            )
+        return results
+
+    def shutdown_managed_timers(
+        self,
+        *,
+        reason: str = "",
+    ) -> dict[str, bool]:
+        """Stop all tracked timers during app shutdown."""
+        with self._managed_timers_lock:
+            timer_keys = list(self._managed_timers.keys())
+        results: dict[str, bool] = {}
+        for owner_token, key_token in timer_keys:
+            results[f"{owner_token}:{key_token}"] = self.stop_managed_timer(
+                owner=owner_token,
+                key=key_token,
+                reason=reason,
             )
         return results
 
@@ -565,9 +692,12 @@ class LSMApp(App):
             global_settings.tui_density_mode = self._density_mode
 
         if self._density_mode != "auto":
-            if self._density_resize_timer is not None:
-                self._density_resize_timer.stop()
-                self._density_resize_timer = None
+            self.stop_managed_timer(
+                owner="app",
+                key="density-resize",
+                reason="density-mode-change",
+            )
+            self._density_resize_timer = None
             self._pending_resize_dimensions = None
 
         self._apply_density_mode(force=True)
@@ -584,15 +714,19 @@ class LSMApp(App):
     def _schedule_auto_density_recalc(self, width: int, height: int) -> None:
         """Debounce auto-density updates while the terminal is being resized."""
         self._pending_resize_dimensions = (width, height)
-        if self._density_resize_timer is not None:
-            self._density_resize_timer.stop()
-        self._density_resize_timer = self.set_timer(
-            self._DENSITY_RESIZE_DEBOUNCE_SECONDS,
-            self._apply_pending_auto_density,
+        self._density_resize_timer = self.start_managed_timer(
+            owner="app",
+            key="density-resize",
+            start=lambda: self.set_timer(
+                self._DENSITY_RESIZE_DEBOUNCE_SECONDS,
+                self._apply_pending_auto_density,
+            ),
+            restart=True,
         )
 
     def _apply_pending_auto_density(self) -> None:
         """Apply auto density using the most recent pending terminal size."""
+        self.clear_managed_timer(owner="app", key="density-resize")
         self._density_resize_timer = None
         if self._density_mode != "auto":
             self._pending_resize_dimensions = None
@@ -853,6 +987,7 @@ class LSMApp(App):
     def action_quit(self) -> None:
         """Quit the application."""
         logger.info("User requested quit")
+        self.shutdown_managed_timers(reason="app-quit")
         self.shutdown_managed_workers(reason="app-quit")
         self._unbind_agent_runtime_events()
         self.exit()

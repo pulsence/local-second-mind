@@ -337,6 +337,81 @@ class TestLSMAppMethods:
         assert completed is True
         assert seen["cancelled"] is True
 
+    def test_start_managed_timer_restarts_existing_timer(self):
+        """Managed timer starts should replace and stop prior timers for the same key."""
+        from lsm.ui.tui.app import LSMApp
+
+        mock_config = Mock()
+        mock_config.vectordb = Mock()
+        mock_config.query = Mock()
+        mock_config.query.mode = "grounded"
+
+        app = LSMApp(mock_config)
+
+        class _Timer:
+            def __init__(self) -> None:
+                self.stop_calls = 0
+
+            def stop(self) -> None:
+                self.stop_calls += 1
+
+        first = _Timer()
+        second = _Timer()
+        timers = [first, second]
+
+        started = app.start_managed_timer(
+            owner="agents",
+            key="poll",
+            start=lambda: timers.pop(0),
+        )
+        assert started is first
+        assert first.stop_calls == 0
+
+        restarted = app.start_managed_timer(
+            owner="agents",
+            key="poll",
+            start=lambda: timers.pop(0),
+        )
+        assert restarted is second
+        assert first.stop_calls == 1
+        assert second.stop_calls == 0
+
+        stopped = app.stop_managed_timer(owner="agents", key="poll")
+        assert stopped is True
+        assert second.stop_calls == 1
+
+    def test_shutdown_managed_timers_stops_all(self):
+        """shutdown_managed_timers should stop every tracked timer exactly once."""
+        from lsm.ui.tui.app import LSMApp
+
+        mock_config = Mock()
+        mock_config.vectordb = Mock()
+        mock_config.query = Mock()
+        mock_config.query.mode = "grounded"
+
+        app = LSMApp(mock_config)
+
+        class _Timer:
+            def __init__(self) -> None:
+                self.stop_calls = 0
+
+            def stop(self) -> None:
+                self.stop_calls += 1
+
+        query_timer = _Timer()
+        agents_timer = _Timer()
+        app.register_managed_timer(owner="query", key="refresh", timer=query_timer)
+        app.register_managed_timer(owner="agents", key="poll", timer=agents_timer)
+
+        results = app.shutdown_managed_timers(reason="test")
+
+        assert results == {
+            "query:refresh": True,
+            "agents:poll": True,
+        }
+        assert query_timer.stop_calls == 1
+        assert agents_timer.stop_calls == 1
+
     def test_setup_tui_logging_keeps_std_streams(self, tmp_path: Path):
         """_setup_tui_logging should not replace sys.stdout/sys.stderr."""
         from lsm.ui.tui.app import LSMApp
@@ -578,8 +653,24 @@ class TestLSMAppBehavior:
 
         app = LSMApp(_build_config(tmp_path))
         pushed = {}
+        shutdown = {}
         monkeypatch.setattr(app, "push_screen", lambda screen: pushed.setdefault("screen", screen))
         monkeypatch.setattr(app, "exit", lambda: pushed.setdefault("quit", True))
+        monkeypatch.setattr(
+            app,
+            "shutdown_managed_timers",
+            lambda *, reason="": shutdown.setdefault("timers", reason) or {},
+        )
+        monkeypatch.setattr(
+            app,
+            "shutdown_managed_workers",
+            lambda *, reason="", timeout_s=None: shutdown.setdefault("workers", reason) or {},
+        )
+        monkeypatch.setattr(
+            app,
+            "_unbind_agent_runtime_events",
+            lambda: shutdown.setdefault("unbind", True),
+        )
         app.current_context = "agents"
 
         app.action_show_help()
@@ -587,6 +678,9 @@ class TestLSMAppBehavior:
         assert pushed["screen"].context == "agents"
         app.action_quit()
         assert pushed["quit"] is True
+        assert shutdown["timers"] == "app-quit"
+        assert shutdown["workers"] == "app-quit"
+        assert shutdown["unbind"] is True
 
     def test_notify_event_records_ui_state(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
         from lsm.ui.tui.app import LSMApp

@@ -410,6 +410,25 @@ def test_on_unmount_cancels_managed_workers_via_app() -> None:
     assert seen["reason"] == "agents-unmount"
 
 
+def test_on_unmount_stops_managed_timers_via_app() -> None:
+    screen = _screen()
+    seen = {}
+
+    def _stop_owner(*, owner, reason):
+        seen["owner"] = owner
+        seen["reason"] = reason
+        return {
+            "running-refresh": True,
+            "interaction-poll": True,
+            "log-stream": True,
+        }
+
+    screen.app.stop_managed_timers_for_owner = _stop_owner
+    screen.on_unmount()
+
+    assert seen["reason"] == "agents-unmount"
+
+
 def test_on_unmount_sets_status_when_stop_worker_times_out() -> None:
     screen = _screen()
     screen._STOP_WORKER_TIMEOUT_SECONDS = 0.01  # type: ignore[attr-defined]

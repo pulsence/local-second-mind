@@ -162,6 +162,7 @@ class QueryScreen(Widget):
 
     def on_unmount(self) -> None:
         self._cancel_managed_workers(reason="query-unmount")
+        self._cancel_managed_timers(reason="query-unmount")
 
     def on_citation_selected(self, event: CitationSelected) -> None:
         """Handle citation selection from ResultsPanel."""
@@ -1059,5 +1060,24 @@ Use /mode to switch between grounded, insight, and hybrid modes."""
         if any(not bool(result) for result in results.values()):
             logger.warning(
                 "Query worker shutdown hit timeout for owner '%s'.",
+                self._worker_owner_token(),
+            )
+
+    def _cancel_managed_timers(self, *, reason: str) -> None:
+        app_obj = getattr(self, "app", None)
+        cancel_owner = getattr(app_obj, "stop_managed_timers_for_owner", None)
+        if not callable(cancel_owner):
+            return
+        try:
+            results = cancel_owner(
+                owner=self._worker_owner_token(),
+                reason=reason,
+            )
+        except Exception:
+            logger.exception("Failed to stop query managed timers (%s).", reason)
+            return
+        if any(not bool(result) for result in results.values()):
+            logger.warning(
+                "Query timer shutdown had stop failures for owner '%s'.",
                 self._worker_owner_token(),
             )

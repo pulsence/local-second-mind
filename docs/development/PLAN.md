@@ -658,7 +658,7 @@ Ensure all background work communicates with the UI through a single event/messa
 
 **Post-block:** Add thread-safety tests for event-driven updates, run `pytest tests/ -v`, commit.
 
-### 5.3: Worker Lifecycle Standards
+### 5.3: Worker Lifecycle Standards (COMPLETED)
 
 Standardize long-running operation handling across TUI surfaces.
 
@@ -676,7 +676,7 @@ Standardize long-running operation handling across TUI surfaces.
 
 **Post-block:** Add worker timeout/cancel tests, run `pytest tests/ -v`, commit.
 
-### 5.4: Timer Lifecycle Safety
+### 5.4: Timer Lifecycle Safety (COMPLETED)
 
 Prevent leaked timers and duplicate polling loops.
 

@@ -171,6 +171,7 @@ class IngestScreen(Widget):
 
     def on_unmount(self) -> None:
         self._cancel_managed_workers(reason="ingest-unmount")
+        self._cancel_managed_timers(reason="ingest-unmount")
 
     async def on_command_submitted(self, event: CommandSubmitted) -> None:
         """Handle command input submission from CommandInput widget."""
@@ -639,5 +640,24 @@ class IngestScreen(Widget):
         if any(not bool(result) for result in results.values()):
             logger.warning(
                 "Ingest worker shutdown hit timeout for owner '%s'.",
+                self._worker_owner_token(),
+            )
+
+    def _cancel_managed_timers(self, *, reason: str) -> None:
+        app_obj = getattr(self, "app", None)
+        cancel_owner = getattr(app_obj, "stop_managed_timers_for_owner", None)
+        if not callable(cancel_owner):
+            return
+        try:
+            results = cancel_owner(
+                owner=self._worker_owner_token(),
+                reason=reason,
+            )
+        except Exception:
+            logger.exception("Failed to stop ingest managed timers (%s).", reason)
+            return
+        if any(not bool(result) for result in results.values()):
+            logger.warning(
+                "Ingest timer shutdown had stop failures for owner '%s'.",
                 self._worker_owner_token(),
             )

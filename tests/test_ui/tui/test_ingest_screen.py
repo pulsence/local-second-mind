@@ -108,6 +108,7 @@ def _screen(current_context: str = "ingest"):
         notify_event=lambda message, **kwargs: notifications.append((message, kwargs)),
         start_managed_worker=_start_managed_worker,
         cancel_managed_workers_for_owner=lambda **kwargs: {},
+        stop_managed_timers_for_owner=lambda **kwargs: {},
     )
     screen = _TestableIngestScreen(app)
     screen.widgets["#ingest-output"] = _Static()
@@ -315,6 +316,21 @@ def test_on_unmount_cancels_managed_workers() -> None:
         return {"ingest-command": True}
 
     screen.app.cancel_managed_workers_for_owner = _cancel_owner
+    screen.on_unmount()
+
+    assert seen["reason"] == "ingest-unmount"
+
+
+def test_on_unmount_stops_managed_timers() -> None:
+    screen = _screen()
+    seen = {}
+
+    def _stop_owner(*, owner, reason):
+        seen["owner"] = owner
+        seen["reason"] = reason
+        return {"ingest-refresh": True}
+
+    screen.app.stop_managed_timers_for_owner = _stop_owner
     screen.on_unmount()
 
     assert seen["reason"] == "ingest-unmount"
