@@ -298,6 +298,19 @@ def test_refresh_loads_external_config_object() -> None:
     assert vm.load_calls == [new_config]
 
 
+def test_on_unmount_cancels_managed_lifecycle_entries() -> None:
+    screen, _ = _screen()
+    cancelled: list[str] = []
+    stopped: list[str] = []
+    screen.app.cancel_managed_workers_for_owner = lambda **kwargs: cancelled.append(kwargs["reason"]) or {}  # type: ignore[attr-defined]
+    screen.app.stop_managed_timers_for_owner = lambda **kwargs: stopped.append(kwargs["reason"]) or {}  # type: ignore[attr-defined]
+
+    screen.on_unmount()
+
+    assert cancelled == ["settings-unmount"]
+    assert stopped == ["settings-unmount"]
+
+
 # -------------------------------------------------------------------------
 # 5.6: Dirty-state and unsaved-change guards
 # -------------------------------------------------------------------------

@@ -224,6 +224,19 @@ def test_button_press_and_input_submit() -> None:
     assert len(screen.worker_calls) == 2
 
 
+def test_on_unmount_cancels_managed_lifecycle_entries() -> None:
+    screen = _screen()
+    cancelled: list[str] = []
+    stopped: list[str] = []
+    screen.app.cancel_managed_workers_for_owner = lambda **kwargs: cancelled.append(kwargs["reason"]) or {}  # type: ignore[attr-defined]
+    screen.app.stop_managed_timers_for_owner = lambda **kwargs: stopped.append(kwargs["reason"]) or {}  # type: ignore[attr-defined]
+
+    screen.on_unmount()
+
+    assert cancelled == ["remote-unmount"]
+    assert stopped == ["remote-unmount"]
+
+
 def test_ensure_query_state(monkeypatch: pytest.MonkeyPatch) -> None:
     screen = _screen()
     created = {}

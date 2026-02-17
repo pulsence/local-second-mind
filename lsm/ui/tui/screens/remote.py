@@ -16,6 +16,7 @@ from textual.widget import Widget
 from textual.reactive import reactive
 
 from lsm.logging import get_logger
+from lsm.ui.tui.screens.base import ManagedScreenMixin
 from lsm.ui.utils import run_remote_search, run_remote_search_all
 from lsm.query.session import SessionState
 from lsm.query.cost_tracking import CostTracker
@@ -24,7 +25,7 @@ from lsm.remote import get_registered_providers
 logger = get_logger(__name__)
 
 
-class RemoteScreen(Widget):
+class RemoteScreen(ManagedScreenMixin, Widget):
     """
     Remote providers screen.
 
@@ -33,6 +34,8 @@ class RemoteScreen(Widget):
 
     ALL_PROVIDERS_VALUE = "__all__"
     is_loading: reactive[bool] = reactive(False)
+    _REMOTE_SEARCH_WORKER_KEY = "remote-search"
+    _REMOTE_SEARCH_WORKER_TIMEOUT_SECONDS = 45.0
 
     BINDINGS = [
         Binding("tab", "focus_next", "Next", show=False),
@@ -91,9 +94,21 @@ class RemoteScreen(Widget):
                 log_widget.write(f"{message}\n")
             log_widget.scroll_end()
 
+    def on_unmount(self) -> None:
+        self._cancel_managed_workers(reason="remote-unmount")
+        self._cancel_managed_timers(reason="remote-unmount")
+
+    def _schedule_search_worker(self) -> None:
+        self._start_managed_worker(
+            worker_key=self._REMOTE_SEARCH_WORKER_KEY,
+            work_factory=self._run_search,
+            timeout_s=self._REMOTE_SEARCH_WORKER_TIMEOUT_SECONDS,
+            exclusive=True,
+        )
+
     def action_run_search(self) -> None:
         """Run remote search from keybinding."""
-        self.run_worker(self._run_search(), exclusive=True)
+        self._schedule_search_worker()
 
     def action_refresh_providers(self) -> None:
         """Refresh provider list from keybinding."""
@@ -103,7 +118,7 @@ class RemoteScreen(Widget):
         """Handle button presses."""
         button_id = event.button.id or ""
         if button_id == "remote-search-button":
-            self.run_worker(self._run_search(), exclusive=True)
+            self._schedule_search_worker()
             return
         if button_id == "remote-refresh-button":
             self._refresh_provider_list()
@@ -115,7 +130,7 @@ class RemoteScreen(Widget):
     def on_input_submitted(self, event: Input.Submitted) -> None:
         """Handle Enter from input fields."""
         if event.input.id == "remote-query-input":
-            self.run_worker(self._run_search(), exclusive=True)
+            self._schedule_search_worker()
 
     def on_select_changed(self, event: Select.Changed) -> None:
         """Move focus to query input after provider selection."""

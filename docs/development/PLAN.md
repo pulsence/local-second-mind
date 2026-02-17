@@ -880,11 +880,11 @@ Summarize Phase 5 changes into `docs/development/CHANGELOG.md`.
 
 ---
 
-## Phase 6: TUI Startup and Performance
+## Phase 6: TUI Startup and Performance (COMPLETED)
 
 This phase enforces startup stability and a measurable startup performance budget.
 
-### 6.1: TUI Startup Smoke Test (Home Screen)
+### 6.1: TUI Startup Smoke Test (Home Screen) (COMPLETED)
 
 Add a startup smoke test that launches the TUI and verifies it reaches the default home screen
 (Query) without crashing.
@@ -906,7 +906,7 @@ Add a startup smoke test that launches the TUI and verifies it reaches the defau
 
 **Post-block:** Run `pytest tests/test_ui/tui/test_startup_smoke.py -v` and full suite `pytest tests/ -v`, commit.
 
-### 6.2: TUI Startup Performance Budget and Lazy Background Loading
+### 6.2: TUI Startup Performance Budget and Lazy Background Loading (COMPLETED)
 
 Enforce fast perceived startup by loading into Query/Home in under one second and deferring
 non-critical initialization to background workers.
@@ -941,7 +941,7 @@ non-critical initialization to background workers.
 
 **Post-block:** Run startup smoke + performance test group and full tests, `pytest tests/ -v`, commit.
 
-### 6.3: Phase 6 Code Review
+### 6.3: Phase 6 Code Review (COMPLETED)
 
 **Tasks:**
 - Review the changes made in Phase 6 and ensure that the phase is
@@ -952,7 +952,7 @@ non-critical initialization to background workers.
   mock or stub tests.
 - Ensure all documentation in docs/ is properly updated.
 
-### 6.4: Phase 6 Changelog
+### 6.4: Phase 6 Changelog (COMPLETED)
 
 Summarize Phase 6 changes into `docs/development/CHANGELOG.md`.
 

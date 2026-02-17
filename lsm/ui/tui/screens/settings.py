@@ -13,12 +13,13 @@ from textual.widget import Widget
 from textual.widgets import DataTable, Input, Static, TabbedContent, TabPane
 
 from lsm.logging import get_logger
+from lsm.ui.tui.screens.base import ManagedScreenMixin
 from lsm.ui.tui.state import SettingTableRow, SettingsActionResult, SettingsViewModel
 
 logger = get_logger(__name__)
 
 
-class SettingsScreen(Widget):
+class SettingsScreen(ManagedScreenMixin, Widget):
     """Controller for the command-table settings editor."""
 
     current_mode: str = "grounded"
@@ -107,6 +108,10 @@ class SettingsScreen(Widget):
 
     def on_show(self) -> None:
         self.refresh_from_config()
+
+    def on_unmount(self) -> None:
+        self._cancel_managed_workers(reason="settings-unmount")
+        self._cancel_managed_timers(reason="settings-unmount")
 
     def on_tabbed_content_tab_activated(self, event: TabbedContent.TabActivated) -> None:
         tabbed = getattr(event, "tabbed_content", None)

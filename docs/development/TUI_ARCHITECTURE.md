@@ -13,10 +13,10 @@ whose panes contain the five tab widgets:
 | Tab | Widget class | Module |
 |-----|-------------|--------|
 | Query | `QueryScreen(ManagedScreenMixin, Widget)` | `screens/query.py` |
-| Ingest | `IngestScreen(Widget)` | `screens/ingest.py` |
-| Remote | `RemoteScreen(Widget)` | `screens/remote.py` |
-| Agents | `AgentsScreen(Widget)` | `screens/agents.py` |
-| Settings | `SettingsScreen(Widget)` | `screens/settings.py` |
+| Ingest | `IngestScreen(ManagedScreenMixin, Widget)` | `screens/ingest.py` |
+| Remote | `RemoteScreen(ManagedScreenMixin, Widget)` | `screens/remote.py` |
+| Agents | `AgentsScreen(ManagedScreenMixin, Widget)` | `screens/agents.py` |
+| Settings | `SettingsScreen(ManagedScreenMixin, Widget)` | `screens/settings.py` |
 
 All tab widgets inherit from `ManagedScreenMixin` (`screens/base.py`) which
 provides worker/timer lifecycle helpers. Screens that need custom shutdown
