@@ -38,7 +38,7 @@ def test_main_dispatches_ingest(tmp_path: Path, monkeypatch: pytest.MonkeyPatch)
 
     monkeypatch.setattr(lsm_main, "configure_logging_from_args", lambda **kwargs: None)
     monkeypatch.setattr("lsm.config.load_config_from_file", lambda p: fake_config)
-    monkeypatch.setattr(lsm_main, "run_ingest", lambda args: 9)
+    monkeypatch.setattr("lsm.ui.shell.cli.run_ingest", lambda args: 9)
 
     code = lsm_main.main(["--config", str(cfg_file), "ingest", "build"])
     assert code == 9
@@ -55,7 +55,7 @@ def test_main_handles_keyboard_interrupt(tmp_path: Path, monkeypatch: pytest.Mon
     def _raise_interrupt(_args):
         raise KeyboardInterrupt
 
-    monkeypatch.setattr(lsm_main, "run_ingest", _raise_interrupt)
+    monkeypatch.setattr("lsm.ui.shell.cli.run_ingest", _raise_interrupt)
     code = lsm_main.main(["--config", str(cfg_file), "ingest", "build"])
     out = capsys.readouterr().out
     assert code == 130
@@ -73,7 +73,7 @@ def test_main_handles_exception_verbose_false(tmp_path: Path, monkeypatch: pytes
     def _boom(_args):
         raise RuntimeError("boom")
 
-    monkeypatch.setattr(lsm_main, "run_ingest", _boom)
+    monkeypatch.setattr("lsm.ui.shell.cli.run_ingest", _boom)
     code = lsm_main.main(["--config", str(cfg_file), "ingest", "build"])
     err = capsys.readouterr().err
     assert code == 1
@@ -87,7 +87,7 @@ def test_main_reraises_when_verbose(tmp_path: Path, monkeypatch: pytest.MonkeyPa
 
     monkeypatch.setattr(lsm_main, "configure_logging_from_args", lambda **kwargs: None)
     monkeypatch.setattr("lsm.config.load_config_from_file", lambda p: fake_config)
-    monkeypatch.setattr(lsm_main, "run_ingest", lambda _args: (_ for _ in ()).throw(RuntimeError("boom")))
+    monkeypatch.setattr("lsm.ui.shell.cli.run_ingest", lambda _args: (_ for _ in ()).throw(RuntimeError("boom")))
 
     with pytest.raises(RuntimeError, match="boom"):
         lsm_main.main(["-v", "--config", str(cfg_file), "ingest", "build"])

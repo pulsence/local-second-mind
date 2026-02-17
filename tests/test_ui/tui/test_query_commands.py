@@ -375,11 +375,11 @@ def test_on_unmount_stops_managed_timers() -> None:
 def test_execute_routes_agent_and_memory_commands(monkeypatch: pytest.MonkeyPatch) -> None:
     screen = _screen()
     monkeypatch.setattr(
-        "lsm.ui.helpers.commands.query.handle_agent_command",
+        "lsm.ui.shell.commands.agents.handle_agent_command",
         lambda command, app: f"agent:{command}",
     )
     monkeypatch.setattr(
-        "lsm.ui.helpers.commands.query.handle_memory_command",
+        "lsm.ui.shell.commands.agents.handle_memory_command",
         lambda command, app: f"memory:{command}",
     )
 

@@ -14,8 +14,6 @@ from typing import Dict, List, Optional, Any
 from lsm.config.models import LSMConfig
 from lsm.providers import create_provider
 from lsm.query.session import SessionState, Candidate
-from lsm.query.context import build_context_block
-from lsm.query.planning import prepare_local_candidates
 
 
 @dataclass
@@ -96,6 +94,8 @@ def estimate_query_cost(
     """
     Estimate costs for a query without invoking the LLM.
     """
+    from lsm.query.planning import prepare_local_candidates
+
     mode_config = config.get_mode_config()
     local_policy = mode_config.source_policy.local
     remote_policy = mode_config.source_policy.remote
@@ -135,6 +135,8 @@ def estimate_query_cost(
             k=min(plan.k_rerank, len(chosen)),
         )
         total_estimated += rerank_est["cost"] or 0.0
+
+    from lsm.query.context import build_context_block
 
     chosen = plan.filtered[: min(plan.k_rerank, len(plan.filtered))]
     context_block, _ = build_context_block(chosen)

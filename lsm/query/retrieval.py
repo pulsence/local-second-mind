@@ -12,21 +12,16 @@ from lsm.logging import get_logger
 from lsm.vectordb.base import BaseVectorDBProvider
 from .session import Candidate
 
-_sentence_transformer_import_error: Exception | None = None
-try:
-    from sentence_transformers import SentenceTransformer
-except Exception as exc:  # pragma: no cover - compatibility fallback for test/runtime environments
-    _sentence_transformer_import_error = exc
-
-    class SentenceTransformer:  # type: ignore[no-redef]
-        def __init__(self, *args, **kwargs) -> None:
-            raise RuntimeError(
-                "sentence-transformers is unavailable. "
-                "Install compatible dependencies (e.g. `pip install sentence-transformers`) "
-                "and verify torch is installed."
-            ) from _sentence_transformer_import_error
-
 logger = get_logger(__name__)
+
+
+def _import_sentence_transformer():
+    """Lazy-import SentenceTransformer to avoid heavy ML imports at module load time."""
+    try:
+        from sentence_transformers import SentenceTransformer
+        return SentenceTransformer, None
+    except Exception as exc:
+        return None, exc
 
 
 # -----------------------------
@@ -39,7 +34,7 @@ DEFAULT_EMBED_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
 # -----------------------------
 # Embeddings
 # -----------------------------
-def init_embedder(model_name: str, device: str = "cpu") -> "SentenceTransformer":
+def init_embedder(model_name: str, device: str = "cpu"):
     """
     Initialize the sentence transformer model for embeddings.
 
@@ -54,12 +49,14 @@ def init_embedder(model_name: str, device: str = "cpu") -> "SentenceTransformer"
         >>> embedder = init_embedder("sentence-transformers/all-MiniLM-L6-v2", "cpu")
     """
     logger.debug(f"Initializing embedder: {model_name} on {device}")
-    if _sentence_transformer_import_error is not None:
+
+    SentenceTransformer, import_error = _import_sentence_transformer()
+    if SentenceTransformer is None:
         raise RuntimeError(
             "Failed to import sentence-transformers. "
             "Install compatible dependencies (e.g. `pip install sentence-transformers`) "
             "and ensure torch is available."
-        ) from _sentence_transformer_import_error
+        ) from import_error
 
     try:
         model = SentenceTransformer(model_name, device=device)

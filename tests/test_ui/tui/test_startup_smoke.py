@@ -166,3 +166,40 @@ class TestScreenImportSmoke:
 
         source = inspect.getsource(QueryScreen.compose)
         assert "query-command-input" in source
+
+    def test_all_screen_imports_under_budget(self) -> None:
+        """Importing all 5 screen modules completes within 1s total."""
+        import time
+
+        start = time.monotonic()
+        from lsm.ui.tui.screens.query import QueryScreen  # noqa: F811
+        from lsm.ui.tui.screens.ingest import IngestScreen  # noqa: F811
+        from lsm.ui.tui.screens.remote import RemoteScreen  # noqa: F811
+        from lsm.ui.tui.screens.agents import AgentsScreen  # noqa: F811
+        from lsm.ui.tui.screens.settings import SettingsScreen  # noqa: F811
+        elapsed_ms = (time.monotonic() - start) * 1000
+
+        assert QueryScreen is not None
+        assert elapsed_ms < 1000, (
+            f"Importing all 5 screen modules took {elapsed_ms:.0f}ms, "
+            f"budget is 1000ms"
+        )
+
+    def test_retrieval_module_has_lazy_ml_imports(self) -> None:
+        """retrieval module must not expose SentenceTransformer at module level.
+
+        This verifies the lazy-import refactoring: the heavy ML stack is only
+        imported inside function bodies, not at module scope. Earlier tests in
+        the suite may have imported sentence_transformers into sys.modules, so
+        we verify structural laziness rather than sys.modules state.
+        """
+        import lsm.query.retrieval as retrieval
+
+        # SentenceTransformer should NOT be a module-level attribute
+        assert not hasattr(retrieval, "SentenceTransformer"), (
+            "SentenceTransformer is a module-level attribute — lazy import broken"
+        )
+        # _import_sentence_transformer helper should exist
+        assert hasattr(retrieval, "_import_sentence_transformer"), (
+            "_import_sentence_transformer helper is missing"
+        )

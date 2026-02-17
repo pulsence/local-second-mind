@@ -77,7 +77,11 @@ class TestStartupPerformanceBudget:
     def test_query_interactive_under_budget(
         self, monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        """LSMApp init + compose + on_mount reaches query_interactive under budget."""
+        """LSMApp init + on_mount reaches query_interactive under budget.
+
+        Note: This tests init + on_mount path (without compose). For the full
+        compose import-chain test, see test_compose_import_chain_under_budget.
+        """
         from lsm.ui.tui.app import LSMApp
 
         cfg = create_startup_mock_config()
@@ -96,6 +100,53 @@ class TestStartupPerformanceBudget:
         assert elapsed_ms < _QUERY_INTERACTIVE_BUDGET_MS, (
             f"Startup took {elapsed_ms:.0f}ms, budget is "
             f"{_QUERY_INTERACTIVE_BUDGET_MS:.0f}ms"
+        )
+
+    def test_compose_import_chain_under_budget(self) -> None:
+        """Importing QueryScreen (the compose path) completes within budget.
+
+        This catches the real-world startup chain: compose() imports
+        QueryScreen which transitively imports query modules. With lazy
+        ML imports, this should be fast.
+
+        By the time compose() runs in real usage, the app module has already
+        imported Textual core types (App, ComposeResult, Header, Footer, etc).
+        This test pre-loads those same Textual imports to measure only the
+        incremental cost of the LSM screen module chain.
+        """
+        # Pre-load Textual types that app.py imports at module level
+        from lsm.ui.tui.app import LSMApp  # noqa: F401
+
+        start = time.monotonic()
+        from lsm.ui.tui.screens.query import QueryScreen  # noqa: F811
+        elapsed_ms = (time.monotonic() - start) * 1000
+
+        assert QueryScreen is not None
+        # Budget: importing the screen module should be well under 1s
+        assert elapsed_ms < _QUERY_INTERACTIVE_BUDGET_MS, (
+            f"QueryScreen import took {elapsed_ms:.0f}ms, budget is "
+            f"{_QUERY_INTERACTIVE_BUDGET_MS:.0f}ms"
+        )
+
+    def test_sentence_transformers_not_required_by_screen_import(self) -> None:
+        """Importing QueryScreen must NOT require sentence_transformers.
+
+        This is the key regression test: the lazy-import refactoring must
+        prevent the heavy ML stack from being a required side-effect of
+        importing screen modules. We verify by checking the retrieval module
+        does not have SentenceTransformer as a module-level attribute.
+        """
+        import lsm.query.retrieval as retrieval
+
+        # If lazy imports are working, SentenceTransformer should NOT be
+        # a module-level attribute (it's now inside _import_sentence_transformer)
+        assert not hasattr(retrieval, "SentenceTransformer"), (
+            "SentenceTransformer is a module-level attribute of retrieval — "
+            "the lazy-import refactoring is broken"
+        )
+        # The old _sentence_transformer_import_error should also be gone
+        assert not hasattr(retrieval, "_sentence_transformer_import_error"), (
+            "_sentence_transformer_import_error still exists as module-level attribute"
         )
 
     def test_startup_milestones_recorded(

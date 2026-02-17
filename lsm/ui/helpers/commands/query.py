@@ -17,7 +17,6 @@ from lsm.ui.helpers.commands.common import (
     parse_on_off_value,
     parse_slash_command,
 )
-from lsm.ui.shell.commands.agents import handle_agent_command, handle_memory_command
 from lsm.ui.utils import (
     display_provider_name,
     format_feature_label,
@@ -343,8 +342,10 @@ def handle_agent_commands(
 ) -> Optional[QueryCommandResult]:
     """Handle `/agent` + `/memory` command group."""
     if parsed.cmd == "/agent":
+        from lsm.ui.shell.commands.agents import handle_agent_command
         return QueryCommandResult(output=handle_agent_command(parsed.text, host.app))
     if parsed.cmd == "/memory":
+        from lsm.ui.shell.commands.agents import handle_memory_command
         return QueryCommandResult(output=handle_memory_command(parsed.text, host.app))
     return None
 

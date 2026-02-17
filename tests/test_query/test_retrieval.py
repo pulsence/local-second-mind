@@ -21,13 +21,16 @@ from lsm.vectordb.base import VectorDBQueryResult
 class TestEmbedderInit:
     """Tests for embedder initialization."""
 
-    @patch("lsm.query.retrieval.SentenceTransformer")
-    def test_init_embedder_cpu(self, mock_st_class, monkeypatch):
+    def test_init_embedder_cpu(self, monkeypatch):
         """Test initializing embedder on CPU."""
         import lsm.query.retrieval as retrieval
-        monkeypatch.setattr(retrieval, "_sentence_transformer_import_error", None)
+        mock_st_class = Mock()
         mock_model = Mock()
         mock_st_class.return_value = mock_model
+        monkeypatch.setattr(
+            retrieval, "_import_sentence_transformer",
+            lambda: (mock_st_class, None),
+        )
 
         embedder = init_embedder("sentence-transformers/all-MiniLM-L6-v2", "cpu")
 
@@ -37,13 +40,16 @@ class TestEmbedderInit:
         )
         assert embedder == mock_model
 
-    @patch("lsm.query.retrieval.SentenceTransformer")
-    def test_init_embedder_cuda(self, mock_st_class, monkeypatch):
+    def test_init_embedder_cuda(self, monkeypatch):
         """Test initializing embedder on CUDA."""
         import lsm.query.retrieval as retrieval
-        monkeypatch.setattr(retrieval, "_sentence_transformer_import_error", None)
+        mock_st_class = Mock()
         mock_model = Mock()
         mock_st_class.return_value = mock_model
+        monkeypatch.setattr(
+            retrieval, "_import_sentence_transformer",
+            lambda: (mock_st_class, None),
+        )
 
         embedder = init_embedder("test-model", "cuda")
 
@@ -53,18 +59,24 @@ class TestEmbedderInit:
         """Test clear error when sentence-transformers import failed."""
         import lsm.query.retrieval as retrieval
 
-        monkeypatch.setattr(retrieval, "_sentence_transformer_import_error", ImportError("missing dep"))
+        monkeypatch.setattr(
+            retrieval, "_import_sentence_transformer",
+            lambda: (None, ImportError("missing dep")),
+        )
         with pytest.raises(RuntimeError, match="Failed to import sentence-transformers"):
             retrieval.init_embedder("test-model", "cpu")
 
-    @patch("lsm.query.retrieval.SentenceTransformer")
-    def test_init_embedder_cuda_falls_back_to_cpu(self, mock_st_class, monkeypatch):
+    def test_init_embedder_cuda_falls_back_to_cpu(self, monkeypatch):
         """If CUDA isn't available, init should retry on CPU."""
         import lsm.query.retrieval as retrieval
 
-        monkeypatch.setattr(retrieval, "_sentence_transformer_import_error", None)
+        mock_st_class = Mock()
         mock_model = Mock()
         mock_st_class.side_effect = [RuntimeError("Torch not compiled with CUDA enabled"), mock_model]
+        monkeypatch.setattr(
+            retrieval, "_import_sentence_transformer",
+            lambda: (mock_st_class, None),
+        )
 
         embedder = init_embedder("test-model", "cuda")
 

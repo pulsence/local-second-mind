@@ -9,7 +9,6 @@ import sys
 from pathlib import Path
 
 from lsm.logging import configure_logging_from_args, get_logger
-from lsm.ui.shell.cli import run_ingest
 
 DEFAULT_CONFIG_PATH = (Path(__file__).resolve().parent.parent / "config.json")
 
@@ -162,6 +161,7 @@ def main(argv: list[str] | None = None) -> int:
     try:
         if args.command == "ingest":
             logger.info("Starting ingest command")
+            from lsm.ui.shell.cli import run_ingest
             return run_ingest(args)
 
         else:
