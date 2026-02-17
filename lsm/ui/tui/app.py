@@ -241,7 +241,7 @@ class LSMApp(App):
 
             with TabPane("Settings (^s)", id="settings"):
                 from lsm.ui.tui.screens.settings import SettingsScreen
-                yield SettingsScreen(id="settings-screen")
+                yield SettingsScreen(id="settings-screen", disabled=True)
 
         # Status bar showing mode, chunks, cost
         yield StatusBar(id="main-status-bar")
@@ -253,7 +253,7 @@ class LSMApp(App):
         self._startup_timeline.mark("mount_start")
         logger.info("LSM TUI application mounted")
         try:
-            tabbed_content = self.query_one(TabbedContent)
+            tabbed_content = self.query_one("#main-tabs", TabbedContent)
             tabbed_content.active = "query"
             self._set_active_context("query")
         except Exception:
@@ -283,7 +283,16 @@ class LSMApp(App):
             self._startup_timeline.mark("background_init_complete")
             logger.info("Background initialization complete")
 
-        self.call_after_refresh(_background_init)
+        def _start_background_thread() -> None:
+            thread = threading.Thread(
+                target=_background_init, name="bg-init", daemon=True,
+            )
+            thread.start()
+            self.register_managed_worker(
+                owner="app", key="bg-init", worker=thread, timeout_s=10.0,
+            )
+
+        self.call_after_refresh(_start_background_thread)
 
     def _setup_tui_logging(self) -> None:
         """Route LSM logs to the query log panel when running in TUI."""
@@ -737,7 +746,7 @@ class LSMApp(App):
     def _set_safe_query_context(self) -> None:
         """Switch app focus back to the Query tab/context."""
         try:
-            tabbed_content = self.query_one(TabbedContent)
+            tabbed_content = self.query_one("#main-tabs", TabbedContent)
             tabbed_content.active = "query"
         except Exception:
             logger.exception("Failed to activate safe Query tab during UI error recovery.")
@@ -1057,21 +1066,21 @@ class LSMApp(App):
 
     def action_switch_ingest(self) -> None:
         """Switch to ingest tab."""
-        tabbed_content = self.query_one(TabbedContent)
+        tabbed_content = self.query_one("#main-tabs", TabbedContent)
         tabbed_content.active = "ingest"
         self._set_active_context("ingest")
         logger.debug("Switched to ingest context")
 
     def action_switch_query(self) -> None:
         """Switch to query tab."""
-        tabbed_content = self.query_one(TabbedContent)
+        tabbed_content = self.query_one("#main-tabs", TabbedContent)
         tabbed_content.active = "query"
         self._set_active_context("query")
         logger.debug("Switched to query context")
 
     def action_switch_settings(self) -> None:
         """Switch to settings tab."""
-        tabbed_content = self.query_one(TabbedContent)
+        tabbed_content = self.query_one("#main-tabs", TabbedContent)
         tabbed_content.active = "settings"
         self._set_active_context("settings")
         self._refresh_settings_screen()
@@ -1079,14 +1088,14 @@ class LSMApp(App):
 
     def action_switch_remote(self) -> None:
         """Switch to remote tab."""
-        tabbed_content = self.query_one(TabbedContent)
+        tabbed_content = self.query_one("#main-tabs", TabbedContent)
         tabbed_content.active = "remote"
         self._set_active_context("remote")
         logger.debug("Switched to remote context")
 
     def action_switch_agents(self) -> None:
         """Switch to agents tab."""
-        tabbed_content = self.query_one(TabbedContent)
+        tabbed_content = self.query_one("#main-tabs", TabbedContent)
         tabbed_content.active = "agents"
         self._set_active_context("agents")
         self._trigger_agents_deferred_init()

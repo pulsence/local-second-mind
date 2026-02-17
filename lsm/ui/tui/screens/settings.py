@@ -107,6 +107,8 @@ class SettingsScreen(ManagedScreenMixin, Widget):
                 return
 
     def on_show(self) -> None:
+        if self.disabled:
+            self.disabled = False
         self.refresh_from_config()
 
     def on_unmount(self) -> None:
@@ -117,6 +119,11 @@ class SettingsScreen(ManagedScreenMixin, Widget):
         tabbed = getattr(event, "tabbed_content", None)
         if getattr(tabbed, "id", None) != "settings-tabs":
             return
+        # Prevent nested tab events from bubbling to the app-level handler,
+        # which can cause a visual flash to the Settings main tab on startup.
+        stop = getattr(event, "stop", None)
+        if callable(stop):
+            stop()
 
         tab_id = self._normalize_tab_id(str(getattr(getattr(event, "tab", None), "id", "") or "").strip())
         if tab_id not in {tid for tid, _ in self._TAB_LAYOUT}:
