@@ -207,8 +207,8 @@ class TestLSMAppMethods:
         app.run_on_ui_thread(_cb)
         assert seen["called"] is True
 
-    def test_post_ui_message_uses_call_from_thread(self):
-        """post_ui_message should enqueue message dispatch through call_from_thread."""
+    def test_post_ui_message_calls_post_message_directly(self):
+        """post_ui_message should call post_message directly (it's thread-safe)."""
         from lsm.ui.tui.app import LSMApp, TUILogEvent
 
         mock_config = Mock()
@@ -217,24 +217,17 @@ class TestLSMAppMethods:
         mock_config.query.mode = "grounded"
 
         app = LSMApp(mock_config)
-        callbacks = []
         posted = []
 
-        def _call_from_thread(fn):
-            callbacks.append(fn)
-            fn()
-
-        app.call_from_thread = _call_from_thread  # type: ignore[assignment]
         app.post_message = lambda message: posted.append(message)  # type: ignore[assignment]
 
         app.post_ui_message(TUILogEvent("queued"), source="test")
 
-        assert len(callbacks) == 1
         assert len(posted) == 1
         assert isinstance(posted[0], TUILogEvent)
         assert posted[0].message == "queued"
 
-    def test_on_tui_log_event_routes_to_writer(self):
+    def test_on_tuilog_event_routes_to_writer(self):
         """TUILogEvent handler should route to _write_tui_log."""
         from lsm.ui.tui.app import LSMApp, TUILogEvent
 
@@ -247,7 +240,7 @@ class TestLSMAppMethods:
         seen = []
         app._write_tui_log = lambda message: seen.append(message)  # type: ignore[assignment]
 
-        app.on_tui_log_event(TUILogEvent("line"))
+        app.on_tuilog_event(TUILogEvent("line"))
         assert seen == ["line"]
 
     def test_on_agent_runtime_event_forwards_to_agents_screen(self):

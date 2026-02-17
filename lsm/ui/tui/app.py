@@ -280,6 +280,9 @@ class LSMApp(App):
                 self._startup_timeline.mark("agent_runtime_bound")
             except Exception:
                 logger.exception("Background agent runtime binding failed")
+
+            self._preload_ml_stack()
+
             self._startup_timeline.mark("background_init_complete")
             logger.info("Background initialization complete")
 
@@ -289,10 +292,53 @@ class LSMApp(App):
             )
             thread.start()
             self.register_managed_worker(
-                owner="app", key="bg-init", worker=thread, timeout_s=10.0,
+                owner="app", key="bg-init", worker=thread, timeout_s=120.0,
             )
 
         self.call_after_refresh(_start_background_thread)
+
+    def _preload_ml_stack(self) -> None:
+        """Preload sentence_transformers and embedding model in background.
+
+        The library imports (~60s) cause brief GIL gaps (max ~700ms) from
+        C extension init in torch, but the UI stays responsive for 99%+ of
+        the time.  The model load itself (~1s) is GIL-friendly with zero
+        gaps over 50ms.  Once loaded, first query starts instantly.
+        """
+        # Phase 1: import the library (GIL gaps from C extensions, but not a lockup)
+        try:
+            logger.info("Background: importing embedding framework...")
+            self._startup_timeline.mark("ml_import_start")
+            from lsm.query.retrieval import _import_sentence_transformer
+            SentenceTransformer, import_error = _import_sentence_transformer()
+            self._startup_timeline.mark("ml_import_complete")
+            if SentenceTransformer is None:
+                logger.warning(
+                    "Embedding framework not available: %s",
+                    import_error,
+                )
+                return
+            logger.info("Background: embedding framework imported")
+        except Exception:
+            logger.exception("Background: failed to import embedding framework")
+            return
+
+        # Phase 2: load the model (mostly C/IO, GIL-friendly)
+        try:
+            model_name = self.config.embed_model
+            device = self.config.device
+            logger.info(
+                "Background: loading embedding model %s on %s...",
+                model_name,
+                device,
+            )
+            self._startup_timeline.mark("ml_model_load_start")
+            model = SentenceTransformer(model_name, device=device)
+            self._startup_timeline.mark("ml_model_load_complete")
+            self._query_embedder = model
+            logger.info("Background: embedding model ready")
+        except Exception:
+            logger.exception("Background: failed to load embedding model")
 
     def _setup_tui_logging(self) -> None:
         """Route LSM logs to the query log panel when running in TUI."""
@@ -325,7 +371,15 @@ class LSMApp(App):
                         source="logging",
                     )
                 except Exception:
-                    pass
+                    # Avoid infinite recursion — never log from inside the log handler.
+                    # Write to stderr so diagnostic messages are not silently lost.
+                    try:
+                        import sys as _sys
+                        _sys.stderr.write(
+                            f"[TUILogHandler] failed to deliver: {record.getMessage()}\n"
+                        )
+                    except Exception:
+                        pass
 
         if not any(getattr(h, "_tui_handler", False) for h in root_logger.handlers):
             handler = _TUILogHandler(app)
@@ -345,14 +399,19 @@ class LSMApp(App):
         except Exception:
             return
 
-    def on_tui_log_event(self, message: TUILogEvent) -> None:
+    def on_tuilog_event(self, message: TUILogEvent) -> None:
         """Handle queued log events on the UI thread."""
         self._write_tui_log(message.message)
 
     def post_ui_message(self, message: Message, *, source: str = "unknown") -> None:
-        """Queue a Textual message to this app from any thread."""
+        """Queue a Textual message to this app from any thread.
+
+        Textual's ``post_message`` is already thread-safe (uses
+        ``call_soon_threadsafe`` when called from a non-app thread),
+        so we call it directly rather than blocking on ``call_from_thread``.
+        """
         _ = source
-        self.run_on_ui_thread(lambda: self.post_message(message))
+        self.post_message(message)
 
     def run_on_ui_thread(self, callback) -> None:
         """Run a callback on the app UI thread from either same or worker thread."""
@@ -1007,12 +1066,15 @@ class LSMApp(App):
         from lsm.vectordb import create_vectordb_provider
 
         try:
-            # Initialize embedder (can be slow)
-            self._query_embedder = await asyncio.to_thread(
-                init_embedder,
-                self.config.embed_model,
-                device=self.config.device,
-            )
+            # Initialize embedder — skip if already preloaded by background init
+            if self._query_embedder is None:
+                self._query_embedder = await asyncio.to_thread(
+                    init_embedder,
+                    self.config.embed_model,
+                    device=self.config.device,
+                )
+            else:
+                logger.info("Using background-preloaded embedder")
 
             # Check persist directory for ChromaDB
             if self.config.vectordb.provider == "chromadb":

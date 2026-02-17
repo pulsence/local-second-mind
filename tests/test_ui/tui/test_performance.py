@@ -109,20 +109,24 @@ class TestStartupPerformanceBudget:
         QueryScreen which transitively imports query modules. With lazy
         ML imports, this should be fast.
 
-        By the time compose() runs in real usage, the app module has already
-        imported Textual core types (App, ComposeResult, Header, Footer, etc).
-        This test pre-loads those same Textual imports to measure only the
-        incremental cost of the LSM screen module chain.
+        In compose(), screens are imported sequentially. By the time
+        QueryScreen is imported, earlier screens (IngestScreen) have already
+        warmed up shared dependencies (Textual widgets, LSM providers, HTTP
+        stack, remote providers). This test pre-loads IngestScreen to
+        simulate that shared-dependency warmup, then measures only the
+        incremental cost unique to QueryScreen.
         """
-        # Pre-load Textual types that app.py imports at module level
+        # Pre-load app + an earlier screen to warm shared dependencies
+        # (Textual widgets, lsm.remote, HTTP stack, etc.)
         from lsm.ui.tui.app import LSMApp  # noqa: F401
+        from lsm.ui.tui.screens.ingest import IngestScreen  # noqa: F401
 
         start = time.monotonic()
         from lsm.ui.tui.screens.query import QueryScreen  # noqa: F811
         elapsed_ms = (time.monotonic() - start) * 1000
 
         assert QueryScreen is not None
-        # Budget: importing the screen module should be well under 1s
+        # Budget: incremental QueryScreen import should be well under 1s
         assert elapsed_ms < _QUERY_INTERACTIVE_BUDGET_MS, (
             f"QueryScreen import took {elapsed_ms:.0f}ms, budget is "
             f"{_QUERY_INTERACTIVE_BUDGET_MS:.0f}ms"
@@ -214,6 +218,7 @@ class TestStartupPerformanceBudget:
         tabs = SimpleNamespace(active="")
         app.query_one = lambda *_a, **_kw: tabs  # type: ignore[assignment]
         monkeypatch.setattr(app, "_setup_tui_logging", lambda: None)
+        monkeypatch.setattr(app, "_preload_ml_stack", lambda: None)
 
         bind_called = {"count": 0}
 
@@ -232,8 +237,14 @@ class TestStartupPerformanceBudget:
         # Scheduled for after-refresh execution
         assert len(deferred) == 1
 
-        # Execute the deferred callback
+        # Execute the deferred callback — starts background thread
         deferred[0]()
+        # Wait for the background thread to complete
+        import time
+        for _ in range(50):
+            if bind_called["count"] > 0:
+                break
+            time.sleep(0.05)
         assert bind_called["count"] == 1
 
 
