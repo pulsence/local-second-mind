@@ -965,8 +965,10 @@ Summarize Phase 6 changes into `docs/development/CHANGELOG.md`.
   But there is a follow up message: Build context block with 6 sources.
   - The error causing the llm rerank needs to be fixed.
   - Error message in this case should be a warning with a message that local rerank was used and fallback.
-- When in the setting screen you cannot leave by hotkeys. If you do, you automatically revert back to settings. It appears that 
-  the autofocus on the input box in settings is causing this problem. This seems to be the case whenever auto-focus is set.
+- When in the setting screen you cannot leave by hotkeys. If you do use a hotkey (ctrl+q for example), you 
+  change to another screen (query) and then automatically revert back to settings. It appears that 
+  the autofocus on the input box in settings is causing this problem. This seems to be the case
+  whenever auto-focus is set.
 - Query screen should auto focus query input box
 - Ingest screen should auto focus ingest input box
 - Remote screen should auto focus query input box
@@ -985,6 +987,18 @@ Rea
  - Default pytest config includes coverage/instrumentation (pyproject.toml), which further slows and sometimes amplifies flakiness around threaded code.
 
 Do a follow-up pass to harden this: isolate global state resets in fixtures, move fragile structure tests to behavior-focused tests, and split fast unit TUI tests from slower startup/lifecycle smoke tests.
+
+### 6a.3: Agent Screen
+- There should only be one log display format when viewing an agent. Not the two different versions currently used.
+- When an agent is selected in the Running Agent panel its status should be shown in the Status panel. There is no need for a status button.
+- When an agent is selected in the Running Agent panel its log is automatically shown on in the Agent Log panel:
+  - The follow button should only set is the log panel is updated, not autoscroll. Autoscroll should only
+    be activated when the user is at the bottom of the log panel.
+  - When the follow button is clicked off then the logs should stop updating until the agent is reselected.
+  - And so there does not need to be an extra log button in the status panel.
+- The running agent panel should show completed agents from the current session of the program so that the user
+  can refer the to results of those past agents quickly.
+- There is needs to be an ability to launch a meta-agent.
 
 ### 6a.4: Phase 6a Changelog
 
