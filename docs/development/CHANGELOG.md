@@ -146,13 +146,12 @@ All notable changes to Local Second Mind are documented here.
 - `_schedule_background_init()` now runs agent runtime binding and ML preloading in a background thread (via `call_after_refresh`) instead of inline, preventing GIL contention from blocking the UI event loop
 - `LSMApp.post_ui_message()` simplified to call `post_message()` directly (already thread-safe via `loop.call_soon_threadsafe`) instead of blocking via `call_from_thread`
 - All `self.query_one(TabbedContent)` calls in `LSMApp` now use `self.query_one("#main-tabs", TabbedContent)` to avoid `TooManyMatches` ambiguity with nested `#settings-tabs`
-- SettingsScreen now composes with `disabled=True` and self-enables in `on_show()` to prevent Textual focus-stealing from switching the main tab to Settings during startup
 - SettingsScreen `on_tabbed_content_tab_activated` now calls `event.stop()` to prevent nested `#settings-tabs` events from bubbling up to `LSMApp`
 - Query and Remote log panels replaced `RichLog` with `TextArea(read_only=True, soft_wrap=True)` to enable text selection and copy (Ctrl+C)
 - `LSMApp._write_tui_log()` updated to use `TextArea.insert()` + `scroll_end()` for log widget writes
 - LLM rerank failure path changed from `_record_failure()` (ERROR level, circuit breaker increment) to `logger.warning()` with descriptive fallback message; rerank failures no longer trip the circuit breaker
-- Ingest screen `_activate_ingest_context()` now uses `call_after_refresh()` for focus to prevent race with widget layout
 - SettingsScreen `refresh_from_config()` and `on_tabbed_content_tab_activated` now guard `_focus_command_input()` behind `current_context == "settings"` check to prevent focus stealing from other screens
+- `LSMApp._focus_active_screen()` and all screen `_focus_default_input()` methods now call `widget.focus()` directly instead of via `call_after_refresh()` to eliminate TabbedContent pane-switch bounce; `LSMApp.on_tabbed_content_tab_activated` now reads `event.pane.id` instead of parsing the `--content-tab-` prefixed `event.tab.id`
 
 ### Fixed
 
@@ -163,7 +162,9 @@ All notable changes to Local Second Mind are documented here.
 - Fixed Settings screen hotkey trap where pressing Ctrl+Q from Settings would briefly switch to Query then snap back, caused by `_focus_command_input()` firing unconditionally in `refresh_from_config()`
 - Fixed LLM rerank logging `[ERROR] Provider error ... Invalid rerank response` when LLM returns malformed ranking; now logs at WARNING level with clear "falling back to local candidate ordering" message
 - Fixed Remote and Agents screens not auto-focusing input when switching to their tabs via keyboard or mouse
-- Fixed Ingest screen focus race where `_activate_ingest_context()` called `.focus()` synchronously instead of deferring via `call_after_refresh()`
+- Fixed TUI tab-switching bounce where switching screens via keyboard shortcuts (Ctrl+Q, Ctrl+R, Ctrl+A) caused a visible triple-switch animation (e.g. Settings→Query→Settings→Query); root cause was `call_after_refresh(widget.focus)` deferring focus into the next Textual render cycle after TabbedContent had already switched panes, causing a focus-driven reverse switch; all screen focus calls are now direct `widget.focus()` calls
+- Fixed `LSMApp.on_tabbed_content_tab_activated` being silently inoperative: `event.tab.id` uses a `--content-tab-{pane_id}` prefix so the previous `tab_id.replace("-tab", "")` produced strings like `--content-query` that never matched any context name; switched to `event.pane.id` which provides the pane ID directly
+- Fixed `_set_active_context` processing redundant calls when both `action_switch_*` actions and the (now-working) tab activation handler both fire on the same switch; added dedup guard that returns early when `current_context` already matches the target context
 - Multi-agent stop/shutdown interaction cancellation now closes per-run interaction channels, preventing stopped/completed runs from continuing to enqueue new user-interaction prompts.
 - Session tool approvals selected with `approve_session` are now remembered across subsequent agent runs in the same runtime manager session.
 - Agents TUI log panel now preserves manual scroll position:

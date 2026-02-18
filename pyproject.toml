@@ -64,6 +64,9 @@ markers = [
     "live_vectordb: live tests for vector database providers and migrations",
     "docker: tests that require Docker",
     "performance: performance and stress tests",
+    "tui_fast: fast TUI unit tests with mocks/fakes, no app lifecycle",
+    "tui_slow: slow TUI tests with real app lifecycle (startup, mount, timers)",
+    "tui_integration: TUI multi-screen workflow tests with real providers",
 ]
 addopts = [
     "--verbose",

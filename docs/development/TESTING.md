@@ -12,16 +12,21 @@ This guide reflects the v0.5.0 tiered test strategy and runtime configuration.
 - `live_vectordb`: Live subset for PostgreSQL/pgvector and migration tests.
 - `docker`: Tests that require Docker runtime support.
 - `performance`: Scale/perf scenarios (run explicitly).
+- `tui_fast`: Fast TUI unit tests with mocks/fakes, no app lifecycle.
+- `tui_slow`: Slow TUI tests with real app lifecycle (startup, mount, timers).
+- `tui_integration`: TUI multi-screen workflow tests with real providers.
 
 ## Default Marker Behavior
 
-`pytest` now defaults to excluding `live` and `docker` tests via:
+ defaults to excluding ``pytest` nowlive` and `docker` tests via:
 
 ```text
 -m "not live and not docker"
 ```
 
 This means `pytest tests/ -v` runs smoke + integration + performance-marked tests that are not also `live`/`docker`.
+
+**Note:** TUI tests with `tui_fast` and `tui_slow` markers are included in the default run. Use `-m tui_fast` to run only fast unit tests.
 
 ## Test Runtime Configuration
 
@@ -143,6 +148,69 @@ tests/test_ui/
 - **Mixin tests** - Verify shared lifecycle helpers
 - **Smoke tests** - Verify crash-free startup and screen imports
 - **Performance tests** - Verify startup timing budget and milestone recording
+
+### TUI Test Markers
+
+TUI tests are classified by speed to enable fast feedback during development:
+
+- `@pytest.mark.tui_fast` - Unit tests with mocks/fakes, no app lifecycle (<100ms)
+- `@pytest.mark.tui_slow` - Tests with real app mount, timers, workers
+- `@pytest.mark.tui_integration` - Multi-screen workflows with real providers
+
+```bash
+# Run only fast TUI tests (default for quick feedback)
+pytest tests/test_ui/tui/ -v -m tui_fast
+
+# Run only slow TUI tests (startup, lifecycle)
+pytest tests/test_ui/tui/ -v -m tui_slow
+
+# Run all TUI tests
+pytest tests/test_ui/tui/ -v -m "tui_fast or tui_slow"
+```
+
+### TUI Test Fixtures
+
+Global state reset fixtures are available to prevent test pollution:
+
+- `reset_agent_manager` - Resets the singleton AgentRuntimeManager between tests
+- `reset_tui_logging` - Clears TUI log buffer between tests
+- `reset_app_state` - Combines both resets for a clean slate
+
+```python
+def test_agent_screen_behavior(reset_agent_manager):
+    # Agent manager is clean for this test
+    ...
+
+def test_logging_behavior(reset_tui_logging):
+    # Log buffer is clean for this test
+    ...
+```
+
+Additional fixtures in `tests/test_ui/tui/conftest.py`:
+
+- `tui_app_factory` - Create lightweight app instances without full lifecycle
+- `tui_screen_mount` - Mount/unmount screens with automatic cleanup
+- `isolation_check` - Detect state leakage between tests
+
+### Writing Refactor-Friendly Tests
+
+Structure tests should be refactor-friendly:
+
+**Prefer behavior-focused tests:**
+```python
+# Good: Check functionality exists without exact ID
+def test_screen_has_command_input(screen_file):
+    compose_ids = _compose_ids(screen_file)
+    command_ids = [id for id in compose_ids if "command-input" in id]
+    assert command_ids, "Screen has command input"
+```
+
+**Avoid exact ID/order tests:**
+```python
+# Fragile: Requires specific widget IDs in exact order
+def test_ids_in_exact_order():
+    assert compose_ids == ["layout", "top", "input"]  # Breaks on refactor
+```
 
 ### Naming Conventions
 

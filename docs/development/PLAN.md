@@ -975,17 +975,130 @@ Summarize Phase 6 changes into `docs/development/CHANGELOG.md`.
 - Agent screen should auto focus agent topic input box
 
 ### 6a.2: TUI Testing Hardening
-The TUI test are finicky because they’re testing a UI stack that mixes async, threads, timers, global singletons, and strict layout contracts.
+
+The TUI tests are finicky because they're testing a UI stack that mixes async, threads, timers, global singletons, and strict layout contracts.
 
 Main causes in this repo:
- - Textual + async + thread lifecycle is sensitive. If a worker/timer isn’t canceled on unmount, later tests inherit dirty state and become flaky.
- - Some tests are brittle by design (exact widget IDs/order/source-shape assertions), so harmless refactors break them.
- - There is global/shared runtime state (agent runtime manager, logging sinks, app-level handlers) that can leak between tests if not reset.
- - Startup-style tests instantiate real LSMApp lifecycle paths (on_mount, deferred init, logging hooks), which are naturally slower and timing-sensitive.
- - Environment overhead is significant: running under WSL on /mnt/c/.../OneDrive... is much slower and less stable for heavy pytest IO than native Linux filesystem.
- - Default pytest config includes coverage/instrumentation (pyproject.toml), which further slows and sometimes amplifies flakiness around threaded code.
+- Textual + async + thread lifecycle is sensitive. If a worker/timer isn't canceled on unmount, later tests inherit dirty state and become flaky.
+- Some tests are brittle by design (exact widget IDs/order/source-shape assertions), so harmless refactors break them.
+- There is global/shared runtime state (agent runtime manager, logging sinks, app-level handlers) that can leak between tests if not reset.
+- Startup-style tests instantiate real LSMApp lifecycle paths (on_mount, deferred init, logging hooks), which are naturally slower and timing-sensitive.
+- Environment overhead is significant: running under WSL on /mnt/c/.../OneDrive... is much slower and less stable for heavy pytest IO than native Linux filesystem.
+- Default pytest config includes coverage/instrumentation (pyproject.toml), which further slows and sometimes amplifies flakiness around threaded code.
 
 Do a follow-up pass to harden this: isolate global state resets in fixtures, move fragile structure tests to behavior-focused tests, and split fast unit TUI tests from slower startup/lifecycle smoke tests.
+
+#### 6a.2.1: Create Global State Reset Fixtures
+
+Create fixtures that reset singletons and global state between tests to prevent leakage.
+
+**Tasks:**
+- Add `reset_agent_manager()` fixture that:
+  - Resets the singleton `AgentRuntimeManager` state
+  - Clears any running agents, pending interactions, and channels
+  - Calls `_MANAGER.shutdown()` if needed before reset
+- Add `reset_tui_logging()` fixture that:
+  - Clears `_tui_log_buffer`
+  - Resets logging handlers installed by `_setup_tui_logging`
+- Add `reset_app_state()` fixture combining both resets
+
+**Files to create:**
+- `tests/test_ui/tui/fixtures/global_state.py` — global reset fixtures
+
+**Files to modify:**
+- `tests/conftest.py` — add TUI global reset hooks
+
+**Post-block:** Run `pytest tests/test_ui/tui/ -v` verify no state leakage, commit.
+
+#### 6a.2.2: Create TUI-Specific Conftest with Fast/Slow Split
+
+Create pytest markers and fixtures to separate fast unit tests from slow startup/lifecycle tests.
+
+**Tasks:**
+- Add pytest markers for test speed categories:
+  - `@pytest.mark.tui_fast` — unit tests, no app lifecycle, mocks/fakes, <100ms
+  - `@pytest.mark.tui_slow` — startup/smoke tests with real lifecycle, timers, workers
+  - `@pytest.mark.tui_integration` — multi-screen workflows, real providers
+- Create `tui_app_factory()` fixture for lightweight app creation without full lifecycle
+- Create `tui_screen_mount()` fixture for full mount/unmount with cleanup
+- Add automatic timer/worker cleanup in mount fixtures
+- Add `isolation_check` fixture to detect state leakage between tests
+
+**Files to create:**
+- `tests/test_ui/tui/conftest.py` — TUI-specific fixtures and markers
+
+**Post-block:** Run fast tests only `pytest -m tui_fast`, verify speed improvement, commit.
+
+#### 6a.2.3: Refactor Brittle Structure Tests to Behavior Tests
+
+Move away from exact widget ID/order assertions toward behavior-focused tests.
+
+**Tasks:**
+- Move exact widget ID/order assertions to optional "strict" marker
+- Add behavior-focused alternatives:
+  - `test_screen_has_command_input()` — verifies input exists, not exact ID
+  - `test_screen_has_log_panel()` — verifies log functionality works
+  - `test_screen_navigates_between_panels()` — behavioral navigation test
+- Keep lightweight structural checks (required IDs exist) but make non-order-specific
+
+**Files to modify:**
+- `tests/test_ui/tui/test_layout_structure.py` — make less brittle
+
+**Post-block:** Verify refactor-friendly tests pass, run `pytest tests/ -v`, commit.
+
+#### 6a.2.4: Update pytest Configuration for Test Split
+
+Add pytest options for running fast tests only and optional coverage.
+
+**Tasks:**
+- Add new pytest markers to pyproject.toml:
+  - `tui_fast`: fast unit tests
+  - `tui_slow`: slow startup/lifecycle tests
+  - `tui_integration`: multi-screen workflows
+- Add convenience options:
+  - Default run excludes slow tests (can opt-in with `-m tui_slow`)
+  - Make coverage optional for fast tests (`--cov` only when requested)
+- Add flaky test detection to test output
+
+**Files to modify:**
+- `pyproject.toml` — add tui_fast/tui_slow markers and split options
+
+**Post-block:** Run `pytest -m tui_fast` and `pytest -m tui_slow` separately, verify correct grouping, commit.
+
+#### 6a.2.5: Document Testing Patterns
+
+Create guidance for writing non-flaky TUI tests.
+
+**Tasks:**
+- Document when to use `@pytest.mark.tui_fast` vs `@pytest.mark.tui_slow` vs `@pytest.mark.tui_integration`
+- Document fixture usage for global state resets
+- Document how to write behavior-focused tests instead of brittle structure tests
+- Document timer/worker cleanup requirements
+
+**Files to modify:**
+- `docs/development/TESTING.md` — add TUI testing patterns section
+
+**Post-block:** Review documentation, commit.
+
+#### Test Classification Strategy
+
+| Test Type | Marker | Characteristics | Examples |
+|-----------|--------|-----------------|----------|
+| Unit | `tui_fast` | No app lifecycle, mocks/fakes, <100ms | `test_settings_tab_renders`, `test_command_parse` |
+| Smoke | `tui_slow` | Real app mount, timers, workers | `test_startup_smoke`, `test_full_navigation` |
+| Integration | `tui_integration` | Multi-screen, real providers | `test_agent_interaction_flow` |
+
+#### Files Summary
+
+**Create:**
+- `tests/test_ui/tui/fixtures/global_state.py` — global reset fixtures
+- `tests/test_ui/tui/conftest.py` — TUI-specific fixtures and markers
+
+**Modify:**
+- `tests/conftest.py` — add TUI global reset hooks
+- `tests/test_ui/tui/test_layout_structure.py` — make less brittle
+- `pyproject.toml` — add tui_fast/tui_slow markers and split options
+- `docs/development/TESTING.md` — document patterns
 
 ### 6a.3: Agent Screen
 - There should only be one log display format when viewing an agent. Not the two different versions currently used.

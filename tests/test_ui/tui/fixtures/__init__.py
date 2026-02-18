@@ -14,6 +14,7 @@ Test double naming conventions:
 Usage::
 
     from tests.test_ui.tui.fixtures import create_fake_app, FakeWidget
+    from tests.test_ui.tui.fixtures import reset_agent_manager, reset_tui_logging
 
 """
 
@@ -28,6 +29,11 @@ from tests.test_ui.tui.fixtures.widgets import (
     FakeButton,
 )
 from tests.test_ui.tui.fixtures.app import create_fake_app, create_startup_mock_config
+from tests.test_ui.tui.fixtures.global_state import (
+    reset_agent_manager,
+    reset_tui_logging,
+    reset_app_state,
+)
 
 __all__ = [
     "FakeStatic",
@@ -38,4 +44,7 @@ __all__ = [
     "FakeButton",
     "create_fake_app",
     "create_startup_mock_config",
+    "reset_agent_manager",
+    "reset_tui_logging",
+    "reset_app_state",
 ]
