@@ -15,7 +15,7 @@ import asyncio
 from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Container, Vertical, ScrollableContainer
-from textual.widgets import Static, RichLog, TabbedContent
+from textual.widgets import Static, TextArea
 from textual.widget import Widget
 from textual.message import Message
 from textual.reactive import reactive
@@ -121,7 +121,7 @@ class QueryScreen(ManagedScreenMixin, Widget):
                 # Log output panel
                 with Container(id="query-log-panel"):
                     yield Static("Logs", classes="log-panel-title")
-                    yield RichLog(id="query-log", auto_scroll=True, wrap=True)
+                    yield TextArea(id="query-log", read_only=True, soft_wrap=True)
 
             # Input area with CommandInput widget
             yield CommandInput(
@@ -135,21 +135,10 @@ class QueryScreen(ManagedScreenMixin, Widget):
         logger.debug("Query screen mounted")
         self._focus_command_input()
         if hasattr(self.app, "_tui_log_buffer"):
-            log_widget = self.query_one("#query-log", RichLog)
-            for message in self.app._tui_log_buffer:
-                log_widget.write(f"{message}\n")
+            log_widget = self.query_one("#query-log", TextArea)
+            text = "\n".join(self.app._tui_log_buffer) + "\n"
+            log_widget.insert(text, log_widget.document.end)
             log_widget.scroll_end()
-
-    def on_tabbed_content_tab_activated(
-        self, event: TabbedContent.TabActivated
-    ) -> None:
-        """Focus input when the query tab becomes active."""
-        tab_id = event.tab.id
-        if not tab_id:
-            return
-        context = tab_id.replace("-tab", "")
-        if context == "query":
-            self._focus_command_input()
 
     async def on_command_submitted(self, event: CommandSubmitted) -> None:
         """Handle command input submission from CommandInput widget."""
@@ -469,7 +458,9 @@ class QueryScreen(ManagedScreenMixin, Widget):
         if getattr(self.app, "current_context", None) != "query":
             return
         command_input = self.query_one("#query-command-input", CommandInput)
-        self.call_after_refresh(command_input.focus)
+        command_input.focus()
+
+    _focus_default_input = _focus_command_input
 
     def _get_help_text(self) -> str:
         """Build help text for the query screen."""
@@ -661,10 +652,9 @@ Use /mode to switch between grounded, insight, and hybrid modes."""
         """Refresh the log panel from buffered logs."""
         if not hasattr(self.app, "_tui_log_buffer"):
             return
-        log_widget = self.query_one("#query-log", RichLog)
-        log_widget.clear()
-        for message in self.app._tui_log_buffer:
-            log_widget.write(f"{message}\n")
+        log_widget = self.query_one("#query-log", TextArea)
+        text = "\n".join(self.app._tui_log_buffer) + "\n"
+        log_widget.text = text
         log_widget.scroll_end()
 
     # Worker/timer lifecycle methods inherited from ManagedScreenMixin.

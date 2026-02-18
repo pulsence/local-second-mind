@@ -40,13 +40,20 @@ class _Static:
         self.last = message
 
 
-class _RichLog:
+class _FakeDocument:
+    @property
+    def end(self):
+        return (0, 0)
+
+
+class _TextArea:
     def __init__(self) -> None:
         self.lines = []
         self.ended = False
+        self.document = _FakeDocument()
 
-    def write(self, message: str) -> None:
-        self.lines.append(message)
+    def insert(self, text: str, location) -> None:
+        self.lines.append(text)
 
     def scroll_end(self) -> None:
         self.ended = True
@@ -103,6 +110,9 @@ class _TestableRemoteScreen(RemoteScreen):
             return self.widgets[selector]
         raise KeyError(selector)
 
+    def call_after_refresh(self, fn):  # type: ignore[override]
+        fn()
+
     def run_worker(self, coro, exclusive=False):  # type: ignore[override]
         self.worker_calls.append((coro, exclusive))
         coro.close()
@@ -122,7 +132,7 @@ def _screen(context: str = "remote", providers: list[_Provider] | None = None):
     screen.widgets["#remote-query-input"] = _Input("", "remote-query-input")
     screen.widgets["#remote-weight-input"] = _Input("")
     screen.widgets["#remote-results-output"] = _Static()
-    screen.widgets["#remote-log"] = _RichLog()
+    screen.widgets["#remote-log"] = _TextArea()
     return screen
 
 
@@ -143,7 +153,7 @@ def test_on_mount_and_provider_list(monkeypatch: pytest.MonkeyPatch) -> None:
     assert screen.widgets["#remote-query-input"].focused is True
 
     remote_log = screen.widgets["#remote-log"]
-    assert remote_log.lines == ["line1\n", "line2\n"]
+    assert remote_log.lines == ["line1\nline2\n"]
     assert remote_log.ended is True
 
 

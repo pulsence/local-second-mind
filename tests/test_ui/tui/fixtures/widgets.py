@@ -61,6 +61,29 @@ class FakeRichLog:
         self.ended = True
 
 
+class _FakeDocument:
+    @property
+    def end(self):
+        return (0, 0)
+
+
+class FakeTextArea:
+    """Fake TextArea widget that collects inserted text."""
+
+    def __init__(self) -> None:
+        self.lines: list[str] = []
+        self.ended = False
+        self.text = ""
+        self.document = _FakeDocument()
+
+    def insert(self, text: str, location: Any = None) -> None:
+        self.lines.append(text)
+        self.text += text
+
+    def scroll_end(self) -> None:
+        self.ended = True
+
+
 class FakeButton:
     """Fake Button widget with ID and label tracking."""
 

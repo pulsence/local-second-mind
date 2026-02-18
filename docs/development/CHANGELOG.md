@@ -123,6 +123,9 @@ All notable changes to Local Second Mind are documented here.
   - `TestStartupPerformanceBudget`: query-interactive-under-budget enforcement (configurable via `LSM_TEST_STARTUP_BUDGET_MS`), compose import chain timing (with shared-dependency warmup via IngestScreen pre-load), `sentence_transformers` not required by screen import assertion, milestone presence, milestone ordering, background init deferral verification with ML preload mock
   - `TestAgentsDeferredInit`: minimal on_mount verification, idempotent ensure-deferred-init, runtime event trigger path
 - `create_startup_mock_config()` factory in `tests/test_ui/tui/fixtures/app.py` for startup and performance test reuse
+- `FakeTextArea` test fixture in `tests/test_ui/tui/fixtures/widgets.py` for query/remote log panel assertions
+- Auto-focus on tab activation for Remote screen (`on_tabbed_content_tab_activated` handler)
+- Auto-focus on tab activation for Agents screen (`on_tabbed_content_tab_activated` handler)
 
 ### Changed
 
@@ -145,12 +148,22 @@ All notable changes to Local Second Mind are documented here.
 - All `self.query_one(TabbedContent)` calls in `LSMApp` now use `self.query_one("#main-tabs", TabbedContent)` to avoid `TooManyMatches` ambiguity with nested `#settings-tabs`
 - SettingsScreen now composes with `disabled=True` and self-enables in `on_show()` to prevent Textual focus-stealing from switching the main tab to Settings during startup
 - SettingsScreen `on_tabbed_content_tab_activated` now calls `event.stop()` to prevent nested `#settings-tabs` events from bubbling up to `LSMApp`
+- Query and Remote log panels replaced `RichLog` with `TextArea(read_only=True, soft_wrap=True)` to enable text selection and copy (Ctrl+C)
+- `LSMApp._write_tui_log()` updated to use `TextArea.insert()` + `scroll_end()` for log widget writes
+- LLM rerank failure path changed from `_record_failure()` (ERROR level, circuit breaker increment) to `logger.warning()` with descriptive fallback message; rerank failures no longer trip the circuit breaker
+- Ingest screen `_activate_ingest_context()` now uses `call_after_refresh()` for focus to prevent race with widget layout
+- SettingsScreen `refresh_from_config()` and `on_tabbed_content_tab_activated` now guard `_focus_command_input()` behind `current_context == "settings"` check to prevent focus stealing from other screens
 
 ### Fixed
 
 - Fixed TUI log panel not displaying any log messages: Textual converts `TUILogEvent` to handler name `on_tuilog_event` (consecutive uppercase treated as one word), but the handler was named `on_tui_log_event` — all log messages were silently dropped since the handler never matched
 - Fixed Settings screen flash during TUI startup where the UI briefly showed the Settings tab before switching back to Query, caused by Textual auto-focusing Input/DataTable widgets inside the Settings TabPane during compose
 - Fixed `_TUILogHandler` silently swallowing delivery errors; now writes diagnostic output to stderr on failure
+- Fixed query log panel text not being selectable or copyable (replaced `RichLog` with `TextArea`)
+- Fixed Settings screen hotkey trap where pressing Ctrl+Q from Settings would briefly switch to Query then snap back, caused by `_focus_command_input()` firing unconditionally in `refresh_from_config()`
+- Fixed LLM rerank logging `[ERROR] Provider error ... Invalid rerank response` when LLM returns malformed ranking; now logs at WARNING level with clear "falling back to local candidate ordering" message
+- Fixed Remote and Agents screens not auto-focusing input when switching to their tabs via keyboard or mouse
+- Fixed Ingest screen focus race where `_activate_ingest_context()` called `.focus()` synchronously instead of deferring via `call_after_refresh()`
 - Multi-agent stop/shutdown interaction cancellation now closes per-run interaction channels, preventing stopped/completed runs from continuing to enqueue new user-interaction prompts.
 - Session tool approvals selected with `approve_session` are now remembered across subsequent agent runs in the same runtime manager session.
 - Agents TUI log panel now preserves manual scroll position:

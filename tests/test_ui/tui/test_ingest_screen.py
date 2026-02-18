@@ -88,6 +88,9 @@ class _TestableIngestScreen(ingest_screen_mod.IngestScreen):
             return self.widgets[selector]
         raise KeyError(selector)
 
+    def call_after_refresh(self, fn):  # type: ignore[override]
+        fn()
+
 
 def _screen(current_context: str = "ingest"):
     notifications = []

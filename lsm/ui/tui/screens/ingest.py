@@ -18,7 +18,7 @@ import asyncio
 from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Container, Vertical, ScrollableContainer
-from textual.widgets import Static, DirectoryTree, ProgressBar, Tree, TabbedContent
+from textual.widgets import Static, DirectoryTree, ProgressBar, Tree
 from textual.widget import Widget
 from textual.reactive import reactive
 
@@ -147,17 +147,6 @@ class IngestScreen(ManagedScreenMixin, Widget):
         if getattr(self.app, "current_context", None) == "ingest":
             self._activate_ingest_context()
 
-    def on_tabbed_content_tab_activated(
-        self, event: TabbedContent.TabActivated
-    ) -> None:
-        """Refresh ingest stats when the ingest tab becomes active."""
-        tab_id = event.tab.id
-        if not tab_id:
-            return
-        context = tab_id.replace("-tab", "")
-        if context == "ingest":
-            self._activate_ingest_context()
-
     def _activate_ingest_context(self) -> None:
         """Perform ingest-tab-only initialization when tab is active."""
         if not self._stats_initialized:
@@ -168,6 +157,12 @@ class IngestScreen(ManagedScreenMixin, Widget):
                 exclusive=True,
             )
             self._stats_initialized = True
+        self._focus_default_input()
+
+    def _focus_default_input(self) -> None:
+        """Focus the command input when the ingest context is active."""
+        if getattr(self.app, "current_context", None) != "ingest":
+            return
         self.query_one("#ingest-command-input", CommandInput).focus()
 
     def on_unmount(self) -> None:

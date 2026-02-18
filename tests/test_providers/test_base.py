@@ -270,3 +270,45 @@ class TestBaseLLMProvider:
         tag_provider = ConcreteProvider(send_response='{"tags":["Tag One","Tag Two"]}')
         tags = tag_provider.generate_tags("text", num_tags=1)
         assert tags == ["tag one"]
+
+    def test_rerank_invalid_response_logs_warning_not_error(self, caplog):
+        """Invalid rerank response should log WARNING, not ERROR, and not trip circuit breaker."""
+        import logging
+
+        # ranking=123 is not a list, triggers the invalid response path
+        provider = ConcreteProvider(send_response='{"ranking": 123}')
+        candidates = [
+            {"text": "alpha", "metadata": {"source_path": "a.txt"}},
+            {"text": "beta", "metadata": {"source_path": "b.txt"}},
+        ]
+
+        with caplog.at_level(logging.DEBUG, logger="lsm"):
+            result = provider.rerank("q", candidates, k=2)
+
+        # Should fall back to original order
+        assert result == candidates[:2]
+        # Should log a warning about invalid response
+        warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
+        assert any("falling back to local candidate ordering" in r.message for r in warnings)
+        # Should NOT log an error
+        errors = [r for r in caplog.records if r.levelno == logging.ERROR]
+        rerank_errors = [r for r in errors if "rerank" in r.message.lower()]
+        assert len(rerank_errors) == 0
+        # Should NOT increment circuit breaker
+        assert provider._health_stats.consecutive_failures == 0
+
+    def test_rerank_exception_logs_warning_not_error(self, caplog):
+        """Rerank exception should log WARNING with fallback message."""
+        import logging
+
+        provider = ConcreteProvider(fail_send=True)
+        candidates = [
+            {"text": "alpha", "metadata": {"source_path": "a.txt"}},
+        ]
+
+        with caplog.at_level(logging.DEBUG, logger="lsm"):
+            result = provider.rerank("q", candidates, k=1)
+
+        assert result == candidates[:1]
+        warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
+        assert any("falling back to local candidate ordering" in r.message for r in warnings)

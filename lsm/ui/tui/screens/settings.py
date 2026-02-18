@@ -99,16 +99,10 @@ class SettingsScreen(ManagedScreenMixin, Widget):
 
         if getattr(self.app, "current_context", None) == "settings":
             self.refresh_from_config()
-            try:
-                tabs = self.query_one("#settings-tabs", TabbedContent)
-                self.call_after_refresh(tabs.focus)
-                self.call_after_refresh(lambda: self._focus_command_input(self._active_tab_id()))
-            except Exception:
-                return
 
     def on_show(self) -> None:
-        if self.disabled:
-            self.disabled = False
+        if getattr(self.app, "current_context", None) != "settings":
+            return
         self.refresh_from_config()
 
     def on_unmount(self) -> None:
@@ -125,13 +119,15 @@ class SettingsScreen(ManagedScreenMixin, Widget):
         if callable(stop):
             stop()
 
-        tab_id = self._normalize_tab_id(str(getattr(getattr(event, "tab", None), "id", "") or "").strip())
+        pane = getattr(event, "pane", None)
+        tab_id = getattr(pane, "id", None) or ""
         if tab_id not in {tid for tid, _ in self._TAB_LAYOUT}:
             tab_id = self._active_tab_id()
 
         if tab_id in self._stale_tabs:
             self._refresh_tab_from_view_model(tab_id)
-        self._focus_command_input(tab_id)
+        if getattr(self.app, "current_context", None) == "settings":
+            self._focus_command_input(tab_id)
 
     def on_input_submitted(self, event: Input.Submitted) -> None:
         tab_id = self._tab_id_from_command_input_id(event.input.id or "")
@@ -155,7 +151,8 @@ class SettingsScreen(ManagedScreenMixin, Widget):
         self._mark_tabs_stale([tab_id for tab_id, _ in self._TAB_LAYOUT])
         active = self._active_tab_id()
         self._refresh_tab_from_view_model(active)
-        self._focus_command_input(active)
+        if getattr(self.app, "current_context", None) == "settings":
+            self._focus_command_input(active)
 
     def _execute_command(self, tab_id: str, command: str) -> None:
         view_model = self._ensure_view_model()
@@ -338,7 +335,7 @@ class SettingsScreen(ManagedScreenMixin, Widget):
 
     def _activate_tab(self, tab_id: str) -> None:
         self.query_one("#settings-tabs", TabbedContent).active = tab_id
-        self.call_after_refresh(lambda: self._focus_command_input(tab_id))
+        self._focus_command_input(tab_id)
 
     def _focus_command_input(self, tab_id: str) -> None:
         try:

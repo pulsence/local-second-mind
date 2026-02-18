@@ -560,7 +560,7 @@ class AgentsScreen(ManagedScreenMixin, Widget):
         if getattr(self.app, "current_context", None) != "agents":
             return
         topic_input = self.query_one("#agents-topic-input", Input)
-        self.call_after_refresh(topic_input.focus)
+        topic_input.focus()
 
     def _start_agent(self) -> None:
         agent_name = self.query_one("#agents-select", Select).value

@@ -432,19 +432,28 @@ class TestLSMAppMethods:
     def test_write_tui_log_targets_active_context(self, tmp_path: Path):
         """_write_tui_log should write only to the visible context log."""
         from lsm.ui.tui.app import LSMApp
+        from types import SimpleNamespace
 
         app = LSMApp(_build_config(tmp_path))
         seen = []
 
-        class _Log:
-            def write(self, value):
-                seen.append(value)
+        class _FakeDocument:
+            @property
+            def end(self):
+                return (0, 0)
+
+        class _FakeTextArea:
+            document = _FakeDocument()
+            def insert(self, text, location):
+                seen.append(text)
+            def scroll_end(self):
+                pass
 
         def _query_one(selector, _cls=None):
             if selector == "#query-log" and app.current_context == "query":
-                return _Log()
+                return _FakeTextArea()
             if selector == "#remote-log" and app.current_context == "remote":
-                return _Log()
+                return _FakeTextArea()
             raise RuntimeError("missing")
 
         app.query_one = _query_one  # type: ignore[assignment]
@@ -672,7 +681,8 @@ class TestLSMAppBehavior:
         app.query_one = _query_one  # type: ignore[assignment]
 
         event = SimpleNamespace(
-            tab=SimpleNamespace(id="settings-tab"),
+            tab=SimpleNamespace(id="--content-tab-settings"),
+            pane=SimpleNamespace(id="settings"),
             tabbed_content=tabs,
         )
         app.on_tabbed_content_tab_activated(event)
@@ -683,7 +693,7 @@ class TestLSMAppBehavior:
         from lsm.ui.tui.app import LSMApp
 
         app = LSMApp(_build_config(tmp_path))
-        tabs = SimpleNamespace(active="")
+        tabs = SimpleNamespace(active="", id="main-tabs")
         app.query_one = lambda selector, _cls=None: tabs if selector else tabs  # type: ignore[assignment]
 
         app.action_switch_ingest()
@@ -699,17 +709,29 @@ class TestLSMAppBehavior:
         assert app.current_context == "settings"
         assert app.ui_state.active_context == "settings"
 
-        event = SimpleNamespace(tab=SimpleNamespace(id="query-tab"), tabbed_content=tabs)
+        event = SimpleNamespace(
+            tab=SimpleNamespace(id="--content-tab-query"),
+            pane=SimpleNamespace(id="query"),
+            tabbed_content=tabs,
+        )
         app.on_tabbed_content_tab_activated(event)
         assert app.current_context == "query"
         assert app.ui_state.active_context == "query"
 
-        event_bad = SimpleNamespace(tab=SimpleNamespace(id="unknown-tab"), tabbed_content=tabs)
+        event_bad = SimpleNamespace(
+            tab=SimpleNamespace(id="--content-tab-unknown"),
+            pane=SimpleNamespace(id="unknown"),
+            tabbed_content=tabs,
+        )
         app.on_tabbed_content_tab_activated(event_bad)
         assert app.current_context == "query"
 
         nested_tabs = SimpleNamespace(id="settings-tabs")
-        nested_event = SimpleNamespace(tab=SimpleNamespace(id="remote-tab"), tabbed_content=nested_tabs)
+        nested_event = SimpleNamespace(
+            tab=SimpleNamespace(id="--content-tab-remote"),
+            pane=SimpleNamespace(id="remote"),
+            tabbed_content=nested_tabs,
+        )
         app.on_tabbed_content_tab_activated(nested_event)
         assert app.current_context == "query"
 

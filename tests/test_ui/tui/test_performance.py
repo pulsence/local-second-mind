@@ -276,6 +276,8 @@ class TestAgentsDeferredInit:
                 clear_columns=lambda: None,
                 add_columns=lambda *a: None,
                 add_column=lambda *a, **kw: None,
+                set_options=lambda *a: None,
+                value=None,
             )
             screen.on_mount()
             assert screen._deferred_init_done is False

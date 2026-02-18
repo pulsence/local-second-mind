@@ -21,7 +21,7 @@ import traceback
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual import events
-from textual.widgets import Header, Footer, TabbedContent, TabPane, RichLog
+from textual.widgets import Header, Footer, TabbedContent, TabPane
 from textual.reactive import reactive
 from textual.timer import Timer
 from textual.message import Message
@@ -241,7 +241,7 @@ class LSMApp(App):
 
             with TabPane("Settings (^s)", id="settings"):
                 from lsm.ui.tui.screens.settings import SettingsScreen
-                yield SettingsScreen(id="settings-screen", disabled=True)
+                yield SettingsScreen(id="settings-screen")
 
         # Status bar showing mode, chunks, cost
         yield StatusBar(id="main-status-bar")
@@ -394,8 +394,10 @@ class LSMApp(App):
         context = getattr(self, "current_context", "query")
         selector = "#remote-log" if context == "remote" else "#query-log"
         try:
-            log_widget = self.query_one(selector, RichLog)
-            log_widget.write(f"{message}\n")
+            from textual.widgets import TextArea
+            log_widget = self.query_one(selector, TextArea)
+            log_widget.insert(f"{message}\n", log_widget.document.end)
+            log_widget.scroll_end()
         except Exception:
             return
 
@@ -1123,8 +1125,37 @@ class LSMApp(App):
 
     def _set_active_context(self, context: ContextType) -> None:
         """Update active context in both reactive state and typed app state."""
+        if self.current_context == context:
+            return
         self.current_context = context
         self.ui_state.set_active_context(context)
+        self._focus_active_screen(context)
+
+    def _focus_active_screen(self, context: str) -> None:
+        """Focus the default input on the newly-active screen.
+
+        Uses direct ``focus()`` rather than ``call_after_refresh`` because
+        deferred focus causes Textual's ``TabbedContent`` to briefly
+        re-activate the previous pane (the focused widget is inside a
+        now-hidden ``TabPane``, which triggers a pane switch back).
+        """
+        _SCREEN_SELECTORS = {
+            "query": "#query-screen",
+            "ingest": "#ingest-screen",
+            "remote": "#remote-screen",
+            "agents": "#agents-screen",
+            # settings handles its own focus via _refresh_settings_screen
+        }
+        selector = _SCREEN_SELECTORS.get(context)
+        if not selector:
+            return
+        try:
+            screen = self.query_one(selector)
+            focus_fn = getattr(screen, "_focus_default_input", None)
+            if callable(focus_fn):
+                focus_fn()
+        except Exception:
+            pass
 
     def action_switch_ingest(self) -> None:
         """Switch to ingest tab."""
@@ -1256,28 +1287,29 @@ class LSMApp(App):
     def on_tabbed_content_tab_activated(
         self, event: TabbedContent.TabActivated
     ) -> None:
-        """Handle tab activation to update context."""
-        # Ignore nested TabbedContent events (for example, settings sub-tabs).
-        event_tabs = getattr(event, "tabbed_content", None)
-        if event_tabs is not None and getattr(event_tabs, "id", None) != "main-tabs":
-            try:
-                root_tabs = self.query_one("#main-tabs", TabbedContent)
-            except Exception:
-                root_tabs = None
-            if root_tabs is None or event_tabs is not root_tabs:
-                return
+        """Handle tab activation to update context.
 
-        tab_id = event.tab.id
-        if tab_id:
-            # Remove the "-tab" suffix if present
-            context = tab_id.replace("-tab", "")
-            if context in ("ingest", "query", "settings", "remote", "agents"):
-                self._set_active_context(cast(ContextType, context))
-                if context == "settings":
-                    self._refresh_settings_screen()
-                if context == "agents":
-                    self._trigger_agents_deferred_init()
-                logger.debug(f"Tab activated: {context}")
+        Fires for both hotkey-driven and click-driven tab switches.
+        Uses ``event.pane.id`` for the canonical pane identifier
+        (Textual's ``event.tab.id`` uses an internal ``--content-tab-``
+        prefix that does not match our pane names).
+        """
+        # Ignore nested TabbedContent events (for example, settings sub-tabs).
+        tc = getattr(event, "tabbed_content", None)
+        if tc is None or getattr(tc, "id", None) != "main-tabs":
+            return
+
+        pane = getattr(event, "pane", None)
+        context = getattr(pane, "id", None) or ""
+        if context in ("ingest", "query", "settings", "remote", "agents"):
+            self._set_active_context(cast(ContextType, context))
+            if context == "settings":
+                self._refresh_settings_screen()
+            if context == "agents":
+                self._trigger_agents_deferred_init()
+            if context == "ingest":
+                self._activate_ingest_screen()
+            logger.debug(f"Tab activated: {context}")
 
     def _refresh_settings_screen(self) -> None:
         """Refresh settings fields from the active in-memory config."""
@@ -1296,6 +1328,16 @@ class LSMApp(App):
             init_fn = getattr(agents_screen, "_ensure_deferred_init", None)
             if callable(init_fn):
                 init_fn()
+        except Exception:
+            return
+
+    def _activate_ingest_screen(self) -> None:
+        """Trigger ingest context activation (stats init) on the ingest screen."""
+        try:
+            ingest_screen = self.query_one("#ingest-screen")
+            activate = getattr(ingest_screen, "_activate_ingest_context", None)
+            if callable(activate):
+                activate()
         except Exception:
             return
 

@@ -11,7 +11,7 @@ import asyncio
 from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Container, Vertical, Horizontal, ScrollableContainer
-from textual.widgets import Static, Input, Button, Select, RichLog
+from textual.widgets import Static, Input, Button, Select, TextArea
 from textual.widget import Widget
 from textual.reactive import reactive
 
@@ -54,7 +54,7 @@ class RemoteScreen(ManagedScreenMixin, Widget):
                         yield Static("", id="remote-provider-list", markup=False)
                     with Container(id="remote-log-panel"):
                         yield Static("Logs", classes="remote-section-title")
-                        yield RichLog(id="remote-log", auto_scroll=True, wrap=True)
+                        yield TextArea(id="remote-log", read_only=True, soft_wrap=True)
 
                 with Container(id="remote-results-panel"):
                     yield Static("Remote Results", classes="remote-section-title")
@@ -89,9 +89,9 @@ class RemoteScreen(ManagedScreenMixin, Widget):
         self._refresh_provider_list()
         self._focus_default_input()
         if hasattr(self.app, "_tui_log_buffer"):
-            log_widget = self.query_one("#remote-log", RichLog)
-            for message in self.app._tui_log_buffer:
-                log_widget.write(f"{message}\n")
+            log_widget = self.query_one("#remote-log", TextArea)
+            text = "\n".join(self.app._tui_log_buffer) + "\n"
+            log_widget.insert(text, log_widget.document.end)
             log_widget.scroll_end()
 
     def on_unmount(self) -> None:

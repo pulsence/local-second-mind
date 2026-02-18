@@ -444,7 +444,7 @@ def test_show_citation_expand_and_actions(monkeypatch: pytest.MonkeyPatch) -> No
         expand_citation=lambda idx: setattr(panel, "expanded", idx),
     )
     cmd_input = SimpleNamespace(value="hi", clear=lambda: setattr(cmd_input, "value", ""))
-    log = SimpleNamespace(clear=lambda: setattr(log, "cleared", True), write=lambda m: None, scroll_end=lambda: setattr(log, "ended", True))
+    log = SimpleNamespace(text="", scroll_end=lambda: None, document=SimpleNamespace(end=(0, 0)), insert=lambda *a: None)
     screen.set_widget("#query-results-panel", panel)
     screen.set_widget("#query-command-input", cmd_input)
     screen.set_widget("#query-log", log)
@@ -466,4 +466,4 @@ def test_show_citation_expand_and_actions(monkeypatch: pytest.MonkeyPatch) -> No
     screen.action_clear_input()
     assert cmd_input.value == ""
     screen.action_refresh_logs()
-    assert getattr(log, "cleared", False) is True
+    assert log.text != ""

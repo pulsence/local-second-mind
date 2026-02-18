@@ -959,7 +959,7 @@ Summarize Phase 6 changes into `docs/development/CHANGELOG.md`.
 ---
 
 ## Phase 6a: Final TUI refinements
-### 6a.1: Current Bugs
+### 6a.1: Current Bugs (COMPLETED)
 - Query log panel text cannot be highlighted and copied
 - On query there is an error message on llm rerank: [ERROR] Provider error in openai/gpt-5-nano (rerank): Invalid rerank response.
   But there is a follow up message: Build context block with 6 sources.
@@ -978,7 +978,6 @@ Summarize Phase 6 changes into `docs/development/CHANGELOG.md`.
 The TUI test are finicky because they’re testing a UI stack that mixes async, threads, timers, global singletons, and strict layout contracts.
 
 Main causes in this repo:
-Rea
  - Textual + async + thread lifecycle is sensitive. If a worker/timer isn’t canceled on unmount, later tests inherit dirty state and become flaky.
  - Some tests are brittle by design (exact widget IDs/order/source-shape assertions), so harmless refactors break them.
  - There is global/shared runtime state (agent runtime manager, logging sinks, app-level handlers) that can leak between tests if not reset.

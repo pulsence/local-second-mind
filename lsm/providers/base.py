@@ -157,7 +157,7 @@ class BaseLLMProvider(ABC):
                 system=instructions,
                 user=json.dumps(payload),
                 temperature=0.2,
-                max_tokens=400,
+                max_tokens=800,
                 json_schema=RERANK_JSON_SCHEMA,
                 json_schema_name="rerank_response",
                 reasoning_effort="low",
@@ -166,13 +166,20 @@ class BaseLLMProvider(ABC):
             data = parse_json_payload(raw)
             ranking = data.get("ranking", []) if isinstance(data, dict) else None
             if not isinstance(ranking, list):
-                self._record_failure(ValueError("Invalid rerank response"), "rerank")
+                logger.warning(
+                    f"LLM rerank returned invalid response structure "
+                    f"({self.name}/{self.model}), "
+                    f"falling back to local candidate ordering"
+                )
                 return candidates[:k]
             chosen = parse_ranking_response(ranking, candidates, k)
             self._record_success("rerank")
             return chosen
         except Exception as e:
-            self._record_failure(e, "rerank")
+            logger.warning(
+                f"LLM rerank failed ({self.name}/{self.model}: {e}), "
+                f"falling back to local candidate ordering"
+            )
             return candidates[:k]
 
     def synthesize(
