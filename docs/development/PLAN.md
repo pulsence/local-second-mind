@@ -960,13 +960,11 @@ Summarize Phase 6 changes into `docs/development/CHANGELOG.md`.
 
 ## Phase 6a: Final TUI refinements
 ### 6a.1: Current Bugs
-- Startup milestones log message displays tuple array instead of a formatted string
 - Query log panel text cannot be highlighted and copied
 - On query there is an error message on llm rerank: [ERROR] Provider error in openai/gpt-5-nano (rerank): Invalid rerank response.
   But there is a follow up message: Build context block with 6 sources.
   - The error causing the llm rerank needs to be fixed.
   - Error message in this case should be a warning with a message that local rerank was used and fallback.
-- Agent select dropdown box does not work
 - When in the setting screen you cannot leave by hotkeys. If you do, you automatically revert back to settings. It appears that 
   the autofocus on the input box in settings is causing this problem. This seems to be the case whenever auto-focus is set.
 - Query screen should auto focus query input box

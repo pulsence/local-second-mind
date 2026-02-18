@@ -124,7 +124,7 @@ class AgentsScreen(ManagedScreenMixin, Widget):
                     with Container(id="agents-control-panel"):
                         yield Static("Agents", classes="agents-section-title")
                         yield Static("Agent", classes="agents-label")
-                        yield Select([], id="agents-select")
+                        yield Select([], prompt="Select agent...", id="agents-select")
                         yield Static("Topic", classes="agents-label")
                         yield Input(
                             placeholder="Research topic",
@@ -331,6 +331,7 @@ class AgentsScreen(ManagedScreenMixin, Widget):
         self._deferred_init_done = False
         self._initialize_running_controls()
         self._initialize_refresh_controls()
+        self._refresh_agent_options()
         self._focus_default_input()
 
     def _ensure_deferred_init(self) -> None:
@@ -547,10 +548,13 @@ class AgentsScreen(ManagedScreenMixin, Widget):
 
     def _refresh_agent_options(self) -> None:
         agent_select = self.query_one("#agents-select", Select)
-        options = [(name, name) for name in AgentRegistry().list_agents()]
+        agent_names = AgentRegistry().list_agents()
+        if not agent_names:
+            agent_select.set_options([])
+            return
+        options = [(name, name) for name in agent_names]
         agent_select.set_options(options)
-        if options:
-            agent_select.value = options[0][1]
+        agent_select.value = agent_names[0]
 
     def _focus_default_input(self) -> None:
         if getattr(self.app, "current_context", None) != "agents":
