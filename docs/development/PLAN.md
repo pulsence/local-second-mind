@@ -958,6 +958,40 @@ Summarize Phase 6 changes into `docs/development/CHANGELOG.md`.
 
 ---
 
+## Phase 6a: Final TUI refinements
+### 6a.1: Current Bugs
+- Startup milestones log message displays tuple array instead of a formatted string
+- Query log panel text cannot be highlighted and copied
+- On query there is an error message on llm rerank: [ERROR] Provider error in openai/gpt-5-nano (rerank): Invalid rerank response.
+  But there is a follow up message: Build context block with 6 sources.
+  - The error causing the llm rerank needs to be fixed.
+  - Error message in this case should be a warning with a message that local rerank was used and fallback.
+- Agent select dropdown box does not work
+- When in the setting screen you cannot leave by hotkeys. If you do, you automatically revert back to settings. It appears that 
+  the autofocus on the input box in settings is causing this problem. This seems to be the case whenever auto-focus is set.
+- Query screen should auto focus query input box
+- Ingest screen should auto focus ingest input box
+- Remote screen should auto focus query input box
+- Agent screen should auto focus agent topic input box
+
+### 6a.2: TUI Testing Hardening
+The TUI test are finicky because they’re testing a UI stack that mixes async, threads, timers, global singletons, and strict layout contracts.
+
+Main causes in this repo:
+Rea
+ - Textual + async + thread lifecycle is sensitive. If a worker/timer isn’t canceled on unmount, later tests inherit dirty state and become flaky.
+ - Some tests are brittle by design (exact widget IDs/order/source-shape assertions), so harmless refactors break them.
+ - There is global/shared runtime state (agent runtime manager, logging sinks, app-level handlers) that can leak between tests if not reset.
+ - Startup-style tests instantiate real LSMApp lifecycle paths (on_mount, deferred init, logging hooks), which are naturally slower and timing-sensitive.
+ - Environment overhead is significant: running under WSL on /mnt/c/.../OneDrive... is much slower and less stable for heavy pytest IO than native Linux filesystem.
+ - Default pytest config includes coverage/instrumentation (pyproject.toml), which further slows and sometimes amplifies flakiness around threaded code.
+
+Do a follow-up pass to harden this: isolate global state resets in fixtures, move fragile structure tests to behavior-focused tests, and split fast unit TUI tests from slower startup/lifecycle smoke tests.
+
+### 6a.4: Phase 6a Changelog
+
+Summarize Phase 6a changes into `docs/development/CHANGELOG.md`.
+
 ## Phase 7: Documentation and Version Updates
 
 ### 7.1: Final Documentation and Version Updates

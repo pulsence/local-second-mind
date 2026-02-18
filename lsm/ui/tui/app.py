@@ -266,10 +266,10 @@ class LSMApp(App):
         self._startup_timeline.mark("tui_logging_ready")
         self._schedule_background_init()
         self._startup_timeline.mark("mount_complete")
-        logger.info(
-            "Startup milestones: %s",
-            [(m.name, f"{m.elapsed_ms:.0f}ms") for m in self._startup_timeline.milestones],
+        milestones_str = "\n".join(
+            f"\t{m.name}={m.elapsed_ms:.0f}ms" for m in self._startup_timeline.milestones
         )
+        logger.info("Startup milestones:\n %s", milestones_str)
 
     def _schedule_background_init(self) -> None:
         """Defer non-critical startup initialization past the first render."""
