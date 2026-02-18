@@ -658,6 +658,37 @@ class AgentRuntimeManager:
             return "No log entries yet.\n"
         return format_agent_log(entries)
 
+    def get_log_entries(self, agent_id: Optional[str] = None) -> list[dict[str, Any]]:
+        """Return raw log entries for an agent as dicts for UI formatting.
+
+        Args:
+            agent_id: Optional agent ID to get entries for. If None, resolves
+                to the selected or only running agent.
+
+        Returns:
+            List of dict entries with keys: actor, content, action, action_arguments.
+        """
+        with self._lock:
+            self._cleanup_finished_locked()
+            entry, error = self._resolve_target_entry_locked(
+                agent_id=agent_id,
+                action="log",
+                include_completed=True,
+            )
+            if error or entry is None:
+                return []
+
+        raw_entries = list(getattr(entry.agent.state, "log_entries", []))
+        result: list[dict[str, Any]] = []
+        for e in raw_entries:
+            result.append({
+                "actor": getattr(e, "actor", ""),
+                "content": getattr(e, "content", ""),
+                "action": getattr(e, "action", None),
+                "action_arguments": getattr(e, "action_arguments", None),
+            })
+        return result
+
     def get_active_agent(self):
         """Return the active agent instance for UI screens."""
         with self._lock:
@@ -688,6 +719,39 @@ class AgentRuntimeManager:
                         (now - entry.started_at).total_seconds(),
                     ),
                     "thread_alive": entry.thread.is_alive(),
+                    "log_entries": len(getattr(entry.agent.state, "log_entries", [])),
+                }
+            )
+        return output
+
+    def list_completed(self) -> list[dict[str, Any]]:
+        """Return list of completed agent runs from the current session.
+
+        Returns:
+            List of dict entries with keys: agent_id, agent_name, topic,
+            status, started_at, completed_at, duration_seconds.
+        """
+        with self._lock:
+            completed_entries = [self._completed_runs[k] for k in self._completed_order if k in self._completed_runs]
+            entries = sorted(completed_entries, key=lambda item: item.started_at, reverse=True)
+        output: list[dict[str, Any]] = []
+        for entry in entries:
+            status = self._entry_status_value(entry)
+            completed_at = entry.completed_at
+            started_at = entry.started_at
+            duration_seconds = 0.0
+            if completed_at and started_at:
+                duration_seconds = (completed_at - started_at).total_seconds()
+            output.append(
+                {
+                    "agent_id": entry.agent_id,
+                    "agent_name": entry.agent_name,
+                    "topic": entry.topic,
+                    "status": status,
+                    "started_at": started_at.isoformat() if started_at else "",
+                    "completed_at": completed_at.isoformat() if completed_at else "",
+                    "duration_seconds": duration_seconds,
+                    "thread_alive": False,
                     "log_entries": len(getattr(entry.agent.state, "log_entries", [])),
                 }
             )

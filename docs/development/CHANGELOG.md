@@ -1,4 +1,4 @@
-﻿# Changelog
+# Changelog
 
 All notable changes to Local Second Mind are documented here.
 
@@ -126,6 +126,12 @@ All notable changes to Local Second Mind are documented here.
 - `FakeTextArea` test fixture in `tests/test_ui/tui/fixtures/widgets.py` for query/remote log panel assertions
 - Auto-focus on tab activation for Remote screen (`on_tabbed_content_tab_activated` handler)
 - Auto-focus on tab activation for Agents screen (`on_tabbed_content_tab_activated` handler)
+- Agents screen now displays completed agents from the current session in the Running Agents panel, marked with "[C]" prefix in the status column
+- Agent screen UX refinements:
+  - Unified log display format (single streaming format for both live and persisted logs)
+  - Status panel auto-shows status when agent is selected in Running Agents table (removed separate Status button)
+  - Follow button renamed to "Auto-Update" with corrected behavior: logs only update when Auto-Update is ON, and auto-scroll only triggers when user is already at the bottom of the log
+  - Running Agents panel now displays completed agents from current session with "[C]" status indicator
 
 ### Changed
 
@@ -152,6 +158,10 @@ All notable changes to Local Second Mind are documented here.
 - LLM rerank failure path changed from `_record_failure()` (ERROR level, circuit breaker increment) to `logger.warning()` with descriptive fallback message; rerank failures no longer trip the circuit breaker
 - SettingsScreen `refresh_from_config()` and `on_tabbed_content_tab_activated` now guard `_focus_command_input()` behind `current_context == "settings"` check to prevent focus stealing from other screens
 - `LSMApp._focus_active_screen()` and all screen `_focus_default_input()` methods now call `widget.focus()` directly instead of via `call_after_refresh()` to eliminate TabbedContent pane-switch bounce; `LSMApp.on_tabbed_content_tab_activated` now reads `event.pane.id` instead of parsing the `--content-tab-` prefixed `event.tab.id`
+- Unified Agents screen log display format to a single streaming format instead of two different versions
+- Renamed "Follow" button to "Auto-Update: On/Off" for clearer user understanding
+- Removed Status button from Agents screen status panel; status now automatically displays when an agent is selected
+- Changed Follow/Auto-Update behavior: log panel only updates when Auto-Update is ON; when turned OFF, logs stop updating until the agent is re-selected
 
 ### Fixed
 
@@ -178,6 +188,10 @@ All notable changes to Local Second Mind are documented here.
   - stop-aware completion ensures per-run log artifacts are written before stop reports success in normal cases
 - Agents TUI stop control now runs stop requests on a background worker to prevent UI hangs during graceful-stop waits.
 - Agents screen panel order updated so launch appears first and status/control appears immediately after launch.
+- Fixed Agents TUI multiple log display formats: unified log display to use streaming format for both live and persisted logs
+- Fixed Agents TUI status not showing on agent selection: removed status button, now auto-displays status when agent is selected in Running Agents table
+- Fixed Agents TUI follow button behavior: renamed to "Auto-Update", now only updates log panel when enabled and user is at bottom; when disabled, logs stop updating until agent is reselected
+- Fixed Agents TUI showing completed agents: Running Agents table now displays completed agents from current session with "[C]" status indicator
 - Config path resolution is now consistent for vector persistence and ingest artifacts:
   - relative `global.global_folder` now resolves from the config file directory
   - `vectordb.persist_dir` is the single source of truth; `ingest.persist_dir` is ignored on load and no longer serialized

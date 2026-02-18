@@ -974,7 +974,7 @@ Summarize Phase 6 changes into `docs/development/CHANGELOG.md`.
 - Remote screen should auto focus query input box
 - Agent screen should auto focus agent topic input box
 
-### 6a.2: TUI Testing Hardening
+### 6a.2: TUI Testing Hardening (NEEDS REVIEW)
 
 The TUI tests are finicky because they're testing a UI stack that mixes async, threads, timers, global singletons, and strict layout contracts.
 
@@ -1100,7 +1100,7 @@ Create guidance for writing non-flaky TUI tests.
 - `pyproject.toml` — add tui_fast/tui_slow markers and split options
 - `docs/development/TESTING.md` — document patterns
 
-### 6a.3: Agent Screen
+### 6a.3: Agent Screen (NEEDS REVIEW)
 - There should only be one log display format when viewing an agent. Not the two different versions currently used.
 - When an agent is selected in the Running Agent panel its status should be shown in the Status panel. There is no need for a status button.
 - When an agent is selected in the Running Agent panel its log is automatically shown on in the Agent Log panel:
@@ -1110,11 +1110,68 @@ Create guidance for writing non-flaky TUI tests.
   - And so there does not need to be an extra log button in the status panel.
 - The running agent panel should show completed agents from the current session of the program so that the user
   can refer the to results of those past agents quickly.
-- There is needs to be an ability to launch a meta-agent.
 
-### 6a.4: Phase 6a Changelog
+#### Problem Summary
+The Agent screen has several UX issues:
+1. Two log formats: Streaming log (real-time) vs Persisted log (loaded from file) - different formats
+2. Unnecessary Status button: Status is shown when agent selected, but there's still a Status button
+3. Follow button behavior: Currently controls both log updates AND auto-scroll, but should only control updates
+4. No completed agents shown: Running Agents panel only shows active agents
+5. No meta-agent launch: Missing ability to launch meta-agent from UI
+---
+#### 6a.3.1: Unify Log Display Format
+Tasks:
+- Identify the two different log formats:
+  - Streaming: Uses _format_stream_log_entry() from presenters
+  - Persisted: Uses manager.log() which returns raw string format
+- Create a unified formatter that both paths use
+- Modify _show_log() to use the same streaming format as real-time log
+- Remove format-specific code paths
+Files to modify:
+- lsm/ui/tui/screens/agents.py - unify log formatting in _show_log()
+---
+#### 6a.3.2: Auto-Show Status When Agent Selected
+Tasks:
+- Remove the Status button from the status panel (line 174: yield Button("Status", ...))
+- When an agent is selected in Running Agents table:
+  - Automatically update the Status panel with current agent status
+  - This already happens via _show_status() call in row selection
+- Ensure Status panel is always populated when an agent is selected (no button needed)
+Files to modify:
+- lsm/ui/tui/screens/agents.py - remove Status button, ensure auto-status display
+---
+#### 6a.3.3: Fix Follow Button Behavior
+Tasks:
+- Rename the Follow button label to clarify it's about log updates, not scroll
+- Current behavior (problematic): _log_follow_selected controls both:
+  - Whether log panel gets new entries
+  - Whether to auto-scroll to bottom
+- New behavior:
+  - _log_follow_selected controls ONLY whether log panel gets new entries
+  - Auto-scroll happens ONLY when user is already at bottom of log
+  - When follow is OFF: log panel stops updating until agent is re-selected
+- Modify _write_log() to check scroll position before auto-scrolling, separate from follow state
+Files to modify:
+- lsm/ui/tui/screens/agents.py - separate follow logic from auto-scroll
+---
+#### 6a.3.4: Show Completed Agents in Running Panel
+Tasks:
+- The manager already tracks completed runs in _completed_runs and _completed_order
+- Modify Running Agents DataTable to include completed agents from current session
+- Add "Completed" status indicator for finished agents
+- Allow selection of completed agents to view their final logs
+- Keep completed agents visible until a new agent starts (or configurable retention)
+Files to modify:
+- lsm/ui/tui/screens/agents.py - include completed agents in table
+- lsm/ui/shell/commands/agents.py - ensure completed entries are queryable
+---
+**Post-Implementation Verification**
+1. Select an agent - verify Status panel shows status without clicking button
+2. Start an agent, toggle Follow off - verify logs stop updating, toggle on - verify they resume
+3. Complete an agent - verify it appears in Running Agents panel with "Completed" status
+4. Select a completed agent - verify log is displayed correctly
 
-Summarize Phase 6a changes into `docs/development/CHANGELOG.md`.
+
 
 ## Phase 7: Documentation and Version Updates
 

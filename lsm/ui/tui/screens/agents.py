@@ -171,12 +171,10 @@ class AgentsScreen(ManagedScreenMixin, Widget):
                         yield Static("No active agent.", id="agents-status-output", markup=False)
                         with Vertical(id="agents-buttons"):
                             with Horizontal(classes="agents-button-row"):
-                                yield Button("Status", id="agents-status-button")
                                 yield Button("Pause", id="agents-pause-button")
                                 yield Button("Resume", id="agents-resume-button")
                             with Horizontal(classes="agents-button-row"):
                                 yield Button("Stop", id="agents-stop-button", variant="error")
-                                yield Button("Log", id="agents-log-button")
                     with Container(id="agents-interaction-panel"):
                         yield Static("Interaction Request", classes="agents-section-title")
                         with Horizontal(id="agents-interaction-refresh-controls"):
@@ -320,7 +318,7 @@ class AgentsScreen(ManagedScreenMixin, Widget):
                     with Horizontal(id="agents-log-header"):
                         yield Static("Agent Log", classes="agents-section-title")
                         yield Button(
-                            "Follow: On",
+                            "Auto-Update: On",
                             id="agents-log-follow-toggle-button",
                         )
                     with ScrollableContainer(id="agents-log-scroll"):
@@ -428,9 +426,6 @@ class AgentsScreen(ManagedScreenMixin, Widget):
         if button_id == "agents-log-follow-toggle-button":
             self._toggle_log_follow_mode()
             return
-        if button_id == "agents-status-button":
-            self._show_status()
-            return
         if button_id == "agents-pause-button":
             self._run_control_action("pause")
             return
@@ -439,9 +434,6 @@ class AgentsScreen(ManagedScreenMixin, Widget):
             return
         if button_id == "agents-stop-button":
             self._run_control_action("stop")
-            return
-        if button_id == "agents-log-button":
-            self._show_log()
             return
         if button_id == "agents-interaction-approve-button":
             self._approve_interaction()
@@ -691,8 +683,8 @@ class AgentsScreen(ManagedScreenMixin, Widget):
 
     def _show_log(self) -> None:
         manager = get_agent_runtime_manager()
-        output = self._call_manager_with_agent_id(manager.log, self._selected_agent_id)
-        self._replace_log(output, force_scroll_end=True)
+        entries = self._call_manager_with_agent_id(manager.get_log_entries, self._selected_agent_id)
+        self._replace_log(entries, force_scroll_end=True)
         self._refresh_meta_panel()
 
     def _show_meta_log(self) -> None:
@@ -792,7 +784,7 @@ class AgentsScreen(ManagedScreenMixin, Widget):
         )
         self._set_button_label(
             "#agents-log-follow-toggle-button",
-            "Follow: On" if self._log_follow_selected else "Follow: Off",
+            "Auto-Update: On" if self._log_follow_selected else "Auto-Update: Off",
         )
 
     def _restart_running_refresh_timer(self) -> None:
@@ -871,7 +863,7 @@ class AgentsScreen(ManagedScreenMixin, Widget):
             except Exception:
                 pass
         self._set_status(
-            f"Follow selected agent log {'enabled' if self._log_follow_selected else 'disabled'}."
+            f"Auto-update {'enabled' if self._log_follow_selected else 'disabled'}."
         )
 
     def _parse_refresh_interval(self, value: Any) -> Optional[float]:
@@ -907,6 +899,7 @@ class AgentsScreen(ManagedScreenMixin, Widget):
         manager = get_agent_runtime_manager()
         try:
             running = list(manager.list_running())
+            completed = list(manager.list_completed())
         except Exception as exc:
             running_table.clear(columns=False)
             self._running_agent_ids = []
@@ -918,6 +911,7 @@ class AgentsScreen(ManagedScreenMixin, Widget):
 
         row_data: list[dict[str, Any]] = []
         current_running_agent_names: dict[str, str] = {}
+
         for row in running:
             agent_id = str(row.get("agent_id", "")).strip()
             if not agent_id:
@@ -934,6 +928,31 @@ class AgentsScreen(ManagedScreenMixin, Widget):
                     "topic": topic,
                     "status": status,
                     "duration_seconds": duration_seconds,
+                    "is_completed": False,
+                }
+            )
+
+        for row in completed:
+            agent_id = str(row.get("agent_id", "")).strip()
+            if not agent_id:
+                continue
+            agent_name = str(row.get("agent_name", "")).strip() or "-"
+            current_running_agent_names[agent_id] = agent_name
+            topic = str(row.get("topic", "")).strip() or "-"
+            status = str(row.get("status", "")).strip() or "-"
+            if status and status != "completed":
+                status = f"completed({status})"
+            else:
+                status = "completed"
+            duration_seconds = float(row.get("duration_seconds", 0.0) or 0.0)
+            row_data.append(
+                {
+                    "agent_id": agent_id,
+                    "agent_name": agent_name,
+                    "topic": topic,
+                    "status": status,
+                    "duration_seconds": duration_seconds,
+                    "is_completed": True,
                 }
             )
 
@@ -963,7 +982,7 @@ class AgentsScreen(ManagedScreenMixin, Widget):
             self._running_row_index = 0
             self._selected_agent_id = None
             self._unread_log_counts = {}
-            output_widget.update("No running agents.")
+            output_widget.update("No agents.")
             return
 
         selected_index = 0
@@ -985,11 +1004,15 @@ class AgentsScreen(ManagedScreenMixin, Widget):
             unread_count = max(0, self._coerce_int(self._unread_log_counts.get(agent_id)) or 0)
             if agent_id == selected_agent_id:
                 unread_count = 0
+            is_completed = bool(item.get("is_completed", False))
+            status_display = str(item.get("status", ""))
+            if is_completed:
+                status_display = f"[C] {status_display}"
             running_table.add_row(
                 agent_id[:8],
                 str(item.get("agent_name", "")),
                 str(item.get("topic", "")),
-                str(item.get("status", "")),
+                status_display,
                 self._format_duration(float(item.get("duration_seconds", 0.0) or 0.0)),
                 str(unread_count),
             )
@@ -1000,7 +1023,17 @@ class AgentsScreen(ManagedScreenMixin, Widget):
         except Exception:
             pass
 
-        output_widget.update(f"{len(self._running_agent_ids)} running agent(s).")
+        running_count = len(running)
+        completed_count = len(completed)
+        if running_count > 0 and completed_count > 0:
+            output_widget.update(f"{running_count} running, {completed_count} completed.")
+        elif running_count > 0:
+            output_widget.update(f"{running_count} running agent(s).")
+        elif completed_count > 0:
+            output_widget.update(f"{completed_count} completed agent(s).")
+        else:
+            output_widget.update("No agents.")
+
         if str(self._selected_agent_id or "").strip() != previous_selected:
             self._show_selected_agent_log()
 
@@ -1028,6 +1061,7 @@ class AgentsScreen(ManagedScreenMixin, Widget):
         self._running_row_index = row_index
         self._selected_agent_id = self._running_agent_ids[row_index]
         self._clear_unread_for_agent(self._selected_agent_id)
+        self._show_status()
         self._show_selected_agent_log()
 
     def _show_selected_agent_log(self) -> None:
@@ -1036,8 +1070,8 @@ class AgentsScreen(ManagedScreenMixin, Widget):
             return
         self._clear_unread_for_agent(agent_id)
         manager = get_agent_runtime_manager()
-        output = self._call_manager_with_agent_id(manager.log, agent_id)
-        self._replace_log(output)
+        entries = self._call_manager_with_agent_id(manager.get_log_entries, agent_id)
+        self._replace_log(entries)
         clear_stream = getattr(manager, "clear_log_stream", None)
         if callable(clear_stream):
             try:
@@ -1067,6 +1101,9 @@ class AgentsScreen(ManagedScreenMixin, Widget):
         return method(agent_id=None)
 
     def _drain_log_streams(self) -> None:
+        if not self._log_follow_selected:
+            return
+
         manager = get_agent_runtime_manager()
         drain = getattr(manager, "drain_log_stream", None)
         if not callable(drain):
@@ -1956,7 +1993,6 @@ class AgentsScreen(ManagedScreenMixin, Widget):
         log_widget = self.query_one("#agents-log", RichLog)
         should_scroll_end = (
             force_scroll_end
-            or self._log_follow_selected
             or self._is_log_scrolled_to_bottom(log_widget)
         )
         if replace:
@@ -1966,17 +2002,33 @@ class AgentsScreen(ManagedScreenMixin, Widget):
                     clear_fn()
                 except Exception:
                     pass
-        if isinstance(message, str):
-            entry = message.rstrip() + "\n"
-        else:
-            entry = message
+
         write_fn = getattr(log_widget, "write", None)
         if not callable(write_fn):
             return
-        try:
-            write_fn(entry, scroll_end=should_scroll_end)
-        except TypeError:
-            write_fn(entry)
+
+        if isinstance(message, list):
+            for row in message:
+                if not isinstance(row, dict):
+                    continue
+                formatted = self._format_stream_log_entry(row)
+                try:
+                    write_fn(formatted, scroll_end=should_scroll_end)
+                except TypeError:
+                    write_fn(formatted)
+                should_scroll_end = False
+        elif isinstance(message, str):
+            entry = message.rstrip() + "\n"
+            try:
+                write_fn(entry, scroll_end=should_scroll_end)
+            except TypeError:
+                write_fn(entry)
+        else:
+            try:
+                write_fn(message, scroll_end=should_scroll_end)
+            except TypeError:
+                write_fn(message)
+
         if force_scroll_end:
             self._scroll_log_to_end(log_widget)
 
