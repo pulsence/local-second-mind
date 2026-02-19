@@ -404,7 +404,7 @@ To add a custom provider:
 2. Register it with `register_remote_provider`.
 3. Reference it by `type` in `remote_providers` entries.
 
-See `docs/api-reference/REMOTE.md` for the provider interface.
+See `.agents/docs/architecture/api-reference/REMOTE.md` for the provider interface.
 
 ## API Key Management
 

@@ -69,7 +69,7 @@ When adding a tool or agent:
 3. Add prompt-injection tests proving malformed or adversarial model output cannot trigger unsafe execution.
 4. Add secret-leakage tests if tool output may include credentials/tokens.
 5. Add resource tests for large outputs, long loops, or heavy payloads.
-6. Update this document’s STRIDE matrix and `docs/development/TESTING.md`.
+6. Update this document’s STRIDE matrix and `.agents/docs/architecture/development/TESTING.md`.
 
 ## Permission Gate Reference
 

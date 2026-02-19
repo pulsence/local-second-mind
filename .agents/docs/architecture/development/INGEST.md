@@ -158,4 +158,4 @@ The TUI Ingest tab provides management commands for:
 - tagging (`/tag`)
 - wiping the collection (`/wipe`)
 
-See `docs/api-reference/REPL.md` for commands.
+See `.agents/docs/architecture/api-reference/REPL.md` for commands.

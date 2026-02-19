@@ -15,7 +15,7 @@ This project is maintained for personal use first.
 - **Pull requests are not accepted.** See [CONTRIBUTING.md](CONTRIBUTING.md) for how to help.
 - Bugs and feature requests are welcome as [GitHub issues](https://github.com/pulsence/local-second-mind/issues).
 - Until `v1.0.0`, breaking changes can happen between releases, especially in configuration schema and interfaces.
-- Pin versions and review `docs/development/CHANGELOG.md` before upgrading.
+- Pin versions and review `docs/CHANGELOG.md` before upgrading.
 
 ## What Is New in 0.6.0
 
@@ -98,8 +98,8 @@ Global flags:
 - `docs/user-guide/QUERY_MODES.md`
 - `docs/user-guide/NOTES.md`
 - `docs/user-guide/REMOTE_SOURCES.md`
-- `docs/AGENTS.md`
-- `docs/development/CHANGELOG.md`
+- `.agents/docs/INDEX.md`
+- `docs/CHANGELOG.md`
 
 ## License
 

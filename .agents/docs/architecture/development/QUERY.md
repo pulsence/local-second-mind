@@ -88,7 +88,7 @@ The Query tab uses shared command handlers to support:
 - session filters
 - saving notes
 
-See `docs/api-reference/REPL.md` for commands.
+See `.agents/docs/architecture/api-reference/REPL.md` for commands.
 
 ## Provider Interactions
 

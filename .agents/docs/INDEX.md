@@ -75,9 +75,8 @@ API keys go in `.env`, never in config files:
 - **Parser return types:** `parse_pdf`, `parse_docx`, and `parse_file` return 3-tuples `(text, metadata, page_segments)`.
 - **Vector DB abstraction:** All modules use `BaseVectorDBProvider` interface.
 - **PostgreSQL provider:** Requires `psycopg2-binary` and `pgvector` extension.
-- **Agent sandbox security:** Security-critical. See `docs/development/SECURITY.md` for threat model and STRIDE coverage.
+- **Agent sandbox security:** Security-critical. See `.agents/docs/architecture/development/SECURITY.md` for threat model and STRIDE coverage.
 
 ## Future Plans
 
 See [future_plans/INGEST_FUTURE.md](../future_plans/INGEST_FUTURE.md) for retrieval and embedding improvements roadmap.
-

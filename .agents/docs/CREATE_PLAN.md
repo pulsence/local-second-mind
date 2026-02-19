@@ -56,4 +56,4 @@ Every Major Feature phase should have a final code review phase with tasks:
 
 ## Changelog
 
-Every Major Feature phase should end with a task summarizing the changes and writing them into `docs/development/CHANGELOG.md`.
+Every Major Feature phase should end with a task summarizing the changes and writing them into `docs/CHANGELOG.md`.

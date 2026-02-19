@@ -155,7 +155,7 @@ has the following tasks:
 
 Every Major Feature phase should end with a task summarizing the changes
 of the work actually complete to implement the Major Feature plan and
-write them into the docs/development/CHANGELOG.md file.
+write them into the docs/CHANGELOG.md file.
 
 ## Commands
 
@@ -297,11 +297,11 @@ API keys go in `.env`, never in config files:
 - **PostgreSQL provider:** Requires `psycopg2-binary` and `pgvector` extension. Config: `VectorDBConfig(provider="postgresql", connection_string=..., embedding_dimension=...)`. Table auto-created with `id`, `text`, `metadata` (JSONB), and `embedding` (vector) columns.
 - **Migration tool:** `lsm/vectordb/migrations/chromadb_to_postgres.py` migrates ChromaDB collections to PostgreSQL using batched provider `get()`/`add_chunks()` calls. Available via `migrate-vectordb` CLI command and `/migrate` TUI command.
 - **Large collections:** Tested stable with 300K+ chunks
-- **Agent sandbox security:** The agent sandbox is security-critical code. All changes to sandbox (`lsm/agents/tools/sandbox.py`), permission gate, tool execution, runner, or environment scrubbing code require corresponding adversarial security tests that attempt to bypass protections (path traversal, null byte injection, symlink escape, prompt injection, secret leakage, etc.). Tests must verify that attacks are rejected, not just that normal operations succeed. Never weaken sandbox restrictions without explicit user approval. See `docs/development/SECURITY.md` for the full threat model and STRIDE coverage matrix.
+- **Agent sandbox security:** The agent sandbox is security-critical code. All changes to sandbox (`lsm/agents/tools/sandbox.py`), permission gate, tool execution, runner, or environment scrubbing code require corresponding adversarial security tests that attempt to bypass protections (path traversal, null byte injection, symlink escape, prompt injection, secret leakage, etc.). Tests must verify that attacks are rejected, not just that normal operations succeed. Never weaken sandbox restrictions without explicit user approval. See `.agents/docs/architecture/development/SECURITY.md` for the full threat model and STRIDE coverage matrix.
 
 ## Project Documentation
 
-- `docs/` - User guides, architecture, API reference
-- `docs/AGENTS.md` - Agent system architecture and runtime/sandbox usage guide
-- `docs/development/TUI_ARCHITECTURE.md` - TUI conventions for state, events, workers, timers, errors, and testing
+- `docs/` - End-user guides and changelog
+- `.agents/docs/INDEX.md` - Developer and agent documentation entry point
+- `.agents/docs/architecture/development/TUI_ARCHITECTURE.md` - TUI conventions for state, events, workers, timers, errors, and testing
 - `tests/` - pytest test suite with fixtures in `conftest.py`

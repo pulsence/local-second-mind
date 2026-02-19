@@ -29,9 +29,9 @@ When requesting a feature, please include:
 
 ## Developer Documentation
 
-- [TUI Architecture Guide](docs/development/TUI_ARCHITECTURE.md) - Conventions for TUI development (state, events, workers, timers, errors, testing)
-- [Testing Guide](docs/development/TESTING.md) - Test tiers, fixtures, and running tests
-- [Security Guide](docs/development/SECURITY.md) - Agent sandbox threat model and adversarial testing
+- [TUI Architecture Guide](.agents/docs/architecture/development/TUI_ARCHITECTURE.md) - Conventions for TUI development (state, events, workers, timers, errors, testing)
+- [Testing Guide](.agents/docs/architecture/development/TESTING.md) - Test tiers, fixtures, and running tests
+- [Security Guide](.agents/docs/architecture/development/SECURITY.md) - Agent sandbox threat model and adversarial testing
 
 ## What Happens Next
 

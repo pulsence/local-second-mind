@@ -6,7 +6,7 @@ This project is maintained for personal use first.
 
 - Issue and pull request response times are not guaranteed.
 - Pre-`1.0.0` releases may include breaking changes.
-- Check `.agents/docs/development/CHANGELOG.md` before upgrading.
+- Check `docs/CHANGELOG.md` before upgrading.
 
 ## User Guide
 

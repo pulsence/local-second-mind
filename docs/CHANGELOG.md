@@ -83,7 +83,7 @@ All notable changes to Local Second Mind are documented here.
   - `parse_slash_command` grammar contracts, `tokenize_command`, normalization, `parse_on_off_value`
   - `/agent` and `/memory` command grammar validation
   - Settings verb grammar and completions alignment tests
-- TUI architecture documentation (`docs/development/TUI_ARCHITECTURE.md`):
+- TUI architecture documentation (`.agents/docs/architecture/development/TUI_ARCHITECTURE.md`):
   - Covers state management, worker/timer lifecycle, thread safety, error boundary, command parsing, keybinding conventions, CSS organization, and testing patterns
   - Linked from `CONTRIBUTING.md`, `TESTING.md`, and `CLAUDE.md`
 - Screen presenter/controller decomposition:
@@ -281,7 +281,7 @@ All notable changes to Local Second Mind are documented here.
   - round-trips schedules through `config_to_raw(...)`
 - Scheduler config documentation/examples:
   - `example_config.json` includes `agents.schedules` example
-  - `docs/AGENTS.md` agent config reference now documents schedules
+- `.agents/docs/architecture/development/AGENTS.md` agent config reference now documents schedules
 - Scheduler config tests in `tests/test_config/test_schedule_config.py` covering model validation, normalization, loader parsing, and serialization.
 - `AgentScheduler` engine in `lsm/agents/scheduler.py`:
   - persistent schedule runtime state at `<agents_folder>/schedules.json`
@@ -359,9 +359,9 @@ All notable changes to Local Second Mind are documented here.
 
 - Documentation refresh for v0.5.0 across:
   - `docs/README.md`
-  - `docs/AGENTS.md`
-  - `docs/architecture/PROVIDERS.md`
-  - `docs/development/TESTING.md`
+- `.agents/docs/architecture/development/AGENTS.md`
+- `.agents/docs/architecture/development/PROVIDERS.md`
+- `.agents/docs/architecture/development/TESTING.md`
 - Agent config loader/serializer now round-trips `agents.memory` settings via `build_memory_config(...)` and `config_to_raw(...)`.
 - Relative `agents.memory.sqlite_path` values now resolve under resolved `agents_folder` (which itself resolves under `global_folder` when configured).
 - `BaseMemoryStore` now supports `mark_used(memory_ids, used_at=...)` to update `last_used_at` for injected memories.
@@ -500,7 +500,7 @@ All notable changes to Local Second Mind are documented here.
   - T6: Data integrity — write boundaries, safe directory creation, artifact tracking (`test_security_integrity.py`, 4 tests)
   - T7: Prompt injection — non-JSON responses, malformed actions, embedded JSON isolation (`test_security_injection.py`, 7 tests)
   - T8: Secret leakage — env scrubbing, log redaction, base64 masking, harness integration (`test_security_secrets.py`, 9 tests)
-- Security documentation in `docs/development/SECURITY.md` with threat model, attack surface inventory, STRIDE coverage matrix, adversarial testing methodology, extension guide, and permission gate reference.
+- Security documentation in `.agents/docs/architecture/development/SECURITY.md` with threat model, attack surface inventory, STRIDE coverage matrix, adversarial testing methodology, extension guide, and permission gate reference.
 
 ### Changed
 

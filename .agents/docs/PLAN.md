@@ -8,7 +8,7 @@ This plan restructures project documentation to separate end-user docs from deve
 - Rename `.claude_files/` to `.agents/`
 - Create `.agents/future_plans/` folder
 - Move `.claude_files/INGEST_FUTURE.md` to `.agents/future_plans/`
-- Delete `.claude_files/sandbox_plan/` folder (content consolidated in `docs/development/SECURITY.md`)
+- Delete `.claude_files/sandbox_plan/` folder (content consolidated in `.agents/docs/architecture/development/SECURITY.md`)
 
 ### 1.2: Create .agents/docs/ Folder Structure
 ```
@@ -133,7 +133,7 @@ Move from `docs/` to `.agents/docs/`:
 ## Notes
 
 ### Security Documentation
-The `docs/development/SECURITY.md` file has been verified to properly consolidate all security notes from the deleted `.claude_files/sandbox_plan/` folder:
+The `.agents/docs/architecture/development/SECURITY.md` file has been verified to properly consolidate all security notes from the deleted `.claude_files/sandbox_plan/` folder:
 - Threat model (T1-T8 categories)
 - STRIDE coverage matrix with test file references
 - Attack surface inventory

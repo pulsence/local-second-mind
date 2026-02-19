@@ -117,10 +117,10 @@ Factories:
 
 ## References
 
-- Ingest details: `docs/architecture/INGEST.md`
-- Query details: `docs/architecture/QUERY.md`
-- Provider architecture: `docs/architecture/PROVIDERS.md`
-- Mode architecture: `docs/architecture/MODES.md`
+- Ingest details: `.agents/docs/architecture/development/INGEST.md`
+- Query details: `.agents/docs/architecture/development/QUERY.md`
+- Provider architecture: `.agents/docs/architecture/development/PROVIDERS.md`
+- Mode architecture: `.agents/docs/architecture/development/MODES.md`
 - Config reference: `docs/user-guide/CONFIGURATION.md`
-- Agents guide: `docs/AGENTS.md`
-- Provider extension guide: `docs/api-reference/ADDING_PROVIDERS.md`
+- Agents guide: `.agents/docs/architecture/development/AGENTS.md`
+- Provider extension guide: `.agents/docs/architecture/api-reference/ADDING_PROVIDERS.md`
