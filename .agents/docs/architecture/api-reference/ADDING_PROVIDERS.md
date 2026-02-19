@@ -5,7 +5,6 @@ This guide explains how to add support for new LLM providers to Local Second Min
 ## Table of Contents
 
 - [Overview](#overview)
-- [Provider Interface](#provider-interface)
 - [Implementation Guide](#implementation-guide)
 - [Example: Anthropic Claude](#example-anthropic-claude)
 - [Testing Your Provider](#testing-your-provider)
@@ -14,7 +13,7 @@ This guide explains how to add support for new LLM providers to Local Second Min
 
 ## Overview
 
-LSM uses an abstract provider interface ([BaseLLMProvider](../lsm/providers/base.py)) that all LLM providers must implement. This abstraction allows LSM to support multiple LLM backends while keeping the core query logic provider-agnostic.
+LSM uses an abstract provider interface defined by `BaseLLMProvider`. See [PROVIDERS.md](./PROVIDERS.md) for the full contract and factory APIs. This abstraction allows LSM to support multiple LLM backends while keeping the core query logic provider-agnostic.
 
 ### Current Providers
 
@@ -27,97 +26,6 @@ LSM uses an abstract provider interface ([BaseLLMProvider](../lsm/providers/base
 - **Azure OpenAI** - OpenAI models via Azure
 - **Cohere** - Command models
 - **Google Vertex AI** - PaLM and Gemini models
-
-## Provider Interface
-
-All providers must inherit from `BaseLLMProvider` and implement the following methods:
-
-```python
-from abc import ABC, abstractmethod
-from typing import List, Dict, Any, Optional
-
-class BaseLLMProvider(ABC):
-    """Abstract base class for LLM providers."""
-
-    @abstractmethod
-    def rerank(
-        self,
-        question: str,
-        candidates: List[Dict[str, Any]],
-        k: int,
-        **kwargs
-    ) -> List[Dict[str, Any]]:
-        """
-        Rerank candidates using the LLM.
-
-        Args:
-            question: User's question
-            candidates: List of candidate dicts with 'text' and 'metadata'
-            k: Number of candidates to return
-            **kwargs: Provider-specific options
-
-        Returns:
-            Reranked list of candidates (top k)
-        """
-        pass
-
-    @abstractmethod
-    def synthesize(
-        self,
-        question: str,
-        context: str,
-        mode: str = "grounded",
-        **kwargs
-    ) -> str:
-        """
-        Generate an answer with citations.
-
-        Args:
-            question: User's question
-            context: Context block with source citations
-            mode: Query mode ('grounded' or 'insight')
-            **kwargs: Provider-specific options
-
-        Returns:
-            Generated answer text
-        """
-        pass
-
-    @abstractmethod
-    def is_available(self) -> bool:
-        """
-        Check if the provider is configured and available.
-
-        Returns:
-            True if provider can be used, False otherwise
-        """
-        pass
-
-    @property
-    @abstractmethod
-    def name(self) -> str:
-        """Provider name (e.g., 'openai', 'anthropic')."""
-        pass
-
-    @property
-    @abstractmethod
-    def model(self) -> str:
-        """Current model name (e.g., 'gpt-5.2', 'claude-3-sonnet')."""
-        pass
-
-    def estimate_cost(self, input_tokens: int, output_tokens: int) -> Optional[float]:
-        """
-        Estimate the cost for a request (optional).
-
-        Args:
-            input_tokens: Number of input tokens
-            output_tokens: Number of output tokens
-
-        Returns:
-            Estimated cost in USD, or None if not available
-        """
-        return None  # Default implementation
-```
 
 ## Implementation Guide
 
@@ -805,5 +713,4 @@ For questions or issues:
 - Open an issue on GitHub
 - Check existing provider implementations for examples
 - Review the provider abstraction design in `base.py`
-
 

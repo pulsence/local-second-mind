@@ -12,18 +12,39 @@ Local-first RAG system for personal knowledge management. Semantic search + LLM 
 
 ## Architecture Overview
 
-See [ARCHITECTURE.md](./ARCHITECTURE.md) for detailed package structure and key files reference.
+See [ARCHITECTURE.md](./ARCHITECTURE.md) for detailed package structure and key file references.
 
-### Packages
+### Package Docs
 
-- [lsm.agents](./architecture/lsm.agents.md) - Agent framework, tools, memory
-- [lsm.config](./architecture/lsm.config.md) - Configuration loading and models
-- [lsm.ingest](./architecture/lsm.ingest.md) - Document parsing and embedding
-- [lsm.providers](./architecture/lsm.providers.md) - LLM provider implementations
-- [lsm.query](./architecture/lsm.query.md) - Query retrieval and synthesis
-- [lsm.remote](./architecture/lsm.remote.md) - Remote source providers
-- [lsm.ui](./architecture/lsm.ui.md) - User interfaces (TUI, Shell, Web)
-- [lsm.vectordb](./architecture/lsm.vectordb.md) - Vector database providers
+- [lsm](./architecture/packages/lsm.md) - Root package index and shared modules.
+- [lsm.agents](./architecture/packages/lsm.agents.md) - Agent framework, tools, memory, scheduling.
+- [lsm.config](./architecture/packages/lsm.config.md) - Configuration loading and models.
+- [lsm.ingest](./architecture/packages/lsm.ingest.md) - Document parsing and embedding pipeline.
+- [lsm.providers](./architecture/packages/lsm.providers.md) - LLM provider implementations.
+- [lsm.query](./architecture/packages/lsm.query.md) - Query retrieval and synthesis.
+- [lsm.remote](./architecture/packages/lsm.remote.md) - Remote source providers.
+- [lsm.ui](./architecture/packages/lsm.ui.md) - User interfaces (TUI, shell, web).
+- [lsm.vectordb](./architecture/packages/lsm.vectordb.md) - Vector database providers.
+
+### Architecture Overviews
+
+- [Overview](./architecture/development/OVERVIEW.md) - System map and references.
+- [Ingest](./architecture/development/INGEST.md) - Ingest pipeline architecture.
+- [Query](./architecture/development/QUERY.md) - Query pipeline architecture.
+- [Providers](./architecture/development/PROVIDERS.md) - Provider architecture and integration points.
+- [Modes](./architecture/development/MODES.md) - Mode system architecture and policies.
+- [Agents](./architecture/development/AGENTS.md) - Agent system architecture and runtime details.
+- [TUI Architecture](./architecture/development/TUI_ARCHITECTURE.md) - TUI state, lifecycle, and UX patterns.
+- [Testing](./architecture/development/TESTING.md) - Test strategy and tiering.
+- [Security](./architecture/development/SECURITY.md) - Threat model and sandbox constraints.
+
+### API Reference
+
+- [Config API](./architecture/api-reference/CONFIG.md) - Configuration schema reference.
+- [Providers API](./architecture/api-reference/PROVIDERS.md) - LLM provider options.
+- [Remote API](./architecture/api-reference/REMOTE.md) - Remote provider configuration.
+- [REPL / TUI Commands](./architecture/api-reference/REPL.md) - Shell/TUI command reference.
+- [Adding Providers](./architecture/api-reference/ADDING_PROVIDERS.md) - Provider extension guide.
 
 
 ## Developer Guides
@@ -31,6 +52,7 @@ See [ARCHITECTURE.md](./ARCHITECTURE.md) for detailed package structure and key 
 - [CREATE_PLAN.md](./CREATE_PLAN.md) - How to create task plans
 - [COMMIT_MESSAGE.md](./COMMIT_MESSAGE.md) - Commit message format
 - [CODING_PATTERNS.md](./CODING_PATTERNS.md) - Coding conventions
+- [PLAN.md](./PLAN.md) - Documentation transition plan and phases
 
 ## Commands
 
