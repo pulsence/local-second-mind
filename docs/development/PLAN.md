@@ -2,7 +2,7 @@
 
 This plan restructures project documentation to separate end-user docs from developer/agent docs.
 
-## Phase 1: Directory Structure Setup
+## Phase 1: Directory Structure Setup (COMPLETED)
 
 ### 1.1: Rename and Create Base Structure
 - Rename `.claude_files/` to `.agents/`
@@ -34,7 +34,7 @@ This plan restructures project documentation to separate end-user docs from deve
 
 ---
 
-## Phase 2: Create INDEX.md
+## Phase 2: Create INDEX.md (COMPLETED)
 
 ### 2.1: Create INDEX.md from CLAUDE.md
 - Use CLAUDE.md as the base
@@ -46,7 +46,7 @@ This plan restructures project documentation to separate end-user docs from deve
 
 ---
 
-## Phase 3: Create ARCHITECTURE.md
+## Phase 3: Create ARCHITECTURE.md (COMPLETED)
 
 ### 3.1: Extract and Combine
 - Extract `## Architecture` section from CLAUDE.md
@@ -58,7 +58,7 @@ This plan restructures project documentation to separate end-user docs from deve
 
 ---
 
-## Phase 4: Create Package Documentation
+## Phase 4: Create Package Documentation (COMPLETED)
 
 ### 4.1: Create Package Overview Files
 Create one markdown file per top-level package with format:
