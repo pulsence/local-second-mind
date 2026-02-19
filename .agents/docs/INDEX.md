@@ -25,32 +25,12 @@ See [ARCHITECTURE.md](./ARCHITECTURE.md) for detailed package structure and key 
 - [lsm.ui](./architecture/lsm.ui.md) - User interfaces (TUI, Shell, Web)
 - [lsm.vectordb](./architecture/lsm.vectordb.md) - Vector database providers
 
-## Coding Patterns
 
-**Dataclasses** - Use `__post_init__` for normalization, `validate()` for validation:
-```python
-@dataclass
-class MyConfig:
-    field: str
-    def __post_init__(self):
-        self.field = self.field.strip()
-    def validate(self):
-        if not self.field:
-            raise ValueError("field required")
-```
+## Developer Guides
 
-**Providers** - Extend ABC base classes:
-- `lsm/providers/base.py` - LLM providers
-- `lsm/remote/base.py` - Remote source providers
-- `lsm/vectordb/base.py` - Vector DB providers
-
-**Naming:** snake_case (functions), PascalCase (classes), UPPER_SNAKE_CASE (constants)
-
-**Type hints:** Required on all function signatures. Use `from __future__ import annotations`.
-
-**Docstrings:** Google style with Args, Returns, Raises sections.
-
-**Logging:** `from lsm.logging import get_logger; logger = get_logger(__name__)`
+- [CREATE_PLAN.md](./CREATE_PLAN.md) - How to create task plans
+- [COMMIT_MESSAGE.md](./COMMIT_MESSAGE.md) - Commit message format
+- [CODING_PATTERNS.md](./CODING_PATTERNS.md) - Coding conventions
 
 ## Commands
 
@@ -100,3 +80,4 @@ API keys go in `.env`, never in config files:
 ## Future Plans
 
 See [future_plans/INGEST_FUTURE.md](../future_plans/INGEST_FUTURE.md) for retrieval and embedding improvements roadmap.
+
