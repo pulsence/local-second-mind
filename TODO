@@ -1,19 +1,6 @@
 # Todo
 
-## v0.6.0: TUI Improvements
-- General:
-  - Screen elements are too large on defualt command prompt in windows, need to scale UI better
-- Settings Screen
-  - Each tab needs to be broken out into its own "widget" file to more clearly deliniate the code
-  - The Seetings screen should be moved to an MVC structure. The config objects act as the Model,
-    the Settting Screen itself serves as the Controler and the tabbed widgets that dispaly the 
-    config values serve as the Views.
-- Agent Screen:
-  - User needs to be able to interact with the agent like when it requests permission or needs
-    feedback from the user.
-  - There should be a list of agents running
-
-## Future Items (INGORE ALL THE FOLLOWING FOR PLANNING)
+## Current Items
 ### Transition Work
 - docs/ should be reworked to be designed only for end user use. Detailed architecure
   documentation which is more usefull for understanding the project structure and
@@ -53,6 +40,8 @@
     the documentation needed for an end user to use LSM and understand at a highlevel how
     the system works.
 
+
+## Future Items (INGORE ALL THE FOLLOWING FOR PLANNING)
 
 ### v0.7.0: Agents and Remote Sources
 #### Architecture

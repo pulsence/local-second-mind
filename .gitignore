@@ -1,9 +1,4 @@
 .claude/
-.claude_files/
-.codex/
-CLAUDE.md
-AGENTS.md
-!docs/AGENTS.md
 lsm.ps1
 
 # Python bytecode

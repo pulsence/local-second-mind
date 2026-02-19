@@ -1,1242 +1,156 @@
-# Local Second Mind v0.6.0 Development Plan: TUI Improvements
+# Local Second Mind v0.7.0 Prepartion Plan: Transition Work
 
-## Context
+This plan restructures project documentation to separate end-user docs from developer/agent docs.
 
-v0.5.0 delivered a comprehensive agent system, but the TUI has accumulated significant technical debt:
-the Settings screen is a 1,310-line monolith mixing UI rendering with config mutation; the Agent screen
-has no mechanism for interactive agent communication (permission prompts crash the agent); CSS sizing is
-too large for standard Windows command prompts; and only one agent can run at a time. This version
-addresses all of these issues plus several additional UX improvements.
+## Phase 1: Directory Structure Setup
 
-**Ordering rationale**: CSS/scaling fixes come first since they affect every screen and are
-low-risk. Settings MVC refactoring is second as it's the largest structural change but doesn't affect
-runtime behavior. The interactive agent system is third because it requires changes to the harness,
-sandbox, runtime manager, and TUI simultaneously. Additional improvements are last as polish items.
+### 1.1: Rename and Create Base Structure
+- Rename `.claude_files/` to `.agents/`
+- Create `.agents/future_plans/` folder
+- Move `.claude_files/INGEST_FUTURE.md` to `.agents/future_plans/`
+- Delete `.claude_files/sandbox_plan/` folder (content consolidated in `docs/development/SECURITY.md`)
 
----
+### 1.2: Create .agents/docs/ Folder Structure
+```
+.agents/
+├── docs/
+│   ├── INDEX.md           # High-level index for agents
+│   ├── ARCHITECTURE.md    # Combined architecture + key files
+│   └── architecture/      # Package-level documentation
+│       ├── lsm.md
+│       ├── lsm.agents.md
+│       ├── lsm.config.md
+│       ├── lsm.ingest.md
+│       ├── lsm.providers.md
+│       ├── lsm.query.md
+│       ├── lsm.remote.md
+│       ├── lsm.ui.md
+│       └── lsm.vectordb.md
+└── future_plans/
+    └── INGEST_FUTURE.md   # Future embedding/retrieval improvements
+```
 
-## Phase 1: UI Scaling & Compact Layout (COMPLETED)
-
-The TUI uses oversized defaults (3-line tabs, 3-line min-height fields, generous padding) that consume
-too much vertical space on a standard 24-30 row Windows command prompt. This phase reduces element sizes
-and adds a compact layout mode.
-
-### 1.1: Audit and Reduce Default Sizes (COMPLETED)
-
-Reduce the size of all oversized elements in the CSS. The goal is to make the TUI comfortably usable in
-an 80x24 terminal window.
-
-**Tasks:**
-- Reduce `ContentTabs` height from `3` to `2`
-- Reduce `Tab` height from `3` to `2`, reduce padding from `1 2` to `0 2`
-- Reduce `TabPane` padding from `1 2` to `0 1`
-- Reduce `.settings-field` min-height from `3` to `2`
-- Reduce `.settings-field Input` height from `3` to `1`
-- Reduce `.settings-field Select` height from `3` to `1`
-- Reduce `.settings-actions` height from `3` to `auto`
-- Reduce `CommandInput` min-height from `3` to `1`
-- Reduce `#query-command-input` min-height from `3` to `1`
-- Reduce `#settings-screen` padding from `2` to `1`
-- Reduce `.settings-panel` padding from `1 2` to `0 1`
-- Reduce `.settings-section` margin-bottom from `2` to `1`, padding from `1` to `0 1`
-- Reduce `.command-input` min-height from `3` to `1`
-- Reduce `.bottom-pane` min-height from `3` to `1`
-- Reduce `ProgressBar` padding from `1` to `0 1`
-- Reduce `#remote-controls Input` and `Select` height from `3` to `1`
-- Scope compact `height: 1` rules to compact containers/classes only (do not apply globally)
-- Verify Textual minimum widget sizes don't conflict (some widgets need at least height 3
-  for border rendering — test each change)
-
-**Files to modify:**
-- `lsm/ui/tui/styles.tcss`
-
-**Post-block:** Manual testing on 80x24 terminal, adjust any clipping. Tests in
-`tests/test_ui/tui/test_compact_layout.py`, run `pytest tests/ -v`, update docs, commit.
-
-### 1.1.1: Add Density Mode (Compact vs Comfortable vs Auto) (COMPLETED)
-
-The plan should provide a true mode toggle, not only hard-coded compact defaults.
-
-**Tasks:**
-- Add a density setting (`auto` | `compact` | `comfortable`) for TUI layout behavior
-- Support runtime toggle command (for example `/ui density auto|compact|comfortable`)
-- In `auto` mode, detect terminal size and apply compact mode when dimensions are below thresholds
-  (for example width <= 100 or height <= 32), otherwise use comfortable mode
-- Re-evaluate density on terminal resize events with hysteresis/debounce to avoid rapid flip-flopping
-- Persist density selection in config (or explicitly document it as session-only if not persisted)
-- Apply compact-only size reductions through a root class/state, leaving comfortable defaults available
-- Ensure manual mode selection (`compact`/`comfortable`) overrides auto-detection until switched back to `auto`
-- Add terminal width/height breakpoint rules for narrow terminals (single-column fallback where needed)
-
-**Files to modify:**
-- `lsm/ui/tui/app.py`
-- `lsm/ui/tui/styles.tcss` (or split style files after Phase 1.3)
-- `lsm/config/models/` and `lsm/config/loader.py` (if persisted)
-- `example_config.json` (if persisted)
-
-**Post-block:** Add tests for density toggle, auto-detection, resize behavior, and responsive fallback,
-run `pytest tests/ -v`, commit.
-
-### 1.2: Add CSS for Agents Screen (COMPLETED)
-
-The agents screen currently has no dedicated CSS section in `styles.tcss` (unlike query, ingest,
-settings, remote which all have sections). This causes reliance on generic styles and inconsistent
-appearance.
-
-**Tasks:**
-- Add `#agents-layout`, `#agents-top`, `#agents-left`, `#agents-control-panel` layout rules
-- Add `#agents-log-panel` styling (match `#query-log-panel` pattern)
-- Add `.agents-section-title`, `.agents-label` styling
-- Add `#agents-buttons`, `#agents-schedule-buttons`, `#agents-memory-buttons`, `#agents-meta-buttons`
-  button row styling (horizontal layout, compact height)
-- Add `#agents-status-panel`, `#agents-meta-panel`, `#agents-schedule-panel`,
-  `#agents-memory-panel` section styling
-- Add DataTable styling for schedule and meta tables
-- Size the left panel (control/schedule/memory) at `1fr` and log panel at `2fr`
-  with `min-width` constraints
-
-**Files to modify:**
-- `lsm/ui/tui/styles.tcss`
-
-**Post-block:** Visual verification, tests, commit.
-
-### 1.3: Split CSS into Per-Screen Files (COMPLETED)
-
-The monolithic 960-line `styles.tcss` makes it hard to find and modify screen-specific styles.
-Split into modular files that are loaded by the main app.
-
-**Tasks:**
-- Create `lsm/ui/tui/styles/` directory
-- Extract global/shared styles to `lsm/ui/tui/styles/base.tcss`
-- Extract query styles to `lsm/ui/tui/styles/query.tcss`
-- Extract ingest styles to `lsm/ui/tui/styles/ingest.tcss`
-- Extract settings styles to `lsm/ui/tui/styles/settings.tcss`
-- Extract remote styles to `lsm/ui/tui/styles/remote.tcss`
-- Extract agents styles to `lsm/ui/tui/styles/agents.tcss`
-- Extract widget styles to `lsm/ui/tui/styles/widgets.tcss`
-- Update `LSMApp.CSS_PATH` in `app.py` to load all split files (Textual supports
-  `CSS_PATH` as a list of paths)
-- Delete original `styles.tcss` after migration
-- Verify no style regressions
-
-**Files to create:**
-- `lsm/ui/tui/styles/base.tcss`
-- `lsm/ui/tui/styles/query.tcss`
-- `lsm/ui/tui/styles/ingest.tcss`
-- `lsm/ui/tui/styles/settings.tcss`
-- `lsm/ui/tui/styles/remote.tcss`
-- `lsm/ui/tui/styles/agents.tcss`
-- `lsm/ui/tui/styles/widgets.tcss`
-
-**Files to modify:**
-- `lsm/ui/tui/app.py` — update CSS loading
-
-**Files to delete:**
-- `lsm/ui/tui/styles.tcss`
-
-**Post-block:** Visual verification on all screens, tests, commit.
-
-### 1.4: Phase 1 Changelog (COMPLETED)
-
-Summarize Phase 1 changes into `docs/development/CHANGELOG.md`.
+**Success criteria:** Directory structure matches the intended layout.
 
 ---
 
-## Phase 2: Settings Screen MVC Refactoring (COMPLETED)
+## Phase 2: Create INDEX.md
 
-The Settings screen is a 1,310-line monolith that directly mutates config objects from UI event handlers.
-This phase breaks it into an MVC architecture:
-- **Model**: Existing config dataclasses (`GlobalConfig`, `IngestConfig`, etc.) — no changes needed
-- **Controller**: `SettingsScreen` (slimmed) — routes events, coordinates tabs, manages save/reset
-- **Views**: 8 separate tab widget files — each handles composing and refreshing its own fields
+### 2.1: Create INDEX.md from CLAUDE.md
+- Use CLAUDE.md as the base
+- Remove `## Architecture` and `## Key Files` sections (moved to ARCHITECTURE.md)
+- Add links to ARCHITECTURE.md and package docs in `architecture/`
+- Keep compact and focused on what agents need to quickly understand
 
-### 2.1: Create Settings Utilities Module (COMPLETED)
-
-Extract shared field-creation helpers and widget-query utilities from `settings.py` into a reusable
-module that all tab widgets will import.
-
-**Tasks:**
-- Extract `_field()` (creates Input or Switch based on type)
-- Extract `_select_field()` (creates Select dropdown)
-- Extract `_set_input()`, `_set_switch()`, `_set_select_value()`, `_set_select_options()`
-- Extract `_save_reset_row()` (creates Save/Reset button pair)
-- Extract `_replace_container_children()` (mounts/remounts dynamic widgets)
-- Create a `BaseSettingsTab` class (extends `Widget`) with:
-  - Common field helpers inherited from above
-  - Abstract `refresh_fields(config)` method
-  - Abstract `apply_update(field_id, value, config)` method
-  - `_is_refreshing` guard logic
-  - Status message posting via parent controller
-
-**Files to create:**
-- `lsm/ui/tui/widgets/settings_base.py` — `BaseSettingsTab` class + field helpers
-
-**Post-block:** Tests for `BaseSettingsTab` utilities, run `pytest tests/ -v`, commit.
-
-### 2.2: Create Tab Widget Files (Views) (COMPLETED)
-
-Extract each tab's compose and refresh logic into its own widget file. Each tab widget:
-- Extends `BaseSettingsTab`
-- Implements `compose()` for its field layout
-- Implements `refresh_fields(config)` to populate values from config
-- Implements `apply_update(field_id, value, config)` for live config mutation
-- Handles its own dynamic list management (roots, providers, services, chains)
-
-**Tasks:**
-- Create `GlobalSettingsTab` — 5 text inputs (embed_model, device, batch_size,
-  embedding_dimension, global_folder)
-- Create `IngestSettingsTab` — 14 inputs + 7 switches + 1 select + dynamic roots list
-  (add/remove root, per-root path/tags/content_type)
-- Create `QuerySettingsTab` — 12 inputs + 3 switches + 2 selects
-- Create `LLMSettingsTab` — dynamic providers list + dynamic services dict
-  (add/remove/rename with cascading updates)
-- Create `VectorDBSettingsTab` — 10 inputs + 1 select (show/hide provider-specific fields)
-- Create `ModesSettingsTab` — 4 read-only displays (mode browser)
-- Create `RemoteSettingsTab` — dynamic providers + chains with nested links
-- Create `ChatsNotesSettingsTab` — 8 inputs + 4 switches (two sub-configs)
-
-**Files to create:**
-- `lsm/ui/tui/widgets/settings_global.py`
-- `lsm/ui/tui/widgets/settings_ingest.py`
-- `lsm/ui/tui/widgets/settings_query.py`
-- `lsm/ui/tui/widgets/settings_llm.py`
-- `lsm/ui/tui/widgets/settings_vectordb.py`
-- `lsm/ui/tui/widgets/settings_modes.py`
-- `lsm/ui/tui/widgets/settings_remote.py`
-- `lsm/ui/tui/widgets/settings_chats_notes.py`
-
-**Post-block:** Per-tab tests in `tests/test_ui/tui/test_settings_tabs.py`, run `pytest tests/ -v`,
-commit.
-
-### 2.3: Refactor SettingsScreen as Controller (COMPLETED)
-
-Slim `settings.py` down to ~150-200 lines. It becomes the controller that:
-- Composes the `TabbedContent` with 8 tab widgets
-- Routes `on_input_changed`, `on_switch_changed`, `on_select_changed` events to the active tab's
-  `apply_update()`
-- Handles cross-tab synchronization (mode change updates Modes tab, provider rename cascades)
-- Manages Save/Reset by delegating to config loader
-- Posts status messages from tab validation errors
-
-**Tasks:**
-- Remove all tab-specific compose logic (delegated to tab widgets)
-- Remove `_refresh_settings()` monolith (each tab has `refresh_fields()`)
-- Remove `_apply_live_update_inner()` giant if/elif chain (each tab has `apply_update()`)
-- Remove dynamic list management methods (moved to respective tabs)
-- Keep: tab activation routing, save/reset orchestration, cross-tab sync, status display
-- Wire up tab widget events to controller dispatch
-
-**Files to modify:**
-- `lsm/ui/tui/screens/settings.py` — major rewrite (1,310 → ~150-200 lines)
-
-**Post-block:** Update `tests/test_ui/tui/test_settings_screen.py` to test controller behavior
-with tab widgets, run `pytest tests/ -v`, commit.
-
-### 2.5: AppState/ViewModel for Settings + Global UI State (COMPLETED)
-
-Introduce a typed UI state layer so screens render from immutable snapshots/state transitions
-instead of directly mutating runtime config objects.
-
-**Tasks:**
-- Create `SettingsViewModel` with explicit state buckets:
-  - `persisted_config` (last loaded/saved state)
-  - `draft_config` (editable working copy)
-  - `dirty_fields`/`dirty_tabs`
-  - `validation_errors`
-- Add typed update actions (`update_field`, `add_item`, `remove_item`, `rename_key`, `reset_tab`,
-  `reset_all`, `save`) with centralized validation and normalization
-- Ensure Settings tabs dispatch actions to ViewModel; tabs should not mutate config dataclasses directly
-- Make `SettingsScreen` render from ViewModel state snapshots
-- Add global UI state container for cross-screen concerns (active context, density mode, notifications,
-  selected agent id) with typed read/write APIs
-- Keep save boundary explicit: only ViewModel/controller writes through config loader/serializer
-- Remove any comptaibility wrappers to have a clean implementation
-
-**Files to create:**
-- `lsm/ui/tui/state/settings_view_model.py`
-- `lsm/ui/tui/state/app_state.py`
-
-**Files to modify:**
-- `lsm/ui/tui/screens/settings.py`
-- `lsm/ui/tui/widgets/settings_base.py`
-- `lsm/ui/tui/app.py`
-- `lsm/config/loader.py` (integration points for explicit save/serialize boundaries)
-
-**Post-block:** Add tests for ViewModel action flows, validation, dirty tracking, save/reset,
-and cross-tab synchronization. Run `pytest tests/ -v`, commit.
-
-### 2.6: Phase 2 Changelog (COMPLETED)
-
-Summarize Phase 2 changes into `docs/development/CHANGELOG.md`.
+**Success criteria:** INDEX.md is a concise entry point with links to detailed docs.
 
 ---
 
-## Phase 3: Interactive Agent System (COMPLETED)
+## Phase 3: Create ARCHITECTURE.md
 
-Currently, when an agent needs user permission, `ToolSandbox._enforce_tool_permissions()` raises
-`PermissionError` and the agent crashes. The `WAITING_USER` status exists in `AgentStatus` but is
-never used. This phase adds bidirectional communication and multi-agent support.
+### 3.1: Extract and Combine
+- Extract `## Architecture` section from CLAUDE.md
+- Extract `## Key Files` section from CLAUDE.md
+- Combine into single ARCHITECTURE.md
+- Add links to package documentation files
 
-### 3.1: Create Interaction Channel (COMPLETED)
-
-A thread-safe communication channel between the agent harness (background thread) and the UI
-(main thread). The harness posts requests; the UI posts responses.
-
-**Tasks:**
-- Create `InteractionRequest` dataclass: `request_id`, `request_type` (`"permission"` | `"clarification"` |
-  `"feedback"` | `"confirmation"`), `tool_name`, `risk_level`, `reason`, `args_summary`, `prompt`,
-  `timestamp`
-- Create `InteractionResponse` dataclass: `request_id`, `decision` (`"approve"` | `"deny"` |
-  `"approve_session"` | `"reply"`), `user_message`
-- Create `InteractionChannel` class:
-  - `post_request(request) -> InteractionResponse` - blocks calling thread until response arrives
-    (with configurable timeout)
-  - `get_pending_request() -> Optional[InteractionRequest]` - non-blocking, for UI polling
-  - `post_response(response)` - UI thread sends decision
-  - `has_pending() -> bool` - quick check for UI
-  - `cancel_pending(reason)` - unblocks waiters when agent is stopped or app is shutting down
-  - `shutdown(reason)` - marks channel closed and safely rejects new waits
-  - Thread-safe via `threading.Event` and `threading.Lock`
-  - Stores session-level approvals (tool_name set) so repeated approvals are not needed
-- Add `timeout_seconds` parameter (default `300`) for request expiry
-- Add `timeout_action` parameter (default `"deny"`) configurable via `agents.interaction`.
-  When timeout expires: `"deny"` raises `PermissionError` (safe default), `"approve"` auto-approves
-- Add `InteractionConfig` dataclass to `lsm/config/models/agents.py`:
-  `timeout_seconds: int = 300`, `timeout_action: str = "deny"`
-- Add `max_concurrent: int = 5` to `AgentConfig`
-- Add config loader/serializer support for `agents.interaction` and `agents.max_concurrent`
-  (parse + `config_to_raw(...)` round-trip)
-- Update `example_config.json` with interaction and concurrency examples
-
-**Files to create:**
-- `lsm/agents/interaction.py` - `InteractionChannel`, `InteractionRequest`, `InteractionResponse`
-
-**Files to modify:**
-- `lsm/config/models/agents.py` - add `InteractionConfig` and `max_concurrent` to `AgentConfig`
-- `lsm/config/loader.py` - parse/serialize interaction + concurrency fields
-- `example_config.json` - document interaction + concurrency defaults
-
-**Post-block:** `tests/test_agents/test_interaction_channel.py` (thread safety, timeout,
-session approvals, cancellation/shutdown), plus config round-trip tests in
-`tests/test_config/test_agents_config.py`, run `pytest tests/ -v`, commit.
-
-### 3.2: Integrate Channel into Sandbox, Harness, and Clarification Flow (COMPLETED)
-
-When `requires_confirmation=True`, instead of raising `PermissionError`, the sandbox pauses and
-sends a request through the channel.
-
-**Tasks:**
-- Add `interaction_channel: Optional[InteractionChannel]` parameter to `ToolSandbox.__init__()`
-- Modify `_enforce_tool_permissions()`:
-  - When `decision.requires_confirmation` and channel exists:
-    1. Check session approvals first (skip prompt if already approved for this tool)
-    2. Post `InteractionRequest` to channel
-    3. Block until response (or timeout)
-    4. If approved, record session approval and continue
-    5. If denied, raise `PermissionError` with user's reason
-  - When `decision.requires_confirmation` and no channel: raise `PermissionError` (existing behavior)
-- Add `interaction_channel` parameter to `AgentHarness.__init__()`
-- Pass channel through to sandbox
-- Set `AgentStatus.WAITING_USER` while waiting for response, restore `RUNNING` after
-- Ensure channel is propagated to sub-agent sandboxes (for meta-agent)
-- Add stop-safe behavior: stopping an agent while waiting must cancel pending requests and unblock
-  waiting calls deterministically
-- Add app-shutdown-safe behavior: runtime manager shutdown cancels all pending requests before joining threads
-- Implement clarification flow for all agents:
-  - Create a built-in `ask_user` tool that raises a `"clarification"` interaction request and returns user reply text
-  - Register `ask_user` in the default tool registry for all agents
-  - Ensure harness/system allowlist handling never strips `ask_user` (always available)
-
-**Files to create:**
-- `lsm/agents/tools/ask_user.py` - clarification interaction tool implementation
-
-**Files to modify:**
-- `lsm/agents/tools/sandbox.py` - add channel integration to `_enforce_tool_permissions()`
-- `lsm/agents/harness.py` - accept/pass channel and manage `WAITING_USER` transitions
-- `lsm/agents/tools/__init__.py` - register `ask_user` by default
-- `lsm/agents/base.py` and/or `lsm/agents/tools/base.py` - ensure `ask_user` is always available to agents
-
-**Post-block:** `tests/test_agents/test_sandbox_interaction.py` (approval flow, denial flow,
-timeout, session approval caching, stop/shutdown cancellation), plus
-`tests/test_agents/test_ask_user_tool.py` for clarification flow, security tests still pass,
-run `pytest tests/ -v`, commit.
-
-### 3.3: Multi-Agent Runtime Manager (COMPLETED)
-
-Replace the single-agent tracking in `AgentRuntimeManager` with a dictionary-based registry
-that can track multiple concurrent agents.
-
-**Tasks:**
-- Replace `_active_agent`, `_active_thread`, `_active_name` with
-  `_agents: Dict[str, AgentRunEntry]` where `AgentRunEntry` is a dataclass holding:
-  `agent_id` (uuid), `agent_name`, `agent`, `thread`, `harness`, `channel`, `started_at`, `topic`
-- Enforce configurable max concurrent agents (default 5) via `agents.max_concurrent` config field.
-  Reject start if limit reached with clear message.
-- `start()` generates unique agent_id, creates `InteractionChannel`, passes to harness,
-  stores entry, returns agent_id in output message
-- `status(agent_id=None)` — if no id, show all agents; if id, show specific
-- `pause(agent_id)`, `resume(agent_id)`, `stop(agent_id)` — target specific agent
-- `log(agent_id)` — get log for specific agent
-- `list_running()` returns list of `AgentRunEntry` summaries
-- `get_pending_interactions()` returns all agents with pending interaction requests
-- `respond_to_interaction(agent_id, response)` forwards response to channel
-- Keep backward compatibility: if only one agent running, commands without agent_id target it
-- Clean up completed agent entries after configurable retention (default: keep last 10)
-- Add deterministic lifecycle handling:
-  - stop path cancels pending interaction and joins agent thread with timeout
-  - shutdown path cancels all pending interactions before joining all active threads
-  - completed-run pruning keeps bounded history and removes stale queues/channels
-  - race-safe transitions for start/stop/cleanup under lock
-
-**Files to modify:**
-- `lsm/ui/shell/commands/agents.py` — refactor `AgentRuntimeManager`
-- `lsm/config/models/agents.py` - add `max_concurrent: int = 5` to `AgentConfig` (if not done in 3.1)
-
-**Post-block:** `tests/test_ui/shell/test_multi_agent_manager.py` including stop/shutdown/join race cases, run `pytest tests/ -v`, commit.
-
-### 3.4: Agent Interaction UI in TUI (COMPLETED)
-
-Add UI elements to the Agents screen for handling interaction requests and showing running agents.
-
-**Tasks:**
-- Add "Running Agents" DataTable at top of agents-left panel:
-  - Columns: ID (short), Agent, Topic, Status, Duration
-  - Row selection changes which agent's log is displayed
-  - Auto-refresh via timer (every 2 seconds)
-- Add "Interaction Request" panel (initially hidden, shown when pending):
-  - Displays: request type, tool name (if applicable), risk level, reason/description, args summary
-  - Permission requests: "Approve", "Approve for Session", "Deny" buttons + optional deny reason
-  - Clarification/feedback requests: text reply input + "Send Reply" action
-  - Panel highlights with warning color when active
-  - Auto-polls for pending requests via timer
-- Add notification badge/indicator when interaction is pending (visual urgency)
-- Wire agent selection to log panel (clicking agent row shows its log)
-- Update Start button to not block if another agent is running
-- Update Status to show all agents summary
-- Add keyboard shortcuts for interaction actions (approve/deny/reply) and running-agent row navigation
-
-**Files to modify:**
-- `lsm/ui/tui/screens/agents.py` - add running agents table, interaction panel, timers, and keyboard actions
-- `lsm/ui/tui/styles/agents.tcss` - styling for new panels and urgency states
-
-**Post-block:** `tests/test_ui/tui/test_agent_interaction.py`, run `pytest tests/ -v`, commit.
-
-### 3.5: Agent Interaction CLI Commands (COMPLETED)
-
-Add CLI commands for responding to agent interaction requests.
-
-**Tasks:**
-- Add `/agent list` - show all running agents with status
-- Add `/agent interact` - show pending interaction requests
-- Add `/agent approve <agent_id>` - approve pending request for agent
-- Add `/agent deny <agent_id> [reason]` - deny pending request
-- Add `/agent approve-session <agent_id>` - approve and remember for session
-- Add `/agent reply <agent_id> <message>` - respond to clarification/feedback request
-- Add `/agent select <agent_id>` - set active agent for status/log/stop commands
-- Update existing commands to work with multi-agent (use selected or only agent)
-- Allow user to queue a new command to agent
-- Allow user to pause agent, and then restat agent with a message from user
-
-**Files to modify:**
-- `lsm/ui/shell/commands/agents.py` - add interaction commands
-- `lsm/ui/tui/completions.py` - add completion for new commands
-
-**Post-block:** `tests/test_ui/shell/test_agent_interaction_commands.py`, run `pytest tests/ -v`, commit.
-
-### 3.6: Real-Time Agent Log Streaming (COMPLETED)
-
-Currently the agent log is only visible when explicitly refreshed. Add a streaming mechanism
-so the UI shows log entries as they happen.
-
-**Tasks:**
-- Add `log_callback: Optional[Callable[[AgentLogEntry], None]]` to `AgentHarness.__init__()`
-- Call callback in `_append_log()` after appending entry
-- In `AgentRuntimeManager.start()`, wire callback to push entries to a thread-safe queue per agent
-- In `AgentsScreen`, add a Textual timer (every 500ms) that drains the log queue and appends to `RichLog`
-- Add bounded queue/backpressure policy for each agent log stream (default max entries), with
-  dropped-message counter and truncation notice in UI
-- Format log entries with actor-colored prefixes: `[LLM]`, `[TOOL]`, `[AGENT]`, `[USER]`
-- Show tool execution in real-time: tool name + args summary -> result summary
-
-**Files to modify:**
-- `lsm/agents/harness.py` - add log callback
-- `lsm/ui/shell/commands/agents.py` - wire callback in manager
-- `lsm/ui/tui/screens/agents.py` - add streaming timer and queue drain
-- `lsm/config/models/agents.py` and `lsm/config/loader.py` - optional log queue limit config
-- `example_config.json` - optional log queue limit example
-
-**Post-block:** Tests for log streaming and queue pressure handling, run pytest tests/ -v, commit.
-
-### 3.7: Phase 3 Code Review (COMPLETED)
-
-**Tasks:**
-- Review the changes made in Phase 3: Interactive Agent System and ensure that the phase is
-  entirely implemented and implemented completely
-- Review the code related to Phase 3 and make sure that there is no remaining backwards
-  compatability code or deprecated code or dead code.
-- Review thet tests related to Phase 3 and ensure they are well structured and there are not
-  mock or stub tests.
-
-**Post-block:** Run pytest tests/ -v, and then provide git commit message for this phase.
-
-### 3.8: Phase 3 Changelog (COMPLETED)
-
-Summarize Phase 3 changes into `docs/development/CHANGELOG.md` and ensure all other docs are up
-to date with Phase 3 changes.
+**Success criteria:** ARCHITECTURE.md serves as index for primary packages and design patterns.
 
 ---
 
-## Phase 4: TUI UX and Interaction Polish (COMPLETED)
+## Phase 4: Create Package Documentation
 
-This phase focuses on user-facing usability and interaction improvements that directly affect
-day-to-day TUI operation.
+### 4.1: Create Package Overview Files
+Create one markdown file per top-level package with format:
 
-### 4.1: Toast Notification System (COMPLETED)
+Files to create:
+- `lsm.agents.md` - agents, memory, tools subpackages
+- `lsm.config.md` - loader, models subpackage
+- `lsm.ingest.md` - pipeline, chunking, parsing modules
+- `lsm.providers.md` - LLM providers
+- `lsm.query.md` - retrieval, synthesis, integrations
+- `lsm.remote.md` - remote providers
+- `lsm.ui.md` - shell, tui, web, desktop subpackages
+- `lsm.vectordb.md` - vector DB providers and migrations
 
-Add a non-blocking notification system for background events (agent started/completed,
-ingest finished, errors).
+Each file follows this template:
+```markdown
+## lsm.<package>
+Description: <1-2 sentences>
+Folder Path: <path>
 
-**Tasks:**
-- Leverage Textual's built-in `self.notify()` method (available since Textual 0.40+)
-- Add notifications for:
-  - Agent started / completed / failed
-  - Agent waiting for user interaction (high priority)
-  - Ingest build completed
-  - Config saved successfully
-  - Schedule triggered
-- Add notification severity levels: info, warning, error
-- Configure notification timeout (default 5s, errors 10s)
+### Sub Packages
+- [lsm.<sub>](link): <description>
 
-**Files to modify:**
-- `lsm/ui/tui/app.py` - add `notify_event()` helper method
-- `lsm/ui/tui/screens/agents.py` - emit notifications on agent events
-- `lsm/ui/tui/screens/ingest.py` - emit notification on build complete
-- `lsm/ui/tui/screens/settings.py` - emit notification on save
+### Modules
+- [file.py](link): <description>
+```
 
-**Post-block:** Tests, run `pytest tests/ -v`, commit.
-
-### 4.2: Context-Sensitive Help (COMPLETED)
-
-Replace the static help modal with context-sensitive help that shows commands relevant to the
-active tab.
-
-**Tasks:**
-- Modify `HelpScreen` to accept a `context` parameter ("query", "ingest", "remote", "agents",
-  "settings")
-- Show only commands relevant to current context, with "All Commands" expandable section
-- Add keyboard shortcut hints inline (show keybinding next to action)
-- Add a "What's New in v0.6.0" section highlighting new agent interaction features
-
-**Files to modify:**
-- `lsm/ui/tui/screens/help.py` — context-aware rendering
-- `lsm/ui/tui/app.py` — pass current context to help modal
-
-**Post-block:** Tests, run `pytest tests/ -v`, commit.
-
-### 4.3: UI Command Helpers Extraction (COMPLETED)
-
-The query screen is 1,515 lines with a massive command dispatch handler. Extract command
-parsing/dispatch helpers into a shared UI helpers package so command behavior is reusable and
-consistent across TUI and shell surfaces.
-
-**Tasks:**
-- Create `lsm/ui/helpers/commands/` as the standard command-helper package in `lsm.ui`
-- Add `lsm/ui/helpers/commands/query.py` with handler functions for each query command group:
-  - `handle_mode_commands()` - mode get/set/list
-  - `handle_model_commands()` - model, models, providers, provider-status
-  - `handle_results_commands()` - show, expand, open, export-citations
-  - `handle_agent_commands()` - agent, memory (delegates to shell commands)
-  - `handle_filter_commands()` - set, clear, load, context
-  - `handle_cost_commands()` - costs, budget, cost-estimate
-  - `handle_remote_commands()` - remote-search, remote-providers
-  - `handle_note_commands()` - note, notes
-- Add shared parsing/validation helpers in `lsm/ui/helpers/commands/common.py` for tokenization,
-  argument normalization, and error formatting
-- Make query screen `_execute_query_command()` a thin dispatcher that delegates to helper handlers
-- Reuse command helpers from shell paths where appropriate to reduce parser drift
-
-**Files to create:**
-- `lsm/ui/helpers/__init__.py`
-- `lsm/ui/helpers/commands/__init__.py`
-- `lsm/ui/helpers/commands/common.py`
-- `lsm/ui/helpers/commands/query.py`
-
-**Files to modify:**
-- `lsm/ui/tui/screens/query.py` - slim down from ~1,515 to ~600-700 lines
-- `lsm/ui/shell/commands/agents.py` - reuse shared parser/error helpers where applicable
-- `lsm/ui/tui/completions.py` - align completion behavior with helper-level parser contracts
-
-**Post-block:** All existing query tests pass, command-contract tests stay green, run `pytest tests/ -v`, commit.
-
-### 4.4: Agent Panel Refresh Controls and Log Following (COMPLETED)
-
-Improve usability and performance by giving users explicit control over refresh behavior.
-
-**Tasks:**
-- Add unread log counters per running agent when not selected
-- Reset unread counters when an agent is selected or manually cleared
-
-**Files to modify:**
-- `lsm/ui/tui/screens/agents.py`
-- `lsm/ui/tui/styles/agents.tcss`
-
-**Post-block:** `tests/test_ui/tui/test_agent_interaction.py` updates for refresh/follow/unread behavior, run `pytest tests/ -v`, commit.
-
-### 4.5: Responsive Layout Fallbacks for Narrow Terminals (COMPLETED)
-
-Strengthen terminal compatibility with explicit breakpoint behavior.
-
-**Tasks:**
-- Add breakpoint-based layout fallbacks for narrow terminals (for example 80x24 and smaller)
-- Collapse split panes to single-column flow when width is constrained
-- Ensure focused input and primary action controls remain reachable without deep scrolling
-
-**Files to modify:**
-- `lsm/ui/tui/styles/base.tcss` and per-screen style files (or `styles.tcss` before split)
-- `lsm/ui/tui/screens/agents.py`
-- `lsm/ui/tui/screens/query.py`
-- `lsm/ui/tui/screens/ingest.py`
-
-**Post-block:** Manual verification in Windows command prompt and tests for narrow-layout behavior.
-
-### 4.6: Phase 4 Code Review (COMPLETED)
-
-**Tasks:**
-- Review the changes made in Phase 4 and ensure that the phase is
-  entirely implemented and implemented completely
-- Review the code related to Phase 4 and make sure that there is no remaining backwards
-  compatibility code or deprecated code or dead code.
-- Review the tests related to Phase 4 and ensure they are well structured, with critical flows
-  covered by integration-style tests and test doubles used only where necessary for isolation.
-- Ensure all documentation in docs/ is properly updated.
-
-### 4.7: Phase 4 Changelog (COMPLETED)
-
-Summarize Phase 4 changes into `docs/development/CHANGELOG.md`.
+**Success criteria:** All packages documented with subpackages and modules.
 
 ---
 
-## Phase 5: TUI Reliability and Architecture (COMPLETED)
-
-This phase hardens runtime safety and evolves the UI architecture for maintainability.
-
-### 5.1: TUI Structural Regression Tests (COMPLETED)
-
-Add lightweight structural assertions to catch UI regressions early.
-
-**Tasks:**
-- Add tests asserting key widgets/IDs exist for each major screen
-- Add lightweight snapshot/golden tests for key screen structures and command output formatting
-- Add tests for timer lifecycle safety (start/stop without leaks)
-- Add smoke tests for interaction panel mode switching (permission vs clarification)
-
-**Files to create:**
-- `tests/test_ui/tui/test_layout_structure.py`
-
-**Files to modify:**
-- `tests/test_ui/tui/test_agent_interaction.py`
-- `tests/test_ui/tui/test_schedule_screen.py`
-- `tests/test_ui/tui/test_meta_screen.py`
-- `tests/test_ui/tui/test_completions.py`
-
-**Post-block:** Run `pytest tests/ -v`, commit.
-
-### 5.2: Thread-Safe UI Event Model (COMPLETED)
-
-Ensure all background work communicates with the UI through a single event/message pattern.
-
-**Tasks:**
-- Define typed UI event/message models for background -> UI communication
-- Ensure background workers and manager threads never mutate widgets directly
-- Route all UI changes through main-thread handlers (`post_message`/queued events)
-- Add debug assertions/helpers to detect unsafe off-thread widget mutation
-
-**Files to modify:**
-- `lsm/ui/tui/app.py`
-- `lsm/ui/tui/screens/agents.py`
-- `lsm/ui/shell/commands/agents.py`
-
-**Post-block:** Add thread-safety tests for event-driven updates, run `pytest tests/ -v`, commit.
-
-### 5.3: Worker Lifecycle Standards (COMPLETED)
-
-Standardize long-running operation handling across TUI surfaces.
-
-**Tasks:**
-- Create a consistent worker lifecycle wrapper (start, cancel, timeout, join)
-- Require cancellation support for all long-running TUI-triggered operations
-- Ensure app shutdown and screen unmount cancel/join outstanding workers deterministically
-- Add timeout defaults and explicit timeout error handling paths
-
-**Files to modify:**
-- `lsm/ui/tui/app.py`
-- `lsm/ui/tui/screens/agents.py`
-- `lsm/ui/tui/screens/ingest.py`
-- `lsm/ui/tui/screens/query.py`
-
-**Post-block:** Add worker timeout/cancel tests, run `pytest tests/ -v`, commit.
-
-### 5.4: Timer Lifecycle Safety (COMPLETED)
-
-Prevent leaked timers and duplicate polling loops.
-
-**Tasks:**
-- Add timer registration helpers with idempotent start/stop semantics
-- Ensure each screen starts timers in mount and stops them in unmount
-- Add duplicate-timer guards for repeated context switches
-- Add tests for timer lifecycle and teardown under rapid screen changes
-
-**Files to modify:**
-- `lsm/ui/tui/app.py`
-- `lsm/ui/tui/screens/agents.py`
-- `lsm/ui/tui/screens/query.py`
-- `lsm/ui/tui/screens/ingest.py`
-
-**Post-block:** Add timer lifecycle tests, run `pytest tests/ -v`, commit.
-
-### 5.5: UI Error Boundary and Recovery (COMPLETED)
-
-Keep the TUI resilient to screen-level exceptions.
-
-**Tasks:**
-- Add a global UI error boundary to catch non-fatal screen exceptions
-- Render a recoverable error state/panel instead of terminating the app
-- Add "Return to safe screen" action (for example Query/Main)
-- Ensure full traceback is logged while user-facing message stays concise
-
-**Files to modify:**
-- `lsm/ui/tui/app.py`
-- `lsm/ui/tui/screens/help.py`
-- `lsm/logging.py`
-
-**Post-block:** Add tests for recoverable screen errors, run `pytest tests/ -v`, commit.
-
-### 5.6: Dirty-State and Unsaved-Change Guards (COMPLETED)
-
-Prevent accidental configuration/data loss during navigation.
-
-**Tasks:**
-- Track dirty state per Settings tab and screen-level aggregate dirty status
-- Add dirty indicators in tab labels/status area
-- Prompt for confirmation on tab/context/app exit when unsaved changes exist
-- Add explicit save/discard flow for bulk reset actions
-
-**Files to modify:**
-- `lsm/ui/tui/screens/settings.py`
-- `lsm/ui/tui/widgets/settings_base.py`
-- `lsm/ui/tui/styles/settings.tcss`
-
-**Post-block:** Add tests for dirty-state transitions and confirmation prompts, run `pytest tests/ -v`, commit.
-
-### 5.7: Keyboard-First Interaction Parity (COMPLETED)
-
-Ensure all major TUI workflows are fully keyboard operable.
-
-**Tasks:**
-- Audit all primary actions and add keybinding parity for non-mouse operation
-- Add bindings for agent interaction actions (approve/deny/reply/focus panels)
-- Add bindings for schedule/memory panel actions and row navigation
-- Update help screen to display action-level keyboard shortcuts
-
-**Files to modify:**
-- `lsm/ui/tui/screens/agents.py`
-- `lsm/ui/tui/screens/query.py`
-- `lsm/ui/tui/screens/settings.py`
-- `lsm/ui/tui/screens/help.py`
-
-**Post-block:** Add keybinding coverage tests, run `pytest tests/ -v`, commit.
-
-### 5.9: Command Parsing Contract Tests (COMPLETED)
-
-Stabilize command behavior while refactoring handlers.
-
-**Tasks:**
-- Add command grammar/contract tests for `/agent`, `/memory`, `/ui`, and query command groups
-- Assert consistent parse/validation/error-message behavior across CLI and TUI command paths
-- Add completion-contract tests to keep autocomplete aligned with parser behavior
-
-**Files to create:**
-- `tests/test_ui/shell/test_command_contracts.py`
-
-**Files to modify:**
-- `tests/test_ui/tui/test_completions.py`
-- `lsm/ui/helpers/commands/query.py`
-- `lsm/ui/shell/commands/agents.py`
-
-**Post-block:** Run command-contract suite + full tests, `pytest tests/ -v`, commit.
-
-### 5.10: TUI Architecture Guideline Documentation (COMPLETED)
-
-Document architectural conventions so future TUI work remains consistent.
-
-**Tasks:**
-- Create a TUI architecture guide covering state, events, workers, timers, errors, and testing
-- Define explicit "do/don't" rules for thread access and widget mutation
-- Document lifecycle expectations (mount/unmount, worker cancellation, timer teardown)
-- Link the guide from contributor/dev documentation
-
-**Files to create:**
-- `docs/development/TUI_ARCHITECTURE.md`
-
-**Files to modify:**
-- `CONTRIBUTING.md`
-- `CLAUDE.md`
-- `docs/development/TESTING.md`
-
-**Post-block:** Documentation review and consistency pass, commit.
-
-### 5.11: Screen Presenter/Controller Decomposition (COMPLETED)
-
-Reduce large screen complexity by splitting rendering, action handling, and async coordination into
-focused collaborators.
-
-**Tasks:**
-- For large screens (`query`, `agents`, `settings`), split logic into:
-  - screen container (composition + routing)
-  - panel presenters/controllers (per-panel rendering + interaction logic)
-  - service adapters (calls into shell/runtime/config operations)
-- Move per-panel refresh and state-derivation logic out of screen classes
-- Keep screen classes focused on navigation, message routing, and high-level orchestration
-- Add clear ownership boundaries so each panel can be tested independently
-
-**Files to create:**
-- `lsm/ui/tui/presenters/query/` (presenter modules for query panels)
-- `lsm/ui/tui/presenters/agents/` (presenter modules for agents panels)
-- `lsm/ui/tui/presenters/settings/` (presenter modules for settings panels)
-
-**Files to modify:**
-- `lsm/ui/tui/screens/query.py`
-- `lsm/ui/tui/screens/agents.py`
-- `lsm/ui/tui/screens/settings.py`
-
-**Post-block:** Add focused presenter/controller tests and regression checks, run `pytest tests/ -v`, commit.
-
-### 5.12: Shared Base Screen and UI Helpers Layer (COMPLETED)
-
-Create shared screen scaffolding so lifecycle, status, notifications, worker wiring, and timer wiring
-are implemented once and reused consistently.
-
-**Tasks:**
-- Add a base TUI screen abstraction with standardized hooks for:
-  - timer registration/teardown
-  - worker registration/cancel/join
-  - status + notification publishing
-  - common error-handling wrapper
-- Move repeated screen helper logic into `lsm/ui/helpers/` modules
-- Ensure concrete screens override minimal extension points instead of duplicating plumbing
-- Add guidance for when logic belongs in screen vs presenter vs helper
-
-**Files to create:**
-- `lsm/ui/tui/screens/base.py`
-- `lsm/ui/helpers/lifecycle.py`
-- `lsm/ui/helpers/notifications.py`
-
-**Files to modify:**
-- `lsm/ui/tui/screens/query.py`
-- `lsm/ui/tui/screens/agents.py`
-- `lsm/ui/tui/screens/ingest.py`
-- `lsm/ui/tui/screens/settings.py`
-- `lsm/ui/tui/app.py`
-
-**Post-block:** Add tests for shared lifecycle helpers and base-screen behavior, run `pytest tests/ -v`, commit.
-
-### 5.13: UI Test Architecture and Reusable Fixtures (COMPLETED)
-
-Align UI tests with TUI module boundaries and reduce duplicate setup logic.
-
-**Tasks:**
-- Mirror UI module structure in tests (screen/presenter/helper level separation)
-- Add shared fixture/harness utilities for mounting app/screens and driving timer/worker events
-- Separate contract tests (command parsing), structure tests (widget layout), and behavior tests
-  (interaction and workflows) into clear test modules
-- Add explicit naming conventions for UI tests to make coverage gaps obvious
-
-**Files to create:**
-- `tests/test_ui/tui/fixtures/` (shared app/screen harness fixtures)
-- `tests/test_ui/tui/presenters/` (presenter-focused tests)
-- `tests/test_ui/helpers/` (helper-level tests)
-
-**Files to modify:**
-- `tests/test_ui/tui/test_layout_structure.py`
-- `tests/test_ui/shell/test_command_contracts.py`
-- `docs/development/TESTING.md`
-
-**Post-block:** Run full UI test suite + full project tests, `pytest tests/ -v`, commit.
-
-### 5.14: Phase 5 Code Review (COMPLETED)
-
-**Tasks:**
-- Review the changes made in Phase 5 and ensure that the phase is
-  entirely implemented and implemented completely
-- Review the code related to Phase 5 and make sure that there is no remaining backwards
-  compatability code or deprecated code or dead code.
-- Review thet tests related to Phase 5 and ensure they are well structured and there are no
-  mock or stub tests.
-- Ensure all documentation in docs/ is properly updated.
-
-### 5.15: Phase 5 Changelog (COMPLETED)
-
-Summarize Phase 5 changes into `docs/development/CHANGELOG.md`.
+## Phase 5: Restructure docs/ for End Users
+
+### 5.1: Identify Developer Docs to Move
+Move from `docs/` to `.agents/docs/`:
+- `docs/architecture/` (entire folder - developer-focused)
+- `docs/api-reference/` (entire folder - developer-focused)
+- `docs/development/` (entire folder - developer-focused)
+- `docs/AGENTS.md` (move to `.agents/docs/`)
+
+### 5.2: Keep in docs/ (End User Docs)
+- `docs/README.md` - update to reflect new structure
+- `docs/user-guide/` - keep for end users
+- `docs/NOTES.md`, `docs/QUERY_MODES.md`, `docs/REMOTE_SOURCES.md` - keep if user-facing
+
+### 5.3: Update docs/README.md
+- Remove links to architecture/api-reference/development
+- Keep only user-guide links
+- Update "What's New" section
+
+**Success criteria:** `docs/` contains only end-user documentation.
 
 ---
 
-## Phase 6: TUI Startup and Performance (COMPLETED)
+## Phase 6: Update References
 
-This phase enforces startup stability and a measurable startup performance budget.
+### 6.1: Update CLAUDE.md
+- Add note pointing to `.agents/docs/INDEX.md` for full documentation
+- Keep brief overview for quick reference
 
-### 6.1: TUI Startup Smoke Test (Home Screen) (COMPLETED)
+### 6.2: Update AGENTS.md
+- Update to point to `.agents/docs/INDEX.md`
 
-Add a startup smoke test that launches the TUI and verifies it reaches the default home screen
-(Query) without crashing.
+### 6.3: Verify no broken links
+- Run grep for references to old paths
+- Update any cross-references
 
-**Tasks:**
-- Add an app-launch smoke test that mounts `LSMApp`, runs initial startup lifecycle, and verifies:
-  - no unhandled exception during startup
-  - active/default screen is Query/Home
-  - command input and core Query widgets are present
-- Add a regression test for known crash paths during early startup initialization
-- Ensure smoke test runs in the default test suite (not live-only) so crashes are caught quickly
-
-**Files to create:**
-- `tests/test_ui/tui/test_startup_smoke.py`
-
-**Files to modify:**
-- `tests/test_ui/tui/fixtures/` (startup/mount helper reuse)
-- `tests/test_ui/tui/test_layout_structure.py`
-
-**Post-block:** Run `pytest tests/test_ui/tui/test_startup_smoke.py -v` and full suite `pytest tests/ -v`, commit.
-
-### 6.2: TUI Startup Performance Budget and Lazy Background Loading (COMPLETED)
-
-Enforce fast perceived startup by loading into Query/Home in under one second and deferring
-non-critical initialization to background workers.
-
-**Tasks:**
-- Define startup performance SLA:
-  - TUI reaches Query/Home interactive state in `< 1.0s` (measured from app start to Query screen ready)
-- Instrument startup timing with explicit milestones:
-  - app process start
-  - first screen mounted
-  - Query/Home interactive ready
-  - background initialization completed
-- Move non-critical startup work to background loading after first render:
-  - provider status refresh
-  - schedule status/persistence sync
-  - memory/agent auxiliary panel preloads
-  - other non-blocking metadata loads
-- Ensure background loading reports progress/non-fatal errors via notifications or status area without blocking UI
-- Add startup performance tests/benchmarks:
-  - smoke perf test for Query/Home readiness budget
-  - regression benchmark for startup milestones
-  - configurable threshold override for constrained environments while default remains `< 1.0s`
-
-**Files to modify:**
-- `lsm/ui/tui/app.py`
-- `lsm/ui/tui/screens/query.py`
-- `lsm/ui/tui/screens/agents.py`
-- `lsm/ui/helpers/lifecycle.py`
-- `tests/test_ui/tui/test_startup_smoke.py`
-- `tests/test_ui/tui/test_performance.py` (create if absent)
-- `docs/development/TESTING.md`
-
-**Post-block:** Run startup smoke + performance test group and full tests, `pytest tests/ -v`, commit.
-
-### 6.3: Phase 6 Code Review (COMPLETED)
-
-**Tasks:**
-- Review the changes made in Phase 6 and ensure that the phase is
-  entirely implemented and implemented completely
-- Review the code related to Phase 6 and make sure that there is no remaining backwards
-  compatability code or deprecated code or dead code.
-- Review thet tests related to Phase 6 and ensure they are well structured and there are no
-  mock or stub tests.
-- Ensure all documentation in docs/ is properly updated.
-
-### 6.4: Phase 6 Changelog (COMPLETED)
-
-Summarize Phase 6 changes into `docs/development/CHANGELOG.md`.
+**Success criteria:** All references point to correct locations.
 
 ---
 
-## Phase 6a: Final TUI refinements
-### 6a.1: Current Bugs (COMPLETED)
-- Query log panel text cannot be highlighted and copied
-- On query there is an error message on llm rerank: [ERROR] Provider error in openai/gpt-5-nano (rerank): Invalid rerank response.
-  But there is a follow up message: Build context block with 6 sources.
-  - The error causing the llm rerank needs to be fixed.
-  - Error message in this case should be a warning with a message that local rerank was used and fallback.
-- When in the setting screen you cannot leave by hotkeys. If you do use a hotkey (ctrl+q for example), you 
-  change to another screen (query) and then automatically revert back to settings. It appears that 
-  the autofocus on the input box in settings is causing this problem. This seems to be the case
-  whenever auto-focus is set.
-- Query screen should auto focus query input box
-- Ingest screen should auto focus ingest input box
-- Remote screen should auto focus query input box
-- Agent screen should auto focus agent topic input box
+## Notes
 
-### 6a.2: TUI Testing Hardening (COMPLETED)
+### Security Documentation
+The `docs/development/SECURITY.md` file has been verified to properly consolidate all security notes from the deleted `.claude_files/sandbox_plan/` folder:
+- Threat model (T1-T8 categories)
+- STRIDE coverage matrix with test file references
+- Attack surface inventory
+- Permission gate reference
+- Testing methodology
 
-The TUI tests are finicky because they're testing a UI stack that mixes async, threads, timers, global singletons, and strict layout contracts.
-
-Main causes in this repo:
-- Textual + async + thread lifecycle is sensitive. If a worker/timer isn't canceled on unmount, later tests inherit dirty state and become flaky.
-- Some tests are brittle by design (exact widget IDs/order/source-shape assertions), so harmless refactors break them.
-- There is global/shared runtime state (agent runtime manager, logging sinks, app-level handlers) that can leak between tests if not reset.
-- Startup-style tests instantiate real LSMApp lifecycle paths (on_mount, deferred init, logging hooks), which are naturally slower and timing-sensitive.
-- Environment overhead is significant: running under WSL on /mnt/c/.../OneDrive... is much slower and less stable for heavy pytest IO than native Linux filesystem.
-- Default pytest config includes coverage/instrumentation (pyproject.toml), which further slows and sometimes amplifies flakiness around threaded code.
-
-Do a follow-up pass to harden this: isolate global state resets in fixtures, move fragile structure tests to behavior-focused tests, and split fast unit TUI tests from slower startup/lifecycle smoke tests.
-
-#### 6a.2.1: Create Global State Reset Fixtures
-
-Create fixtures that reset singletons and global state between tests to prevent leakage.
-
-**Tasks:**
-- Add `reset_agent_manager()` fixture that:
-  - Resets the singleton `AgentRuntimeManager` state
-  - Clears any running agents, pending interactions, and channels
-  - Calls `_MANAGER.shutdown()` if needed before reset
-- Add `reset_tui_logging()` fixture that:
-  - Clears `_tui_log_buffer`
-  - Resets logging handlers installed by `_setup_tui_logging`
-- Add `reset_app_state()` fixture combining both resets
-
-**Files to create:**
-- `tests/test_ui/tui/fixtures/global_state.py` — global reset fixtures
-
-**Files to modify:**
-- `tests/conftest.py` — add TUI global reset hooks
-
-**Post-block:** Run `pytest tests/test_ui/tui/ -v` verify no state leakage, commit.
-
-#### 6a.2.2: Create TUI-Specific Conftest with Fast/Slow Split
-
-Create pytest markers and fixtures to separate fast unit tests from slow startup/lifecycle tests.
-
-**Tasks:**
-- Add pytest markers for test speed categories:
-  - `@pytest.mark.tui_fast` — unit tests, no app lifecycle, mocks/fakes, <100ms
-  - `@pytest.mark.tui_slow` — startup/smoke tests with real lifecycle, timers, workers
-  - `@pytest.mark.tui_integration` — multi-screen workflows, real providers
-- Create `tui_app_factory()` fixture for lightweight app creation without full lifecycle
-- Create `tui_screen_mount()` fixture for full mount/unmount with cleanup
-- Add automatic timer/worker cleanup in mount fixtures
-- Add `isolation_check` fixture to detect state leakage between tests
-
-**Files to create:**
-- `tests/test_ui/tui/conftest.py` — TUI-specific fixtures and markers
-
-**Post-block:** Run fast tests only `pytest -m tui_fast`, verify speed improvement, commit.
-
-#### 6a.2.3: Refactor Brittle Structure Tests to Behavior Tests
-
-Move away from exact widget ID/order assertions toward behavior-focused tests.
-
-**Tasks:**
-- Move exact widget ID/order assertions to optional "strict" marker
-- Add behavior-focused alternatives:
-  - `test_screen_has_command_input()` — verifies input exists, not exact ID
-  - `test_screen_has_log_panel()` — verifies log functionality works
-  - `test_screen_navigates_between_panels()` — behavioral navigation test
-- Keep lightweight structural checks (required IDs exist) but make non-order-specific
-
-**Files to modify:**
-- `tests/test_ui/tui/test_layout_structure.py` — make less brittle
-
-**Post-block:** Verify refactor-friendly tests pass, run `pytest tests/ -v`, commit.
-
-#### 6a.2.4: Update pytest Configuration for Test Split
-
-Add pytest options for running fast tests only and optional coverage.
-
-**Tasks:**
-- Add new pytest markers to pyproject.toml:
-  - `tui_fast`: fast unit tests
-  - `tui_slow`: slow startup/lifecycle tests
-  - `tui_integration`: multi-screen workflows
-- Add convenience options:
-  - Default run excludes slow tests (can opt-in with `-m tui_slow`)
-  - Make coverage optional for fast tests (`--cov` only when requested)
-- Add flaky test detection to test output
-
-**Files to modify:**
-- `pyproject.toml` — add tui_fast/tui_slow markers and split options
-
-**Post-block:** Run `pytest -m tui_fast` and `pytest -m tui_slow` separately, verify correct grouping, commit.
-
-#### 6a.2.5: Document Testing Patterns
-
-Create guidance for writing non-flaky TUI tests.
-
-**Tasks:**
-- Document when to use `@pytest.mark.tui_fast` vs `@pytest.mark.tui_slow` vs `@pytest.mark.tui_integration`
-- Document fixture usage for global state resets
-- Document how to write behavior-focused tests instead of brittle structure tests
-- Document timer/worker cleanup requirements
-
-**Files to modify:**
-- `docs/development/TESTING.md` — add TUI testing patterns section
-
-**Post-block:** Review documentation, commit.
-
-#### Test Classification Strategy
-
-| Test Type | Marker | Characteristics | Examples |
-|-----------|--------|-----------------|----------|
-| Unit | `tui_fast` | No app lifecycle, mocks/fakes, <100ms | `test_settings_tab_renders`, `test_command_parse` |
-| Smoke | `tui_slow` | Real app mount, timers, workers | `test_startup_smoke`, `test_full_navigation` |
-| Integration | `tui_integration` | Multi-screen, real providers | `test_agent_interaction_flow` |
-
-#### Files Summary
-
-**Create:**
-- `tests/test_ui/tui/fixtures/global_state.py` — global reset fixtures
-- `tests/test_ui/tui/conftest.py` — TUI-specific fixtures and markers
-
-**Modify:**
-- `tests/conftest.py` — add TUI global reset hooks
-- `tests/test_ui/tui/test_layout_structure.py` — make less brittle
-- `pyproject.toml` — add tui_fast/tui_slow markers and split options
-- `docs/development/TESTING.md` — document patterns
-
-### 6a.3: Agent Screen (COMPLETED)
-- There should only be one log display format when viewing an agent. Not the two different versions currently used.
-- When an agent is selected in the Running Agent panel its status should be shown in the Status panel. There is no need for a status button.
-- When an agent is selected in the Running Agent panel its log is automatically shown on in the Agent Log panel:
-  - The follow button should only set is the log panel is updated, not autoscroll. Autoscroll should only
-    be activated when the user is at the bottom of the log panel.
-  - When the follow button is clicked off then the logs should stop updating until the agent is reselected.
-  - And so there does not need to be an extra log button in the status panel.
-- The running agent panel should show completed agents from the current session of the program so that the user
-  can refer the to results of those past agents quickly.
-
-#### Problem Summary
-The Agent screen has several UX issues:
-1. Two log formats: Streaming log (real-time) vs Persisted log (loaded from file) - different formats
-2. Unnecessary Status button: Status is shown when agent selected, but there's still a Status button
-3. Follow button behavior: Currently controls both log updates AND auto-scroll, but should only control updates
-4. No completed agents shown: Running Agents panel only shows active agents
-5. No meta-agent launch: Missing ability to launch meta-agent from UI
----
-#### 6a.3.1: Unify Log Display Format
-Tasks:
-- Identify the two different log formats:
-  - Streaming: Uses _format_stream_log_entry() from presenters
-  - Persisted: Uses manager.log() which returns raw string format
-- Create a unified formatter that both paths use
-- Modify _show_log() to use the same streaming format as real-time log
-- Remove format-specific code paths
-Files to modify:
-- lsm/ui/tui/screens/agents.py - unify log formatting in _show_log()
----
-#### 6a.3.2: Auto-Show Status When Agent Selected
-Tasks:
-- Remove the Status button from the status panel (line 174: yield Button("Status", ...))
-- When an agent is selected in Running Agents table:
-  - Automatically update the Status panel with current agent status
-  - This already happens via _show_status() call in row selection
-- Ensure Status panel is always populated when an agent is selected (no button needed)
-Files to modify:
-- lsm/ui/tui/screens/agents.py - remove Status button, ensure auto-status display
----
-#### 6a.3.3: Fix Follow Button Behavior
-Tasks:
-- Rename the Follow button label to clarify it's about log updates, not scroll
-- Current behavior (problematic): _log_follow_selected controls both:
-  - Whether log panel gets new entries
-  - Whether to auto-scroll to bottom
-- New behavior:
-  - _log_follow_selected controls ONLY whether log panel gets new entries
-  - Auto-scroll happens ONLY when user is already at bottom of log
-  - When follow is OFF: log panel stops updating until agent is re-selected
-- Modify _write_log() to check scroll position before auto-scrolling, separate from follow state
-Files to modify:
-- lsm/ui/tui/screens/agents.py - separate follow logic from auto-scroll
----
-#### 6a.3.4: Show Completed Agents in Running Panel
-Tasks:
-- The manager already tracks completed runs in _completed_runs and _completed_order
-- Modify Running Agents DataTable to include completed agents from current session
-- Add "Completed" status indicator for finished agents
-- Allow selection of completed agents to view their final logs
-- Keep completed agents visible until a new agent starts (or configurable retention)
-Files to modify:
-- lsm/ui/tui/screens/agents.py - include completed agents in table
-- lsm/ui/shell/commands/agents.py - ensure completed entries are queryable
----
-**Post-Implementation Verification**
-1. Select an agent - verify Status panel shows status without clicking button
-2. Start an agent, toggle Follow off - verify logs stop updating, toggle on - verify they resume
-3. Complete an agent - verify it appears in Running Agents panel with "Completed" status
-4. Select a completed agent - verify log is displayed correctly
-
-
-
-## Phase 7: Documentation and Version Updates (COMPLETED)
-
-### 7.1: Final Documentation and Version Updates (COMPLETED)
-
-**Version bump (0.5.0 -> 0.6.0):**
-- `pyproject.toml` — `version = "0.6.0"`
-- `lsm/__init__.py` — `__version__ = "0.6.0"`
-- `lsm/ui/tui/screens/help.py` — update "What's New" version text (`_WHATS_NEW` content and section title) to match the release version
-
-**Files to modify:**
-- `README.md` — Update root project README with v0.6.0 highlights
-- `docs/README.md` — Update with v0.6.0 TUI improvements
-- `docs/AGENTS.md` — Document interactive agent sessions, multi-agent, interaction channel
-- `docs/development/CHANGELOG.md` — Complete v0.6.0 changelog entry
-- `example_config.json` — Update any new config options
-- `lsm/ui/tui/screens/help.py` — Sync "What's New" version label with release version
-- Update CLAUDE.md with new file locations and architecture notes
-
-**Post-block:** Run `pytest tests/ -v` final validation, commit.
+The sandbox_plan files were historical planning documents that have been fully implemented and their content consolidated.
 
 ---
 
-## Verification Plan
+## Task Summary
 
-1. **After Phase 1**: Visual verification on 80x24 terminal. All screens usable without scrolling
-   to reach input fields. Agent screen has proper CSS styling. CSS split loads correctly with no
-   style regressions. `auto` density selects compact on small terminals and comfortable on larger
-   terminals, and responds correctly to terminal resize.
-
-2. **After Phase 2**: Settings screen MVC working end-to-end. Each tab renders independently.
-   Live updates propagate to config objects. Cross-tab synchronization works (provider rename,
-   mode change). Save/Reset per section works. ViewModel tracks dirty state and validation errors
-   correctly, and save boundaries go only through loader/serializer paths. All existing settings
-   tests pass or are updated.
-
-3. **After Phase 3**:
-   - Interactive permission flow: Start agent with permission-requiring tool -> agent pauses ->
-     interaction panel appears -> approve/deny -> agent resumes/stops
-   - Clarification flow: Agent issues `ask_user` request -> user replies in TUI or CLI ->
-     agent receives reply and continues
-   - Multi-agent: Start 2+ agents simultaneously -> running agents table shows both ->
-     select agent to view its log -> stop individual agent
-   - Real-time logs: Start agent -> log entries appear in real-time without manual refresh
-   - Backpressure: sustained log volume does not grow memory unbounded; drop counters are visible
-   - Shutdown safety: stopping agent/app while waiting for input does not deadlock; waits are canceled
-   - Security: All existing security tests pass. Permission gate still blocks unauthorized
-     tools. Interaction channel does not weaken sandbox (timeout = deny).
-   - Run `pytest tests/test_agents/test_security_*.py -v` explicitly
-
-4. **After Phase 4**: Toast notifications appear for agent events. Help modal shows
-   context-relevant commands. Query screen is slimmer with command helpers extracted under
-   `lsm/ui/helpers/commands/`. Agents panel supports refresh controls, follow-log mode, unread
-   counters, and narrow-terminal fallbacks.
-
-5. **After Phase 5**: Structural regression tests are green, thread-safe event messaging is
-   enforced, worker/timer lifecycle protections prevent leaks, recoverable UI error handling works,
-   dirty-state prompts prevent data loss, keyboard parity is complete, performance guardrails are
-   active, command contract tests are green, presenter/controller decomposition is in place for
-   large screens, base-screen/shared-helper patterns are adopted, and TUI architecture/testing
-   documentation is published.
-
-6. **After Phase 6**: Startup smoke tests verify crash-free launch into Query/Home. Startup-to-Query
-   load time meets `< 1.0s`, and non-critical initialization is deferred to background loading with
-   observable progress/error reporting.
-
-7. **Final**: Full test suite green, documentation/version updates complete, and manual walkthrough
-   of all TUI screens on Windows command prompt at 80x24 passes.
+| Phase | Tasks | Est. Files |
+|-------|-------|------------|
+| 1 | Directory setup | ~4 ops |
+| 2 | INDEX.md | 1 file |
+| 3 | ARCHITECTURE.md | 1 file |
+| 4 | Package docs | ~9 files |
+| 5 | Restructure docs/ | ~15 files moved |
+| 6 | Update references | ~3 files |
