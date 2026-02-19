@@ -1,1 +1,1 @@
-Read @CLAUDE.md
+Read @.agents/docs/INDEX.md

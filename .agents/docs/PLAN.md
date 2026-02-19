@@ -90,7 +90,7 @@ Folder Path: <path>
 
 ---
 
-## Phase 5: Restructure docs/ for End Users
+## Phase 5: Restructure docs/ for End Users (COMPLETED)
 
 ### 5.1: Identify Developer Docs to Move
 Move from `docs/` to `.agents/docs/`:

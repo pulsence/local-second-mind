@@ -6,7 +6,7 @@ This project is maintained for personal use first.
 
 - Issue and pull request response times are not guaranteed.
 - Pre-`1.0.0` releases may include breaking changes.
-- Check `development/CHANGELOG.md` before upgrading.
+- Check `.agents/docs/development/CHANGELOG.md` before upgrading.
 
 ## User Guide
 
@@ -20,34 +20,10 @@ This project is maintained for personal use first.
 - [Vector Databases](user-guide/VECTOR_DATABASES.md)
 - [Local Models](user-guide/LOCAL_MODELS.md)
 
-## Agents
+## Developer Documentation
 
-- [Agents Guide](AGENTS.md)
-
-## Architecture
-
-- [Overview](architecture/OVERVIEW.md)
-- [Ingest](architecture/INGEST.md)
-- [Query](architecture/QUERY.md)
-- [Providers](architecture/PROVIDERS.md)
-- [Modes](architecture/MODES.md)
-
-## API Reference
-
-- [Config API](api-reference/CONFIG.md)
-- [Providers API](api-reference/PROVIDERS.md)
-- [Remote API](api-reference/REMOTE.md)
-- [REPL / TUI Commands](api-reference/REPL.md)
-- [Adding Providers](api-reference/ADDING_PROVIDERS.md)
-
-## Development
-
-- [Planned Timeline](../TODO)
-- [Contributing](../CONTRIBUTING.md)
-- [Setup](development/SETUP.md)
-- [Testing](development/TESTING.md)
-- [Development Plan](development/PLAN.md)
-- [Changelog](development/CHANGELOG.md)
+- Developer and agent docs now live in `.agents/docs/`.
+- Use `.agents/docs/INDEX.md` as the entry point.
 
 ## What's New in 0.6.0
 
