@@ -2,7 +2,7 @@
 
 All notable changes to Local Second Mind are documented here.
 
-## Unreleased
+## 0.6.0 - 2026-02-19
 
 ### Added
 

@@ -141,10 +141,11 @@ _WHATS_NEW_SECTION_TITLE = f"WHAT'S NEW IN {_WHATS_NEW_VERSION}"
 
 _WHATS_NEW: tuple[str, ...] = (
     f"Version: {_WHATS_NEW_VERSION}",
-    "Interactive agent approvals and replies directly in the Agents screen.",
-    "Live agent log streaming with actor-labeled entries and tool summaries.",
-    "Multi-agent controls with running-agent selection and keyboard shortcuts.",
-    "Schedule controls plus runtime schedule status surfaced in the TUI.",
+    "Compact TUI layout with density modes (auto/compact/comfortable) for small terminals.",
+    "Split modular CSS and refactored settings screen with MVC architecture.",
+    "Interactive agent approvals/replies with multi-agent runtime support.",
+    "Real-time log streaming, schedule controls, and session-completed agent history.",
+    "TUI startup under 1 second with lazy background ML initialization.",
 )
 
 

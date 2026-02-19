@@ -6,7 +6,7 @@ LSM ingests local documents, builds embeddings, retrieves relevant context, and 
 
 ## Version
 
-`0.5.0`
+`0.6.0`
 
 ## Caveat Emptor
 
@@ -17,14 +17,14 @@ This project is maintained for personal use first.
 - Until `v1.0.0`, breaking changes can happen between releases, especially in configuration schema and interfaces.
 - Pin versions and review `docs/development/CHANGELOG.md` before upgrading.
 
-## What Is New in 0.5.0
+## What Is New in 0.6.0
 
-- Tiered real-world testing (`smoke`, `integration`, `live`, `live_llm`, `live_remote`, `live_vectordb`, `docker`) with expanded synthetic and live coverage
-- Hardened agent sandbox with adversarial STRIDE security tests, permission gates, environment scrubbing, and log redaction
-- New built-in agents: `writing`, `synthesis`, and expanded `curator` workflows
-- Agent memory system with SQLite/PostgreSQL backends, API/context injection, CLI/TUI actions, and curation-based memory distillation
-- Scheduler engine with interval/cron scheduling, overlap policies, persisted state, and unattended safety defaults
-- Meta-agent orchestration with task graphs, sub-agent system tools (`spawn_agent`, `await_agent`, `collect_artifacts`), shared workspaces, and final synthesis artifacts
+- Compact TUI layout with density modes (`auto`, `compact`, `comfortable`) for small terminals (80x24)
+- Split modular CSS and refactored Settings screen with MVC architecture and ViewModel state
+- Interactive agent approvals/replies with multi-agent runtime support and real-time log streaming
+- TUI startup under 1 second with lazy background ML initialization
+- Session-completed agent history, unified log formats, and refined agent screen UX
+- Hardened TUI test infrastructure with fast/slow marker split and global state reset fixtures
 
 ## Install
 

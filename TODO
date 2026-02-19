@@ -77,6 +77,8 @@
 - Update sending tools to use AI Model API field `tools=[...]` (function calling API) where possible and only
   otherwise when that is not available to creating a human readable list.
   - When a human readable list must be used, it should mimic the JSON structure used for the function.
+- Restructure agents package so the agents themselves are thematically organized: lsm.agents.academic,
+  lsm.agents.assistants, lsm.agents.productivity, etc.
 
 #### Tools
 - Fully implement Docker runner.
@@ -105,13 +107,14 @@
   - Extensive testing needs to be done to see if this is more effecient than replace()
   - Find_File tool should file by name or content in file
   - Find_Section tool should find section in specified file or find file with related sections
-- Sort how to create a tool that runs shell commands. This prevents from having to recreate
-  the shell commands in system, but we need to make sure to protect against sandbox escapes.
+- Create bash and powershell tool that runs bash/powershell commands. Configuration to manually
+  allow/deny certain commands.
+    - Need to confirm path args to ensure sandbox constraints
 
 #### Agents
-- Added Agent types, so a user can view the different kinds of agents. E.g., study or assistants.
-- Enable Meta-Agent to decide when to run sub agents in parallel instead
-  of just in series.
+- Added Agent types, so a user can view the different kinds of agents. E.g., academic or assistants.
+- Create General Agent where the user can give the agent a task and it attempts to accomplish
+  it give the available tools.
 - Create a Librarian Agent who task it to explore the embeddings DB and create a graph of ideas
 - Agent Assistant:
   - This agent acts as an assitant to review the work produced by all other agents and produce
@@ -132,16 +135,20 @@
 - News Assistant:
   - Provide a news summary over selected time frame in the style of a news letter
   - Provide a news summary based upon specific criteria or topics
-- Assistant Meta-Agent:
-  - A meta-agent specifically tasked with launching and controlling Assistant type agents.
-- Code Editor:
+- Coder:
   - Agent designed to edit code
 - Manuscript Editor:
   - An agent who reads text documents (plain text, markdown, word) and then iteratively
-    edits the document. It is like a Code Editor but for essays and manuscripts.
+    edits the document. It is like the Coder but for essays and manuscripts.
+
+#### Meta-Agents
+- Enable Meta-Agent to decide when to run sub agents in parallel instead
+  of just in series.
+- General Meta-Agent: Like the general agent, but able to launch other agents to accomplish its task.
+- Assistant Meta-Agent: A meta-agent specifically tasked with launching and controlling Assistant type agents.
 
 #### MCP Services
-- Add ability to act as MCP host
+- Add ability to act as MCP host and then expose to agents
 
 #### AI Providers
 - Add support for OpenRouter
@@ -201,7 +208,6 @@
 
 ### v0.9.0: Refactor and Dog Food
 #### General
-- Start up is slow, analyze why that is an try to improve start time
 - Update "psycopg[binary]>=3.1", "pgvector>=0.4",
 
 #### Documentation

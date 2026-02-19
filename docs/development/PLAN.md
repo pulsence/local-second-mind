@@ -974,7 +974,7 @@ Summarize Phase 6 changes into `docs/development/CHANGELOG.md`.
 - Remote screen should auto focus query input box
 - Agent screen should auto focus agent topic input box
 
-### 6a.2: TUI Testing Hardening (NEEDS REVIEW)
+### 6a.2: TUI Testing Hardening (COMPLETED)
 
 The TUI tests are finicky because they're testing a UI stack that mixes async, threads, timers, global singletons, and strict layout contracts.
 
@@ -1100,7 +1100,7 @@ Create guidance for writing non-flaky TUI tests.
 - `pyproject.toml` — add tui_fast/tui_slow markers and split options
 - `docs/development/TESTING.md` — document patterns
 
-### 6a.3: Agent Screen (NEEDS REVIEW)
+### 6a.3: Agent Screen (COMPLETED)
 - There should only be one log display format when viewing an agent. Not the two different versions currently used.
 - When an agent is selected in the Running Agent panel its status should be shown in the Status panel. There is no need for a status button.
 - When an agent is selected in the Running Agent panel its log is automatically shown on in the Agent Log panel:
@@ -1173,9 +1173,9 @@ Files to modify:
 
 
 
-## Phase 7: Documentation and Version Updates
+## Phase 7: Documentation and Version Updates (COMPLETED)
 
-### 7.1: Final Documentation and Version Updates
+### 7.1: Final Documentation and Version Updates (COMPLETED)
 
 **Version bump (0.5.0 -> 0.6.0):**
 - `pyproject.toml` — `version = "0.6.0"`
