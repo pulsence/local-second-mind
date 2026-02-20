@@ -1,47 +1,6 @@
 # Todo
 
 ## Current Items
-### Transition Work
-- docs/ should be reworked to be designed only for end user use. Detailed architecure
-  documentation which is more usefull for understanding the project structure and
-  file purpose should be moved to .agents/docs/.
-- Rename .claude_files/ to .agents/ and create a docs/ folder in .agents/
-  - This .agents/doc/ folder is to serve for the source of all the project documentation.
-  - In .agents/doc/ there should be an INDEX.md which acts as a highlevel
-    directory of the other docs for agent. It should be compact and let the agent
-    know what is in the other doc files so it can selectively read them.
-  - CLAUDE.md should be used as the base for the INDEX.md, but then ## Architecture
-    and ## Key Files should be broken out into a single combined ARCHITECTURE.md.
-  - There should be a .agents/docs/architecture/ folder. In this folder should be a
-    markdown file which provides an overview of every python package. Each one section
-    will note the sub packages in the package and another section will note the modules
-    or files in the package. Example:
-    ```
-    ## lsm.ui
-    Description: <ONE TO TWO SENTENCE DESCRIPTION OF THIS PACKAGE>
-    Folder Path: <PATH TO THIS PACKAGE>
-
-    ### Sub Packages
-    - [lsm.ui.desktop](PATH TO FILE DESCRIBING PACKAGE): <ONE SENTENCE DESCRIPTION OF THIS PACKAGE>
-    - [lsm.ui.helpers](PATH TO FILE DESCRIBING PACKAGE): <ONE SENTENCE DESCRIPTION OF THIS PACKAGE>
-    - [lsm.ui.shell](PATH TO FILE DESCRIBING PACKAGE): <ONE SENTENCE DESCRIPTION OF THIS PACKAGE>
-    - [lsm.ui.tui](PATH TO FILE DESCRIBING PACKAGE): <ONE SENTENCE DESCRIPTION OF THIS PACKAGE>
-    - [lsm.ui.web](PATH TO FILE DESCRIBING PACKAGE): <ONE SENTENCE DESCRIPTION OF THIS PACKAGE>
-
-    ### Modules
-    - [__init__.py](PATH TO ACTUAL FILE): <ONE TO TWO SENTENCE DESCRIPTION OF THIS FILE>
-    - [utils.py](PATH TO ACTUAL FILE): <ONE TO TWO SENTENCE DESCRIPTION OF THIS FILE>
-    ```
-  - The final ARCHITECTURE.md file should serve as the index for the primary packages (e.g., lsm.*)
-    and architectual design patterns.
-  - Ultimately there should be no developer documentation in docs/ since there is currently no
-    plan for external developer contributions. All developer docs should be in .agents/doc/
-    and linked in INDEX.md and written for Claude/Codex to use. The docs/ folder should contain
-    the documentation needed for an end user to use LSM and understand at a highlevel how
-    the system works.
-
-
-## Future Items (INGORE ALL THE FOLLOWING FOR PLANNING)
 
 ### v0.7.0: Agents and Remote Sources
 #### Architecture
@@ -179,6 +138,9 @@
 - Finantial Sources
     - Market data
     - Federal/Government API data
+
+
+## Future Items (INGORE ALL THE FOLLOWING FOR PLANNING)
 
 ### v0.8.0: Embedding Retrevial Improvments
 #### Architecural Overhall

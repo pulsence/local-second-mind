@@ -1,1 +1,1 @@
-Read @.agents/docs/INDEX.md
+Read .agents/docs/INDEX.md
