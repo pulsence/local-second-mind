@@ -7,10 +7,8 @@
 - Create lsm.utils module for common utility code like logger
 - Create a utility that produces a graph of a file like those graph from tree-sitter.
   - This should also produce a graph from all "text" files from headings->subheadings->paragraphs.
-- Need to create a test harness to check test how agents and tools
+- Need to create a test harness to check/test how agents and tools
   improve or regress based upon feature changes.
-- Analyze ways that SQLite (or PGSql) could be leverage for storing
-  data.
 
 #### General Agents and Tools
 - All agents should have the ability to ask the user a question for clarification. This can be
@@ -217,6 +215,16 @@
   - Create obsidian plugin that connects to the LSM server used by the Web UI to allow
     the user to interact with LSM via the API requests
 - Complete logseq integration
+
+### v0.13.0: Internals
+
+#### Levarage DBs
+- Persist ingest state and file hashes to enable incremental re-ingest and avoid duplicate embeddings.
+- Store chunk-level metadata (doc id, offsets, tags, source path) to improve filters and explainability.
+- Add a durable query cache with TTL cleanup (survives restarts).
+- Persist run summaries, tool approvals/denials, and outcomes for auditability and analytics.
+- Move scheduler/workflow state out of JSON into a DB for concurrency safety and richer queries.
+- Store user feedback/annotations to improve memory promotion and retrieval ranking.
 
 ### v1.0.0: First Release
 #### General
