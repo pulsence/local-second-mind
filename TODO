@@ -1,255 +1,133 @@
-# Todo
+# Todo (Future Timeline of Work)
 
-## Current Items
+**The curren plan is for version [0.7.0](.agents/docs/PLAN.md).**
 
-### v0.7.0: Agents and Remote Sources
-#### Architecture
-- Create lsm.utils module for common utility code like logger
-- Create a utility that produces a graph of a file like those graph from tree-sitter.
-  - This should also produce a graph from all "text" files from headings->subheadings->paragraphs.
-- Need to create a test harness to check/test how agents and tools
-  improve or regress based upon feature changes.
+Below is a *rough* timeline for future versions and features. There is no
+time frame to expect this work to be completed and it is liable for to be
+substantially changed over time.
 
-#### General Agents and Tools
-- All agents should have the ability to ask the user a question for clarification. This can be
-  exposed as a tool to all agents no matter how they are configured.
-    - Provide ability to config ignore request the request and respond "continue with work."
-      or something like that.
-- Default Agent Workspace:
-  - Each Agent by default has read/write access to their workspace.
-  - Agent logs by default save in their workspace.
-- Agent logs output to plain text instead of json and add the ability to produce
-  normal/verbose/debug logs
-- Update sending tools to use AI Model API field `tools=[...]` (function calling API) where possible and only
-  otherwise when that is not available to creating a human readable list.
-  - When a human readable list must be used, it should mimic the JSON structure used for the function.
-- Restructure agents package so the agents themselves are thematically organized: lsm.agents.academic,
-  lsm.agents.assistants, lsm.agents.productivity, etc.
+## v0.8.0: Embedding Retrevial Improvments
+### Architecural Overhall
+- Read .claude_files/INGEST_FUTURE.md for an outline of how to create
+  a plan to improve the ingest and embedding retrevial pipeline.
 
-#### Tools
-- Fully implement Docker runner.
-  - Explore hot loading docker and then launching in the docker instance vs launching a docker
-    instance whenever it is needed.
-- Implement WSL2 Runner
-- Core manipulation tools are find/read/write/edit:
-  - Creating a line harsh which is then sent to llm can greatly assist in editing a file. By edit
-    we mean, selectively replacing a section of a file with a new section. See https://blog.can.ac/2026/02/12/the-harness-problem/
-    for a description of this. The line hash makes it easier for the LLM to indicate which lines
-    to replace.
-  - See the tilth project https://github.com/jahala/tilth for inspiration on how to boost both
-    find and edit. We are seeking to accomlish the same why as Jahala:
-    ```
-    I built this because I watched AI agents make 6 tool calls to find one function. glob → read → "too big" → grep → read again → read another file. Each round-trip burns inference time and tokens.
-
-    tilth gives agents (and humans) structural awareness in one call. The outline tells you what's in the file. The search tells you where things are defined and used. The --section flag gets you exactly the lines you need.
-
-    It's also just a nicer cat for codebases.
-    ```
-  - Leverage file grapher in finding sections and editing sections.
-  - All of this is fundamentally a more advanced version of str_replace/apply_patch designed around the
-    unique characteristics of LLMs.
-  - Edit should fail if it cannot find the place to replace. On an edit fail it should let the LLM know
-    in a descriptive way so it can more intellegently retry.
-  - Extensive testing needs to be done to see if this is more effecient than replace()
-  - Find_File tool should file by name or content in file
-  - Find_Section tool should find section in specified file or find file with related sections
-- Create bash and powershell tool that runs bash/powershell commands. Configuration to manually
-  allow/deny certain commands.
-    - Need to confirm path args to ensure sandbox constraints
-
-#### Agents
-- Added Agent types, so a user can view the different kinds of agents. E.g., academic or assistants.
-- Create General Agent where the user can give the agent a task and it attempts to accomplish
-  it give the available tools.
-- Create a Librarian Agent who task it to explore the embeddings DB and create a graph of ideas
-- Agent Assistant:
-  - This agent acts as an assitant to review the work produced by all other agents and produce
-    summaries of what happened. This could be summaries of results, actions taken, a security
-    review to identify if there is anything that needs to be reviewed by user.
-  - Can identify across agents if there is anything that should be stored as a memory or maybe
-    memories that need to be updated or removed.
-  - It is kind of like HR for the agents.
-- Email Assistant:
-  - Read emails (last 1 hr, last 24 hrs, etc.) and provide a summary of emails
-  - Provide a task list based upon certain criteria to select emails (e.g., search string, 
-    to/from particular persons, unread, folder, etc.)
-  - Ability to draft emails but user must explicitly approve before sending
-- Calendar Assistant:
-  - Read calendar and provide information about upcoming events
-  - Give an event and receive suggestions on when to schedule the event
-  - Ability to add/remove/edit events with explicity approval from user
-- News Assistant:
-  - Provide a news summary over selected time frame in the style of a news letter
-  - Provide a news summary based upon specific criteria or topics
-- Coder:
-  - Agent designed to edit code
-- Manuscript Editor:
-  - An agent who reads text documents (plain text, markdown, word) and then iteratively
-    edits the document. It is like the Coder but for essays and manuscripts.
-
-#### Meta-Agents
-- Enable Meta-Agent to decide when to run sub agents in parallel instead
-  of just in series.
-- General Meta-Agent: Like the general agent, but able to launch other agents to accomplish its task.
-- Assistant Meta-Agent: A meta-agent specifically tasked with launching and controlling Assistant type agents.
-
-#### MCP Services
-- Add ability to act as MCP host and then expose to agents
-
-#### AI Providers
-- Add support for OpenRouter
-- Analyze how to best specify which LLM to use for different features. Something like tiered
-  configuration based upon how advanced an AI is needed for a particular service/feature.
-  - For example: quick, normal, complex. For each tier a model can be specified, and then a
-    whenever an LLM needs to be used, the particular service/tool/agent/usage case first
-    check is a model has been explicitly set for its usage, or otherwise selects the model
-    from the tier that it needs.
-  - So tagging and rerank would use "quick" is they did not have a model set in the services
-    config model.
-  - This can be baked in the config loading, where after the tiers and services are loaded,
-    whichever services are left undefined then the tiered models are mapped to the services.
-  - The pre-baking of service models requires that every loaded tool/agent/etc. that uses
-    a model to also specify in advance what tier level they need. 
-
-#### Remote Source Providers
-- Generic RSS Reader that can cache past reads and download latest items
-- All remote providers that use OAI protocol should leverage the BaseOAIProvider to reduce code
-  reuse.
-- Ability to access major Email and Calendar providers
-- Create OpenAlex - Crossref - Unpaywall - CORE pipeline to find, download, and ingest documents
-- Archive.org
-- Look into AI Providers Web Search API as alts to Brave
-- Perseus CTS API
-- Digital Public Library of America (DPLA) API
-- Library of Congress (loc.gov) JSON/YAML API
-- Smithsonian Open Access API
-- The Met Collection API (Open Access)
-- Rijksmuseum data services
-- IIIF APIs (Image / Presentation / Content Search
-- Wikidata SPARQL endpoint
-- PubMed/PubMed Central
-- SSRN (Social Science Research Network)
-- PhilArchive
-- Project MUSE (humanities)
-- News Sources: NYTimes, et al.
-- Social Media: Twitter, et al.
-- Finantial Sources
-    - Market data
-    - Federal/Government API data
-
-
-## Future Items (INGORE ALL THE FOLLOWING FOR PLANNING)
-
-### v0.8.0: Embedding Retrevial Improvments
-#### Architecural Overhall
-- Read .claude_files/INGEST_FUTURE.md for an outline of how to create a plan to improve the 
-  ingest and embedding retrevial pipeline.
-
-#### Document Headings Improvement
-- When a text document has subheadings the user should be able to define how many subheadings
-  deep should be considered when creating chunk boundaries by headings. Otherwise the ingest
-  should intellegently use subheadings based upon the follow criteria:
-    - When a heading is larger than the max chunk size and contains sub-headings,
+### Document Headings Improvement
+- When a text document has subheadings the user should be able to define
+  how many subheadings deep should be considered when creating chunk 
+  boundaries by headings. Otherwise the ingest should intellegently use 
+  subheadings based upon the follow criteria:
+    - When a heading is larger than the max chunk size and contains 
+      sub-headings,
       then the section should be chunked along the sub-heading boundaries. The meta-data
       in the chunk should indicate the heirarchy of headings: heading::sub-heading
-    - This process should repeat into nested subheadings so long as the current heading
-      level is larger than the target max chunk size.
+    - This process should repeat into nested subheadings so long as the 
+      current heading level is larger than the target max chunk size.
 
-### v0.9.0: Refactor and Dog Food
-#### General
+## v0.9.0: Refactor and Dog Food
+### General
 - Update "psycopg[binary]>=3.1", "pgvector>=0.4",
 
-#### Documentation
+### Documentation
 - Improve documentation
-- Find a way to automatically turn the documentation into a viewable site using MkDocs
-  and GitHub actions to deploy to a GitHub Pages.
+- Find a way to automatically turn the documentation into a viewable site 
+  using MkDocs and GitHub actions to deploy to a GitHub Pages.
 - Ensure that every sentence gramatically follows.
-- Ensure that the config document explains all possible configuration settings.
+- Ensure that the config document explains all possible configuration   
+  settings.
   - Note that it can treat tools and agents in general. Each tool and agent
     should clearly document their configuration settings.
 
-#### Code Quality
+### Code Quality
 - Do a checking for large files that could be refactored into small files.
 - Check overly complicated code paths or redundant code.
 - Look for places where code is duplicated and can be consolidated.
-- Look for any legacy code, dead code, or backwards compatability code and remove it.
-- Look for places where module boundaries are not properly respected and abstractions
-  have started to leak and reinforce module boundaries and consider refactoring if
-  abstractions have become too leaky.
+- Look for any legacy code, dead code, or backwards compatability code and 
+  remove it.
+- Look for places where module boundaries are not properly respected and 
+  abstractions have started to leak and reinforce module boundaries and 
+  consider refactoring if abstractions have become too leaky.
 - Check Tests to make sure there is no artifical duplication.
 - Review for any legacy/backwards-capatability/dead-code and review it.
 
-#### Deployment
+### Deployment
 - Create clear install instructions
 - Explore creating docker images
 - Config pyproject to install complete/just chroma/just pgsql
 
-#### Testing
-- Ensure that the complete security strategy in SECURITY.md is being followed. Pay particular
-  attention to the testing of the Meta agent to make sure that it is thoroughly tested.
-    - The security tests of the whole agent system should test every way to break out of the
-      sandbox.
-- Review the test suite to make sure that live services are tested and there are no stubs
-  or "auto-pass" tests.
-- Ensure that the test suite is properly structured to match the actual project module structure
-  and the tests are properly named.
-- Ensure that there are full integration tests uses the different configurations to make sure that
-  the different AI Providers, DBs, etc. work with each other.
-- Make sure that different DB migration tests truly load complete DBs and successfully migrate
-  in both directions SQLite <-> PG, and Chroma <-> PG
+### Testing
+- Ensure that the complete security strategy in SECURITY.md is being 
+  followed. Pay particular attention to the testing of the Meta agent to 
+  make sure that it is thoroughly tested.
+    - The security tests of the whole agent system should test every way to 
+      break out of the sandbox.
+- Review the test suite to make sure that live services are tested and there 
+  are no stubs or "auto-pass" tests.
+- Ensure that the test suite is properly structured to match the actual 
+  project module structure and the tests are properly named.
+- Ensure that there are full integration tests uses the different
+  configurations to make sure that the different AI Providers, DBs, etc. 
+  work with each other.
+- Make sure that different DB migration tests truly load complete DBs and 
+  successfully migrate in both directions SQLite <-> PG, and Chroma <-> PG
 - Expand performance test suite beyond the TUI startup SLA
 - Ensure there are PDf ingest tests and PDF OCR ingest tests
 
-### v0.10.0: Extra Control Paths
+## v0.10.0: Extra Control Paths
 - Add ability to send email/txt notifications
 - Add ability to create RSS Feed from for example the News Agent
 - Add ability to launch commands by txt/email
 
-### v0.11.0: UI
+## v0.11.0: UI
 - Add Web interface (mobile and desktop browsers)
 - Add desktop UI based up web interface
 
-### v0.12.0: Intergrations
+## v0.12.0: Intergrations
 - Add Zotero itegrations
 - Complete Obsidian integration
-  - Create obsidian plugin that connects to the LSM server used by the Web UI to allow
-    the user to interact with LSM via the API requests
+  - Create obsidian plugin that connects to the LSM server used by the Web 
+    UI to allow the user to interact with LSM via the API requests
 - Complete logseq integration
 
-### v0.13.0: Internals
+## v0.13.0: Internals
 
-#### Levarage DBs
-- Persist ingest state and file hashes to enable incremental re-ingest and avoid duplicate embeddings.
-- Store chunk-level metadata (doc id, offsets, tags, source path) to improve filters and explainability.
+### Levarage DBs
+- Persist ingest state and file hashes to enable incremental re-ingest and 
+  avoid duplicate embeddings.
+- Store chunk-level metadata (doc id, offsets, tags, source path) to improve 
+  filters and explainability.
 - Add a durable query cache with TTL cleanup (survives restarts).
-- Persist run summaries, tool approvals/denials, and outcomes for auditability and analytics.
-- Move scheduler/workflow state out of JSON into a DB for concurrency safety and richer queries.
-- Store user feedback/annotations to improve memory promotion and retrieval ranking.
+- Persist run summaries, tool approvals/denials, and outcomes for 
+  auditability and analytics.
+- Move scheduler/workflow state out of JSON into a DB for concurrency safety 
+  and richer queries.
+- Store user feedback/annotations to improve memory promotion and retrieval 
+  ranking.
 
-### v1.0.0: First Release
-#### General
+## v1.0.0: First Release
+### General
 - Dogfood everything again
 - Check for code refactors and test usage
 - Confirm installation process
-- Create clear documentation/examples API/Configs with testing to track backwards
-  compatability.
+- Create clear documentation/examples API/Configs with testing to track 
+  backwards compatability.
 - Ensure the start up times are as fast as possible.
-- Look for code optimization points (both in terms of memory usage and execution time).
+- Look for code optimization points (both in terms of memory usage and 
+  execution time).
 
-#### TUI
+### TUI
 - Ensure TUI is rock solid and following the best practices
 
-#### Web
+### Web
 - Ensure Web interface is rock solid and following the best practices
 
-#### Remote Controlers
+### Remote Controlers
 - Ensure Txt and Email notifications and control messanges are rock solid
 
-### v1.1.0: Finantial Features
+## v1.1.0: Finantial Features
 - Finance Remote Providers (See .agents/future_plans/FINANCE_PROVIDERS.md)
 - Finance Agents
 
-### v1.2.0: Webpage Navigation
+## v1.2.0: Webpage Navigation
 - Add ability to scrape websites
-- Add ability to create "RSS Feed" of websites, meaning periodically read and then
-  create list of posts/new content.
+- Add ability to create "RSS Feed" of websites, meaning periodically read 
+  and then create list of posts/new content.
