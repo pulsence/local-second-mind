@@ -8,7 +8,6 @@
 - `lsm/remote/providers/academic/` — scholarly, biomedical, philosophy, humanities
 - `lsm/remote/providers/cultural/` — archives, museums, cultural heritage
 - `lsm/remote/providers/news/` — news sources and RSS
-- `lsm/remote/providers/finance/` — market data, government economic data
 - `lsm/remote/providers/web/` — web search (Brave, etc.)
 - Existing providers (`brave.py`, `wikipedia.py`, `arxiv.py`, etc.) must be migrated into their appropriate sub-packages.
 - `lsm/remote/providers/__init__.py` re-exports for backwards compatibility.
@@ -21,14 +20,13 @@
 | 8.3 | Academic & biomedical providers | 7.2, 8.1 |
 | 8.4 | Cultural heritage & archive providers | 8.1 |
 | 8.5 | News providers | 7.4, 8.1 |
-| 8.6 | Financial & government data providers | 8.1 |
-| 8.7 | Specialized protocol providers | 8.1 |
-| 8.8 | Tests and documentation | 8.0–8.7 |
+| 8.6 | Specialized protocol providers | 8.1 |
+| 8.7 | Tests and documentation | 8.0–8.6 |
 
 ## 8.0: Provider Sub-Package Restructure
 - **Description:** Reorganize existing and new remote providers into domain-specific sub-packages.
 - **Tasks:**
-  - Create sub-package directories: `academic/`, `cultural/`, `news/`, `finance/`, `web/`.
+  - Create sub-package directories: `academic/`, `cultural/`, `news/`, `web/`.
   - Move existing providers into appropriate sub-packages (e.g., `brave.py` → `web/brave.py`, `arxiv.py` → `academic/arxiv.py`, `openalex.py` → `academic/openalex.py`, `wikipedia.py` → `web/wikipedia.py`).
   - Update `lsm/remote/providers/__init__.py` re-exports and factory registration so existing imports and config references continue to work.
   - Update all test imports.
@@ -62,13 +60,15 @@
   - Implement `unpaywall.py` provider for open-access link resolution by DOI.
   - Wire a `RemoteProviderChain` that downloads full text when available and hands off to ingest pipeline.
   - Update existing `core.py` as the full-text retrieval fallback.
+  - Implement preconfigured chain objects (e.g., `ScholarlyDiscoveryChain`) that bundle the standard OpenAlex → Crossref → Unpaywall → CORE pipeline into reusable, named chain instances.
+  - Add config support for enabling/disabling preconfigured chains: users can list enabled chains under a `remote.chains` section in their config file, and disabled chains are skipped during provider resolution.
 - **Files:**
   - `lsm/remote/providers/academic/openalex.py`
   - `lsm/remote/providers/academic/crossref.py`
   - `lsm/remote/providers/academic/unpaywall.py`
   - `lsm/remote/providers/academic/core.py`
   - `lsm/remote/chain.py`
-- **Success criteria:** A DOI query yields normalized metadata + full-text retrieval when available. Chain executes end-to-end. All providers pass structured output validation (8.1).
+- **Success criteria:** A DOI query yields normalized metadata + full-text retrieval when available. Chain executes end-to-end. Preconfigured chains can be enabled/disabled via config. All providers pass structured output validation (8.1).
 
 ## 8.3: Academic & Biomedical Providers
 - **Description:** Add discipline-specific academic sources.
@@ -110,7 +110,8 @@
 - **Description:** Implement news sources with API-backed retrieval. Sources without APIs use the RSS reader from 7.4.
 - **Providers:**
   - `nytimes.py` — NYTimes Top Stories + Article Search APIs.
-  - `guardian.py` — The Guardian Content API (or GDELT for global coverage).
+  - `guardian.py` — The Guardian Content API.
+  - `gdelt.py` — GDELT for global news coverage and event data.
   - `newsapi.py` — NewsAPI for topic aggregation.
   - RSS feeds for sources without dedicated APIs (via `rss.py` provider).
 - **Files:**
@@ -120,36 +121,14 @@
   - `lsm/remote/providers/news/newsapi.py`
 - **Success criteria:** News queries return current articles with source, timestamp, and canonical URL. Passes output validation.
 
-## 8.6: Financial & Government Data Providers
-- **Description:** Provide market data, economic indicators, and government datasets from US, European, and international sources.
-- **Providers:**
-  - `alpha_vantage.py` or `iex_cloud.py` — US/global market data.
-  - `fred.py` — Federal Reserve Economic Data (FRED) time series.
-  - `sec_edgar.py` — SEC filings metadata and document retrieval.
-  - `data_gov.py` — US federal datasets (Data.gov or Treasury).
-  - `ecb.py` — European Central Bank Statistical Data Warehouse (SDW) API for Eurozone economic data.
-  - `eurostat.py` — Eurostat for EU-wide statistics and indicators.
-  - `world_bank.py` — World Bank Open Data API for global development indicators.
-  - `imf.py` — IMF Data API for international financial statistics.
-- **Files:**
-  - `lsm/remote/providers/finance/alpha_vantage.py`
-  - `lsm/remote/providers/finance/fred.py`
-  - `lsm/remote/providers/finance/sec_edgar.py`
-  - `lsm/remote/providers/finance/data_gov.py`
-  - `lsm/remote/providers/finance/ecb.py`
-  - `lsm/remote/providers/finance/eurostat.py`
-  - `lsm/remote/providers/finance/world_bank.py`
-  - `lsm/remote/providers/finance/imf.py`
-- **Success criteria:** Financial queries return structured data with timestamps, source attribution, and currency/unit metadata where applicable. Passes output validation.
-
-## 8.7: Specialized Protocol Providers
+## 8.6: Specialized Protocol Providers
 - **Providers:**
   - `perseus_cts.py` — Perseus CTS API for classical text retrieval by CTS URNs.
 - **Files:**
   - `lsm/remote/providers/cultural/perseus_cts.py`
 - **Success criteria:** CTS URN queries return text passages with citation metadata. Passes output validation.
 
-## 8.8: Tests and Documentation
+## 8.7: Tests and Documentation
 - **Description:** Validate provider behavior, authentication, and schema normalization.
 - **Tasks:**
   - Add tests for provider config validation and output normalization.

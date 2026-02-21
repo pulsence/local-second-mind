@@ -31,7 +31,7 @@ v0.7.0 introduces a comprehensive agent system with multiple specialized agents,
 Utils module, agent log format conversion, tiered model configuration, and agent/tool test harness.
 
 ### [Phase 2: File Graphing System](../plan_phases/PHASE_2.md)
-Graph schema, code file grapher, text document grapher, tool integration hooks, and fixtures.
+Graph schema, code file grapher, text document grapher, PDF document grapher, HTML document grapher, tool integration hooks, and fixtures.
 
 ### [Phase 3: Agent Framework Overhaul](../plan_phases/PHASE_3.md)
 Agent package restructure, workspace defaults, tool API standardization, and universal ask_user.
@@ -43,13 +43,13 @@ Line-hash editing engine, find file/section tools, read/outline enhancements, an
 Runner policy updates, Docker runner completion, WSL2 runner, bash/PowerShell tools with security testing.
 
 ### [Phase 6: Core Agent Catalog](../plan_phases/PHASE_6.md)
-General, Librarian, Assistant, Coder, and Manuscript Editor agents.
+General, Librarian, Assistant, and Manuscript Editor agents.
 
 ### [Phase 7: AI Providers & Protocol Infrastructure](../plan_phases/PHASE_7.md)
 OpenRouter provider, OAI-protocol consolidation, MCP host support, and generic RSS reader.
 
 ### [Phase 8: Remote Source Providers](../plan_phases/PHASE_8.md)
-Provider sub-package restructure, structured output validation, scholarly/academic/cultural/news/financial providers.
+Provider sub-package restructure, structured output validation, scholarly/academic/cultural/news providers, and specialized protocols.
 
 ### [Phase 9: Communication Platform](../plan_phases/PHASE_9.md)
 OAuth2 infrastructure, email/calendar providers, and email/calendar/news assistant agents.
@@ -69,11 +69,11 @@ Phase 1  ──>  Phase 2  ──>  Phase 4  ──>  Phase 6  ──>  Phase 10
   │    │         │                            │               ↑
   │    │         └────────────────────────────┘               │
   │    │                                                      │
-  │    └──>  Phase 3  ──>  Phase 5  ──>  Phase 6              │
+  │    └──>  Phase 3  ──────────────────>  Phase 6            │
   │                                        │                  │
-  └──(1.4)──>  Phase 4  (benchmarks)       └──>  Phase 9  ──>  Phase 10
-                                                    ↑
-                                          Phase 7  ──>  Phase 8
+  │         Phase 5 (parallel w/ Phase 4)  └──>  Phase 9  ──>  Phase 10
+  │                                                  ↑
+  └──(1.4)──>  Phase 4  (benchmarks)       Phase 7  ──>  Phase 8
 ```
 
 **Key gates:**

@@ -244,3 +244,12 @@
 
 #### Remote Controlers
 - Ensure Txt and Email notifications and control messanges are rock solid
+
+### v1.1.0: Finantial Features
+- Finance Remote Providers (See .agents/future_plans/FINANCE_PROVIDERS.md)
+- Finance Agents
+
+### v1.2.0: Webpage Navigation
+- Add ability to scrape websites
+- Add ability to create "RSS Feed" of websites, meaning periodically read and then
+  create list of posts/new content.

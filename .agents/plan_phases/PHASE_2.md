@@ -9,8 +9,10 @@
 | 2.1 | Graph schema and interfaces | 1.1 |
 | 2.2 | Code file grapher | 2.1 |
 | 2.3 | Text document grapher | 2.1 |
-| 2.4 | Tool integration hooks | 2.2, 2.3 |
-| 2.5 | Tests and fixtures | 2.2, 2.3 |
+| 2.4 | PDF document grapher | 2.1 |
+| 2.5 | HTML document grapher | 2.1 |
+| 2.6 | Tool integration hooks | 2.2, 2.3, 2.4, 2.5 |
+| 2.7 | Tests and fixtures | 2.2, 2.3, 2.4, 2.5 |
 
 ## 2.1: Graph Schema and Interfaces
 - **Description:** Define the graph data model and public interfaces for structural output.
@@ -46,7 +48,30 @@
   - `lsm/utils/text_processing.py`
 - **Success criteria:** Text graphs represent heading hierarchy and paragraph boundaries consistently.
 
-## 2.4: Tool Integration Hooks
+## 2.4: PDF Document Grapher
+- **Description:** Build a read-only grapher for PDF documents that exposes structural elements for navigation and content retrieval.
+- **Tasks:**
+  - Parse PDF page structure, headings, and text blocks into graph nodes using existing `parse_pdf` infrastructure.
+  - Map page boundaries and section headings into the unified `GraphNode` schema.
+  - Emit page-level and section-level nodes with content spans for targeted reading.
+- **Package boundary note:** Reuse shared text processing logic from `lsm/utils/text_processing.py` (established in 2.3) for heading extraction and hierarchy building. Leverage `PageSegment` data from the existing PDF parser.
+- **Files:**
+  - `lsm/utils/file_graph.py`
+  - `lsm/utils/text_processing.py`
+- **Success criteria:** PDF graphs expose page and section structure for read-only navigation. Headings and content blocks are accurately mapped.
+
+## 2.5: HTML Document Grapher
+- **Description:** Build a read-only grapher for HTML documents that exposes structural elements (headings, sections, lists, tables) for navigation and content retrieval.
+- **Tasks:**
+  - Parse HTML heading hierarchy (`h1`–`h6`), semantic sections (`<section>`, `<article>`), and content blocks into graph nodes.
+  - Handle nested structures and map them into the unified `GraphNode` schema.
+  - Emit structural nodes with content spans for targeted reading.
+- **Files:**
+  - `lsm/utils/file_graph.py`
+  - `lsm/utils/text_processing.py`
+- **Success criteria:** HTML graphs expose heading hierarchy and semantic sections for read-only navigation. Nested structures are correctly represented.
+
+## 2.6: Tool Integration Hooks
 - **Description:** Expose graph outputs to tools for section-aware read/edit operations.
 - **Tasks:**
   - Expose graph via a `get_file_graph(path) -> FileGraph` function in `lsm/utils/file_graph.py`. Tools call this function; they do not parse files themselves.
@@ -59,10 +84,10 @@
   - `lsm/agents/tools/file_metadata.py`
 - **Success criteria:** Tools can retrieve graph output without duplicating parsing logic.
 
-## 2.5: Tests and Fixtures
+## 2.7: Tests and Fixtures
 - **Description:** Validate graph output determinism and section accuracy.
 - **Tasks:**
-  - Add fixtures for code and text files with expected graph outputs.
+  - Add fixtures for code, text, PDF, and HTML files with expected graph outputs.
   - Add tests for stable ordering, span correctness, and cache hits.
 - **Files:**
   - `tests/test_tools/`
