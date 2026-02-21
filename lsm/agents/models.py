@@ -30,6 +30,12 @@ class AgentLogEntry:
     content: str = ""
     """Human-readable event content."""
 
+    prompt: Optional[str] = None
+    """Optional LLM prompt text for debug logging."""
+
+    raw_response: Optional[str] = None
+    """Optional raw LLM response text for debug logging."""
+
     action: Optional[str] = None
     """Optional requested action (tool name, DONE, etc.)."""
 

@@ -9,8 +9,10 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
+from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, TYPE_CHECKING
 
+from .log_formatter import save_agent_log
 from .models import AgentContext, AgentLogEntry
 
 if TYPE_CHECKING:
@@ -167,6 +169,8 @@ class BaseAgent(ABC):
         actor: str = "agent",
         provider_name: Optional[str] = None,
         model_name: Optional[str] = None,
+        prompt: Optional[str] = None,
+        raw_response: Optional[str] = None,
         action: Optional[str] = None,
         action_arguments: Optional[Dict[str, Any]] = None,
     ) -> None:
@@ -178,6 +182,8 @@ class BaseAgent(ABC):
                 provider_name=provider_name,
                 model_name=model_name,
                 content=str(content),
+                prompt=prompt,
+                raw_response=raw_response,
                 action=action,
                 action_arguments=action_arguments,
             )
@@ -207,6 +213,28 @@ class BaseAgent(ABC):
         if self.max_tokens_budget is None:
             return False
         return self._tokens_used >= int(self.max_tokens_budget)
+
+    def _log_verbosity(self) -> str:
+        """Return configured log verbosity from agent overrides."""
+        overrides = getattr(self, "agent_overrides", None)
+        if isinstance(overrides, dict):
+            return overrides.get("log_verbosity", "normal")
+        return "normal"
+
+    def _save_log(self) -> Path:
+        """Persist the agent log to the default agent workspace path."""
+        agent_config = getattr(self, "agent_config", None)
+        if agent_config is None:
+            raise RuntimeError("agent_config is required to save logs")
+        log_path = save_agent_log(
+            self.state.log_entries,
+            agent_name=self.name,
+            agents_folder=agent_config.agents_folder,
+            verbosity=self._log_verbosity(),
+        )
+        self.state.add_artifact(str(log_path))
+        return log_path
+
 
     def _get_tool_definitions(
         self,

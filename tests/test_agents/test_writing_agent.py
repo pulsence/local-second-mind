@@ -160,9 +160,8 @@ def test_writing_agent_runs_and_saves_deliverable(monkeypatch, tmp_path: Path) -
     content = agent.last_result.output_path.read_text(encoding="utf-8")
     assert "# Final Deliverable" in content
 
-    saved_log = json.loads(agent.last_result.log_path.read_text(encoding="utf-8"))
-    assert isinstance(saved_log, list)
-    assert len(saved_log) > 0
+    saved_log = agent.last_result.log_path.read_text(encoding="utf-8")
+    assert saved_log.strip()
 
 
 def test_agent_factory_creates_writing_agent(monkeypatch, tmp_path: Path) -> None:

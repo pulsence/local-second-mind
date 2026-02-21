@@ -7,127 +7,148 @@ time frame to expect this work to be completed and it is liable for to be
 substantially changed over time.
 
 ## v0.8.0: Embedding Retrevial Improvments
+
 ### Architecural Overhall
+
 - Read .claude_files/INGEST_FUTURE.md for an outline of how to create
   a plan to improve the ingest and embedding retrevial pipeline.
 
 ### Document Headings Improvement
+
 - When a text document has subheadings the user should be able to define
-  how many subheadings deep should be considered when creating chunk 
-  boundaries by headings. Otherwise the ingest should intellegently use 
+  how many subheadings deep should be considered when creating chunk
+  boundaries by headings. Otherwise the ingest should intellegently use
   subheadings based upon the follow criteria:
-    - When a heading is larger than the max chunk size and contains 
+  - When a heading is larger than the max chunk size and contains
       sub-headings,
       then the section should be chunked along the sub-heading boundaries. The meta-data
       in the chunk should indicate the heirarchy of headings: heading::sub-heading
-    - This process should repeat into nested subheadings so long as the 
+  - This process should repeat into nested subheadings so long as the
       current heading level is larger than the target max chunk size.
 
 ## v0.9.0: Refactor and Dog Food
+
 ### General
+
 - Update "psycopg[binary]>=3.1", "pgvector>=0.4",
 
 ### Documentation
+
 - Improve documentation
-- Find a way to automatically turn the documentation into a viewable site 
+- Find a way to automatically turn the documentation into a viewable site
   using MkDocs and GitHub actions to deploy to a GitHub Pages.
 - Ensure that every sentence gramatically follows.
-- Ensure that the config document explains all possible configuration   
+- Ensure that the config document explains all possible configuration
   settings.
   - Note that it can treat tools and agents in general. Each tool and agent
     should clearly document their configuration settings.
 
 ### Code Quality
+
 - Do a checking for large files that could be refactored into small files.
 - Check overly complicated code paths or redundant code.
 - Look for places where code is duplicated and can be consolidated.
-- Look for any legacy code, dead code, or backwards compatability code and 
+- Look for any legacy code, dead code, or backwards compatability code and
   remove it.
-- Look for places where module boundaries are not properly respected and 
-  abstractions have started to leak and reinforce module boundaries and 
+- Look for places where module boundaries are not properly respected and
+  abstractions have started to leak and reinforce module boundaries and
   consider refactoring if abstractions have become too leaky.
 - Check Tests to make sure there is no artifical duplication.
 - Review for any legacy/backwards-capatability/dead-code and review it.
 
 ### Deployment
+
 - Create clear install instructions
 - Explore creating docker images
 - Config pyproject to install complete/just chroma/just pgsql
 
 ### Testing
-- Ensure that the complete security strategy in SECURITY.md is being 
-  followed. Pay particular attention to the testing of the Meta agent to 
+
+- Ensure that the complete security strategy in SECURITY.md is being
+  followed. Pay particular attention to the testing of the Meta agent to
   make sure that it is thoroughly tested.
-    - The security tests of the whole agent system should test every way to 
+  - The security tests of the whole agent system should test every way to
       break out of the sandbox.
-- Review the test suite to make sure that live services are tested and there 
+- Review the test suite to make sure that live services are tested and there
   are no stubs or "auto-pass" tests.
-- Ensure that the test suite is properly structured to match the actual 
+- Ensure that the test suite is properly structured to match the actual
   project module structure and the tests are properly named.
 - Ensure that there are full integration tests uses the different
-  configurations to make sure that the different AI Providers, DBs, etc. 
+  configurations to make sure that the different AI Providers, DBs, etc.
   work with each other.
-- Make sure that different DB migration tests truly load complete DBs and 
+- Make sure that different DB migration tests truly load complete DBs and
   successfully migrate in both directions SQLite <-> PG, and Chroma <-> PG
 - Expand performance test suite beyond the TUI startup SLA
 - Ensure there are PDf ingest tests and PDF OCR ingest tests
 
 ## v0.10.0: Extra Control Paths
+
 - Add ability to send email/txt notifications
 - Add ability to create RSS Feed from for example the News Agent
 - Add ability to launch commands by txt/email
 
 ## v0.11.0: UI
+
 - Add Web interface (mobile and desktop browsers)
 - Add desktop UI based up web interface
 
 ## v0.12.0: Intergrations
+
 - Add Zotero itegrations
 - Complete Obsidian integration
-  - Create obsidian plugin that connects to the LSM server used by the Web 
+  - Create obsidian plugin that connects to the LSM server used by the Web
     UI to allow the user to interact with LSM via the API requests
 - Complete logseq integration
 
 ## v0.13.0: Internals
 
 ### Levarage DBs
-- Persist ingest state and file hashes to enable incremental re-ingest and 
+
+- Persist ingest state and file hashes to enable incremental re-ingest and
   avoid duplicate embeddings.
-- Store chunk-level metadata (doc id, offsets, tags, source path) to improve 
+- Store chunk-level metadata (doc id, offsets, tags, source path) to improve
   filters and explainability.
 - Add a durable query cache with TTL cleanup (survives restarts).
-- Persist run summaries, tool approvals/denials, and outcomes for 
+- Persist run summaries, tool approvals/denials, and outcomes for
   auditability and analytics.
-- Move scheduler/workflow state out of JSON into a DB for concurrency safety 
+- Move scheduler/workflow state out of JSON into a DB for concurrency safety
   and richer queries.
-- Store user feedback/annotations to improve memory promotion and retrieval 
+- Store user feedback/annotations to improve memory promotion and retrieval
   ranking.
 
 ## v1.0.0: First Release
+
 ### General
+
 - Dogfood everything again
 - Check for code refactors and test usage
 - Confirm installation process
-- Create clear documentation/examples API/Configs with testing to track 
+- Create clear documentation/examples API/Configs with testing to track
   backwards compatability.
 - Ensure the start up times are as fast as possible.
-- Look for code optimization points (both in terms of memory usage and 
+- Look for code optimization points (both in terms of memory usage and
   execution time).
 
 ### TUI
+
 - Ensure TUI is rock solid and following the best practices
 
 ### Web
+
 - Ensure Web interface is rock solid and following the best practices
 
 ### Remote Controlers
+
 - Ensure Txt and Email notifications and control messanges are rock solid
 
 ## v1.1.0: Finantial Features
+
 - Finance Remote Providers (See .agents/future_plans/FINANCE_PROVIDERS.md)
 - Finance Agents
 
 ## v1.2.0: Webpage Navigation
-- Add ability to scrape websites
-- Add ability to create "RSS Feed" of websites, meaning periodically read 
+
+- Add ability to scrape websites.
+- Add ability to login on websites.
+- Add ability to create "RSS Feed" of websites, meaning periodically read
   and then create list of posts/new content.

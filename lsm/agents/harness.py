@@ -17,8 +17,10 @@ from lsm.config.models import AgentConfig, LLMRegistryConfig, VectorDBConfig
 from lsm.config.models.agents import SandboxConfig
 from lsm.logging import get_logger
 from lsm.providers.factory import create_provider
+from lsm.utils.paths import resolve_path
 
 from .interaction import InteractionChannel, InteractionRequest, InteractionResponse
+from .log_formatter import save_agent_log
 from .log_redactor import redact_secrets
 from .base import AgentState, AgentStatus
 from .factory import create_agent
@@ -150,11 +152,12 @@ class AgentHarness:
                 self.context.budget_tracking["iterations"] += 1
                 standing_context_block = self._build_standing_context_block()
                 messages_for_llm = self._prepare_messages(self.context)
+                prompt = self._messages_to_prompt(
+                    messages_for_llm,
+                    standing_context_block=standing_context_block,
+                )
                 raw_response = llm_provider.synthesize(
-                    question=self._messages_to_prompt(
-                        messages_for_llm,
-                        standing_context_block=standing_context_block,
-                    ),
+                    question=prompt,
                     context=self._tools_context_block(),
                     mode="insight",
                 )
@@ -169,6 +172,8 @@ class AgentHarness:
                         content=tool_response.response,
                         action=tool_response.action,
                         action_arguments=tool_response.action_arguments,
+                        prompt=prompt,
+                        raw_response=str(raw_response),
                     )
                 )
                 self.context.messages.append(
@@ -262,6 +267,7 @@ class AgentHarness:
             self.save_state()
             return self.state
         finally:
+            self._write_agent_log()
             self._write_run_summary(started_at)
 
     def start_background(self, initial_context: AgentContext) -> threading.Thread:
@@ -525,6 +531,8 @@ class AgentHarness:
                     "provider_name": entry.provider_name,
                     "model_name": entry.model_name,
                     "content": redact_secrets(entry.content),
+                    "prompt": redact_secrets(entry.prompt) if entry.prompt else None,
+                    "raw_response": redact_secrets(entry.raw_response) if entry.raw_response else None,
                     "action": entry.action,
                     "action_arguments": entry.action_arguments,
                 }
@@ -549,6 +557,10 @@ class AgentHarness:
 
     def _append_log(self, entry: AgentLogEntry) -> None:
         entry.content = redact_secrets(entry.content)
+        if entry.prompt:
+            entry.prompt = redact_secrets(entry.prompt)
+        if entry.raw_response:
+            entry.raw_response = redact_secrets(entry.raw_response)
         self.state.add_log(entry)
         if self.log_callback is None:
             return
@@ -736,6 +748,30 @@ class AgentHarness:
         self.state.add_artifact(str(summary_path))
         return summary_path
 
+    def _write_agent_log(self) -> Optional[Path]:
+        if not self.state.log_entries:
+            return None
+        verbosity = "normal"
+        if isinstance(self.agent_config.agent_configs, dict):
+            overrides = self.agent_config.agent_configs.get(self.agent_name, {})
+            if isinstance(overrides, dict):
+                verbosity = overrides.get("log_verbosity", verbosity)
+        try:
+            path = save_agent_log(
+                self.state.log_entries,
+                agent_name=self.agent_name,
+                agents_folder=self.agent_config.agents_folder,
+                verbosity=verbosity,
+            )
+            self.state.add_artifact(str(path))
+            return path
+        except Exception:
+            logger.exception(
+                "Failed to persist agent log for '%s'",
+                self.agent_name,
+            )
+            return None
+
     def _bind_runtime_tools(self) -> None:
         for tool in self.tool_registry.list_tools():
             binder = getattr(tool, "bind_harness", None)
@@ -829,8 +865,8 @@ class AgentHarness:
         params: Dict[str, Any],
     ) -> ToolSandbox:
         parent = self.sandbox.config
-        sub_root = sub_root.expanduser().resolve(strict=False)
-        shared_workspace = shared_workspace.expanduser().resolve(strict=False)
+        sub_root = resolve_path(sub_root, strict=False)
+        shared_workspace = resolve_path(shared_workspace, strict=False)
 
         if not self._path_allowed_by_parent(sub_root, action="write"):
             raise PermissionError(

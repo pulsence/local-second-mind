@@ -5,6 +5,8 @@ import re
 from pathlib import Path
 from datetime import datetime, timezone
 
+from lsm.utils.paths import canonical_path as _canonical_path
+
 # -----------------------------
 # Utility helpers
 # -----------------------------
@@ -33,7 +35,7 @@ def now_iso() -> str:
 
 def canonical_path(p: Path) -> str:
     # Normalize for Windows stability: absolute + resolved + lowercase
-    return str(p.expanduser().resolve()).lower()
+    return _canonical_path(p)
 
 def make_chunk_id(source_path: str, file_hash: str, chunk_index: int) -> str:
     """

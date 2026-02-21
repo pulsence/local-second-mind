@@ -244,9 +244,8 @@ def test_curator_agent_runs_and_saves_report(monkeypatch, tmp_path: Path) -> Non
     assert "## Heuristics" in report
     assert "Consolidate exact duplicates." in report
 
-    saved_log = json.loads(agent.last_result.log_path.read_text(encoding="utf-8"))
-    assert isinstance(saved_log, list)
-    assert len(saved_log) > 0
+    saved_log = agent.last_result.log_path.read_text(encoding="utf-8")
+    assert saved_log.strip()
 
 
 def test_agent_factory_creates_curator_agent(monkeypatch, tmp_path: Path) -> None:

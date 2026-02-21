@@ -132,9 +132,10 @@ def test_save_agent_log_redacts_content(tmp_path: Path) -> None:
             content="API_KEY=sk-1234567890abcdef",
         )
     ]
-    path = save_agent_log(entries, tmp_path / "agent_log.json")
-    payload = json.loads(path.read_text(encoding="utf-8"))
-    assert payload[0]["content"] == "API_KEY=[REDACTED]"
+    path = save_agent_log(entries, tmp_path / "agent_log.log")
+    text = path.read_text(encoding="utf-8")
+    assert "API_KEY=[REDACTED]" in text
+    assert "sk-1234567890abcdef" not in text
 
 
 def test_format_agent_log_redacts_content() -> None:
@@ -163,7 +164,7 @@ def test_saved_logs_contain_no_plaintext_secret_values(tmp_path: Path) -> None:
             content="secret=key_topsecret987",
         ),
     ]
-    path = save_agent_log(entries, tmp_path / "security_log.json")
+    path = save_agent_log(entries, tmp_path / "security_log.log")
     raw = path.read_text(encoding="utf-8")
     assert "sk-1234567890abcdef" not in raw
     assert "key_topsecret987" not in raw

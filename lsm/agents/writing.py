@@ -14,7 +14,6 @@ from lsm.config.models import AgentConfig, LLMRegistryConfig
 from lsm.providers.factory import create_provider
 
 from .base import AgentStatus, BaseAgent
-from .log_formatter import save_agent_log
 from .models import AgentContext
 from .tools.base import ToolRegistry
 from .tools.sandbox import ToolSandbox
@@ -107,7 +106,7 @@ class WritingAgent(BaseAgent):
             )
 
         output_path = self._save_deliverable(topic, revised)
-        log_path = self._save_log(output_path)
+        log_path = self._save_log()
         self.last_result = WritingResult(
             topic=topic,
             deliverable_markdown=revised,
@@ -302,7 +301,3 @@ class WritingAgent(BaseAgent):
         output_path.write_text(content, encoding="utf-8")
         self._log(f"Saved writing deliverable to {output_path}")
         return output_path
-
-    def _save_log(self, output_path: Path) -> Path:
-        log_path = output_path.with_name(f"{output_path.stem}_log.json")
-        return save_agent_log(self.state.log_entries, log_path)

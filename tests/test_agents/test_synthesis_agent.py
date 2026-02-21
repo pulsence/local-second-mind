@@ -248,9 +248,8 @@ def test_synthesis_agent_runs_and_saves_outputs(monkeypatch, tmp_path: Path) -> 
     assert "# Source Map" in source_map_text
     assert "Evidence items:" in source_map_text
 
-    saved_log = json.loads(agent.last_result.log_path.read_text(encoding="utf-8"))
-    assert isinstance(saved_log, list)
-    assert len(saved_log) > 0
+    saved_log = agent.last_result.log_path.read_text(encoding="utf-8")
+    assert saved_log.strip()
 
 
 def test_agent_factory_creates_synthesis_agent(monkeypatch, tmp_path: Path) -> None:

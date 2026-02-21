@@ -14,6 +14,8 @@ from pathlib import Path
 from typing import Dict, Any
 from dotenv import load_dotenv
 
+from lsm.utils.paths import resolve_path
+
 from .models import (
     LSMConfig,
     AgentConfig,
@@ -218,9 +220,8 @@ def build_global_config(raw: Dict[str, Any], config_path: Path | None = None) ->
 
     global_folder = global_raw.get("global_folder")
     if global_folder is not None:
-        global_folder = Path(global_folder)
-        if config_path is not None and not global_folder.is_absolute():
-            global_folder = (config_path.parent / global_folder).resolve()
+        base_dir = config_path.parent if config_path is not None else None
+        global_folder = resolve_path(global_folder, base_dir=base_dir, strict=False)
 
     embedding_dimension_raw = global_raw.get("embedding_dimension")
     embedding_dimension = (
@@ -345,7 +346,7 @@ def build_config_from_raw(raw: Dict[str, Any], path: Path | str) -> LSMConfig:
     if isinstance(path, str):
         path = Path(path)
 
-    path = path.expanduser().resolve()
+    path = resolve_path(path, strict=False)
     global_config = build_global_config(raw, path)
     llm_config = build_llm_config(raw)
     ingest_config = build_ingest_config(raw, path)
@@ -949,7 +950,7 @@ def load_config_from_file(path: Path | str) -> LSMConfig:
     if isinstance(path, str):
         path = Path(path)
 
-    path = path.expanduser().resolve()
+    path = resolve_path(path, strict=False)
 
     raw = load_raw_config(path)
     return build_config_from_raw(raw, path)
@@ -966,7 +967,7 @@ def save_config_to_file(config: LSMConfig, path: Path | str) -> None:
     if isinstance(path, str):
         path = Path(path)
 
-    path = path.expanduser().resolve()
+    path = resolve_path(path, strict=False)
     raw = config_to_raw(config)
 
     suffix = path.suffix.lower()

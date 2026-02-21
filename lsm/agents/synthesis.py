@@ -14,7 +14,6 @@ from lsm.config.models import AgentConfig, LLMRegistryConfig
 from lsm.providers.factory import create_provider
 
 from .base import AgentStatus, BaseAgent
-from .log_formatter import save_agent_log
 from .models import AgentContext
 from .tools.base import ToolRegistry
 from .tools.sandbox import ToolSandbox
@@ -125,7 +124,7 @@ class SynthesisAgent(BaseAgent):
             source_map_markdown=source_map_markdown,
             initial_context=initial_context,
         )
-        log_path = self._save_log(output_path.parent)
+        log_path = self._save_log()
         self.last_result = SynthesisResult(
             topic=topic,
             synthesis_markdown=final_markdown,
@@ -556,8 +555,3 @@ class SynthesisAgent(BaseAgent):
         safe_topic = safe_topic[:80] or "synthesis"
         timestamp = datetime.utcnow().strftime("%Y%m%d-%H%M%S")
         return self.agent_config.agents_folder / f"{self.name}_{safe_topic}_{timestamp}"
-
-    def _save_log(self, run_dir: Path) -> Path:
-        log_path = run_dir / "log.json"
-        self.state.add_artifact(str(log_path))
-        return save_agent_log(self.state.log_entries, log_path)

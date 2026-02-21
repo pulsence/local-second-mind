@@ -15,7 +15,6 @@ from lsm.config.models import AgentConfig, LLMRegistryConfig
 from lsm.providers.factory import create_provider
 
 from .base import AgentStatus, BaseAgent
-from .log_formatter import save_agent_log
 from .models import AgentContext
 from .tools.base import ToolRegistry
 from .tools.sandbox import ToolSandbox
@@ -147,7 +146,7 @@ class CuratorAgent(BaseAgent):
             recommendations=recommendations,
         )
         output_path = self._save_report(topic, report_markdown, initial_context)
-        log_path = self._save_log(output_path.parent)
+        log_path = self._save_log()
         self.last_result = CuratorResult(
             topic=topic,
             report_markdown=report_markdown,
@@ -198,7 +197,7 @@ class CuratorAgent(BaseAgent):
         self._log(f"Saved memory candidates markdown to {markdown_path}")
         self._log(f"Saved memory candidates json to {json_path}")
 
-        log_path = self._save_log(run_dir)
+        log_path = self._save_log()
         return CuratorResult(
             topic=topic,
             report_markdown=markdown,
@@ -923,11 +922,6 @@ class CuratorAgent(BaseAgent):
         safe_topic = safe_topic[:80] or "curator"
         timestamp = datetime.utcnow().strftime("%Y%m%d-%H%M%S")
         return self.agent_config.agents_folder / f"{self.name}_{safe_topic}_{timestamp}"
-
-    def _save_log(self, run_dir: Path) -> Path:
-        log_path = run_dir / "log.json"
-        self.state.add_artifact(str(log_path))
-        return save_agent_log(self.state.log_entries, log_path)
 
     def _run_tool(self, tool_name: str, args: Dict[str, Any]) -> str:
         if self._handle_stop_request():
