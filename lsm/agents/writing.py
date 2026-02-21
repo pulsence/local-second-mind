@@ -37,6 +37,7 @@ class WritingAgent(BaseAgent):
     """
 
     name = "writing"
+    tier = "complex"
     description = "Generate grounded written deliverables from the knowledge base."
     tool_allowlist = {
         "query_embeddings",
@@ -89,7 +90,7 @@ class WritingAgent(BaseAgent):
         topic = self._extract_topic(initial_context)
         self.state.current_task = f"Writing: {topic}"
 
-        provider = create_provider(self.llm_registry.resolve_service("default"))
+        provider = create_provider(self._resolve_llm_config(self.llm_registry))
         grounding = self._collect_grounding(topic)
         outline = ""
         draft = ""

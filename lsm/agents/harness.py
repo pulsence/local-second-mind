@@ -63,6 +63,12 @@ class AgentHarness:
         sandbox: ToolSandbox,
         agent_name: str = "agent",
         tool_allowlist: Optional[Set[str]] = None,
+        llm_service: Optional[str] = None,
+        llm_tier: Optional[str] = "normal",
+        llm_provider: Optional[str] = None,
+        llm_model: Optional[str] = None,
+        llm_temperature: Optional[float] = None,
+        llm_max_tokens: Optional[int] = None,
         vectordb_config: Optional[VectorDBConfig] = None,
         memory_store: Optional[BaseMemoryStore] = None,
         memory_context_builder: Optional[MemoryContextBuilder] = None,
@@ -75,6 +81,12 @@ class AgentHarness:
         self.sandbox = sandbox
         self.agent_name = agent_name
         self.tool_allowlist = self._normalize_allowlist(tool_allowlist)
+        self.llm_service = str(llm_service).strip() if llm_service else None
+        self.llm_tier = str(llm_tier or "normal").strip().lower() if llm_tier else None
+        self.llm_provider = str(llm_provider).strip() if llm_provider else None
+        self.llm_model = str(llm_model).strip() if llm_model else None
+        self.llm_temperature = llm_temperature
+        self.llm_max_tokens = llm_max_tokens
         self.vectordb_config = vectordb_config
         self.interaction_channel = interaction_channel or sandbox.interaction_channel
         self.log_callback = log_callback
@@ -135,7 +147,7 @@ class AgentHarness:
             self.save_state()
 
         try:
-            llm_config = self.llm_registry.resolve_service("default")
+            llm_config = self._resolve_llm_config()
             llm_provider = create_provider(llm_config)
             for _ in range(self.agent_config.max_iterations):
                 if self._stop_event.is_set():
@@ -366,6 +378,17 @@ class AgentHarness:
             sandbox=child_sandbox,
             agent_config=child_agent_config,
         )
+        child_selection: Dict[str, Any] = {}
+        selection_resolver = getattr(child_agent, "_get_llm_selection", None)
+        if callable(selection_resolver):
+            try:
+                child_selection = dict(selection_resolver())
+            except Exception:
+                child_selection = {}
+        if not child_selection:
+            child_selection = {
+                "tier": str(getattr(child_agent, "tier", "normal") or "normal").strip().lower()
+            }
         effective_agent_config = getattr(child_agent, "agent_config", child_agent_config)
         child_allowlist = self._derive_sub_agent_allowlist(
             child_registry=child_registry,
@@ -381,6 +404,12 @@ class AgentHarness:
             child_sandbox,
             agent_name=normalized_name,
             tool_allowlist=child_allowlist,
+            llm_service=child_selection.get("service"),
+            llm_tier=child_selection.get("tier"),
+            llm_provider=child_selection.get("provider"),
+            llm_model=child_selection.get("model"),
+            llm_temperature=child_selection.get("temperature"),
+            llm_max_tokens=child_selection.get("max_tokens"),
             vectordb_config=self.vectordb_config,
             memory_store=self.memory_store,
             memory_context_builder=self.memory_context_builder,
@@ -689,6 +718,23 @@ class AgentHarness:
                 "timestamp": datetime.utcnow().isoformat(),
             }
         )
+
+    def _resolve_llm_config(self) -> Any:
+        if self.llm_provider and self.llm_model:
+            return self.llm_registry.resolve_direct(
+                self.llm_provider,
+                self.llm_model,
+                temperature=self.llm_temperature,
+                max_tokens=self.llm_max_tokens,
+            )
+        if self.llm_service:
+            return self.llm_registry.resolve_service(self.llm_service)
+        if self.llm_tier:
+            try:
+                return self.llm_registry.resolve_tier(self.llm_tier)
+            except Exception:
+                return self.llm_registry.resolve_service("default")
+        return self.llm_registry.resolve_service("default")
 
     def _write_run_summary(self, started_at: datetime) -> Optional[Path]:
         if self._run_root is None:

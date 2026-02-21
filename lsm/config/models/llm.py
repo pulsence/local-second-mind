@@ -45,6 +45,36 @@ class LLMServiceConfig:
 
 
 @dataclass
+class LLMTierConfig:
+    """
+    Default model assignment for a capability tier.
+    """
+
+    provider: str
+    """Provider name for this tier."""
+
+    model: str
+    """Model name for this tier."""
+
+    temperature: Optional[float] = None
+    """Temperature override for this tier."""
+
+    max_tokens: Optional[int] = None
+    """Max tokens override for this tier."""
+
+    def validate(self) -> None:
+        """Validate tier configuration."""
+        if not self.provider:
+            raise ValueError("Tier 'provider' is required")
+        if not self.model:
+            raise ValueError("Tier 'model' is required")
+        if self.temperature is not None and (self.temperature < 0.0 or self.temperature > 2.0):
+            raise ValueError(f"Tier temperature must be between 0.0 and 2.0, got {self.temperature}")
+        if self.max_tokens is not None and self.max_tokens < 1:
+            raise ValueError(f"Tier max_tokens must be positive, got {self.max_tokens}")
+
+
+@dataclass
 class LLMConfig:
     """
     Effective LLM provider configuration used at runtime.
@@ -183,6 +213,9 @@ class LLMRegistryConfig:
     services: Dict[str, LLMServiceConfig] = field(default_factory=dict)
     """Named service configurations mapping to providers."""
 
+    tiers: Dict[str, LLMTierConfig] = field(default_factory=dict)
+    """Named tier defaults for capability levels."""
+
     def resolve_service(self, name: str) -> LLMConfig:
         """
         Resolve a named service to a fully-hydrated LLMConfig.
@@ -237,6 +270,48 @@ class LLMRegistryConfig:
             deployment_name=provider.deployment_name,
         )
 
+    def resolve_tier(self, name: str) -> LLMConfig:
+        """
+        Resolve a tier to a fully-hydrated LLMConfig.
+        """
+        tier = self._get_tier(name)
+        if tier is None:
+            raise ValueError(
+                f"No LLM tier configured for '{name}'. "
+                f"Available tiers: {sorted(self.tiers.keys())}"
+            )
+        return self._resolve_tier_entry(name, tier)
+
+    def resolve_direct(
+        self,
+        provider_name: str,
+        model: str,
+        *,
+        temperature: Optional[float] = None,
+        max_tokens: Optional[int] = None,
+    ) -> LLMConfig:
+        """
+        Resolve a provider/model pair directly to a LLMConfig.
+        """
+        provider = self._get_provider(provider_name)
+        if provider is None:
+            raise ValueError(
+                f"Provider '{provider_name}' is not in the providers list. "
+                f"Available providers: {[p.provider_name for p in self.providers]}"
+            )
+
+        return LLMConfig(
+            provider=provider.provider_name,
+            model=model,
+            api_key=provider.api_key,
+            temperature=temperature if temperature is not None else DEFAULT_LLM_TEMPERATURE,
+            max_tokens=max_tokens if max_tokens is not None else DEFAULT_LLM_MAX_TOKENS,
+            base_url=provider.base_url,
+            endpoint=provider.endpoint,
+            api_version=provider.api_version,
+            deployment_name=provider.deployment_name,
+        )
+
     def resolve_any_for_provider(self, provider_name: str) -> Optional[LLMConfig]:
         """
         Resolve the first service that uses the given provider.
@@ -255,6 +330,12 @@ class LLMRegistryConfig:
                     return self.resolve_service(name)
                 except ValueError:
                     continue
+        for name, tier in self.tiers.items():
+            if tier.provider == provider_name:
+                try:
+                    return self._resolve_tier_entry(name, tier)
+                except ValueError:
+                    continue
         return None
 
     def _get_provider(self, provider_name: str) -> Optional[LLMProviderConfig]:
@@ -263,6 +344,16 @@ class LLMRegistryConfig:
             if p.provider_name == provider_name:
                 return p
         return None
+
+    def _get_tier(self, tier_name: str) -> Optional[LLMTierConfig]:
+        """Find a tier by name."""
+        raw = str(tier_name or "").strip()
+        if not raw:
+            return None
+        if raw in self.tiers:
+            return self.tiers.get(raw)
+        normalized = raw.lower()
+        return self.tiers.get(normalized)
 
     def get_query_config(self) -> LLMConfig:
         """Resolve the 'query' service."""
@@ -343,6 +434,16 @@ class LLMRegistryConfig:
         for provider in self.providers:
             provider.validate()
 
+        for tier_name, tier in self.tiers.items():
+            if not str(tier_name).strip():
+                raise ValueError("llms.tiers keys must be non-empty strings")
+            tier.validate()
+            if self._get_provider(tier.provider) is None:
+                raise ValueError(
+                    f"Tier '{tier_name}' references provider '{tier.provider}' "
+                    f"which is not in the providers list"
+                )
+
         for service_name, service in self.services.items():
             service.validate()
             if self._get_provider(service.provider) is None:
@@ -361,3 +462,31 @@ class LLMRegistryConfig:
             self.get_tagging_config().validate()
         if "ranking" in self.services:
             self.get_ranking_config().validate()
+
+    def _resolve_tier_entry(self, name: str, tier: LLMTierConfig) -> LLMConfig:
+        provider = self._get_provider(tier.provider)
+        if provider is None:
+            raise ValueError(
+                f"Tier '{name}' references provider '{tier.provider}' "
+                f"which is not in the providers list. "
+                f"Available providers: {[p.provider_name for p in self.providers]}"
+            )
+
+        temperature = (
+            tier.temperature if tier.temperature is not None else DEFAULT_LLM_TEMPERATURE
+        )
+        max_tokens = (
+            tier.max_tokens if tier.max_tokens is not None else DEFAULT_LLM_MAX_TOKENS
+        )
+
+        return LLMConfig(
+            provider=provider.provider_name,
+            model=tier.model,
+            api_key=provider.api_key,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            base_url=provider.base_url,
+            endpoint=provider.endpoint,
+            api_version=provider.api_version,
+            deployment_name=provider.deployment_name,
+        )

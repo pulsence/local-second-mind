@@ -18,6 +18,8 @@
   - Support model selection via `provider_name: "openrouter"` in config with `model` field for specific model routing.
   - Handle OpenRouter-specific features: model fallbacks, prompt caching headers, usage tracking.
   - Add to `.env.example`: `OPENROUTER_API_KEY`.
+  - Write tests for OpenRouter provider instantiation, model selection via config, fallback behavior, usage tracking, and integration with the provider registry (TDD: write tests before implementation).
+  - Run the relevant test suite (`pytest tests/test_config/ tests/test_providers/`) and verify all new and existing tests pass.
 - **Files:**
   - `lsm/providers/openrouter.py`
   - `lsm/config/models/llm.py`
@@ -31,6 +33,8 @@
   - Extract shared OAI logic into `BaseOAIProvider` base class.
   - Refactor existing providers to inherit from `BaseOAIProvider`.
   - New OAI-based providers in Phase 8 must use this base.
+  - Write tests for `BaseOAIProvider` shared logic (record parsing, resumption tokens, metadata mapping), and verify refactored providers maintain identical behavior (TDD: write tests before implementation).
+  - Run the relevant test suite (`pytest tests/test_providers/remote/`) and verify all new and existing tests pass.
 - **Files:**
   - `lsm/remote/providers/base_oai.py`
   - `lsm/remote/providers/arxiv.py`
@@ -45,6 +49,8 @@
   - Add configuration as a **global config** field: `mcp_servers: [{ name, command, args, env }]` under the `"global"` section of config. This is global (not agent-specific) because MCP servers will also be usable from query workflows in a future version.
   - Ensure MCP tool execution respects sandbox constraints when used by agents.
   - Wire MCP server lifecycle management: start servers on demand, restart on failure, shutdown on application exit.
+  - Write tests for MCP host client connection, tool registration in ToolRegistry, config field validation, sandbox constraint enforcement on MCP tools, and server lifecycle management (TDD: write tests before implementation).
+  - Run the relevant test suite (`pytest tests/test_agents/ tests/test_config/`) and verify all new and existing tests pass.
 - **Files:**
   - `lsm/agents/tools/mcp_host.py`
   - `lsm/config/models/global_config.py`
@@ -58,6 +64,8 @@
   - Cache past reads with configurable TTL. Track seen items to download only new entries.
   - Normalize feed items to `RemoteResult` schema.
   - Expose as both a standalone remote provider (`rss` type) and a utility for other providers.
+  - Write tests for RSS 2.0 and Atom feed parsing, cache TTL behavior, seen-item tracking (only new entries returned), and `RemoteResult` normalization (TDD: write tests before implementation).
+  - Run the relevant test suite (`pytest tests/test_providers/remote/`) and verify all new and existing tests pass.
 - **Files:**
   - `lsm/remote/providers/rss.py`
   - `lsm/remote/storage.py`

@@ -18,6 +18,8 @@
   - Extend existing `task_graph.py` to support `parallel_group` nodes. A parallel group contains tasks that can execute concurrently. Dependency gates between groups enforce ordering.
   - Add deterministic ordering for parallel execution plans (within parallel groups for reproducible results).
   - Document graph serialization for meta-agent prompts.
+  - Write tests for `parallel_group` node creation, dependency gate enforcement, deterministic ordering within parallel groups, and graph serialization round-trips (TDD: write tests before implementation).
+  - Run the relevant test suite (`pytest tests/test_agents/`) and verify all new and existing tests pass.
 - **Files:**
   - `lsm/agents/meta/task_graph.py`
   - `lsm/agents/meta/meta.py`
@@ -30,6 +32,8 @@
   - Enforce sandbox monotonicity: sub-agent sandboxes must be subsets of the parent meta-agent sandbox.
   - Resource limits: respect `max_concurrent` from `AgentConfig`.
   - Collect artifacts concurrently and merge results deterministically (sorted by agent name, then task order).
+  - Write tests for concurrent sub-agent execution, sandbox monotonicity enforcement, `max_concurrent` resource limits, and deterministic artifact merge ordering (TDD: write tests before implementation).
+  - Run the relevant test suite (`pytest tests/test_agents/`) and verify all new and existing tests pass.
 - **Files:**
   - `lsm/agents/meta/meta.py`
   - `lsm/agents/tools/spawn_agent.py`
@@ -43,6 +47,8 @@
   - Define meta-agent prompt and tool allowlist.
   - Implement sub-agent selection logic based on task types.
   - Emit final consolidated artifact (`final_result.md`).
+  - Write tests for meta-agent sub-agent selection logic, tool allowlist enforcement, and consolidated artifact generation (TDD: write tests before implementation).
+  - Run the relevant test suite (`pytest tests/test_agents/`) and verify all new and existing tests pass.
 - **Files:**
   - `lsm/agents/meta/meta.py`
   - `lsm/agents/factory.py`
@@ -54,6 +60,8 @@
   - Define assistant-meta prompt for reviews, security checks, and memory proposals.
   - Add optional validation passes over sub-agent outputs.
   - Emit summary artifacts and action recommendations.
+  - Write tests for assistant-meta prompt behavior, validation passes over sub-agent outputs, and summary artifact generation (TDD: write tests before implementation).
+  - Run the relevant test suite (`pytest tests/test_agents/`) and verify all new and existing tests pass.
 - **Files:**
   - `lsm/agents/meta/meta.py`
   - `lsm/agents/assistants/assistant.py`
@@ -64,6 +72,7 @@
 - **Tasks:**
   - Add tests for parallel plan execution and sandbox monotonicity.
   - Document meta-agent configuration and usage.
+  - Run the full test suite (`pytest tests/`) and verify all new and existing tests pass, including all tests added in tasks 10.1–10.4.
 - **Files:**
   - `tests/test_agents_meta/`
   - `docs/`

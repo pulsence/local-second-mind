@@ -18,6 +18,7 @@ class BaseTool(ABC):
 
     name: str = "base_tool"
     description: str = "Base tool"
+    tier: str = "normal"
     input_schema: Dict[str, Any] = {
         "type": "object",
         "properties": {},

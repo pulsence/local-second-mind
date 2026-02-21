@@ -40,6 +40,7 @@ class ResearchAgent(BaseAgent):
     """
 
     name = "research"
+    tier = "complex"
     description = (
         "Decomposes a topic, gathers evidence via tools, and writes a structured outline."
     )
@@ -86,7 +87,7 @@ class ResearchAgent(BaseAgent):
         topic = self._extract_topic(initial_context)
         self.state.current_task = f"Researching: {topic}"
 
-        provider = create_provider(self.llm_registry.resolve_service("default"))
+        provider = create_provider(self._resolve_llm_config(self.llm_registry))
         subtopics = self._decompose_topic(provider, topic)
         if not subtopics:
             subtopics = [topic]

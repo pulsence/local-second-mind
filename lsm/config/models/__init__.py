@@ -24,7 +24,13 @@ from .constants import (
     DEFAULT_LLM_MAX_TOKENS,
 )
 from .global_config import GlobalConfig
-from .llm import LLMConfig, LLMProviderConfig, LLMRegistryConfig, LLMServiceConfig
+from .llm import (
+    LLMConfig,
+    LLMProviderConfig,
+    LLMRegistryConfig,
+    LLMServiceConfig,
+    LLMTierConfig,
+)
 from .ingest import IngestConfig, RootConfig
 from .vectordb import VectorDBConfig
 from .modes import (
@@ -74,6 +80,7 @@ __all__ = [
     "LLMProviderConfig",
     "LLMRegistryConfig",
     "LLMServiceConfig",
+    "LLMTierConfig",
     "IngestConfig",
     "RootConfig",
     "VectorDBConfig",

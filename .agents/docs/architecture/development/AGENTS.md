@@ -119,6 +119,7 @@ Agents are configured in top-level `agents`:
 - `interaction.timeout_action`: timeout fallback (`deny` or `approve`, default `deny`)
 - `memory`: persistent memory backend config and TTL caps
 - `agent_configs`: per-agent overrides
+- `agent_configs` can include `llm_tier`, `llm_service`, or `llm_provider` + `llm_model` to select models
 - `schedules`: optional scheduled runs (`hourly`, `daily`, `weekly`, `<seconds>s`, or cron intervals)
 
 ## Interaction Channel

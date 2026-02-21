@@ -38,6 +38,7 @@ class CuratorAgent(BaseAgent):
     """
 
     name = "curator"
+    tier = "normal"
     description = "Maintain corpus quality with actionable reports."
     tool_allowlist = {
         "read_folder",
@@ -97,7 +98,7 @@ class CuratorAgent(BaseAgent):
             return self.state
 
         self.state.current_task = f"Curating: {topic}"
-        provider = create_provider(self.llm_registry.resolve_service("default"))
+        provider = create_provider(self._resolve_llm_config(self.llm_registry))
         scope = self._select_scope(provider, topic)
         inventory = self._inventory_files(scope)
         metadata: List[Dict[str, Any]] = []

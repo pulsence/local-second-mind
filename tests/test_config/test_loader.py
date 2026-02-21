@@ -96,6 +96,17 @@ def test_build_global_config_custom_values() -> None:
     assert isinstance(cfg.global_folder, Path)
 
 
+def test_build_llm_config_loads_tiers(tmp_path: Path) -> None:
+    raw = _base_raw(tmp_path)
+    raw["llms"]["tiers"] = {
+        "quick": {"provider": "openai", "model": "gpt-5-nano"},
+    }
+
+    registry = build_llm_config(raw)
+    assert "quick" in registry.tiers
+    assert registry.tiers["quick"].model == "gpt-5-nano"
+
+
 def test_build_config_reads_ingest_from_nested_section(tmp_path: Path) -> None:
     raw = _base_raw(tmp_path)
     raw["ingest"]["chunk_size"] = 500

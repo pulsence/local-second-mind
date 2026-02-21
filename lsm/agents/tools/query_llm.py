@@ -17,6 +17,7 @@ class QueryLLMTool(BaseTool):
 
     name = "query_llm"
     description = "Run a direct prompt against a configured LLM service."
+    tier = "normal"
     risk_level = "network"
     needs_network = True
     input_schema = {
@@ -26,6 +27,10 @@ class QueryLLMTool(BaseTool):
             "service": {
                 "type": "string",
                 "description": "Optional service name from llms.services (default: default).",
+            },
+            "tier": {
+                "type": "string",
+                "description": "Optional LLM tier name (quick/normal/complex).",
             },
             "context": {"type": "string", "description": "Optional context block."},
             "mode": {"type": "string", "description": "Synthesis mode (grounded or insight)."},
@@ -46,9 +51,15 @@ class QueryLLMTool(BaseTool):
         if not prompt:
             raise ValueError("prompt is required")
 
-        service = str(args.get("service", self.default_service)).strip() or self.default_service
+        service = str(args.get("service", "")).strip()
+        tier = str(args.get("tier", "")).strip().lower()
         context = str(args.get("context", ""))
         mode = str(args.get("mode", "insight")).strip().lower() or "insight"
-        llm_config = self.llm_registry.resolve_service(service)
+        if service:
+            llm_config = self.llm_registry.resolve_service(service)
+        elif tier:
+            llm_config = self.llm_registry.resolve_tier(tier)
+        else:
+            llm_config = self.llm_registry.resolve_service(self.default_service)
         provider = create_provider(llm_config)
         return provider.synthesize(prompt, context, mode=mode)

@@ -30,6 +30,7 @@ from .models import (
     LLMRegistryConfig,
     LLMProviderConfig,
     LLMServiceConfig,
+    LLMTierConfig,
     ModeConfig,
     ModeChatsConfig,
     SourcePolicyConfig,
@@ -130,6 +131,30 @@ def build_llm_service_config(raw: Dict[str, Any]) -> LLMServiceConfig:
     )
 
 
+def build_llm_tier_config(raw: Dict[str, Any]) -> LLMTierConfig:
+    """
+    Build LLMTierConfig from raw configuration.
+
+    Args:
+        raw: Raw tier dictionary
+
+    Returns:
+        LLMTierConfig instance
+    """
+    provider = raw.get("provider")
+    model = raw.get("model")
+    if not provider:
+        raise ValueError("Each tier must include 'provider'")
+    if not model:
+        raise ValueError("Each tier must include 'model'")
+    return LLMTierConfig(
+        provider=provider,
+        model=model,
+        temperature=raw.get("temperature"),
+        max_tokens=raw.get("max_tokens"),
+    )
+
+
 def build_llm_provider_config(raw: Dict[str, Any]) -> LLMProviderConfig:
     """
     Build LLMProviderConfig from raw configuration.
@@ -181,16 +206,32 @@ def build_llm_config(raw: Dict[str, Any]) -> LLMRegistryConfig:
         if not providers_raw or not isinstance(providers_raw, list):
             raise ValueError("llms.providers must be a non-empty list")
 
+        tiers_raw = llms_raw.get("tiers", {})
+        if tiers_raw is None:
+            tiers_raw = {}
+        if not isinstance(tiers_raw, dict):
+            raise ValueError("llms.tiers must be a dict when provided")
+
         services_raw = llms_raw.get("services")
         if not services_raw or not isinstance(services_raw, dict):
             raise ValueError("llms.services must be a non-empty dict")
 
         providers = [build_llm_provider_config(item) for item in providers_raw]
+        tiers: Dict[str, LLMTierConfig] = {}
+        for name, tier_raw in tiers_raw.items():
+            if not isinstance(tier_raw, dict):
+                warnings.warn(f"Skipping llms.tiers['{name}'] because it is not an object.")
+                continue
+            normalized_name = str(name).strip().lower()
+            if not normalized_name:
+                warnings.warn("Skipping llms.tiers entry with empty name.")
+                continue
+            tiers[normalized_name] = build_llm_tier_config(tier_raw)
         services = {
             name: build_llm_service_config(svc)
             for name, svc in services_raw.items()
         }
-        return LLMRegistryConfig(providers=providers, services=services)
+        return LLMRegistryConfig(providers=providers, services=services, tiers=tiers)
 
     if isinstance(llms_raw, list):
         raise ValueError(
@@ -1009,12 +1050,25 @@ def config_to_raw(config: LSMConfig) -> Dict[str, Any]:
             "deployment_name": provider.deployment_name,
         })
 
+    tiers_raw: Dict[str, Dict[str, Any]] = {}
+    for name, tier in config.llm.tiers.items():
+        tier_entry: Dict[str, Any] = {
+            "provider": tier.provider,
+            "model": tier.model,
+        }
+        if tier.temperature is not None:
+            tier_entry["temperature"] = tier.temperature
+        if tier.max_tokens is not None:
+            tier_entry["max_tokens"] = tier.max_tokens
+        tiers_raw[name] = tier_entry
+
     services_raw: Dict[str, Dict[str, Any]] = {}
     for name, service in config.llm.services.items():
-        entry: Dict[str, Any] = {
-            "provider": service.provider,
-            "model": service.model,
-        }
+        entry: Dict[str, Any] = {}
+        if service.provider is not None:
+            entry["provider"] = service.provider
+        if service.model is not None:
+            entry["model"] = service.model
         if service.temperature is not None:
             entry["temperature"] = service.temperature
         if service.max_tokens is not None:
@@ -1159,6 +1213,13 @@ def config_to_raw(config: LSMConfig) -> Dict[str, Any]:
                 for schedule in config.agents.schedules
             ],
         }
+    llms_raw = {
+        "providers": providers_raw,
+        "services": services_raw,
+    }
+    if tiers_raw:
+        llms_raw["tiers"] = tiers_raw
+
     return {
         "global": {
             "global_folder": str(gs.global_folder) if gs.global_folder else None,
@@ -1199,10 +1260,7 @@ def config_to_raw(config: LSMConfig) -> Dict[str, Any]:
             "max_seconds": config.ingest.max_seconds,
             "enable_versioning": config.ingest.enable_versioning,
         },
-        "llms": {
-            "providers": providers_raw,
-            "services": services_raw,
-        },
+        "llms": llms_raw,
         "query": {
             "mode": config.query.mode,
             "k": config.query.k,

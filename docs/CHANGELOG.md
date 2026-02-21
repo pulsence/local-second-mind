@@ -2,6 +2,14 @@
 
 All notable changes to Local Second Mind are documented here.
 
+## Unreleased
+
+### Added
+
+- Tiered LLM configuration via `llms.tiers` for agent/tool model selection.
+- Agent/tool tier declarations with tier-based model selection in agent harness runs.
+- Benchmark harness for agent/tool regression tracking with baseline file-operation tasks in `tests/benchmarks/`.
+
 ## 0.6.0 - 2026-02-19
 
 ### Added

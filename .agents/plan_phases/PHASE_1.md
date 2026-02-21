@@ -48,7 +48,9 @@
   - During config loading, after `llms.services` are loaded, any service without an explicit model assignment inherits from its tier's default.
   - Update `resolve_service()` to incorporate tier fallback: explicit service config → tier default → "default" service.
   - Add validation: warn if a tier is referenced but not configured.
+  - Write/update tests for tier schema validation, `resolve_service()` tier fallback, and backward compatibility with configs that omit tiers (TDD: write tests before implementation).
   - Update `example_config.json`, `config.json`, and relevant documentation.
+  - Run the relevant test suite (`pytest tests/test_config/`) and verify all new and existing tests pass.
   - Commit changes to git using the COMMIT_MESSAGE format.
 - **Files:**
   - `lsm/config/models/llm.py`
@@ -66,6 +68,8 @@
   - Define regression thresholds: acceptable variance per metric before flagging a regression.
   - Implement a minimal harness runner that can execute a benchmark task, record metrics, and compare against a baseline.
   - Add initial benchmark tasks for file operations (find, read, edit) as baseline for Phase 4 tooling comparisons.
+  - Write tests for the harness runner itself: task loading, metric recording, baseline comparison, and regression detection (TDD: write tests before implementation).
+  - Run the relevant test suite (`pytest tests/benchmarks/`) and verify all new tests pass.
   - Commit changes to git using the COMMIT_MESSAGE format.
 - **Files:**
   - `tests/benchmarks/`

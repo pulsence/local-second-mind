@@ -530,6 +530,17 @@ class AgentScheduler:
             sandbox=sandbox,
             agent_config=self.agent_config,
         )
+        llm_selection = {}
+        selection_resolver = getattr(agent, "_get_llm_selection", None)
+        if callable(selection_resolver):
+            try:
+                llm_selection = dict(selection_resolver())
+            except Exception:
+                llm_selection = {}
+        if not llm_selection:
+            llm_selection = {
+                "tier": str(getattr(agent, "tier", "normal") or "normal").strip().lower()
+            }
         effective_agent_config = getattr(agent, "agent_config", self.agent_config)
         allowlist = self._build_schedule_allowlist(
             schedule=schedule,
@@ -545,6 +556,12 @@ class AgentScheduler:
             sandbox,
             agent_name=schedule.agent_name,
             tool_allowlist=allowlist,
+            llm_service=llm_selection.get("service"),
+            llm_tier=llm_selection.get("tier"),
+            llm_provider=llm_selection.get("provider"),
+            llm_model=llm_selection.get("model"),
+            llm_temperature=llm_selection.get("temperature"),
+            llm_max_tokens=llm_selection.get("max_tokens"),
             vectordb_config=self.config.vectordb,
             memory_store=memory_store,
         )

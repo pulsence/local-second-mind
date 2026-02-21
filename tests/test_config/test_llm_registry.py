@@ -4,7 +4,12 @@ Tests for LLM registry configuration (providers/services model).
 
 import pytest
 
-from lsm.config.models import LLMRegistryConfig, LLMProviderConfig, LLMServiceConfig
+from lsm.config.models import (
+    LLMRegistryConfig,
+    LLMProviderConfig,
+    LLMServiceConfig,
+    LLMTierConfig,
+)
 
 
 def test_resolve_service_basic():
@@ -38,6 +43,39 @@ def test_resolve_service_falls_back_to_default():
     config = registry.resolve_service("some_custom_service")
     assert config.model == "gpt-5.2"
     assert config.provider == "openai"
+
+
+def test_resolve_tier_basic() -> None:
+    registry = LLMRegistryConfig(
+        providers=[LLMProviderConfig(provider_name="openai", api_key="key")],
+        services={
+            "default": LLMServiceConfig(provider="openai", model="gpt-5.2"),
+        },
+        tiers={
+            "quick": LLMTierConfig(provider="openai", model="gpt-5-nano"),
+        },
+    )
+    config = registry.resolve_tier("quick")
+    assert config.provider == "openai"
+    assert config.model == "gpt-5-nano"
+
+
+def test_resolve_direct_uses_provider_details() -> None:
+    registry = LLMRegistryConfig(
+        providers=[
+            LLMProviderConfig(provider_name="azure_openai", api_key="azure-key", endpoint="https://example"),
+        ],
+        services={
+            "default": LLMServiceConfig(provider="azure_openai", model="gpt-4"),
+        },
+    )
+    config = registry.resolve_direct("azure_openai", "gpt-4o", temperature=0.1, max_tokens=123)
+    assert config.provider == "azure_openai"
+    assert config.model == "gpt-4o"
+    assert config.api_key == "azure-key"
+    assert config.endpoint == "https://example"
+    assert config.temperature == 0.1
+    assert config.max_tokens == 123
 
 
 def test_resolve_service_raises_when_no_default():

@@ -30,6 +30,8 @@
   - Move existing providers into appropriate sub-packages (e.g., `brave.py` → `web/brave.py`, `arxiv.py` → `academic/arxiv.py`, `openalex.py` → `academic/openalex.py`, `wikipedia.py` → `web/wikipedia.py`).
   - Update `lsm/remote/providers/__init__.py` re-exports and factory registration so existing imports and config references continue to work.
   - Update all test imports.
+  - Write tests for backward-compatible imports, factory registration from new locations, and config reference resolution (TDD: write tests before implementation).
+  - Run the relevant test suite (`pytest tests/test_providers/remote/`) and verify all new and existing tests pass.
 - **Files:**
   - `lsm/remote/providers/*/`
   - `lsm/remote/__init__.py`
@@ -45,6 +47,8 @@
   - Add `get_output_fields()` contract enforcement: every provider must declare its output fields, and `RemoteProviderChain` must validate that a link's output fields match the next link's expected input fields.
   - Add integration test base class `RemoteProviderOutputTest` that all provider tests can inherit from to automatically validate output structure.
   - Audit and update all existing providers to conform to the validated output contract.
+  - Write tests for `validate_output()` with valid and invalid results, `get_output_fields()` enforcement, chain field mapping validation, and the `RemoteProviderOutputTest` base class itself (TDD: write tests before implementation).
+  - Run the relevant test suite (`pytest tests/test_providers/remote/`) and verify all new and existing tests pass.
 - **Files:**
   - `lsm/remote/base.py`
   - `lsm/remote/chain.py`
@@ -62,6 +66,8 @@
   - Update existing `core.py` as the full-text retrieval fallback.
   - Implement preconfigured chain objects (e.g., `ScholarlyDiscoveryChain`) that bundle the standard OpenAlex → Crossref → Unpaywall → CORE pipeline into reusable, named chain instances.
   - Add config support for enabling/disabling preconfigured chains: users can list enabled chains under a `remote.chains` section in their config file, and disabled chains are skipped during provider resolution.
+  - Write tests for each provider's structured output, chain end-to-end execution, preconfigured chain enable/disable config, and full-text retrieval fallback behavior (TDD: write tests before implementation).
+  - Run the relevant test suite (`pytest tests/test_providers/remote/`) and verify all new and existing tests pass.
 - **Files:**
   - `lsm/remote/providers/academic/openalex.py`
   - `lsm/remote/providers/academic/crossref.py`
@@ -77,6 +83,10 @@
   - `ssrn.py` — SSRN preprints and metadata.
   - `philarchive.py` — PhilArchive philosophy preprints.
   - `project_muse.py` — Project MUSE humanities metadata.
+- **Tasks:**
+  - Implement each provider conforming to `BaseRemoteProvider` and structured output contract (8.1).
+  - Write tests for each provider's search/structured output, `RemoteResult` normalization, and open-access link resolution; inherit from `RemoteProviderOutputTest` base class (TDD: write tests before implementation).
+  - Run the relevant test suite (`pytest tests/test_providers/remote/`) and verify all new and existing tests pass.
 - **Files:**
   - `lsm/remote/providers/academic/pubmed.py`
   - `lsm/remote/providers/academic/ssrn.py`
@@ -95,6 +105,10 @@
   - `rijksmuseum.py` — Rijksmuseum data services.
   - `iiif.py` — IIIF Image/Presentation/Content Search APIs.
   - `wikidata.py` — Wikidata SPARQL endpoint.
+- **Tasks:**
+  - Implement each provider conforming to `BaseRemoteProvider` and structured output contract (8.1).
+  - Write tests for each provider's search/structured output, `RemoteResult` normalization, and stable ID generation; inherit from `RemoteProviderOutputTest` base class (TDD: write tests before implementation).
+  - Run the relevant test suite (`pytest tests/test_providers/remote/`) and verify all new and existing tests pass.
 - **Files:**
   - `lsm/remote/providers/cultural/archive_org.py`
   - `lsm/remote/providers/cultural/dpla.py`
@@ -114,6 +128,10 @@
   - `gdelt.py` — GDELT for global news coverage and event data.
   - `newsapi.py` — NewsAPI for topic aggregation.
   - RSS feeds for sources without dedicated APIs (via `rss.py` provider).
+- **Tasks:**
+  - Implement each provider conforming to `BaseRemoteProvider` and structured output contract (8.1).
+  - Write tests for each provider's search/structured output, `RemoteResult` normalization, timestamp handling, and RSS fallback integration; inherit from `RemoteProviderOutputTest` base class (TDD: write tests before implementation).
+  - Run the relevant test suite (`pytest tests/test_providers/remote/`) and verify all new and existing tests pass.
 - **Files:**
   - `lsm/remote/providers/news/nytimes.py`
   - `lsm/remote/providers/news/guardian.py`
@@ -124,6 +142,10 @@
 ## 8.6: Specialized Protocol Providers
 - **Providers:**
   - `perseus_cts.py` — Perseus CTS API for classical text retrieval by CTS URNs.
+- **Tasks:**
+  - Implement provider conforming to `BaseRemoteProvider` and structured output contract (8.1).
+  - Write tests for CTS URN query handling, text passage retrieval, citation metadata, and `RemoteResult` normalization; inherit from `RemoteProviderOutputTest` base class (TDD: write tests before implementation).
+  - Run the relevant test suite (`pytest tests/test_providers/remote/`) and verify all new and existing tests pass.
 - **Files:**
   - `lsm/remote/providers/cultural/perseus_cts.py`
 - **Success criteria:** CTS URN queries return text passages with citation metadata. Passes output validation.
@@ -134,6 +156,7 @@
   - Add tests for provider config validation and output normalization.
   - Add integration tests for at least one provider per category.
   - Document API keys and configuration in `docs/` and `.env.example`.
+  - Run the full test suite (`pytest tests/`) and verify all new and existing tests pass, including all tests added in tasks 8.0–8.6.
 - **Files:**
   - `tests/test_remote/`
   - `docs/`

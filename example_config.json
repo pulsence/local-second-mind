@@ -69,6 +69,12 @@
       { "provider_name": "gemini", "api_key": "INSERT_YOUR_GEMINI_API_KEY" },
       { "provider_name": "claude", "api_key": "INSERT_YOUR_CLAUDE_API_KEY" }
     ],
+    "_comment_tiers": "Optional capability tiers. Agents can use tiers as defaults.",
+    "tiers": {
+      "quick": { "provider": "gemini", "model": "gemini-2.5-flash-lite" },
+      "normal": { "provider": "openai", "model": "gpt-5.2" },
+      "complex": { "provider": "claude", "model": "claude-haiku-4-5" }
+    },
     "_comment_services": "Named services mapping features to a provider + model. 'default' is the fallback.",
     "services": {
       "default": { "provider": "openai", "model": "gpt-5.2" },

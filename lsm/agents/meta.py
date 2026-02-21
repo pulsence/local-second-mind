@@ -71,6 +71,7 @@ class MetaAgent(BaseAgent):
     """
 
     name = "meta"
+    tier = "complex"
     description = "Orchestrate multiple agents toward a single goal."
 
     def __init__(
@@ -487,7 +488,7 @@ class MetaAgent(BaseAgent):
         self._consume_tokens(context)
 
         try:
-            provider = create_provider(self.llm_registry.resolve_service("default"))
+            provider = create_provider(self._resolve_llm_config(self.llm_registry))
             question = (
                 "Synthesize a final markdown result from the executed task graph. "
                 "Include: objective, completed outputs, failed tasks, and next steps."

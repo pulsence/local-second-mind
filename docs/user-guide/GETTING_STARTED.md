@@ -55,6 +55,11 @@ Edit `config.json` and update:
   },
   "llms": {
     "providers": [{ "provider_name": "openai" }],
+    "tiers": {
+      "quick": { "provider": "openai", "model": "gpt-5-nano" },
+      "normal": { "provider": "openai", "model": "gpt-5.2" },
+      "complex": { "provider": "openai", "model": "gpt-5.2" }
+    },
     "services": {
       "default": { "provider": "openai", "model": "gpt-5.2" },
       "tagging": { "provider": "openai", "model": "gpt-5-nano" },

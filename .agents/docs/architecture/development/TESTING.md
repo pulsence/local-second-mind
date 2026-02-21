@@ -110,6 +110,32 @@ Validation test:
 .venv\Scripts\python -m pytest tests/ -v -m "live_vectordb"
 ```
 
+## Benchmark Harness
+
+Benchmark tasks provide regression tracking for agent/tool efficiency. The harness
+lives under `tests/benchmarks/` with baseline metrics stored in
+`tests/benchmarks/baselines/file_ops.json`.
+
+Metrics captured per task:
+
+- wall-clock time (`wall_time_s`)
+- tool call count (`tool_calls`)
+- token usage (`tokens_used`)
+- output quality score (`quality_score`)
+
+Example usage:
+
+```powershell
+# List available tasks
+.venv\Scripts\python -m tests.benchmarks.harness --list
+
+# Run file operation benchmarks against the baseline
+.venv\Scripts\python -m tests.benchmarks.harness --baseline tests/benchmarks/baselines/file_ops.json
+
+# Update the baseline after intentional changes
+.venv\Scripts\python -m tests.benchmarks.harness --baseline tests/benchmarks/baselines/file_ops.json --write-baseline
+```
+
 ## TUI Tests
 
 TUI tests use lightweight fake widget doubles instead of full Textual app mounts.

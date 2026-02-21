@@ -20,6 +20,8 @@
   - Define node schema (type, name, span, depth, parent/child, metadata) and serialization format. Schema must support both code nodes (function, class, import, block) and text nodes (heading, paragraph, list). Unified `GraphNode` type with a `node_type` discriminator.
   - Specify deterministic ordering rules and stable IDs for node references.
   - Add caching strategy: hash file contents, cache graph by content hash. Invalidate on content change, not timestamp.
+  - Write tests for `GraphNode` schema validation, serialization round-trips, deterministic ordering, stable ID generation, and cache invalidation behavior (TDD: write tests before implementation).
+  - Run the relevant test suite (`pytest tests/test_tools/`) and verify all new and existing tests pass.
 - **Files:**
   - `lsm/utils/file_graph.py`
   - `lsm/agents/tools/source_map.py`
@@ -31,6 +33,8 @@
   - Implement a parser strategy (tree-sitter when available, fallback heuristic parser otherwise).
   - Emit structural nodes with precise line/byte spans.
   - Normalize language-specific nodes into a common schema (function/class/block/import).
+  - Write tests for code graph parsing across supported languages: verify node types, line spans, and normalization into the common schema (TDD: write tests before implementation).
+  - Run the relevant test suite (`pytest tests/test_tools/`) and verify all new and existing tests pass.
 - **Files:**
   - `lsm/utils/file_graph.py`
 - **Success criteria:** Code graphs expose accurate node boundaries across supported languages.
@@ -41,6 +45,8 @@
   - Parse headings and subheadings into a hierarchy.
   - Identify paragraph nodes with line spans under each heading.
   - Add docx parsing for section and paragraph extraction.
+  - Write tests for heading hierarchy parsing (markdown, plain text, docx), paragraph boundary detection, and line span accuracy (TDD: write tests before implementation).
+  - Run the relevant test suite (`pytest tests/test_tools/`) and verify all new and existing tests pass.
 - **Package boundary note:** Common text processing logic (heading extraction, paragraph segmentation, section hierarchy building) should live in `lsm/utils/text_processing.py` — a new shared module. Both the ingest package (`structure_chunking.py`, parsers) and the file graph tools should import from this shared module. This avoids `lsm/utils/file_graph.py` depending on `lsm/ingest/` or vice versa. Shared data models (e.g., `TextSection`, `HeadingNode`) also belong in `lsm/utils/text_processing.py`.
 - Existing `PageSegment` and `StructuredChunk` in `lsm/ingest/models.py` remain ingest-specific. The shared text processing module provides a parallel, graph-oriented representation that the ingest models can optionally wrap or convert from.
 - **Files:**
@@ -54,6 +60,8 @@
   - Parse PDF page structure, headings, and text blocks into graph nodes using existing `parse_pdf` infrastructure.
   - Map page boundaries and section headings into the unified `GraphNode` schema.
   - Emit page-level and section-level nodes with content spans for targeted reading.
+  - Write tests for PDF graph node generation: page boundary mapping, heading extraction, section-level content spans, and integration with `PageSegment` data (TDD: write tests before implementation).
+  - Run the relevant test suite (`pytest tests/test_tools/`) and verify all new and existing tests pass.
 - **Package boundary note:** Reuse shared text processing logic from `lsm/utils/text_processing.py` (established in 2.3) for heading extraction and hierarchy building. Leverage `PageSegment` data from the existing PDF parser.
 - **Files:**
   - `lsm/utils/file_graph.py`
@@ -66,6 +74,8 @@
   - Parse HTML heading hierarchy (`h1`–`h6`), semantic sections (`<section>`, `<article>`), and content blocks into graph nodes.
   - Handle nested structures and map them into the unified `GraphNode` schema.
   - Emit structural nodes with content spans for targeted reading.
+  - Write tests for HTML graph parsing: heading hierarchy, semantic section handling, nested structures, and content span accuracy (TDD: write tests before implementation).
+  - Run the relevant test suite (`pytest tests/test_tools/`) and verify all new and existing tests pass.
 - **Files:**
   - `lsm/utils/file_graph.py`
   - `lsm/utils/text_processing.py`
@@ -77,6 +87,8 @@
   - Expose graph via a `get_file_graph(path) -> FileGraph` function in `lsm/utils/file_graph.py`. Tools call this function; they do not parse files themselves.
   - Ensure graph output can be requested per file and per section.
   - Line-hash generation: each `GraphNode` carries a `line_hash` computed from its content. This is consumed by the edit engine in Phase 4.
+  - Write tests for `get_file_graph()` integration: per-file and per-section retrieval, line-hash computation and stability, and tool-level graph consumption (TDD: write tests before implementation).
+  - Run the relevant test suite (`pytest tests/test_tools/`) and verify all new and existing tests pass.
 - **Files:**
   - `lsm/utils/file_graph.py`
   - `lsm/agents/tools/source_map.py`
@@ -89,6 +101,7 @@
 - **Tasks:**
   - Add fixtures for code, text, PDF, and HTML files with expected graph outputs.
   - Add tests for stable ordering, span correctness, and cache hits.
+  - Run the full test suite (`pytest tests/`) and verify all new and existing tests pass, including all tests added in tasks 2.1–2.6.
 - **Files:**
   - `tests/test_tools/`
   - `tests/fixtures/`

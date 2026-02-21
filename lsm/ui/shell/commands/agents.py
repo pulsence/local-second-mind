@@ -1061,9 +1061,26 @@ class AgentRuntimeManager:
         try:
             effective_agent_cfg = getattr(agent, "agent_config", agent_cfg)
             tool_allowlist = getattr(agent, "tool_allowlist", None)
+            llm_selection = {}
+            selection_resolver = getattr(agent, "_get_llm_selection", None)
+            if callable(selection_resolver):
+                try:
+                    llm_selection = dict(selection_resolver())
+                except Exception:
+                    llm_selection = {}
+            if not llm_selection:
+                llm_selection = {
+                    "tier": str(getattr(agent, "tier", "normal") or "normal").strip().lower()
+                }
             harness_kwargs: dict[str, Any] = {
                 "agent_name": agent_name,
                 "tool_allowlist": tool_allowlist,
+                "llm_service": llm_selection.get("service"),
+                "llm_tier": llm_selection.get("tier"),
+                "llm_provider": llm_selection.get("provider"),
+                "llm_model": llm_selection.get("model"),
+                "llm_temperature": llm_selection.get("temperature"),
+                "llm_max_tokens": llm_selection.get("max_tokens"),
                 "vectordb_config": getattr(app.config, "vectordb", None),
                 "memory_store": memory_store,
                 "interaction_channel": interaction_channel,

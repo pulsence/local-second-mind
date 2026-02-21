@@ -152,11 +152,14 @@ Fields:
 
 - `providers: list[LLMProviderConfig]`
 - `services: dict[str, LLMServiceConfig]`
+- `tiers: dict[str, LLMTierConfig]` (optional)
 
 Methods:
 
 - `validate()`
 - `resolve_service(name)` -- resolve a named service to `LLMConfig`
+- `resolve_tier(name)` -- resolve a tier to `LLMConfig`
+- `resolve_direct(provider_name, model, ...)` -- resolve an explicit provider/model pair
 - `resolve_any_for_provider(provider_name)` -- find first service using given provider
 - `get_query_config()` -- shortcut for `resolve_service("query")`
 - `get_tagging_config()` -- shortcut for `resolve_service("tagging")`
@@ -195,6 +198,21 @@ Fields:
 - `model: str`
 - `temperature: float | None` (override, defaults to 0.7)
 - `max_tokens: int | None` (override, defaults to 2000)
+
+Methods:
+
+- `validate()`
+
+## LLMTierConfig
+
+Defines a default provider + model pairing for a capability tier.
+
+Fields:
+
+- `provider: str`
+- `model: str`
+- `temperature: float | None`
+- `max_tokens: int | None`
 
 Methods:
 
@@ -320,6 +338,11 @@ Fields:
 Methods:
 
 - `validate()`
+
+Notes:
+
+- `agent_configs` supports per-agent overrides such as `llm_tier`, `llm_service`,
+  `llm_provider` + `llm_model`, `llm_temperature`, and `llm_max_tokens`.
 
 ## InteractionConfig
 

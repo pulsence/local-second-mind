@@ -39,6 +39,7 @@ class SynthesisAgent(BaseAgent):
     """
 
     name = "synthesis"
+    tier = "complex"
     description = "Distill multiple documents into compact summaries."
     tool_allowlist = {
         "read_folder",
@@ -91,7 +92,7 @@ class SynthesisAgent(BaseAgent):
         topic = self._extract_topic(initial_context)
         self.state.current_task = f"Synthesizing: {topic}"
 
-        provider = create_provider(self.llm_registry.resolve_service("default"))
+        provider = create_provider(self._resolve_llm_config(self.llm_registry))
         scope = self._select_scope(provider, topic)
         candidate_paths = self._collect_candidate_sources(scope)
         evidence = self._retrieve_evidence(scope, candidate_paths)

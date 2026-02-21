@@ -102,12 +102,14 @@ class BaseAgent(ABC):
 
     name: str = "base"
     description: str = "Base agent"
+    tier: str = "normal"
     tool_allowlist: Optional[set[str]] = None
     _always_available_tools: set[str] = {"ask_user"}
 
     def __init__(self, name: Optional[str] = None, description: Optional[str] = None) -> None:
         self.name = name or self.name
         self.description = description or self.description
+        self.tier = str(self.tier or "normal").strip().lower() or "normal"
         self.tool_allowlist = (
             {str(item).strip() for item in self.tool_allowlist if str(item).strip()}
             if self.tool_allowlist
@@ -220,6 +222,57 @@ class BaseAgent(ABC):
         if isinstance(overrides, dict):
             return overrides.get("log_verbosity", "normal")
         return "normal"
+
+    def _llm_tier(self) -> str:
+        """Return configured LLM tier from agent overrides or class default."""
+        overrides = getattr(self, "agent_overrides", None)
+        if isinstance(overrides, dict):
+            tier = overrides.get("llm_tier") or overrides.get("tier")
+            if tier is not None and str(tier).strip():
+                return str(tier).strip().lower()
+        return self.tier
+
+    def _get_llm_selection(self) -> Dict[str, Any]:
+        """Return LLM selection overrides for this agent."""
+        overrides = getattr(self, "agent_overrides", None)
+        if not isinstance(overrides, dict):
+            overrides = {}
+        return {
+            "service": overrides.get("llm_service"),
+            "tier": self._llm_tier(),
+            "provider": overrides.get("llm_provider"),
+            "model": overrides.get("llm_model"),
+            "temperature": overrides.get("llm_temperature"),
+            "max_tokens": overrides.get("llm_max_tokens"),
+        }
+
+    def _resolve_llm_config(self, llm_registry: Any) -> Any:
+        """
+        Resolve the effective LLM config for this agent.
+        """
+        selection = self._get_llm_selection()
+        provider = selection.get("provider")
+        model = selection.get("model")
+        service = selection.get("service")
+        tier = selection.get("tier")
+        temperature = selection.get("temperature")
+        max_tokens = selection.get("max_tokens")
+
+        if provider and model:
+            return llm_registry.resolve_direct(
+                provider,
+                model,
+                temperature=temperature,
+                max_tokens=max_tokens,
+            )
+        if service:
+            return llm_registry.resolve_service(str(service))
+        if tier:
+            try:
+                return llm_registry.resolve_tier(str(tier))
+            except Exception:
+                return llm_registry.resolve_service("default")
+        return llm_registry.resolve_service("default")
 
     def _save_log(self) -> Path:
         """Persist the agent log to the default agent workspace path."""

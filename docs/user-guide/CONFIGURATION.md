@@ -32,7 +32,7 @@ fields in the config file. The top-level keys are:
 | `global` | `GlobalConfig` | Shared settings (embedding model, device, batch size, global folder) |
 | `ingest` | `IngestConfig` | Ingestion pipeline settings |
 | `vectordb` | `VectorDBConfig` | Vector database provider settings |
-| `llms` | `LLMRegistryConfig` | LLM providers and services |
+| `llms` | `LLMRegistryConfig` | LLM providers, tiers, and services |
 | `query` | `QueryConfig` | Retrieval and reranking settings |
 | `modes` | `list[ModeConfig]` | Query mode definitions |
 | `notes` | `NotesConfig` | Notes system settings |
@@ -105,8 +105,9 @@ Vector DB settings live under `vectordb`.
 
 ## LLM Configuration
 
-The `llms` section is an object with two keys: `providers` (connection details)
-and `services` (feature-to-model mappings).
+The `llms` section is an object with `providers` (connection details),
+optional `tiers` (quick/normal/complex defaults), and `services`
+(feature-to-model mappings).
 
 ```json
 "llms": {
@@ -115,6 +116,11 @@ and `services` (feature-to-model mappings).
     { "provider_name": "gemini", "api_key": null },
     { "provider_name": "claude", "api_key": null }
   ],
+  "tiers": {
+    "quick": { "provider": "gemini", "model": "gemini-2.5-flash-lite" },
+    "normal": { "provider": "openai", "model": "gpt-5.2" },
+    "complex": { "provider": "claude", "model": "claude-haiku-4-5" }
+  },
   "services": {
     "default": { "provider": "openai", "model": "gpt-5.2" },
     "query":   { "provider": "openai", "model": "gpt-5.2", "temperature": 0.7, "max_tokens": 2000 },
@@ -129,13 +135,14 @@ Notes:
 
 - `providers[]` entries hold connection/auth settings only:
   `provider_name`, `api_key`, `base_url`, `endpoint`, `api_version`, `deployment_name`.
+- `tiers` defines reusable provider+model defaults for capability tiers used by agents/tools.
 - `services` maps logical names to a provider + model combination with optional
   `temperature` and `max_tokens` overrides.
 - A `"query"` or `"default"` service is required. `tagging`, `ranking`, and
   `decomposition` are
   optional and fall back to `"default"` if not defined.
 - `decomposition` controls which model is used for natural-language query decomposition.
-- Each service's `provider` field must reference a name from `providers[]`.
+- Each service's `provider` field (when set) must reference a name from `providers[]`.
 - Supported providers: `openai`, `anthropic`, `gemini`, `local`, `azure_openai`.
 
 Provider-specific fields:
@@ -407,6 +414,13 @@ Agents are configured under the top-level `agents` key.
 
 - `timeout_seconds` (`int`, default `300`): max seconds to wait for user interaction response.
 - `timeout_action` (`string`, default `deny`): timeout fallback; `deny` raises a permission error, `approve` auto-approves.
+
+Per-agent LLM overrides (under `agents.agent_configs.<agent_name>`):
+
+- `llm_tier`: use a named tier (e.g., `quick`, `normal`, `complex`)
+- `llm_service`: use a named service from `llms.services`
+- `llm_provider` + `llm_model`: override provider/model directly
+- `llm_temperature`, `llm_max_tokens`: optional runtime overrides
 
 ## Environment Variables
 
