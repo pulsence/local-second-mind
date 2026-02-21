@@ -5,6 +5,7 @@ Base classes and state models for agents.
 from __future__ import annotations
 
 import json
+import warnings
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -271,6 +272,10 @@ class BaseAgent(ABC):
             try:
                 return llm_registry.resolve_tier(str(tier))
             except Exception:
+                warnings.warn(
+                    f"LLM tier '{tier}' is not configured; falling back to 'default' service.",
+                    stacklevel=2,
+                )
                 return llm_registry.resolve_service("default")
         return llm_registry.resolve_service("default")
 

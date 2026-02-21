@@ -39,7 +39,7 @@
   - `lsm/agents/harness.py`
 - **Success criteria:** Agent runs produce plain text logs at configured verbosity, saved to workspace. Existing log-reading code (TUI log streaming) still works.
 
-## 1.3: Tiered Model Configuration
+## 1.3: Tiered Model Configuration (COMPLETED)
 
 - **Description:** Add quick/normal/complex model tiers so agents and tools can declare what LLM capability they need, with fallback resolution baked into config loading.
 - **Tasks:**
@@ -59,7 +59,7 @@
   - `lsm/agents/tools/base.py`
 - **Success criteria:** Agents/tools can declare `tier = "quick"` and get the right model without explicit per-service config. Existing configs without tiers continue to work (tiers are optional).
 
-## 1.4: Agent/Tool Test Harness
+## 1.4: Agent/Tool Test Harness (COMPLETED)
 
 - **Description:** Design and implement a test harness for measuring agent and tool efficiency and detecting regressions across feature changes.
 - **Tasks:**

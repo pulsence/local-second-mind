@@ -28,7 +28,7 @@ v0.7.0 introduces a comprehensive agent system with multiple specialized agents,
 
 ## Phases
 
-### [Phase 1: Core Infrastructure & Configuration](../plan_phases/PHASE_1.md)
+### [Phase 1: Core Infrastructure & Configuration](../plan_phases/PHASE_1.md) (COMPLETED)
 
 Utils module, agent log format conversion, tiered model configuration, and agent/tool test harness.
 

@@ -409,3 +409,159 @@ def test_provider_validate_requires_name():
     provider = LLMProviderConfig(provider_name="")
     with pytest.raises(ValueError, match="provider_name"):
         provider.validate()
+
+
+# --- Tier tests ---
+
+
+def test_resolve_tier_merges_provider_details():
+    """Test that tier resolution merges provider connection details."""
+    registry = LLMRegistryConfig(
+        providers=[
+            LLMProviderConfig(
+                provider_name="azure_openai",
+                api_key="az-key",
+                endpoint="https://myresource.openai.azure.com",
+                api_version="2024-02-15",
+            ),
+        ],
+        services={
+            "default": LLMServiceConfig(provider="azure_openai", model="gpt-4"),
+        },
+        tiers={
+            "quick": LLMTierConfig(provider="azure_openai", model="gpt-4o-mini"),
+        },
+    )
+    config = registry.resolve_tier("quick")
+    assert config.provider == "azure_openai"
+    assert config.model == "gpt-4o-mini"
+    assert config.api_key == "az-key"
+    assert config.endpoint == "https://myresource.openai.azure.com"
+    assert config.api_version == "2024-02-15"
+
+
+def test_resolve_tier_uses_tier_temperature_and_max_tokens():
+    """Test that tier-level temperature/max_tokens overrides are applied."""
+    registry = LLMRegistryConfig(
+        providers=[LLMProviderConfig(provider_name="openai", api_key="key")],
+        services={
+            "default": LLMServiceConfig(provider="openai", model="gpt-5.2"),
+        },
+        tiers={
+            "complex": LLMTierConfig(
+                provider="openai", model="gpt-5.2", temperature=0.2, max_tokens=8000
+            ),
+        },
+    )
+    config = registry.resolve_tier("complex")
+    assert config.temperature == 0.2
+    assert config.max_tokens == 8000
+
+
+def test_resolve_tier_defaults_temperature_and_max_tokens():
+    """Test that tier without overrides uses global defaults."""
+    from lsm.config.models.constants import DEFAULT_LLM_TEMPERATURE, DEFAULT_LLM_MAX_TOKENS
+
+    registry = LLMRegistryConfig(
+        providers=[LLMProviderConfig(provider_name="openai", api_key="key")],
+        services={
+            "default": LLMServiceConfig(provider="openai", model="gpt-5.2"),
+        },
+        tiers={
+            "quick": LLMTierConfig(provider="openai", model="gpt-5-nano"),
+        },
+    )
+    config = registry.resolve_tier("quick")
+    assert config.temperature == DEFAULT_LLM_TEMPERATURE
+    assert config.max_tokens == DEFAULT_LLM_MAX_TOKENS
+
+
+def test_resolve_tier_raises_for_unknown_tier():
+    """Test that resolve_tier raises ValueError for unconfigured tier."""
+    registry = LLMRegistryConfig(
+        providers=[LLMProviderConfig(provider_name="openai", api_key="key")],
+        services={
+            "default": LLMServiceConfig(provider="openai", model="gpt-5.2"),
+        },
+        tiers={},
+    )
+    with pytest.raises(ValueError, match="No LLM tier configured for 'quick'"):
+        registry.resolve_tier("quick")
+
+
+def test_resolve_tier_raises_for_missing_provider():
+    """Test that resolve_tier raises if tier references nonexistent provider."""
+    registry = LLMRegistryConfig(
+        providers=[LLMProviderConfig(provider_name="openai", api_key="key")],
+        services={
+            "default": LLMServiceConfig(provider="openai", model="gpt-5.2"),
+        },
+        tiers={
+            "quick": LLMTierConfig(provider="nonexistent", model="model"),
+        },
+    )
+    with pytest.raises(ValueError, match="not in the providers list"):
+        registry.resolve_tier("quick")
+
+
+def test_validate_catches_tier_referencing_missing_provider():
+    """Test that validate() catches tiers pointing to unknown providers."""
+    registry = LLMRegistryConfig(
+        providers=[LLMProviderConfig(provider_name="openai", api_key="key")],
+        services={
+            "query": LLMServiceConfig(provider="openai", model="gpt-5.2"),
+        },
+        tiers={
+            "quick": LLMTierConfig(provider="missing", model="model"),
+        },
+    )
+    with pytest.raises(ValueError, match="Tier 'quick' references provider 'missing'"):
+        registry.validate()
+
+
+def test_configs_without_tiers_work():
+    """Test backward compatibility: configs with no tiers still work."""
+    registry = LLMRegistryConfig(
+        providers=[LLMProviderConfig(provider_name="openai", api_key="key")],
+        services={
+            "query": LLMServiceConfig(provider="openai", model="gpt-5.2"),
+        },
+    )
+    assert registry.tiers == {}
+    registry.validate()
+    config = registry.resolve_service("query")
+    assert config.model == "gpt-5.2"
+
+
+def test_resolve_any_for_provider_checks_tiers():
+    """Test that resolve_any_for_provider also checks tier entries."""
+    registry = LLMRegistryConfig(
+        providers=[
+            LLMProviderConfig(provider_name="openai", api_key="key"),
+            LLMProviderConfig(provider_name="gemini", api_key="gem-key"),
+        ],
+        services={
+            "query": LLMServiceConfig(provider="openai", model="gpt-5.2"),
+        },
+        tiers={
+            "quick": LLMTierConfig(provider="gemini", model="gemini-2.5-flash-lite"),
+        },
+    )
+    config = registry.resolve_any_for_provider("gemini")
+    assert config is not None
+    assert config.provider == "gemini"
+    assert config.model == "gemini-2.5-flash-lite"
+
+
+def test_tier_validate_rejects_bad_temperature():
+    """Test LLMTierConfig validation rejects out-of-range temperature."""
+    tier = LLMTierConfig(provider="openai", model="gpt-5.2", temperature=3.0)
+    with pytest.raises(ValueError, match="temperature"):
+        tier.validate()
+
+
+def test_tier_validate_rejects_bad_max_tokens():
+    """Test LLMTierConfig validation rejects non-positive max_tokens."""
+    tier = LLMTierConfig(provider="openai", model="gpt-5.2", max_tokens=0)
+    with pytest.raises(ValueError, match="max_tokens"):
+        tier.validate()

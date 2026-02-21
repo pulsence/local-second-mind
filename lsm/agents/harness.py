@@ -8,6 +8,7 @@ import fnmatch
 import json
 import threading
 import time
+import warnings
 from dataclasses import dataclass, replace
 from datetime import datetime
 from pathlib import Path
@@ -733,6 +734,11 @@ class AgentHarness:
             try:
                 return self.llm_registry.resolve_tier(self.llm_tier)
             except Exception:
+                warnings.warn(
+                    f"LLM tier '{self.llm_tier}' is not configured; "
+                    "falling back to 'default' service.",
+                    stacklevel=2,
+                )
                 return self.llm_registry.resolve_service("default")
         return self.llm_registry.resolve_service("default")
 
