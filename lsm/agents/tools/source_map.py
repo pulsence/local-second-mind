@@ -5,7 +5,7 @@ Tool for summarizing evidence by source.
 from __future__ import annotations
 
 import json
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Set, Tuple
 
 from .base import BaseTool
 
@@ -21,7 +21,7 @@ class SourceMapTool(BaseTool):
         "properties": {
             "evidence": {
                 "type": "array",
-                "description": "Evidence entries with source_path/snippet/score.",
+                "description": "Evidence entries with source_path/snippet/score. May include node_id and node_type from file graph.",
                 "items": {"type": "object"},
             },
             "max_snippets_per_source": {
@@ -40,6 +40,8 @@ class SourceMapTool(BaseTool):
         max_snippets_per_source = max(1, int(args.get("max_snippets_per_source", 3)))
         counts: Dict[str, int] = {}
         snippets_by_source: Dict[str, List[Tuple[float, str]]] = {}
+        node_ids_by_source: Dict[str, List[str]] = {}
+        seen_node_ids_by_source: Dict[str, Set[str]] = {}
 
         for item in raw_evidence:
             if not isinstance(item, dict):
@@ -61,6 +63,13 @@ class SourceMapTool(BaseTool):
             if snippet:
                 snippets_by_source.setdefault(source_path, []).append((score, snippet))
 
+            node_id = str(item.get("node_id") or "").strip()
+            if node_id:
+                seen = seen_node_ids_by_source.setdefault(source_path, set())
+                if node_id not in seen:
+                    seen.add(node_id)
+                    node_ids_by_source.setdefault(source_path, []).append(node_id)
+
         output: Dict[str, Dict[str, Any]] = {}
         for source_path in sorted(counts.keys()):
             ranked_snippets = sorted(
@@ -78,10 +87,14 @@ class SourceMapTool(BaseTool):
                 if len(unique_snippets) >= max_snippets_per_source:
                     break
 
-            output[source_path] = {
+            entry: Dict[str, Any] = {
                 "count": counts[source_path],
                 "top_snippets": unique_snippets,
             }
+            node_ids = node_ids_by_source.get(source_path)
+            if node_ids:
+                entry["node_ids"] = node_ids
+            output[source_path] = entry
 
         return json.dumps(output, indent=2)
 

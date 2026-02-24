@@ -32,7 +32,7 @@ v0.7.0 introduces a comprehensive agent system with multiple specialized agents,
 
 Utils module, agent log format conversion, tiered model configuration, and agent/tool test harness.
 
-### [Phase 2: File Graphing System](../plan_phases/PHASE_2.md)
+### [Phase 2: File Graphing System](../plan_phases/PHASE_2.md) (COMPLETED)
 
 Graph schema, code file grapher, text document grapher, PDF document grapher, HTML document grapher, tool integration hooks, and fixtures.
 

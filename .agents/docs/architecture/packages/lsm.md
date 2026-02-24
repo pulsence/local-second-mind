@@ -12,6 +12,7 @@ Folder Path: `lsm/`
 - [lsm.query](lsm.query.md): Query retrieval, reranking, synthesis
 - [lsm.remote](lsm.remote.md): Remote source providers
 - [lsm.ui](lsm.ui.md): User interfaces (TUI, Shell, Web, Desktop)
+- [lsm.utils](lsm.utils.md): Shared utilities — file graph system, text processing, logging, path helpers
 - [lsm.vectordb](lsm.vectordb.md): Vector database abstraction
 
 ## Core Modules
