@@ -12,6 +12,7 @@ All notable changes to Local Second Mind are documented here.
 - File graphing system with unified graph schema, deterministic IDs, content-hash caching, and line-hash metadata.
 - Code/text/PDF/HTML graphers with section-aware spans, fixtures, and coverage.
 - Graph-aware read and metadata tooling with section selection and optional graph output.
+- Standard per-agent workspace layout (`logs/`, `artifacts/`, `memory/`) with file tools defaulting to the agent workspace root.
 
 ### Changed
 

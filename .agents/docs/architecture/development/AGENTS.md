@@ -118,6 +118,20 @@ Agents are configured in top-level `agents`:
 - `interaction.timeout_seconds`: wait timeout for an interaction response (default `300`)
 - `interaction.timeout_action`: timeout fallback (`deny` or `approve`, default `deny`)
 - `memory`: persistent memory backend config and TTL caps
+
+## Workspace Layout
+
+Each agent has a default workspace rooted at:
+
+`<agents_folder>/<agent_name>/`
+
+The harness creates this structure on first run:
+
+- `logs/` (run summaries, state snapshots, per-run workspaces)
+- `artifacts/` (agent-generated outputs)
+- `memory/` (agent memory data files)
+
+Relative paths passed to `read_file`/`write_file` resolve against the per-agent workspace root.
 - `agent_configs`: per-agent overrides
 - `agent_configs` can include `llm_tier`, `llm_service`, or `llm_provider` + `llm_model` to select models
 - `schedules`: optional scheduled runs (`hourly`, `daily`, `weekly`, `<seconds>s`, or cron intervals)

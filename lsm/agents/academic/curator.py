@@ -18,6 +18,7 @@ from ..base import AgentStatus, BaseAgent
 from ..models import AgentContext
 from ..tools.base import ToolRegistry
 from ..tools.sandbox import ToolSandbox
+from ..workspace import ensure_agent_workspace
 
 
 @dataclass
@@ -88,6 +89,11 @@ class CuratorAgent(BaseAgent):
         self._tokens_used = 0
         self._stop_logged = False
         self.state.set_status(AgentStatus.RUNNING)
+        ensure_agent_workspace(
+            self.name,
+            self.agent_config.agents_folder,
+            sandbox=self.sandbox,
+        )
         topic_input = self._extract_topic(initial_context)
         mode, topic = self._resolve_mode(topic_input)
 

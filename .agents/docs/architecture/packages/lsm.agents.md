@@ -21,5 +21,6 @@ Folder Path: `lsm/agents/`
 - [log_formatter.py](../lsm/agents/log_formatter.py): Log formatting and serialization helpers
 - [log_redactor.py](../lsm/agents/log_redactor.py): Secret redaction in logs
 - [factory.py](../lsm/agents/factory.py): Agent registry, metadata, and factory function
+- [workspace.py](../lsm/agents/workspace.py): Per-agent workspace layout helpers
 - [scheduler.py](../lsm/agents/scheduler.py): Recurring schedule engine for agent runs
 - [permission_gate.py](../lsm/agents/permission_gate.py): Permission gate for tool execution

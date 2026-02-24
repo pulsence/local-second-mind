@@ -29,6 +29,7 @@ from .memory import BaseMemoryStore, MemoryContextBuilder, create_memory_store
 from .models import AgentContext, AgentLogEntry, ToolResponse
 from .tools.base import ToolRegistry
 from .tools.sandbox import ToolSandbox
+from .workspace import ensure_agent_workspace
 
 logger = get_logger(__name__)
 
@@ -99,6 +100,7 @@ class AgentHarness:
         self._state_path: Optional[Path] = None
         self._run_root: Optional[Path] = None
         self._workspace_path: Optional[Path] = None
+        self._agent_workspace_root: Optional[Path] = None
         self._thread: Optional[threading.Thread] = None
         self._stop_event = threading.Event()
         self._lock = threading.Lock()
@@ -142,6 +144,7 @@ class AgentHarness:
             self.context.budget_tracking.setdefault("tokens_used", 0)
             self.context.budget_tracking.setdefault("iterations", 0)
             self.state.set_status(AgentStatus.RUNNING)
+            self._ensure_agent_workspace()
             self._ensure_state_path()
             if self._workspace_path is not None:
                 self.context.run_workspace = str(self._workspace_path)
@@ -576,14 +579,30 @@ class AgentHarness:
     def _ensure_state_path(self) -> None:
         if self._state_path is not None:
             return
+        if self._agent_workspace_root is None:
+            self._agent_workspace_root = ensure_agent_workspace(
+                self.agent_name,
+                self.agent_config.agents_folder,
+                sandbox=self.sandbox,
+            )
         timestamp = datetime.utcnow().strftime("%Y%m%d-%H%M%S")
         run_name = f"{self.agent_name}_{timestamp}"
-        self._run_root = self.agent_config.agents_folder / run_name
+        run_root_base = self._agent_workspace_root / "logs"
+        self._run_root = run_root_base / run_name
         self._workspace_path = self._run_root / "workspace"
         self._workspace_path.mkdir(parents=True, exist_ok=True)
         filename = f"{run_name}_state.json"
         self._state_path = self._run_root / filename
         self.state.add_artifact(str(self._workspace_path))
+
+    def _ensure_agent_workspace(self) -> Path:
+        if self._agent_workspace_root is None:
+            self._agent_workspace_root = ensure_agent_workspace(
+                self.agent_name,
+                self.agent_config.agents_folder,
+                sandbox=self.sandbox,
+            )
+        return self._agent_workspace_root
 
     def _append_log(self, entry: AgentLogEntry) -> None:
         entry.content = redact_secrets(entry.content)

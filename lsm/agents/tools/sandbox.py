@@ -15,6 +15,7 @@ from lsm.agents.log_redactor import redact_secrets
 from lsm.agents.permission_gate import PermissionDecision, PermissionGate
 from lsm.config.models.agents import SandboxConfig
 from lsm.logging import get_logger
+from lsm.utils.paths import resolve_path
 
 from .env_scrubber import scrub_environment
 from .base import BaseTool
@@ -43,6 +44,7 @@ class ToolSandbox:
         docker_runner: Optional[BaseRunner] = None,
         interaction_channel: Optional[InteractionChannel] = None,
         waiting_state_callback: Optional[Callable[[bool], None]] = None,
+        workspace_root: Optional[Path | str] = None,
     ) -> None:
         self.config = config
         self.global_sandbox = global_sandbox
@@ -52,6 +54,9 @@ class ToolSandbox:
         self.interaction_channel = interaction_channel
         self.waiting_state_callback = waiting_state_callback
         self.last_execution_result: Optional[ToolExecutionResult] = None
+        self.workspace_root: Optional[Path] = (
+            resolve_path(workspace_root, strict=False) if workspace_root is not None else None
+        )
         self._validate_not_exceeding_global()
 
     def execute(self, tool: BaseTool, args: Dict[str, Any]) -> str:
@@ -66,11 +71,12 @@ class ToolSandbox:
             Tool output text.
         """
         self.last_execution_result = None
-        self._enforce_tool_permissions(tool, args)
-        self._enforce_args(tool, args)
+        resolved_args = self._resolve_workspace_args(tool, args)
+        self._enforce_tool_permissions(tool, resolved_args)
+        self._enforce_args(tool, resolved_args)
         runner = self._select_runner(tool)
         env = scrub_environment()
-        result = runner.run(tool, args, env)
+        result = runner.run(tool, resolved_args, env)
         result.stdout = redact_secrets(result.stdout)
         result.stderr = redact_secrets(result.stderr)
         self.last_execution_result = result
@@ -126,6 +132,15 @@ class ToolSandbox:
         """
         self.interaction_channel = interaction_channel
         self.waiting_state_callback = waiting_state_callback
+
+    def set_workspace_root(self, workspace_root: Optional[Path | str]) -> None:
+        """
+        Update the workspace root used to resolve relative file paths.
+        """
+        if workspace_root is None:
+            self.workspace_root = None
+            return
+        self.workspace_root = resolve_path(workspace_root, strict=False)
 
     def _handle_permission_confirmation(
         self,
@@ -202,6 +217,22 @@ class ToolSandbox:
             path = args.get("path")
             if path is not None:
                 self.check_write_path(Path(str(path)))
+
+    def _resolve_workspace_args(self, tool: BaseTool, args: Dict[str, Any]) -> Dict[str, Any]:
+        if tool.name not in self._READ_TOOL_NAMES and tool.name not in self._WRITE_TOOL_NAMES:
+            return args
+        if self.workspace_root is None:
+            return args
+        path_value = args.get("path")
+        if path_value is None:
+            return args
+        candidate = Path(str(path_value)).expanduser()
+        if candidate.is_absolute():
+            return args
+        resolved = resolve_path(candidate, base_dir=self.workspace_root, strict=False)
+        updated = dict(args)
+        updated["path"] = str(resolved)
+        return updated
 
     def _validate_args_schema(self, tool: BaseTool, args: Dict[str, Any]) -> None:
         if not isinstance(args, dict):

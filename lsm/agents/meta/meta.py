@@ -19,6 +19,7 @@ from ..models import AgentContext
 from .task_graph import AgentTask, TaskGraph
 from ..tools.base import ToolRegistry
 from ..tools.sandbox import ToolSandbox
+from ..workspace import ensure_agent_workspace
 
 _SUPPORTED_SUB_AGENTS = {"curator", "research", "synthesis", "writing"}
 _META_SYSTEM_TOOL_NAMES = {"spawn_agent", "await_agent", "collect_artifacts"}
@@ -113,6 +114,11 @@ class MetaAgent(BaseAgent):
         """
         self._tokens_used = 0
         self.state.set_status(AgentStatus.RUNNING)
+        ensure_agent_workspace(
+            self.name,
+            self.agent_config.agents_folder,
+            sandbox=self.sandbox,
+        )
         goal = self._extract_goal(initial_context)
         self.state.current_task = f"Orchestrating goal: {goal}"
 
@@ -244,7 +250,12 @@ class MetaAgent(BaseAgent):
             run_root = shared_workspace.parent
         else:
             timestamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
-            run_root = (self.agent_config.agents_folder / f"{self.name}_{timestamp}").resolve(strict=False)
+            agent_root = ensure_agent_workspace(
+                self.name,
+                self.agent_config.agents_folder,
+                sandbox=self.sandbox,
+            )
+            run_root = (agent_root / "logs" / f"{self.name}_{timestamp}").resolve(strict=False)
             shared_workspace = run_root / "workspace"
 
         self.sandbox.check_write_path(run_root)
