@@ -40,7 +40,7 @@ Graph schema, code file grapher, text document grapher, PDF document grapher, HT
 
 Agent package restructure, workspace defaults, tool API standardization, and universal ask_user.
 
-### [Phase 4: Advanced Tooling](../plan_phases/PHASE_4.md)
+### [Phase 4: Advanced Tooling](../plan_phases/PHASE_4.md) (COMPLETED)
 
 Line-hash editing engine, find file/section tools, read/outline enhancements, and benchmark comparisons.
 

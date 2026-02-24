@@ -19,6 +19,7 @@ This project is maintained for personal use first.
 - [Integrations](user-guide/INTEGRATIONS.md)
 - [Vector Databases](user-guide/VECTOR_DATABASES.md)
 - [Local Models](user-guide/LOCAL_MODELS.md)
+- [Agents](user-guide/AGENTS.md)
 
 ## Developer Documentation
 
