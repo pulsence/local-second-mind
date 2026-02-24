@@ -857,11 +857,7 @@ def _normalize_text(text: str) -> str:
     return text.replace("\r\n", "\n").replace("\r", "\n")
 
 
-def _build_pdf_graph(
-    path: Path,
-    content_hash: str,
-    page_segments: Sequence[Any],
-) -> FileGraph:
+def _normalize_pdf_segments(page_segments: Sequence[Any]) -> List[Tuple[int, str]]:
     ordered_segments = sorted(
         (seg for seg in page_segments if getattr(seg, "text", None) is not None),
         key=lambda seg: getattr(seg, "page_number", 0),
@@ -872,6 +868,15 @@ def _build_pdf_graph(
         if not seg_text.strip():
             continue
         normalized_segments.append((int(seg.page_number), seg_text))
+    return normalized_segments
+
+
+def _build_pdf_graph(
+    path: Path,
+    content_hash: str,
+    page_segments: Sequence[Any],
+) -> FileGraph:
+    normalized_segments = _normalize_pdf_segments(page_segments)
 
     combined_text = "\n\n".join(seg_text for _, seg_text in normalized_segments)
 
@@ -986,7 +991,7 @@ def _build_pdf_graph(
     )
 
 
-def _build_html_graph(path: Path, html_text: str, content_hash: str) -> FileGraph:
+def _extract_html_blocks(html_text: str) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
     from bs4 import BeautifulSoup, NavigableString
 
     soup = BeautifulSoup(html_text, "lxml")
@@ -1093,7 +1098,11 @@ def _build_html_graph(path: Path, html_text: str, content_hash: str) -> FileGrap
             _walk(child)
 
     _walk(root)
+    return blocks, sections
 
+
+def _build_html_graph(path: Path, html_text: str, content_hash: str) -> FileGraph:
+    blocks, sections = _extract_html_blocks(html_text)
     if not blocks:
         return _assemble_graph(path, html_text, content_hash, [])
 
@@ -1257,6 +1266,39 @@ def _build_html_graph(path: Path, html_text: str, content_hash: str) -> FileGrap
         drafts,
         parent_by_node_id=parent_by_node_id,
     )
+
+
+def get_graph_text(path: Path | str) -> str:
+    file_path = Path(path)
+    if not file_path.exists():
+        raise FileNotFoundError(f"File not found: {file_path}")
+    if not file_path.is_file():
+        raise ValueError(f"Path is not a file: {file_path}")
+
+    content_bytes = file_path.read_bytes()
+    suffix = file_path.suffix.lower()
+
+    if suffix == ".pdf":
+        from lsm.ingest.parsers import parse_pdf
+
+        text, _, page_segments = parse_pdf(file_path, enable_ocr=False, skip_errors=True)
+        if page_segments:
+            normalized_segments = _normalize_pdf_segments(page_segments)
+            return "\n\n".join(seg_text for _, seg_text in normalized_segments)
+        return text
+
+    if suffix in HTML_EXTENSIONS:
+        html_text = _decode_bytes(content_bytes)
+        blocks, _ = _extract_html_blocks(html_text)
+        if not blocks:
+            return html_text
+        block_texts = ["\n".join(block["lines"]) for block in blocks]
+        return "\n\n".join(block_texts)
+
+    if suffix == ".docx":
+        return extract_docx_text(file_path)
+
+    return _decode_bytes(content_bytes)
 
 
 _GRAPH_CACHE: Dict[str, FileGraph] = {}
