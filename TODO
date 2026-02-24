@@ -8,6 +8,13 @@ substantially changed over time.
 
 ## v0.8.0: Embedding Retrevial Improvments
 
+### DB
+- Add DB versioning with migratin/upgrade between versions.
+  - This needs to be thoroughly tested.
+- Add DB complete, meaning when an update adds new ingest etc. items stored
+  there should be a way for the DB to be completed with this new data instead
+  of having to rebuild the entire DB
+
 ### Architecural Overhall
 
 - Read .claude_files/INGEST_FUTURE.md for an outline of how to create
