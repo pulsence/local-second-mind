@@ -47,9 +47,11 @@ def test_text_graph_markdown_headings_and_lists(tmp_path: Path) -> None:
     para_b = _find_node_by_line(graph, "paragraph", 14)
 
     assert title.start_line == 1
-    assert title.end_line == 1
+    assert title.end_line == 14
     assert section_a.start_line == 5
     assert section_b.start_line == 12
+    assert section_a.end_line == 10
+    assert section_b.end_line == 14
 
     assert intro.parent_id == title.id
     assert section_a.parent_id == title.id
@@ -79,6 +81,8 @@ def test_text_graph_plain_text_headings(tmp_path: Path) -> None:
     assert overview.start_line == 1
     assert details.start_line == 5
     assert details.parent_id == overview.id
+    assert overview.end_line == 7
+    assert details.end_line == 7
 
 
 def test_text_graph_docx_headings(tmp_path: Path) -> None:
@@ -99,3 +103,5 @@ def test_text_graph_docx_headings(tmp_path: Path) -> None:
     assert title.metadata.get("level") == 1
     assert section.metadata.get("level") == 2
     assert section.parent_id == title.id
+    assert title.end_line == 7
+    assert section.end_line == 7

@@ -244,6 +244,26 @@ class _NodeDraft:
     metadata: Dict[str, Any]
 
 
+def _apply_section_spans(
+    drafts: List[_NodeDraft],
+    heading_indices: List[Tuple[int, int]],
+) -> None:
+    for pos, (draft_idx, level) in enumerate(heading_indices):
+        end_idx = len(drafts) - 1
+        for next_idx, next_level in heading_indices[pos + 1 :]:
+            if next_level <= level:
+                end_idx = next_idx - 1
+                break
+        if end_idx < draft_idx:
+            end_idx = draft_idx
+        tail = drafts[end_idx]
+        draft = drafts[draft_idx]
+        if tail.end_line > draft.end_line:
+            draft.end_line = tail.end_line
+        if tail.end_char > draft.end_char:
+            draft.end_char = tail.end_char
+
+
 def _assemble_graph(
     path: Path,
     text: str,
@@ -757,7 +777,7 @@ def _build_code_graph(path: Path, text: str, content_hash: str) -> FileGraph:
 def _build_text_graph(path: Path, text: str, content_hash: str) -> FileGraph:
     paragraphs = split_paragraphs(text, allow_plain_headings=True)
     drafts: List[_NodeDraft] = []
-    node_ids: List[str] = []
+    heading_indices: List[Tuple[int, int]] = []
 
     for para in paragraphs:
         if para.is_heading:
@@ -765,6 +785,7 @@ def _build_text_graph(path: Path, text: str, content_hash: str) -> FileGraph:
             node_type = "heading"
             name = para.heading or para.text
             metadata = {"level": level}
+            heading_indices.append((len(drafts), level))
         else:
             if is_list_block(para.text):
                 node_type = "list"
@@ -784,19 +805,23 @@ def _build_text_graph(path: Path, text: str, content_hash: str) -> FileGraph:
             metadata=metadata,
         )
         drafts.append(draft)
-        node_ids.append(
-            stable_node_id(
-                content_hash,
-                draft.node_type,
-                draft.name,
-                draft.start_line,
-                draft.end_line,
-                draft.start_char,
-                draft.end_char,
-                0,
-                None,
-            )
+
+    _apply_section_spans(drafts, heading_indices)
+
+    node_ids: List[str] = [
+        stable_node_id(
+            content_hash,
+            draft.node_type,
+            draft.name,
+            draft.start_line,
+            draft.end_line,
+            draft.start_char,
+            draft.end_char,
+            0,
+            None,
         )
+        for draft in drafts
+    ]
 
     parent_by_node_id: Dict[str, Optional[str]] = {}
     heading_stack: List[Tuple[int, str]] = []
@@ -820,6 +845,139 @@ def _build_text_graph(path: Path, text: str, content_hash: str) -> FileGraph:
     )
 
 
+def _normalize_text(text: str) -> str:
+    return text.replace("\r\n", "\n").replace("\r", "\n")
+
+
+def _build_pdf_graph(
+    path: Path,
+    content_hash: str,
+    page_segments: Sequence[Any],
+) -> FileGraph:
+    ordered_segments = sorted(
+        (seg for seg in page_segments if getattr(seg, "text", None) is not None),
+        key=lambda seg: getattr(seg, "page_number", 0),
+    )
+    normalized_segments: List[Tuple[int, str]] = []
+    for seg in ordered_segments:
+        seg_text = _normalize_text(str(seg.text))
+        if not seg_text.strip():
+            continue
+        normalized_segments.append((int(seg.page_number), seg_text))
+
+    combined_text = "\n\n".join(seg_text for _, seg_text in normalized_segments)
+
+    drafts: List[_NodeDraft] = []
+    current_char = 0
+    current_line = 1
+
+    for page_number, page_text in normalized_segments:
+        page_lines = page_text.split("\n") if page_text else [""]
+        page_start_char = current_char
+        page_end_char = page_start_char + len(page_text)
+        page_start_line = current_line
+        page_end_line = page_start_line + len(page_lines) - 1 if page_lines else page_start_line
+
+        drafts.append(
+            _NodeDraft(
+                node_type="page",
+                name=f"Page {page_number}",
+                start_line=page_start_line,
+                end_line=page_end_line,
+                start_char=page_start_char,
+                end_char=page_end_char,
+                metadata={"page_number": page_number},
+            )
+        )
+
+        page_paragraphs = split_paragraphs(page_text, allow_plain_headings=True)
+        page_drafts: List[_NodeDraft] = []
+        heading_indices: List[Tuple[int, int]] = []
+
+        for para in page_paragraphs:
+            if para.is_heading:
+                level = para.heading_level or 1
+                node_type = "heading"
+                name = para.heading or para.text
+                metadata = {"level": level, "page_number": page_number}
+                heading_indices.append((len(page_drafts), level))
+            else:
+                if is_list_block(para.text):
+                    node_type = "list"
+                    name = "list"
+                else:
+                    node_type = "paragraph"
+                    name = "paragraph"
+                metadata = {
+                    "heading": para.heading,
+                    "index": para.index,
+                    "page_number": page_number,
+                }
+
+            page_drafts.append(
+                _NodeDraft(
+                    node_type=node_type,
+                    name=name,
+                    start_line=page_start_line + para.start_line - 1,
+                    end_line=page_start_line + para.end_line - 1,
+                    start_char=page_start_char + para.start_char,
+                    end_char=page_start_char + para.end_char,
+                    metadata=metadata,
+                )
+            )
+
+        _apply_section_spans(page_drafts, heading_indices)
+        drafts.extend(page_drafts)
+
+        current_char = page_end_char + 2
+        current_line = page_end_line + 2
+
+    node_ids: List[str] = [
+        stable_node_id(
+            content_hash,
+            draft.node_type,
+            draft.name,
+            draft.start_line,
+            draft.end_line,
+            draft.start_char,
+            draft.end_char,
+            0,
+            None,
+        )
+        for draft in drafts
+    ]
+
+    parent_by_node_id: Dict[str, Optional[str]] = {}
+    current_page_id: Optional[str] = None
+    heading_stack: List[Tuple[int, str]] = []
+
+    for draft, node_id in zip(drafts, node_ids):
+        if draft.node_type == "page":
+            parent_by_node_id[node_id] = None
+            current_page_id = node_id
+            heading_stack = []
+            continue
+
+        if draft.node_type == "heading":
+            level = int(draft.metadata.get("level", 1) or 1)
+            while heading_stack and heading_stack[-1][0] >= level:
+                heading_stack.pop()
+            parent = heading_stack[-1][1] if heading_stack else current_page_id
+            parent_by_node_id[node_id] = parent
+            heading_stack.append((level, node_id))
+            continue
+
+        parent_by_node_id[node_id] = heading_stack[-1][1] if heading_stack else current_page_id
+
+    return _assemble_graph(
+        path,
+        combined_text,
+        content_hash,
+        drafts,
+        parent_by_node_id=parent_by_node_id,
+    )
+
+
 _GRAPH_CACHE: Dict[str, FileGraph] = {}
 
 
@@ -837,6 +995,17 @@ def get_file_graph(path: Path | str) -> FileGraph:
         return cached.with_path(file_path)
 
     suffix = file_path.suffix.lower()
+    if suffix == ".pdf":
+        from lsm.ingest.parsers import parse_pdf
+
+        text, _, page_segments = parse_pdf(file_path, enable_ocr=False, skip_errors=True)
+        if page_segments:
+            graph = _build_pdf_graph(file_path, content_hash, page_segments)
+        else:
+            graph = _build_text_graph(file_path, text, content_hash)
+        _GRAPH_CACHE[content_hash] = graph
+        return graph
+
     if suffix == ".docx":
         text = extract_docx_text(file_path)
     else:
