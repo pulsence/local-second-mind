@@ -74,6 +74,7 @@ class MetaAgent(BaseAgent):
     name = "meta"
     tier = "complex"
     description = "Orchestrate multiple agents toward a single goal."
+    risk_posture = "writes_workspace"
 
     def __init__(
         self,

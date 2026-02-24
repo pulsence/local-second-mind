@@ -13,8 +13,12 @@ The shell runtime manager supports concurrent runs and assigns each started run 
 
 Built-in agent:
 
+- `assistant`
 - `curator`
+- `general`
+- `librarian`
 - `meta`
+- `manuscript_editor`
 - `research`
 - `writing`
 - `synthesis`
@@ -29,6 +33,10 @@ Built-in agent:
 - `lsm/agents/factory.py`: registry + `create_agent(...)`
 - `lsm/agents/academic/research.py`: built-in research workflow agent
 - `lsm/agents/productivity/writing.py`: built-in grounded writing workflow agent
+- `lsm/agents/productivity/general.py`: general-purpose multi-step agent
+- `lsm/agents/productivity/librarian.py`: knowledge-base exploration agent
+- `lsm/agents/productivity/manuscript_editor.py`: manuscript editing agent
+- `lsm/agents/assistants/assistant.py`: assistant agent for summaries + memory suggestions
 - `lsm/agents/academic/synthesis.py`: built-in synthesis workflow agent
 - `lsm/agents/academic/curator.py`: built-in corpus curation workflow agent
 - `lsm/agents/scheduler.py`: recurring schedule engine for harness-driven agent runs

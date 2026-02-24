@@ -40,6 +40,7 @@ class WritingAgent(BaseAgent):
     name = "writing"
     tier = "complex"
     description = "Generate grounded written deliverables from the knowledge base."
+    risk_posture = "writes_workspace"
     tool_allowlist = {
         "query_embeddings",
         "read_file",

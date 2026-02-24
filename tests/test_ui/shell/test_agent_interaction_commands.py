@@ -383,3 +383,12 @@ def test_agent_cli_queue_and_resume_with_message(monkeypatch) -> None:
 
     agent_commands.handle_agent_command(f"/agent stop {agent_id}", app)
     manager.shutdown(join_timeout_s=0.5)
+
+
+def test_agent_help_lists_core_agents() -> None:
+    app = _app(max_concurrent=1)
+    output = agent_commands.handle_agent_command("/agent", app)
+    assert "general" in output
+    assert "librarian" in output
+    assert "assistant" in output
+    assert "manuscript_editor" in output

@@ -41,6 +41,7 @@ class CuratorAgent(BaseAgent):
     name = "curator"
     tier = "normal"
     description = "Maintain corpus quality with actionable reports."
+    risk_posture = "writes_workspace"
     tool_allowlist = {
         "read_folder",
         "file_metadata",

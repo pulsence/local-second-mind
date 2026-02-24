@@ -42,6 +42,7 @@ class SynthesisAgent(BaseAgent):
     name = "synthesis"
     tier = "complex"
     description = "Distill multiple documents into compact summaries."
+    risk_posture = "writes_workspace"
     tool_allowlist = {
         "read_folder",
         "query_embeddings",

@@ -45,6 +45,7 @@ class ResearchAgent(BaseAgent):
     description = (
         "Decomposes a topic, gathers evidence via tools, and writes a structured outline."
     )
+    risk_posture = "network"
 
     def __init__(
         self,

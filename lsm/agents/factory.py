@@ -5,7 +5,7 @@ Agent factory and registry.
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
-from typing import Any, Callable, Dict, Optional
+from typing import Any, Callable, Dict, Optional, Sequence
 
 from lsm.config.models import AgentConfig, LLMRegistryConfig
 
@@ -34,6 +34,9 @@ class AgentRegistryEntry:
     builder: AgentBuilder
     theme: str
     category: str
+    description: str
+    tool_allowlist: Optional[tuple[str, ...]]
+    risk_posture: str
 
 
 @dataclass(frozen=True)
@@ -58,6 +61,22 @@ def _load_agent_specs() -> list[dict[str, Any]]:
     return specs
 
 
+def _normalize_tool_allowlist(value: Optional[Sequence[str]]) -> Optional[tuple[str, ...]]:
+    if not value:
+        return None
+    items = [str(item).strip() for item in value if str(item).strip()]
+    if not items:
+        return None
+    deduped: list[str] = []
+    seen = set()
+    for item in items:
+        if item in seen:
+            continue
+        seen.add(item)
+        deduped.append(item)
+    return tuple(deduped)
+
+
 class AgentRegistry:
     """
     Registry for built-in and custom agent constructors.
@@ -75,6 +94,9 @@ class AgentRegistry:
         *,
         theme: str,
         category: str,
+        description: str = "",
+        tool_allowlist: Optional[tuple[str, ...]] = None,
+        risk_posture: str = "unknown",
     ) -> None:
         normalized = str(name).strip().lower()
         if not normalized:
@@ -84,6 +106,9 @@ class AgentRegistry:
             builder=builder,
             theme=str(theme or "Other").strip() or "Other",
             category=str(category or normalized).strip() or normalized,
+            description=str(description or "").strip(),
+            tool_allowlist=_normalize_tool_allowlist(tool_allowlist),
+            risk_posture=str(risk_posture or "unknown").strip().lower() or "unknown",
         )
         self._entries[normalized] = entry
 
@@ -92,10 +117,19 @@ class AgentRegistry:
         agent_cls = spec.get("agent_cls")
         theme = spec.get("theme", "Other")
         category = spec.get("category", name)
+        description = spec.get("description")
+        tool_allowlist = spec.get("tool_allowlist")
+        risk_posture = spec.get("risk_posture")
         if not name:
             raise ValueError("Agent spec missing name")
         if agent_cls is None:
             raise ValueError(f"Agent spec '{name}' missing agent_cls")
+        if description is None:
+            description = getattr(agent_cls, "description", "")
+        if tool_allowlist is None:
+            tool_allowlist = getattr(agent_cls, "tool_allowlist", None)
+        if risk_posture is None:
+            risk_posture = getattr(agent_cls, "risk_posture", "unknown")
 
         def _builder(
             llm_registry: LLMRegistryConfig,
@@ -126,6 +160,9 @@ class AgentRegistry:
             _builder,
             theme=theme,
             category=category,
+            description=description,
+            tool_allowlist=tool_allowlist,
+            risk_posture=risk_posture,
         )
 
     def list_agents(self) -> list[str]:

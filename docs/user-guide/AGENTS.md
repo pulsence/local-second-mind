@@ -59,7 +59,7 @@ All agent operations are also available as interactive shell commands:
 
 ## Available Agents
 
-Agents are organized into three themes.
+Agents are organized into four themes.
 
 ### Academic
 
@@ -73,6 +73,9 @@ Agents are organized into three themes.
 
 | Name | Launch As | Purpose |
 |------|-----------|---------|
+| General | `general` | General-purpose agent for multi-step tasks using local tools. |
+| Librarian | `librarian` | Explores the knowledge base and builds idea graphs with metadata summaries. |
+| Manuscript Editor | `manuscript_editor` | Iteratively edits manuscripts and produces revision logs. |
 | Writing | `writing` | Takes a topic or outline and produces a polished long-form document (report, essay, technical writeup). |
 
 ### Meta
@@ -80,6 +83,12 @@ Agents are organized into three themes.
 | Name | Launch As | Purpose |
 |------|-----------|---------|
 | Meta | `meta` | Orchestrator. Breaks a complex goal into a task graph and spawns sub-agents (`research`, `synthesis`, `curator`, `writing`) to execute each task, then consolidates their artifacts into a final output. |
+
+### Assistants
+
+| Name | Launch As | Purpose |
+|------|-----------|---------|
+| Assistant | `assistant` | Summarizes recent agent activity and proposes memory updates. |
 
 ## Available Tools
 

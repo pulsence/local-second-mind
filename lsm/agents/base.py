@@ -104,6 +104,7 @@ class BaseAgent(ABC):
     name: str = "base"
     description: str = "Base agent"
     tier: str = "normal"
+    risk_posture: str = "read_only"
     tool_allowlist: Optional[set[str]] = None
     _always_available_tools: set[str] = {"ask_user"}
 
@@ -111,6 +112,9 @@ class BaseAgent(ABC):
         self.name = name or self.name
         self.description = description or self.description
         self.tier = str(self.tier or "normal").strip().lower() or "normal"
+        self.risk_posture = (
+            str(self.risk_posture or "read_only").strip().lower() or "read_only"
+        )
         self.tool_allowlist = (
             {str(item).strip() for item in self.tool_allowlist if str(item).strip()}
             if self.tool_allowlist

@@ -1,7 +1,16 @@
 """
-Assistant agent namespace (populated in later phases).
+Assistant agents and registry specs.
 """
 
-AGENT_SPECS: list[dict] = []
+from .assistant import AssistantAgent
 
-__all__ = ["AGENT_SPECS"]
+AGENT_SPECS = [
+    {
+        "name": "assistant",
+        "agent_cls": AssistantAgent,
+        "theme": "Assistants",
+        "category": "Assistant",
+    },
+]
+
+__all__ = ["AssistantAgent", "AGENT_SPECS"]
