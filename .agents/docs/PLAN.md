@@ -44,11 +44,11 @@ Agent package restructure, workspace defaults, tool API standardization, and uni
 
 Line-hash editing engine, find file/section tools, read/outline enhancements, and benchmark comparisons.
 
-### [Phase 5: Execution Environment](../plan_phases/PHASE_5.md)
+### [Phase 5: Execution Environment](../plan_phases/PHASE_5.md) (COMPLETED)
 
 Runner policy updates, Docker runner completion, WSL2 runner, bash/PowerShell tools with security testing.
 
-### [Phase 6: Core Agent Catalog](../plan_phases/PHASE_6.md)
+### [Phase 6: Core Agent Catalog](../plan_phases/PHASE_6.md) (COMPLETED)
 
 General, Librarian, Assistant, and Manuscript Editor agents.
 
