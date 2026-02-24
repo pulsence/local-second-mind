@@ -76,6 +76,7 @@ class AgentHarness:
         memory_context_builder: Optional[MemoryContextBuilder] = None,
         interaction_channel: Optional[InteractionChannel] = None,
         log_callback: Optional[Callable[[AgentLogEntry], None]] = None,
+        system_prompt: Optional[str] = None,
     ) -> None:
         self.agent_config = agent_config
         self.tool_registry = tool_registry
@@ -92,6 +93,7 @@ class AgentHarness:
         self.vectordb_config = vectordb_config
         self.interaction_channel = interaction_channel or sandbox.interaction_channel
         self.log_callback = log_callback
+        self.system_prompt = str(system_prompt).strip() if system_prompt else None
 
         self.state = AgentState()
         self.context: Optional[AgentContext] = None
@@ -732,6 +734,8 @@ class AgentHarness:
             "You are an agent that can call tools to complete tasks.",
             "If no tool is required, respond directly.",
         ]
+        if self.system_prompt:
+            lines.append(self.system_prompt)
         if use_function_calling:
             lines.append("Use the provided tool schema when calling tools.")
             return "\n".join(lines)
