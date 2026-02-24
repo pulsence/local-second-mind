@@ -1,12 +1,30 @@
 from __future__ import annotations
 
 import hashlib
+import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
 
 GRAPH_NODE_VERSION = 1
+
+CODE_EXTENSIONS = {
+    ".py",
+    ".pyw",
+    ".js",
+    ".jsx",
+    ".ts",
+    ".tsx",
+    ".java",
+    ".go",
+    ".rs",
+    ".c",
+    ".h",
+    ".cpp",
+    ".hpp",
+    ".cs",
+}
 
 
 @dataclass(frozen=True)
@@ -206,11 +224,26 @@ def _line_span_hash(lines: Sequence[str], start_line: int, end_line: int) -> str
     return compute_line_hash(lines[start_idx:end_idx])
 
 
-def _build_basic_graph(path: Path, text: str, content_hash: str) -> FileGraph:
+@dataclass
+class _NodeDraft:
+    node_type: str
+    name: str
+    start_line: int
+    end_line: int
+    start_char: int
+    end_char: int
+    metadata: Dict[str, Any]
+
+
+def _assemble_graph(
+    path: Path,
+    text: str,
+    content_hash: str,
+    drafts: Sequence[_NodeDraft],
+) -> FileGraph:
     lines, _ = _line_offsets(text)
     total_lines = max(len(lines), 1)
     end_char = len(text)
-    line_hash = _line_span_hash(lines, 1, total_lines)
     root_id = stable_node_id(
         content_hash,
         "document",
@@ -234,15 +267,466 @@ def _build_basic_graph(path: Path, text: str, content_hash: str) -> FileGraph:
         parent_id=None,
         children=(),
         metadata={"path": str(path)},
-        line_hash=line_hash,
+        line_hash=_line_span_hash(lines, 1, total_lines),
     )
+
+    base_nodes: List[GraphNode] = []
+    for draft in drafts:
+        node_id = stable_node_id(
+            content_hash,
+            draft.node_type,
+            draft.name,
+            draft.start_line,
+            draft.end_line,
+            draft.start_char,
+            draft.end_char,
+            0,
+            None,
+        )
+        node = GraphNode(
+            id=node_id,
+            node_type=draft.node_type,
+            name=draft.name,
+            start_line=draft.start_line,
+            end_line=draft.end_line,
+            start_char=draft.start_char,
+            end_char=draft.end_char,
+            depth=0,
+            parent_id=None,
+            children=(),
+            metadata=draft.metadata,
+            line_hash=_line_span_hash(lines, draft.start_line, draft.end_line),
+        )
+        base_nodes.append(node)
+
+    parent_map: Dict[str, str] = {}
+    for node in base_nodes:
+        parent_candidate: Optional[GraphNode] = None
+        for other in base_nodes:
+            if other.id == node.id:
+                continue
+            if other.start_line <= node.start_line and other.end_line >= node.end_line:
+                if parent_candidate is None:
+                    parent_candidate = other
+                    continue
+                span_len = other.end_line - other.start_line
+                parent_span = parent_candidate.end_line - parent_candidate.start_line
+                if span_len < parent_span:
+                    parent_candidate = other
+        parent_map[node.id] = parent_candidate.id if parent_candidate else root_id
+
+    def _depth_for(node_id: str) -> int:
+        depth = 0
+        current = node_id
+        while True:
+            parent_id = parent_map.get(current)
+            if not parent_id:
+                return depth
+            depth += 1
+            if parent_id == root_id:
+                return depth
+            current = parent_id
+
+    children_map: Dict[str, List[str]] = {root_id: []}
+    for node in base_nodes:
+        parent_id = parent_map[node.id]
+        children_map.setdefault(parent_id, []).append(node.id)
+
+    node_lookup = {node.id: node for node in base_nodes}
+    ordered_nodes: List[GraphNode] = []
+    for node in base_nodes:
+        depth = _depth_for(node.id)
+        parent_id = parent_map[node.id]
+        children_ids = children_map.get(node.id, [])
+        children_ids_sorted = sorted(
+            children_ids,
+            key=lambda cid: (
+                node_lookup[cid].start_line,
+                node_lookup[cid].start_char,
+                node_lookup[cid].end_line,
+                node_lookup[cid].end_char,
+            ),
+        )
+        ordered_nodes.append(
+            GraphNode(
+                id=node.id,
+                node_type=node.node_type,
+                name=node.name,
+                start_line=node.start_line,
+                end_line=node.end_line,
+                start_char=node.start_char,
+                end_char=node.end_char,
+                depth=depth,
+                parent_id=parent_id,
+                children=tuple(children_ids_sorted),
+                metadata=node.metadata,
+                line_hash=node.line_hash,
+            )
+        )
+
+    root_children = children_map.get(root_id, [])
+    root_children_sorted = sorted(
+        root_children,
+        key=lambda cid: (
+            node_lookup[cid].start_line,
+            node_lookup[cid].start_char,
+            node_lookup[cid].end_line,
+            node_lookup[cid].end_char,
+        ),
+    )
+    root = GraphNode(
+        id=root.id,
+        node_type=root.node_type,
+        name=root.name,
+        start_line=root.start_line,
+        end_line=root.end_line,
+        start_char=root.start_char,
+        end_char=root.end_char,
+        depth=root.depth,
+        parent_id=root.parent_id,
+        children=tuple(root_children_sorted),
+        metadata=root.metadata,
+        line_hash=root.line_hash,
+    )
+
     root.validate()
+    for node in ordered_nodes:
+        node.validate()
+
     return FileGraph(
         path=str(path.resolve()),
         content_hash=content_hash,
-        nodes=(root,),
+        nodes=tuple([root] + order_nodes(ordered_nodes)),
         root_ids=(root_id,),
     )
+
+
+_PY_DEF_RE = re.compile(r"^\s*def\s+([A-Za-z_][\w]*)\s*\(")
+_PY_CLASS_RE = re.compile(r"^\s*class\s+([A-Za-z_][\w]*)")
+_PY_IMPORT_RE = re.compile(r"^\s*(?:import\s+[\w\.]+|from\s+[\w\.]+\s+import\b)")
+_PY_BLOCK_RE = re.compile(r"^\s*(if|elif|else|for|while|try|except|with)\b")
+
+_JS_FUNC_RE = re.compile(r"^\s*(?:export\s+)?function\s+([A-Za-z_][\w]*)\s*\(")
+_JS_CLASS_RE = re.compile(r"^\s*(?:export\s+)?class\s+([A-Za-z_][\w]*)")
+_JS_IMPORT_RE = re.compile(r"^\s*import\b")
+_JS_BLOCK_RE = re.compile(r"^\s*(if|for|while|switch|try|catch)\b")
+
+_GENERIC_FUNC_RE = re.compile(r"^\s*(?:def|function)\s+([A-Za-z_][\w]*)")
+_GENERIC_CLASS_RE = re.compile(r"^\s*class\s+([A-Za-z_][\w]*)")
+
+
+def _leading_indent(line: str) -> int:
+    expanded = line.replace("\t", "    ")
+    return len(expanded) - len(expanded.lstrip(" "))
+
+
+def _python_block_end(lines: Sequence[str], start_idx: int, indent: int) -> int:
+    last_content = start_idx
+    for idx in range(start_idx + 1, len(lines)):
+        line = lines[idx]
+        if not line.strip():
+            continue
+        if _leading_indent(line) <= indent:
+            return last_content
+        last_content = idx
+    return last_content
+
+
+def _brace_block_end(lines: Sequence[str], start_idx: int) -> int:
+    depth = 0
+    started = False
+    last_content = start_idx
+    for idx in range(start_idx, len(lines)):
+        line = lines[idx]
+        depth += line.count("{")
+        if "{" in line:
+            started = True
+        depth -= line.count("}")
+        if line.strip():
+            last_content = idx
+        if started and depth <= 0:
+            return last_content
+    return last_content
+
+
+def _language_for_path(path: Path) -> str:
+    ext = path.suffix.lower()
+    if ext in {".py", ".pyw"}:
+        return "python"
+    if ext in {".js", ".jsx"}:
+        return "javascript"
+    if ext in {".ts", ".tsx"}:
+        return "typescript"
+    return "generic"
+
+
+def _try_tree_sitter_nodes(text: str, language: str) -> Optional[List[_NodeDraft]]:
+    try:
+        from tree_sitter import Parser
+        from tree_sitter_languages import get_language
+    except Exception:
+        return None
+
+    try:
+        ts_language = get_language(language)
+    except Exception:
+        return None
+
+    parser = Parser()
+    parser.set_language(ts_language)
+    tree = parser.parse(text.encode("utf-8"))
+
+    if language == "python":
+        mapping = {
+            "function_definition": "function",
+            "class_definition": "class",
+            "import_statement": "import",
+            "import_from_statement": "import",
+        }
+    elif language in {"javascript", "typescript"}:
+        mapping = {
+            "function_declaration": "function",
+            "class_declaration": "class",
+            "import_statement": "import",
+        }
+    else:
+        mapping = {}
+
+    if not mapping:
+        return None
+
+    nodes: List[_NodeDraft] = []
+    cursor = tree.walk()
+    stack = [cursor.node]
+    while stack:
+        node = stack.pop()
+        node_type = mapping.get(node.type)
+        if node_type:
+            name_node = node.child_by_field_name("name")
+            name = name_node.text.decode("utf-8") if name_node else node.type
+            start_line = node.start_point[0] + 1
+            end_line = max(node.end_point[0] + 1, start_line)
+            start_char = node.start_byte
+            end_char = max(node.end_byte, start_char)
+            nodes.append(
+                _NodeDraft(
+                    node_type=node_type,
+                    name=name,
+                    start_line=start_line,
+                    end_line=end_line,
+                    start_char=start_char,
+                    end_char=end_char,
+                    metadata={"language": language, "parser": "tree_sitter"},
+                )
+            )
+        stack.extend(reversed(node.children))
+
+    return nodes
+
+
+def _parse_code_nodes(text: str, language: str) -> List[_NodeDraft]:
+    tree_nodes = _try_tree_sitter_nodes(text, language)
+    if tree_nodes is not None:
+        return tree_nodes
+
+    lines, offsets = _line_offsets(text)
+    nodes: List[_NodeDraft] = []
+
+    for idx, line in enumerate(lines):
+        line_no = idx + 1
+        stripped = line.strip()
+        if not stripped:
+            continue
+
+        if language == "python":
+            match = _PY_IMPORT_RE.match(line)
+            if match:
+                start_char = offsets[idx]
+                end_char = start_char + len(line)
+                nodes.append(
+                    _NodeDraft(
+                        node_type="import",
+                        name="import",
+                        start_line=line_no,
+                        end_line=line_no,
+                        start_char=start_char,
+                        end_char=end_char,
+                        metadata={"language": language, "parser": "heuristic"},
+                    )
+                )
+                continue
+
+            match = _PY_CLASS_RE.match(line)
+            if match:
+                indent = _leading_indent(line)
+                end_idx = _python_block_end(lines, idx, indent)
+                start_char = offsets[idx]
+                end_char = offsets[end_idx] + len(lines[end_idx])
+                nodes.append(
+                    _NodeDraft(
+                        node_type="class",
+                        name=match.group(1),
+                        start_line=line_no,
+                        end_line=end_idx + 1,
+                        start_char=start_char,
+                        end_char=end_char,
+                        metadata={"language": language, "parser": "heuristic"},
+                    )
+                )
+                continue
+
+            match = _PY_DEF_RE.match(line)
+            if match:
+                indent = _leading_indent(line)
+                end_idx = _python_block_end(lines, idx, indent)
+                start_char = offsets[idx]
+                end_char = offsets[end_idx] + len(lines[end_idx])
+                nodes.append(
+                    _NodeDraft(
+                        node_type="function",
+                        name=match.group(1),
+                        start_line=line_no,
+                        end_line=end_idx + 1,
+                        start_char=start_char,
+                        end_char=end_char,
+                        metadata={"language": language, "parser": "heuristic"},
+                    )
+                )
+                continue
+
+            match = _PY_BLOCK_RE.match(line)
+            if match:
+                indent = _leading_indent(line)
+                end_idx = _python_block_end(lines, idx, indent)
+                start_char = offsets[idx]
+                end_char = offsets[end_idx] + len(lines[end_idx])
+                nodes.append(
+                    _NodeDraft(
+                        node_type="block",
+                        name=match.group(1),
+                        start_line=line_no,
+                        end_line=end_idx + 1,
+                        start_char=start_char,
+                        end_char=end_char,
+                        metadata={"language": language, "parser": "heuristic"},
+                    )
+                )
+                continue
+
+        elif language in {"javascript", "typescript"}:
+            match = _JS_IMPORT_RE.match(line)
+            if match:
+                start_char = offsets[idx]
+                end_char = start_char + len(line)
+                nodes.append(
+                    _NodeDraft(
+                        node_type="import",
+                        name="import",
+                        start_line=line_no,
+                        end_line=line_no,
+                        start_char=start_char,
+                        end_char=end_char,
+                        metadata={"language": language, "parser": "heuristic"},
+                    )
+                )
+                continue
+
+            match = _JS_CLASS_RE.match(line)
+            if match:
+                end_idx = _brace_block_end(lines, idx)
+                start_char = offsets[idx]
+                end_char = offsets[end_idx] + len(lines[end_idx])
+                nodes.append(
+                    _NodeDraft(
+                        node_type="class",
+                        name=match.group(1),
+                        start_line=line_no,
+                        end_line=end_idx + 1,
+                        start_char=start_char,
+                        end_char=end_char,
+                        metadata={"language": language, "parser": "heuristic"},
+                    )
+                )
+                continue
+
+            match = _JS_FUNC_RE.match(line)
+            if match:
+                end_idx = _brace_block_end(lines, idx)
+                start_char = offsets[idx]
+                end_char = offsets[end_idx] + len(lines[end_idx])
+                nodes.append(
+                    _NodeDraft(
+                        node_type="function",
+                        name=match.group(1),
+                        start_line=line_no,
+                        end_line=end_idx + 1,
+                        start_char=start_char,
+                        end_char=end_char,
+                        metadata={"language": language, "parser": "heuristic"},
+                    )
+                )
+                continue
+
+            match = _JS_BLOCK_RE.match(line)
+            if match:
+                end_idx = _brace_block_end(lines, idx)
+                start_char = offsets[idx]
+                end_char = offsets[end_idx] + len(lines[end_idx])
+                nodes.append(
+                    _NodeDraft(
+                        node_type="block",
+                        name=match.group(1),
+                        start_line=line_no,
+                        end_line=end_idx + 1,
+                        start_char=start_char,
+                        end_char=end_char,
+                        metadata={"language": language, "parser": "heuristic"},
+                    )
+                )
+                continue
+
+        else:
+            match = _GENERIC_CLASS_RE.match(line)
+            if match:
+                start_char = offsets[idx]
+                end_char = start_char + len(line)
+                nodes.append(
+                    _NodeDraft(
+                        node_type="class",
+                        name=match.group(1),
+                        start_line=line_no,
+                        end_line=line_no,
+                        start_char=start_char,
+                        end_char=end_char,
+                        metadata={"language": language, "parser": "heuristic"},
+                    )
+                )
+                continue
+
+            match = _GENERIC_FUNC_RE.match(line)
+            if match:
+                start_char = offsets[idx]
+                end_char = start_char + len(line)
+                nodes.append(
+                    _NodeDraft(
+                        node_type="function",
+                        name=match.group(1),
+                        start_line=line_no,
+                        end_line=line_no,
+                        start_char=start_char,
+                        end_char=end_char,
+                        metadata={"language": language, "parser": "heuristic"},
+                    )
+                )
+                continue
+
+    return nodes
+
+
+def _build_code_graph(path: Path, text: str, content_hash: str) -> FileGraph:
+    language = _language_for_path(path)
+    nodes = _parse_code_nodes(text, language)
+    return _assemble_graph(path, text, content_hash, nodes)
 
 
 _GRAPH_CACHE: Dict[str, FileGraph] = {}
@@ -262,6 +746,9 @@ def get_file_graph(path: Path | str) -> FileGraph:
         return cached.with_path(file_path)
 
     text = _decode_bytes(content_bytes)
-    graph = _build_basic_graph(file_path, text, content_hash)
+    if file_path.suffix.lower() in CODE_EXTENSIONS:
+        graph = _build_code_graph(file_path, text, content_hash)
+    else:
+        graph = _assemble_graph(file_path, text, content_hash, [])
     _GRAPH_CACHE[content_hash] = graph
     return graph
