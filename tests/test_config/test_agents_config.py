@@ -73,6 +73,12 @@ def test_sandbox_config_validate_rejects_empty_read_path() -> None:
         cfg.validate()
 
 
+def test_sandbox_config_validate_rejects_empty_command_allowlist_entry() -> None:
+    cfg = SandboxConfig(command_allowlist=["", "ls"])
+    with pytest.raises(ValueError, match="command_allowlist"):
+        cfg.validate()
+
+
 def test_build_config_reads_agents_section(tmp_path: Path) -> None:
     raw = _base_raw(tmp_path)
     raw["agents"] = {
@@ -97,6 +103,9 @@ def test_build_config_reads_agents_section(tmp_path: Path) -> None:
                 "max_file_write_mb": 4,
             },
             "docker": {"enabled": True, "image": "test-image"},
+            "wsl2": {"enabled": True, "distro": "Ubuntu"},
+            "command_allowlist": ["ls", "git"],
+            "command_denylist": ["rm"],
             "tool_llm_assignments": {"query_remote": "decomposition"},
         },
         "memory": {
@@ -135,6 +144,10 @@ def test_build_config_reads_agents_section(tmp_path: Path) -> None:
     assert config.agents.sandbox.limits["max_file_write_mb"] == 4
     assert config.agents.sandbox.docker["enabled"] is True
     assert config.agents.sandbox.docker["image"] == "test-image"
+    assert config.agents.sandbox.wsl2["enabled"] is True
+    assert config.agents.sandbox.wsl2["distro"] == "Ubuntu"
+    assert config.agents.sandbox.command_allowlist == ["ls", "git"]
+    assert config.agents.sandbox.command_denylist == ["rm"]
     assert config.agents.sandbox.tool_llm_assignments["query_remote"] == "decomposition"
     assert config.agents.memory.enabled is True
     assert config.agents.memory.storage_backend == "sqlite"
@@ -178,6 +191,9 @@ def test_config_to_raw_includes_agents_section(tmp_path: Path) -> None:
             "force_docker": False,
             "limits": {"timeout_s_default": 22, "max_stdout_kb": 33, "max_file_write_mb": 2},
             "docker": {"enabled": False, "mem_limit_mb": 1024},
+            "wsl2": {"enabled": False},
+            "command_allowlist": ["cat"],
+            "command_denylist": ["powershell.exe"],
             "tool_llm_assignments": {"query_llm": "default"},
         },
         "memory": {
@@ -216,6 +232,9 @@ def test_config_to_raw_includes_agents_section(tmp_path: Path) -> None:
     assert serialized["agents"]["sandbox"]["limits"]["max_file_write_mb"] == 2
     assert serialized["agents"]["sandbox"]["docker"]["enabled"] is False
     assert serialized["agents"]["sandbox"]["docker"]["mem_limit_mb"] == 1024
+    assert serialized["agents"]["sandbox"]["wsl2"]["enabled"] is False
+    assert serialized["agents"]["sandbox"]["command_allowlist"] == ["cat"]
+    assert serialized["agents"]["sandbox"]["command_denylist"] == ["powershell.exe"]
     assert serialized["agents"]["memory"]["enabled"] is True
     assert serialized["agents"]["memory"]["storage_backend"] == "sqlite"
     assert serialized["agents"]["memory"]["sqlite_path"].endswith("memory.sqlite3")

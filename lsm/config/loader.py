@@ -537,6 +537,9 @@ def build_sandbox_config(raw: Dict[str, Any]) -> SandboxConfig:
         force_docker=bool(raw.get("force_docker", False)),
         limits=dict(raw.get("limits", {})),
         docker=dict(raw.get("docker", {})),
+        wsl2=dict(raw.get("wsl2", {})),
+        command_allowlist=list(raw.get("command_allowlist", [])),
+        command_denylist=list(raw.get("command_denylist", [])),
         tool_llm_assignments=dict(raw.get("tool_llm_assignments", {})),
     )
 
@@ -1185,6 +1188,9 @@ def config_to_raw(config: LSMConfig) -> Dict[str, Any]:
                 "force_docker": config.agents.sandbox.force_docker,
                 "limits": dict(config.agents.sandbox.limits),
                 "docker": dict(config.agents.sandbox.docker),
+                "wsl2": dict(config.agents.sandbox.wsl2),
+                "command_allowlist": list(config.agents.sandbox.command_allowlist),
+                "command_denylist": list(config.agents.sandbox.command_denylist),
                 "tool_llm_assignments": dict(config.agents.sandbox.tool_llm_assignments),
             },
             "memory": {

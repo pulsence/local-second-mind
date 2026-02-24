@@ -24,6 +24,12 @@ _DEFAULT_SANDBOX_DOCKER = {
     "mem_limit_mb": 512,
     "read_only_root": True,
 }
+_DEFAULT_SANDBOX_WSL2 = {
+    "enabled": False,
+    "distro": "",
+    "wsl_bin": "wsl",
+    "shell": "bash",
+}
 _VALID_MEMORY_BACKENDS = {"auto", "sqlite", "postgresql"}
 _VALID_SCHEDULE_CONCURRENCY_POLICIES = {"skip", "queue", "cancel"}
 _VALID_SCHEDULE_CONFIRMATION_MODES = {"auto", "confirm", "deny"}
@@ -68,6 +74,17 @@ class SandboxConfig:
     )
     """Docker runner configuration (reserved for sandbox container execution)."""
 
+    wsl2: Dict[str, Any] = field(
+        default_factory=lambda: dict(_DEFAULT_SANDBOX_WSL2)
+    )
+    """WSL2 runner configuration for Windows-hosted execution."""
+
+    command_allowlist: List[str] = field(default_factory=list)
+    """Allowed command prefixes for shell tools."""
+
+    command_denylist: List[str] = field(default_factory=list)
+    """Denied command prefixes for shell tools."""
+
     tool_llm_assignments: Dict[str, str] = field(default_factory=dict)
     """Per-tool LLM service assignment (`tool_name -> service_name`)."""
 
@@ -88,10 +105,19 @@ class SandboxConfig:
         self.force_docker = bool(self.force_docker)
         limits = self.limits if isinstance(self.limits, dict) else {}
         docker = self.docker if isinstance(self.docker, dict) else {}
+        wsl2 = self.wsl2 if isinstance(self.wsl2, dict) else {}
         self.limits = dict(_DEFAULT_SANDBOX_LIMITS)
         self.limits.update(limits)
         self.docker = dict(_DEFAULT_SANDBOX_DOCKER)
         self.docker.update(docker)
+        self.wsl2 = dict(_DEFAULT_SANDBOX_WSL2)
+        self.wsl2.update(wsl2)
+        self.command_allowlist = [
+            str(cmd).strip() for cmd in (self.command_allowlist or [])
+        ]
+        self.command_denylist = [
+            str(cmd).strip() for cmd in (self.command_denylist or [])
+        ]
         self.tool_llm_assignments = {
             str(key).strip(): str(value).strip()
             for key, value in self.tool_llm_assignments.items()
@@ -126,6 +152,12 @@ class SandboxConfig:
             raise ValueError("sandbox.limits.max_stdout_kb must be >= 1")
         if max_file_write_mb <= 0:
             raise ValueError("sandbox.limits.max_file_write_mb must be > 0")
+        for idx, cmd in enumerate(self.command_allowlist):
+            if not str(cmd).strip():
+                raise ValueError(f"sandbox.command_allowlist[{idx}] cannot be empty")
+        for idx, cmd in enumerate(self.command_denylist):
+            if not str(cmd).strip():
+                raise ValueError(f"sandbox.command_denylist[{idx}] cannot be empty")
 
 
 @dataclass

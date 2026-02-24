@@ -243,3 +243,62 @@ def test_runner_policy_exec_requires_confirmation_without_docker() -> None:
     with pytest.raises(PermissionError, match="requires user confirmation"):
         sandbox.execute(ExecTool(), {})
     assert local.calls == 0
+
+
+def test_runner_policy_prefers_wsl2_when_docker_unavailable() -> None:
+    local = RecordingRunner(ToolExecutionResult(stdout="local", runner_used="local"))
+    wsl2 = RecordingRunner(ToolExecutionResult(stdout="wsl2", runner_used="wsl2"))
+    sandbox = ToolSandbox(
+        SandboxConfig(
+            allow_url_access=True,
+            execution_mode="prefer_docker",
+            docker={"enabled": False},
+            wsl2={"enabled": True},
+        ),
+        local_runner=local,
+        docker_runner=None,
+        wsl2_runner=wsl2,
+    )
+    output = sandbox.execute(NetworkTool(), {})
+    assert output == "wsl2"
+    assert local.calls == 0
+    assert wsl2.calls == 1
+
+
+def test_runner_policy_local_only_ignores_wsl2() -> None:
+    local = RecordingRunner(ToolExecutionResult(stdout="local", runner_used="local"))
+    wsl2 = RecordingRunner(ToolExecutionResult(stdout="wsl2", runner_used="wsl2"))
+    sandbox = ToolSandbox(
+        SandboxConfig(
+            execution_mode="local_only",
+            docker={"enabled": False},
+            wsl2={"enabled": True},
+        ),
+        local_runner=local,
+        docker_runner=None,
+        wsl2_runner=wsl2,
+    )
+    output = sandbox.execute(ExecTool(), {})
+    assert output == "local"
+    assert local.calls == 1
+    assert wsl2.calls == 0
+
+
+def test_runner_policy_force_docker_blocks_even_with_wsl2() -> None:
+    local = RecordingRunner(ToolExecutionResult(stdout="local", runner_used="local"))
+    wsl2 = RecordingRunner(ToolExecutionResult(stdout="wsl2", runner_used="wsl2"))
+    sandbox = ToolSandbox(
+        SandboxConfig(
+            execution_mode="prefer_docker",
+            force_docker=True,
+            docker={"enabled": False},
+            wsl2={"enabled": True},
+        ),
+        local_runner=local,
+        docker_runner=None,
+        wsl2_runner=wsl2,
+    )
+    with pytest.raises(PermissionError, match="requires Docker execution"):
+        sandbox.execute(ExecTool(), {})
+    assert local.calls == 0
+    assert wsl2.calls == 0

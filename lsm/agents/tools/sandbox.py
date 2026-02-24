@@ -42,6 +42,7 @@ class ToolSandbox:
         *,
         local_runner: Optional[BaseRunner] = None,
         docker_runner: Optional[BaseRunner] = None,
+        wsl2_runner: Optional[BaseRunner] = None,
         interaction_channel: Optional[InteractionChannel] = None,
         waiting_state_callback: Optional[Callable[[bool], None]] = None,
         workspace_root: Optional[Path | str] = None,
@@ -51,6 +52,7 @@ class ToolSandbox:
         self.permission_gate = PermissionGate(config)
         self.local_runner: BaseRunner = local_runner or self._build_local_runner()
         self.docker_runner: Optional[BaseRunner] = docker_runner or self._build_docker_runner()
+        self.wsl2_runner: Optional[BaseRunner] = wsl2_runner
         self.interaction_channel = interaction_channel
         self.waiting_state_callback = waiting_state_callback
         self.last_execution_result: Optional[ToolExecutionResult] = None
@@ -333,6 +335,11 @@ class ToolSandbox:
                 "sandbox.force_docker cannot be disabled relative to global sandbox"
             )
         if (
+            bool(self.config.wsl2.get("enabled", False))
+            and not bool(self.global_sandbox.wsl2.get("enabled", False))
+        ):
+            raise ValueError("sandbox.wsl2 cannot be enabled when disabled in global sandbox")
+        if (
             self.global_sandbox.execution_mode == "prefer_docker"
             and self.config.execution_mode != "prefer_docker"
         ):
@@ -573,6 +580,14 @@ class ToolSandbox:
                         mode,
                     )
                     return self.docker_runner
+                if self._is_wsl2_enabled() and self.wsl2_runner is not None:
+                    logger.debug(
+                        "Runner selection: tool='%s' risk='%s' mode='%s' runner='wsl2' reason='prefer_docker fallback'",
+                        tool.name,
+                        risk_level,
+                        mode,
+                    )
+                    return self.wsl2_runner
                 reason = (
                     f"Tool '{tool.name}' (risk '{risk_level}') requires user confirmation "
                     "for local execution because Docker runner is unavailable"
@@ -601,6 +616,9 @@ class ToolSandbox:
             mode,
         )
         return self.local_runner
+
+    def _is_wsl2_enabled(self) -> bool:
+        return bool(self.config.wsl2.get("enabled", False))
 
     @staticmethod
     def _is_relative_to(path: Path, root: Path) -> bool:
