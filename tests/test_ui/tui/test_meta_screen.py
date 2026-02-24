@@ -69,6 +69,22 @@ class _RichLog:
         self.lines.append(message)
 
 
+def _fake_registry(names: list[str] | None = None):
+    if not names:
+        names = ["research"]
+    grouped: dict[str, list[SimpleNamespace]] = {}
+    for name in names:
+        theme = "Productivity" if name == "writing" else "Meta" if name == "meta" else "Academic"
+        grouped.setdefault(theme, []).append(
+            SimpleNamespace(name=name, category=name.title())
+        )
+    groups = [
+        SimpleNamespace(theme=theme, entries=tuple(grouped[theme]))
+        for theme in sorted(grouped.keys())
+    ]
+    return SimpleNamespace(list_groups=lambda: groups)
+
+
 class _Manager:
     def __init__(self) -> None:
         self.snapshot = {
@@ -183,7 +199,7 @@ def test_meta_panel_renders_task_graph_runs_and_artifacts(monkeypatch) -> None:
     manager = _Manager()
     monkeypatch.setattr(
         "lsm.ui.tui.screens.agents.AgentRegistry",
-        lambda: SimpleNamespace(list_agents=lambda: ["meta", "research"]),
+        lambda: _fake_registry(["meta", "research"]),
     )
     monkeypatch.setattr(
         "lsm.ui.tui.screens.agents.get_agent_runtime_manager",
@@ -226,7 +242,7 @@ def test_meta_panel_handles_no_active_meta(monkeypatch) -> None:
     manager.snapshot["available"] = False
     monkeypatch.setattr(
         "lsm.ui.tui.screens.agents.AgentRegistry",
-        lambda: SimpleNamespace(list_agents=lambda: ["meta", "research"]),
+        lambda: _fake_registry(["meta", "research"]),
     )
     monkeypatch.setattr(
         "lsm.ui.tui.screens.agents.get_agent_runtime_manager",
@@ -243,7 +259,7 @@ def test_meta_log_button_writes_to_log(monkeypatch) -> None:
     manager = _Manager()
     monkeypatch.setattr(
         "lsm.ui.tui.screens.agents.AgentRegistry",
-        lambda: SimpleNamespace(list_agents=lambda: ["meta", "research"]),
+        lambda: _fake_registry(["meta", "research"]),
     )
     monkeypatch.setattr(
         "lsm.ui.tui.screens.agents.get_agent_runtime_manager",

@@ -7,7 +7,7 @@ import pytest
 
 from lsm.agents.factory import AgentRegistry, create_agent
 from lsm.agents.models import AgentContext
-from lsm.agents.research import ResearchAgent
+from lsm.agents.academic import ResearchAgent
 from lsm.agents.tools.base import BaseTool, ToolRegistry
 from lsm.agents.tools.sandbox import ToolSandbox
 from lsm.config.loader import build_config_from_raw
@@ -97,7 +97,10 @@ def test_research_agent_runs_and_saves_outline(monkeypatch, tmp_path: Path) -> N
                 return "- Key finding\n- Supporting source"
             return json.dumps({"sufficient": True, "suggestions": []})
 
-    monkeypatch.setattr("lsm.agents.research.create_provider", lambda cfg: FakeProvider())
+    monkeypatch.setattr(
+        "lsm.agents.academic.research.create_provider",
+        lambda cfg: FakeProvider(),
+    )
 
     config = build_config_from_raw(_base_raw(tmp_path), tmp_path / "config.json")
     registry = ToolRegistry()
@@ -131,7 +134,10 @@ def test_research_agent_stops_when_budget_exhausted(monkeypatch, tmp_path: Path)
                 return json.dumps({"sufficient": False, "suggestions": ["Refine"]})
             return "x" * 5000
 
-    monkeypatch.setattr("lsm.agents.research.create_provider", lambda cfg: VerboseProvider())
+    monkeypatch.setattr(
+        "lsm.agents.academic.research.create_provider",
+        lambda cfg: VerboseProvider(),
+    )
 
     raw = _base_raw(tmp_path)
     raw["agents"]["max_tokens_budget"] = 200
@@ -162,7 +168,10 @@ def test_agent_factory_creates_research_agent(monkeypatch, tmp_path: Path) -> No
                 return json.dumps({"sufficient": True, "suggestions": []})
             return "- Summary"
 
-    monkeypatch.setattr("lsm.agents.research.create_provider", lambda cfg: FakeProvider())
+    monkeypatch.setattr(
+        "lsm.agents.academic.research.create_provider",
+        lambda cfg: FakeProvider(),
+    )
 
     config = build_config_from_raw(_base_raw(tmp_path), tmp_path / "config.json")
     registry = ToolRegistry()

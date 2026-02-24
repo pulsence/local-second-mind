@@ -105,6 +105,22 @@ class _RichLog:
         self.scroll_end_calls = []
 
 
+def _fake_registry(names: list[str] | None = None):
+    if not names:
+        names = ["research"]
+    grouped: dict[str, list[SimpleNamespace]] = {}
+    for name in names:
+        theme = "Productivity" if name == "writing" else "Meta" if name == "meta" else "Academic"
+        grouped.setdefault(theme, []).append(
+            SimpleNamespace(name=name, category=name.title())
+        )
+    groups = [
+        SimpleNamespace(theme=theme, entries=tuple(grouped[theme]))
+        for theme in sorted(grouped.keys())
+    ]
+    return SimpleNamespace(list_groups=lambda: groups)
+
+
 class _Manager:
     def __init__(self) -> None:
         self.running_rows = [
@@ -296,7 +312,7 @@ def test_running_agents_selection_routes_log(monkeypatch) -> None:
     manager = _Manager()
     monkeypatch.setattr(
         "lsm.ui.tui.screens.agents.AgentRegistry",
-        lambda: SimpleNamespace(list_agents=lambda: ["research", "writing"]),
+        lambda: _fake_registry(["research", "writing"]),
     )
     monkeypatch.setattr(
         "lsm.ui.tui.screens.agents.get_agent_runtime_manager",
@@ -337,7 +353,7 @@ def test_permission_interaction_panel_and_deny(monkeypatch) -> None:
     ]
     monkeypatch.setattr(
         "lsm.ui.tui.screens.agents.AgentRegistry",
-        lambda: SimpleNamespace(list_agents=lambda: ["research", "writing"]),
+        lambda: _fake_registry(["research", "writing"]),
     )
     monkeypatch.setattr(
         "lsm.ui.tui.screens.agents.get_agent_runtime_manager",
@@ -380,7 +396,7 @@ def test_clarification_interaction_reply(monkeypatch) -> None:
     ]
     monkeypatch.setattr(
         "lsm.ui.tui.screens.agents.AgentRegistry",
-        lambda: SimpleNamespace(list_agents=lambda: ["research", "writing"]),
+        lambda: _fake_registry(["research", "writing"]),
     )
     monkeypatch.setattr(
         "lsm.ui.tui.screens.agents.get_agent_runtime_manager",
@@ -405,7 +421,7 @@ def test_running_navigation_actions(monkeypatch) -> None:
     manager = _Manager()
     monkeypatch.setattr(
         "lsm.ui.tui.screens.agents.AgentRegistry",
-        lambda: SimpleNamespace(list_agents=lambda: ["research", "writing"]),
+        lambda: _fake_registry(["research", "writing"]),
     )
     monkeypatch.setattr(
         "lsm.ui.tui.screens.agents.get_agent_runtime_manager",
@@ -428,7 +444,7 @@ def test_log_stream_drain_appends_formatted_entries_and_drop_notice(monkeypatch)
     manager = _Manager()
     monkeypatch.setattr(
         "lsm.ui.tui.screens.agents.AgentRegistry",
-        lambda: SimpleNamespace(list_agents=lambda: ["research", "writing"]),
+        lambda: _fake_registry(["research", "writing"]),
     )
     monkeypatch.setattr(
         "lsm.ui.tui.screens.agents.get_agent_runtime_manager",
@@ -468,7 +484,7 @@ def test_refresh_controls_toggle_and_interval_updates(monkeypatch) -> None:
     manager = _Manager()
     monkeypatch.setattr(
         "lsm.ui.tui.screens.agents.AgentRegistry",
-        lambda: SimpleNamespace(list_agents=lambda: ["research", "writing"]),
+        lambda: _fake_registry(["research", "writing"]),
     )
     monkeypatch.setattr(
         "lsm.ui.tui.screens.agents.get_agent_runtime_manager",
@@ -529,7 +545,7 @@ def test_follow_toggle_controls_log_autoscroll(monkeypatch) -> None:
     manager = _Manager()
     monkeypatch.setattr(
         "lsm.ui.tui.screens.agents.AgentRegistry",
-        lambda: SimpleNamespace(list_agents=lambda: ["research", "writing"]),
+        lambda: _fake_registry(["research", "writing"]),
     )
     monkeypatch.setattr(
         "lsm.ui.tui.screens.agents.get_agent_runtime_manager",
@@ -562,7 +578,7 @@ def test_unread_log_counters_increment_and_clear(monkeypatch) -> None:
     manager = _Manager()
     monkeypatch.setattr(
         "lsm.ui.tui.screens.agents.AgentRegistry",
-        lambda: SimpleNamespace(list_agents=lambda: ["research", "writing"]),
+        lambda: _fake_registry(["research", "writing"]),
     )
     monkeypatch.setattr(
         "lsm.ui.tui.screens.agents.get_agent_runtime_manager",
@@ -614,7 +630,7 @@ def test_timer_lifecycle_starts_restarts_and_stops_without_leaks(monkeypatch) ->
     manager = _Manager()
     monkeypatch.setattr(
         "lsm.ui.tui.screens.agents.AgentRegistry",
-        lambda: SimpleNamespace(list_agents=lambda: ["research", "writing"]),
+        lambda: _fake_registry(["research", "writing"]),
     )
     monkeypatch.setattr(
         "lsm.ui.tui.screens.agents.get_agent_runtime_manager",
@@ -671,7 +687,7 @@ def test_timer_lifecycle_repeated_mount_restarts_all_timers(monkeypatch) -> None
     manager = _Manager()
     monkeypatch.setattr(
         "lsm.ui.tui.screens.agents.AgentRegistry",
-        lambda: SimpleNamespace(list_agents=lambda: ["research", "writing"]),
+        lambda: _fake_registry(["research", "writing"]),
     )
     monkeypatch.setattr(
         "lsm.ui.tui.screens.agents.get_agent_runtime_manager",
@@ -728,7 +744,7 @@ def test_interaction_panel_mode_switches_permission_to_clarification(monkeypatch
     ]
     monkeypatch.setattr(
         "lsm.ui.tui.screens.agents.AgentRegistry",
-        lambda: SimpleNamespace(list_agents=lambda: ["research", "writing"]),
+        lambda: _fake_registry(["research", "writing"]),
     )
     monkeypatch.setattr(
         "lsm.ui.tui.screens.agents.get_agent_runtime_manager",

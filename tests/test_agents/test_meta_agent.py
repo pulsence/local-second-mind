@@ -85,7 +85,10 @@ def _patch_meta_execution(monkeypatch) -> None:
         _ = llm_registry, tool_registry, sandbox
         return FakeChildAgent(str(name), agent_config)
 
-    monkeypatch.setattr("lsm.agents.meta.create_provider", lambda cfg: FakeProvider())
+    monkeypatch.setattr(
+        "lsm.agents.meta.meta.create_provider",
+        lambda cfg: FakeProvider(),
+    )
     monkeypatch.setattr("lsm.agents.factory.create_agent", _fake_create_agent)
 
 

@@ -41,6 +41,22 @@ class _RichLog:
         self.lines.append(message)
 
 
+def _fake_registry(names: list[str] | None = None):
+    if not names:
+        names = ["research"]
+    grouped: dict[str, list[SimpleNamespace]] = {}
+    for name in names:
+        theme = "Productivity" if name == "writing" else "Meta" if name == "meta" else "Academic"
+        grouped.setdefault(theme, []).append(
+            SimpleNamespace(name=name, category=name.title())
+        )
+    groups = [
+        SimpleNamespace(theme=theme, entries=tuple(grouped[theme]))
+        for theme in sorted(grouped.keys())
+    ]
+    return SimpleNamespace(list_groups=lambda: groups)
+
+
 class _Manager:
     def __init__(self) -> None:
         self.promoted = None
@@ -126,7 +142,7 @@ def test_memory_panel_refresh_approve_reject_and_ttl(monkeypatch) -> None:
     manager = _Manager()
     monkeypatch.setattr(
         "lsm.ui.tui.screens.agents.AgentRegistry",
-        lambda: SimpleNamespace(list_agents=lambda: ["research"]),
+        lambda: _fake_registry(["research"]),
     )
     monkeypatch.setattr(
         "lsm.ui.tui.screens.agents.get_agent_runtime_manager",
@@ -168,7 +184,7 @@ def test_memory_panel_refresh_handles_error(monkeypatch) -> None:
     manager.get_memory_candidates = _boom  # type: ignore[assignment]
     monkeypatch.setattr(
         "lsm.ui.tui.screens.agents.AgentRegistry",
-        lambda: SimpleNamespace(list_agents=lambda: ["research"]),
+        lambda: _fake_registry(["research"]),
     )
     monkeypatch.setattr(
         "lsm.ui.tui.screens.agents.get_agent_runtime_manager",

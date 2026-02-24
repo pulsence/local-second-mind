@@ -14,11 +14,11 @@ from lsm.config.models import AgentConfig, LLMRegistryConfig
 from lsm.config.models.agents import SandboxConfig
 from lsm.providers.factory import create_provider
 
-from .base import AgentStatus, BaseAgent
-from .models import AgentContext
+from ..base import AgentStatus, BaseAgent
+from ..models import AgentContext
 from .task_graph import AgentTask, TaskGraph
-from .tools.base import ToolRegistry
-from .tools.sandbox import ToolSandbox
+from ..tools.base import ToolRegistry
+from ..tools.sandbox import ToolSandbox
 
 _SUPPORTED_SUB_AGENTS = {"curator", "research", "synthesis", "writing"}
 _META_SYSTEM_TOOL_NAMES = {"spawn_agent", "await_agent", "collect_artifacts"}
@@ -289,7 +289,7 @@ class MetaAgent(BaseAgent):
             )
             child_agent_config = replace(self.agent_config, agents_folder=sub_dir)
 
-            from .factory import create_agent
+            from ..factory import create_agent
 
             child_agent = create_agent(
                 name=task.agent_name,

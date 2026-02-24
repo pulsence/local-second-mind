@@ -1,6 +1,6 @@
 # Phase 10: Meta-Agent Evolution
 
-**Why tenth:** Parallel execution builds on the existing serial meta-agent (already in `lsm/agents/meta.py`) and requires the full agent catalog (Phase 6) and communication assistants (Phase 9) to be available for orchestration.
+**Why tenth:** Parallel execution builds on the existing serial meta-agent (already in `lsm/agents/meta/meta.py`) and requires the full agent catalog (Phase 6) and communication assistants (Phase 9) to be available for orchestration.
 
 **Depends on:** Phase 6 (core agents), Phase 9 (communication assistants)
 

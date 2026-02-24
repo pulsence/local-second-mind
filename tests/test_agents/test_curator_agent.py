@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from lsm.agents.curator import CuratorAgent
+from lsm.agents.academic import CuratorAgent
 from lsm.agents.factory import create_agent
 from lsm.agents.models import AgentContext
 from lsm.agents.tools.base import BaseTool, ToolRegistry
@@ -220,7 +220,10 @@ def test_curator_agent_runs_and_saves_report(monkeypatch, tmp_path: Path) -> Non
                 )
             return "[]"
 
-    monkeypatch.setattr("lsm.agents.curator.create_provider", lambda cfg: FakeProvider())
+    monkeypatch.setattr(
+        "lsm.agents.academic.curator.create_provider",
+        lambda cfg: FakeProvider(),
+    )
 
     config = build_config_from_raw(_base_raw(tmp_path), tmp_path / "config.json")
     registry = ToolRegistry()
@@ -269,7 +272,10 @@ def test_agent_factory_creates_curator_agent(monkeypatch, tmp_path: Path) -> Non
                 return json.dumps(["No urgent quality issues detected."])
             return "[]"
 
-    monkeypatch.setattr("lsm.agents.curator.create_provider", lambda cfg: FakeProvider())
+    monkeypatch.setattr(
+        "lsm.agents.academic.curator.create_provider",
+        lambda cfg: FakeProvider(),
+    )
 
     config = build_config_from_raw(_base_raw(tmp_path), tmp_path / "config.json")
     registry = ToolRegistry()

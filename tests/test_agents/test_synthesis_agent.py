@@ -5,7 +5,7 @@ from pathlib import Path
 
 from lsm.agents.factory import create_agent
 from lsm.agents.models import AgentContext
-from lsm.agents.synthesis import SynthesisAgent
+from lsm.agents.academic import SynthesisAgent
 from lsm.agents.tools.base import BaseTool, ToolRegistry
 from lsm.agents.tools.sandbox import ToolSandbox
 from lsm.config.loader import build_config_from_raw
@@ -216,7 +216,10 @@ def test_synthesis_agent_runs_and_saves_outputs(monkeypatch, tmp_path: Path) -> 
                 )
             return "# Synthesis\n\nFallback\n"
 
-    monkeypatch.setattr("lsm.agents.synthesis.create_provider", lambda cfg: FakeProvider())
+    monkeypatch.setattr(
+        "lsm.agents.academic.synthesis.create_provider",
+        lambda cfg: FakeProvider(),
+    )
 
     config = build_config_from_raw(_base_raw(tmp_path), tmp_path / "config.json")
     registry = ToolRegistry()
@@ -272,7 +275,10 @@ def test_agent_factory_creates_synthesis_agent(monkeypatch, tmp_path: Path) -> N
                 return json.dumps({"sufficient": True, "coverage_notes": [], "missing_topics": []})
             return "# Synthesis\n\nFactory output\n"
 
-    monkeypatch.setattr("lsm.agents.synthesis.create_provider", lambda cfg: FakeProvider())
+    monkeypatch.setattr(
+        "lsm.agents.academic.synthesis.create_provider",
+        lambda cfg: FakeProvider(),
+    )
 
     config = build_config_from_raw(_base_raw(tmp_path), tmp_path / "config.json")
     registry = ToolRegistry()

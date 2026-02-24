@@ -103,7 +103,7 @@ Factories:
 
 - Runtime + state: `lsm/agents/base.py`, `lsm/agents/harness.py`
 - Tooling + sandbox: `lsm/agents/tools/`
-- Built-in research agent: `lsm/agents/research.py`
+- Built-in research agent: `lsm/agents/academic/research.py`
 - Factory/registry: `lsm/agents/factory.py`
 
 ## Data and State

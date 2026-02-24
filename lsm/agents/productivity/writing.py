@@ -13,10 +13,10 @@ from typing import Any, Dict, List, Optional
 from lsm.config.models import AgentConfig, LLMRegistryConfig
 from lsm.providers.factory import create_provider
 
-from .base import AgentStatus, BaseAgent
-from .models import AgentContext
-from .tools.base import ToolRegistry
-from .tools.sandbox import ToolSandbox
+from ..base import AgentStatus, BaseAgent
+from ..models import AgentContext
+from ..tools.base import ToolRegistry
+from ..tools.sandbox import ToolSandbox
 
 
 @dataclass

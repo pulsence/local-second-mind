@@ -14,10 +14,10 @@ from lsm.config.models import AgentConfig, LLMRegistryConfig
 from lsm.logging import get_logger
 from lsm.providers.factory import create_provider
 
-from .base import AgentStatus, BaseAgent
-from .models import AgentContext
-from .tools.base import ToolRegistry
-from .tools.sandbox import ToolSandbox
+from ..base import AgentStatus, BaseAgent
+from ..models import AgentContext
+from ..tools.base import ToolRegistry
+from ..tools.sandbox import ToolSandbox
 
 logger = get_logger(__name__)
 

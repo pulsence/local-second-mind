@@ -83,7 +83,10 @@ def test_meta_agent_writes_synthesized_final_result(monkeypatch, tmp_path: Path)
             return "# Final Synthesis\n\nConsolidated cross-agent output.\n"
 
     _patch_child_factory(monkeypatch)
-    monkeypatch.setattr("lsm.agents.meta.create_provider", lambda cfg: FakeProvider())
+    monkeypatch.setattr(
+        "lsm.agents.meta.meta.create_provider",
+        lambda cfg: FakeProvider(),
+    )
 
     config = build_config_from_raw(_base_raw(tmp_path), tmp_path / "config.json")
     agent = MetaAgent(
@@ -134,7 +137,7 @@ def test_meta_agent_falls_back_when_synthesis_provider_fails(monkeypatch, tmp_pa
     def _raise_provider(_cfg):
         raise RuntimeError("provider unavailable")
 
-    monkeypatch.setattr("lsm.agents.meta.create_provider", _raise_provider)
+    monkeypatch.setattr("lsm.agents.meta.meta.create_provider", _raise_provider)
 
     config = build_config_from_raw(_base_raw(tmp_path), tmp_path / "config.json")
     agent = MetaAgent(

@@ -17,6 +17,7 @@ from uuid import uuid4
 
 from lsm.agents import (
     AgentHarness,
+    AgentRegistry,
     AgentScheduler,
     InteractionChannel,
     InteractionRequest,
@@ -355,16 +356,36 @@ class AgentRuntimeManager:
             selected_id = self._selected_agent_id
         if not entries:
             return "No running agents.\n"
+        registry = AgentRegistry()
+        grouped: dict[str, list[AgentRunEntry]] = {}
+        for entry in entries:
+            metadata = registry.get_entry(entry.agent_name)
+            theme = metadata.theme if metadata else "Other"
+            grouped.setdefault(theme, []).append(entry)
         lines = [f"Running agents ({len(entries)}):"]
         now = datetime.utcnow()
-        for entry in entries:
-            marker = "*" if entry.agent_id == selected_id else "-"
-            status = self._entry_status_value(entry)
-            age_seconds = max(0.0, (now - entry.started_at).total_seconds())
-            lines.append(
-                f"{marker} {entry.agent_id[:8]} | {entry.agent_name} "
-                f"| status={status} | age={round(age_seconds, 1)}s | topic={entry.topic}"
-            )
+        for theme in sorted(grouped.keys(), key=str.lower):
+            lines.append(f"{theme}:")
+            for entry in grouped[theme]:
+                marker = "*" if entry.agent_id == selected_id else "-"
+                status = self._entry_status_value(entry)
+                age_seconds = max(0.0, (now - entry.started_at).total_seconds())
+                lines.append(
+                    f"{marker} {entry.agent_id[:8]} | {entry.agent_name} "
+                    f"| status={status} | age={round(age_seconds, 1)}s | topic={entry.topic}"
+                )
+        lines.append("")
+        return "\n".join(lines)
+
+    def format_available_agents(self) -> str:
+        registry = AgentRegistry()
+        groups = registry.list_groups()
+        if not groups:
+            return "No agents available.\n"
+        lines = ["Available agents:"]
+        for group in groups:
+            names = ", ".join(entry.name for entry in group.entries)
+            lines.append(f"{group.theme}: {names}")
         lines.append("")
         return "\n".join(lines)
 
@@ -2085,6 +2106,7 @@ def handle_agent_command(command: str, app: Any) -> str:
 
 
 def _agent_help() -> str:
+    manager = get_agent_runtime_manager()
     return (
         "Agent commands:\n"
         "  /agent start <name> <topic>\n"
@@ -2110,6 +2132,8 @@ def _agent_help() -> str:
         "  /agent schedule enable|disable <schedule_id>\n"
         "  /agent schedule remove <schedule_id>\n"
         "  /agent schedule status\n"
+        "\n"
+        f"{manager.format_available_agents()}"
     )
 
 

@@ -13,6 +13,10 @@ All notable changes to Local Second Mind are documented here.
 - Code/text/PDF/HTML graphers with section-aware spans, fixtures, and coverage.
 - Graph-aware read and metadata tooling with section selection and optional graph output.
 
+### Changed
+
+- Restructured built-in agents into academic/productivity/meta subpackages with registry theme/category metadata and grouped agent lists in shell/TUI.
+
 ## 0.6.0 - 2026-02-19
 
 ### Added

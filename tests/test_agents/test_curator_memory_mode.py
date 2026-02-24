@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from lsm.agents.curator import CuratorAgent
+from lsm.agents.academic import CuratorAgent
 from lsm.agents.models import AgentContext
 from lsm.agents.tools.base import ToolRegistry
 from lsm.agents.tools.sandbox import ToolSandbox
@@ -121,4 +121,3 @@ def test_curator_memory_mode_generates_candidates_from_run_summaries(
     assert str(agent.last_result.output_path) in state.artifacts
     assert str(candidates_json_path) in state.artifacts
     assert agent.last_result.log_path.exists()
-

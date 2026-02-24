@@ -7,7 +7,7 @@ from types import SimpleNamespace
 
 from lsm.agents.base import AgentState, AgentStatus
 from lsm.agents.models import AgentLogEntry
-from lsm.agents.task_graph import AgentTask, TaskGraph
+from lsm.agents.meta import AgentTask, TaskGraph
 from lsm.ui.shell.commands import agents as agent_commands
 
 

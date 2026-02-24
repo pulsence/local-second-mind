@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from lsm.agents.task_graph import AgentTask, TaskGraph
+from lsm.agents.meta import AgentTask, TaskGraph
 
 
 def test_task_graph_topological_sort_orders_dependencies() -> None:
@@ -79,4 +79,3 @@ def test_task_graph_mark_running_rejects_terminal_state() -> None:
     )
     with pytest.raises(ValueError, match="terminal state"):
         graph.mark_running("t1")
-

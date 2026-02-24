@@ -63,6 +63,8 @@ def test_handle_agent_command_help_and_status_when_empty(monkeypatch) -> None:
 
     out = agent_commands.handle_agent_command("/agent", app)
     assert "Agent commands:" in out
+    assert "Available agents:" in out
+    assert "Academic:" in out
 
     out2 = agent_commands.handle_agent_command("/agent status", app)
     assert "No active agent." in out2
@@ -104,4 +106,3 @@ def test_handle_agent_start_disabled(monkeypatch) -> None:
     app = _app(enabled=False)
     out = agent_commands.handle_agent_command("/agent start research ai", app)
     assert "Agents are disabled" in out
-

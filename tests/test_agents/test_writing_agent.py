@@ -7,7 +7,7 @@ from lsm.agents.factory import create_agent
 from lsm.agents.models import AgentContext
 from lsm.agents.tools.base import BaseTool, ToolRegistry
 from lsm.agents.tools.sandbox import ToolSandbox
-from lsm.agents.writing import WritingAgent
+from lsm.agents.productivity import WritingAgent
 from lsm.config.loader import build_config_from_raw
 
 
@@ -142,7 +142,10 @@ def test_writing_agent_runs_and_saves_deliverable(monkeypatch, tmp_path: Path) -
                 return "# Final Deliverable\n\nRevised grounded draft.\n"
             return "# Final Deliverable\n\nFallback.\n"
 
-    monkeypatch.setattr("lsm.agents.writing.create_provider", lambda cfg: FakeProvider())
+    monkeypatch.setattr(
+        "lsm.agents.productivity.writing.create_provider",
+        lambda cfg: FakeProvider(),
+    )
 
     config = build_config_from_raw(_base_raw(tmp_path), tmp_path / "config.json")
     registry = ToolRegistry()
@@ -173,7 +176,10 @@ def test_agent_factory_creates_writing_agent(monkeypatch, tmp_path: Path) -> Non
             _ = question, context, mode, kwargs
             return "# deliverable"
 
-    monkeypatch.setattr("lsm.agents.writing.create_provider", lambda cfg: FakeProvider())
+    monkeypatch.setattr(
+        "lsm.agents.productivity.writing.create_provider",
+        lambda cfg: FakeProvider(),
+    )
 
     config = build_config_from_raw(_base_raw(tmp_path), tmp_path / "config.json")
     registry = ToolRegistry()

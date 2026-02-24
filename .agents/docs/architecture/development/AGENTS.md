@@ -27,13 +27,13 @@ Built-in agent:
 - `lsm/agents/models.py`: runtime message/log/response models
 - `lsm/agents/log_formatter.py`: log formatting and serialization helpers
 - `lsm/agents/factory.py`: registry + `create_agent(...)`
-- `lsm/agents/research.py`: built-in research workflow agent
-- `lsm/agents/writing.py`: built-in grounded writing workflow agent
-- `lsm/agents/synthesis.py`: built-in synthesis workflow agent
-- `lsm/agents/curator.py`: built-in corpus curation workflow agent
+- `lsm/agents/academic/research.py`: built-in research workflow agent
+- `lsm/agents/productivity/writing.py`: built-in grounded writing workflow agent
+- `lsm/agents/academic/synthesis.py`: built-in synthesis workflow agent
+- `lsm/agents/academic/curator.py`: built-in corpus curation workflow agent
 - `lsm/agents/scheduler.py`: recurring schedule engine for harness-driven agent runs
-- `lsm/agents/task_graph.py`: task graph datamodels and dependency-order helpers for meta orchestration
-- `lsm/agents/meta.py`: built-in meta-agent orchestrator with shared-workspace execution and final synthesis
+- `lsm/agents/meta/task_graph.py`: task graph datamodels and dependency-order helpers for meta orchestration
+- `lsm/agents/meta/meta.py`: built-in meta-agent orchestrator with shared-workspace execution and final synthesis
 - `lsm/agents/memory/models.py`: memory and memory-candidate dataclasses
 - `lsm/agents/memory/store.py`: memory store abstraction + SQLite/PostgreSQL backends
 - `lsm/agents/memory/migrations.py`: SQLite <-> PostgreSQL migration helpers

@@ -540,13 +540,17 @@ class AgentsScreen(ManagedScreenMixin, Widget):
 
     def _refresh_agent_options(self) -> None:
         agent_select = self.query_one("#agents-select", Select)
-        agent_names = AgentRegistry().list_agents()
-        if not agent_names:
+        groups = AgentRegistry().list_groups()
+        if not groups:
             agent_select.set_options([])
             return
-        options = [(name, name) for name in agent_names]
+        options: list[tuple[str, str]] = []
+        for group in groups:
+            for entry in group.entries:
+                label = f"{group.theme}: {entry.category}"
+                options.append((label, entry.name))
         agent_select.set_options(options)
-        agent_select.value = agent_names[0]
+        agent_select.value = options[0][1]
 
     def _focus_default_input(self) -> None:
         if getattr(self.app, "current_context", None) != "agents":

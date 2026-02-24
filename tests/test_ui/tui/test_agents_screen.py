@@ -184,6 +184,22 @@ class _Manager:
         )
 
 
+def _fake_registry(names: list[str] | None = None):
+    if not names:
+        names = ["research"]
+    grouped: dict[str, list[SimpleNamespace]] = {}
+    for name in names:
+        theme = "Productivity" if name == "writing" else "Meta" if name == "meta" else "Academic"
+        grouped.setdefault(theme, []).append(
+            SimpleNamespace(name=name, category=name.title())
+        )
+    groups = [
+        SimpleNamespace(theme=theme, entries=tuple(grouped[theme]))
+        for theme in sorted(grouped.keys())
+    ]
+    return SimpleNamespace(list_groups=lambda: groups)
+
+
 class _SlowStopManager(_Manager):
     def __init__(self, delay_s: float = 0.25) -> None:
         super().__init__()
@@ -272,11 +288,11 @@ def _screen_with_runtime_widgets(context: str = "agents"):
 def test_on_mount_populates_options_and_focus(monkeypatch) -> None:
     screen = _screen()
     monkeypatch.setattr("lsm.ui.tui.screens.agents.get_agent_runtime_manager", lambda: _Manager())
-    monkeypatch.setattr("lsm.ui.tui.screens.agents.AgentRegistry", lambda: SimpleNamespace(list_agents=lambda: ["research"]))
+    monkeypatch.setattr("lsm.ui.tui.screens.agents.AgentRegistry", lambda: _fake_registry(["research"]))
     screen.on_mount()
     screen._ensure_deferred_init()
     select = screen.widgets["#agents-select"]
-    assert ("research", "research") in select.options
+    assert ("Academic: Research", "research") in select.options
     assert select.value == "research"
     assert screen.widgets["#agents-topic-input"].focused is True
     memory_select = screen.widgets["#agents-memory-select"]
@@ -286,7 +302,7 @@ def test_on_mount_populates_options_and_focus(monkeypatch) -> None:
 def test_start_status_and_controls(monkeypatch) -> None:
     screen = _screen()
     manager = _Manager()
-    monkeypatch.setattr("lsm.ui.tui.screens.agents.AgentRegistry", lambda: SimpleNamespace(list_agents=lambda: ["research"]))
+    monkeypatch.setattr("lsm.ui.tui.screens.agents.AgentRegistry", lambda: _fake_registry(["research"]))
     monkeypatch.setattr("lsm.ui.tui.screens.agents.get_agent_runtime_manager", lambda: manager)
     screen.on_mount()
     screen._ensure_deferred_init()
@@ -330,7 +346,7 @@ def test_start_status_and_controls(monkeypatch) -> None:
 def test_button_press_routes_to_actions(monkeypatch) -> None:
     screen = _screen()
     manager = _Manager()
-    monkeypatch.setattr("lsm.ui.tui.screens.agents.AgentRegistry", lambda: SimpleNamespace(list_agents=lambda: ["research"]))
+    monkeypatch.setattr("lsm.ui.tui.screens.agents.AgentRegistry", lambda: _fake_registry(["research"]))
     monkeypatch.setattr("lsm.ui.tui.screens.agents.get_agent_runtime_manager", lambda: manager)
     screen.on_mount()
     screen._ensure_deferred_init()

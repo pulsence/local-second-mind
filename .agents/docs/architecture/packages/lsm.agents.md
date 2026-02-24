@@ -5,6 +5,10 @@ Folder Path: `lsm/agents/`
 
 ## Sub Packages
 
+- `lsm.agents.academic`: Academic agents (research, synthesis, curator)
+- `lsm.agents.productivity`: Productivity agents (writing)
+- `lsm.agents.meta`: Meta-agent orchestration and task-graph models
+- `lsm.agents.assistants`: Assistant agent namespace (populated in later phases)
 - [lsm.agents.memory](lsm.agents.memory.md): Persistent memory storage with SQLite/PostgreSQL backends and context builders
 - [lsm.agents.tools](lsm.agents.tools.md): Tool registry, sandbox enforcement, runner abstraction, and built-in tools
 
@@ -16,12 +20,6 @@ Folder Path: `lsm/agents/`
 - [models.py](../lsm/agents/models.py): Runtime message/log/response models
 - [log_formatter.py](../lsm/agents/log_formatter.py): Log formatting and serialization helpers
 - [log_redactor.py](../lsm/agents/log_redactor.py): Secret redaction in logs
-- [factory.py](../lsm/agents/factory.py): Agent registry and factory function
-- [research.py](../lsm/agents/research.py): Built-in research agent implementation
-- [writing.py](../lsm/agents/writing.py): Built-in writing agent implementation
-- [synthesis.py](../lsm/agents/synthesis.py): Built-in synthesis agent implementation
-- [curator.py](../lsm/agents/curator.py): Built-in curator agent implementation
+- [factory.py](../lsm/agents/factory.py): Agent registry, metadata, and factory function
 - [scheduler.py](../lsm/agents/scheduler.py): Recurring schedule engine for agent runs
-- [task_graph.py](../lsm/agents/task_graph.py): AgentTask/TaskGraph orchestration graph models
-- [meta.py](../lsm/agents/meta.py): Built-in meta-agent orchestrator with task graph execution
 - [permission_gate.py](../lsm/agents/permission_gate.py): Permission gate for tool execution
