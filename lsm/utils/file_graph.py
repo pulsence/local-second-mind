@@ -35,6 +35,11 @@ TEXT_EXTENSIONS = {
     ".docx",
 }
 
+HTML_EXTENSIONS = {
+    ".html",
+    ".htm",
+}
+
 
 @dataclass(frozen=True)
 class GraphNode:
@@ -247,9 +252,12 @@ class _NodeDraft:
 def _apply_section_spans(
     drafts: List[_NodeDraft],
     heading_indices: List[Tuple[int, int]],
+    end_limit: Optional[int] = None,
 ) -> None:
+    if end_limit is None:
+        end_limit = len(drafts) - 1
     for pos, (draft_idx, level) in enumerate(heading_indices):
-        end_idx = len(drafts) - 1
+        end_idx = end_limit
         for next_idx, next_level in heading_indices[pos + 1 :]:
             if next_level <= level:
                 end_idx = next_idx - 1
@@ -978,6 +986,279 @@ def _build_pdf_graph(
     )
 
 
+def _build_html_graph(path: Path, html_text: str, content_hash: str) -> FileGraph:
+    from bs4 import BeautifulSoup, NavigableString
+
+    soup = BeautifulSoup(html_text, "lxml")
+    root = soup.body or soup
+
+    blocks: List[Dict[str, Any]] = []
+    sections: List[Dict[str, Any]] = []
+    section_stack: List[int] = []
+
+    def _current_section() -> Optional[int]:
+        return section_stack[-1] if section_stack else None
+
+    def _start_section(tag) -> None:
+        parent = _current_section()
+        attrs = dict(getattr(tag, "attrs", {}) or {})
+        label = attrs.get("aria-label") or attrs.get("id")
+        sections.append(
+            {
+                "id": len(sections),
+                "tag": tag.name.lower(),
+                "parent": parent,
+                "label": label,
+                "start_block": len(blocks),
+                "end_block": len(blocks) - 1,
+            }
+        )
+        section_stack.append(sections[-1]["id"])
+
+    def _end_section() -> None:
+        if not section_stack:
+            return
+        sid = section_stack.pop()
+        sections[sid]["end_block"] = len(blocks) - 1
+
+    def _add_block(kind: str, lines: List[str], level: Optional[int] = None) -> None:
+        if not lines:
+            return
+        blocks.append(
+            {
+                "kind": kind,
+                "lines": lines,
+                "level": level,
+                "section_id": _current_section(),
+            }
+        )
+
+    def _clean_text(node) -> str:
+        text = " ".join(node.stripped_strings)
+        return " ".join(text.split())
+
+    def _walk(node) -> None:
+        if isinstance(node, NavigableString):
+            return
+        if not getattr(node, "name", None):
+            return
+        name = str(node.name).lower()
+        if name in {"script", "style", "noscript"}:
+            return
+
+        if name in {"section", "article"}:
+            _start_section(node)
+            for child in node.children:
+                _walk(child)
+            _end_section()
+            return
+
+        if name in {"h1", "h2", "h3", "h4", "h5", "h6"}:
+            text = _clean_text(node)
+            if text:
+                _add_block("heading", [text], level=int(name[1]))
+            return
+
+        if name == "p":
+            text = _clean_text(node)
+            if text:
+                _add_block("paragraph", [text])
+            return
+
+        if name in {"ul", "ol"}:
+            items: List[str] = []
+            for li in node.find_all("li", recursive=False):
+                item_text = _clean_text(li)
+                if item_text:
+                    items.append(f"- {item_text}")
+            if items:
+                _add_block("list", items)
+            return
+
+        if name == "table":
+            rows: List[str] = []
+            for row in node.find_all("tr", recursive=False):
+                cells = [
+                    _clean_text(cell)
+                    for cell in row.find_all(["th", "td"], recursive=False)
+                ]
+                cells = [cell for cell in cells if cell]
+                if cells:
+                    rows.append(" | ".join(cells))
+            if rows:
+                _add_block("table", rows)
+            return
+
+        for child in node.children:
+            _walk(child)
+
+    _walk(root)
+
+    if not blocks:
+        return _assemble_graph(path, html_text, content_hash, [])
+
+    block_texts: List[str] = []
+    block_drafts: List[_NodeDraft] = []
+    heading_indices_by_section: Dict[Optional[int], List[Tuple[int, int]]] = {}
+
+    current_char = 0
+    current_line = 1
+
+    for idx, block in enumerate(blocks):
+        lines = block["lines"]
+        block_text = "\n".join(lines)
+        block_texts.append(block_text)
+
+        start_line = current_line
+        end_line = start_line + len(lines) - 1
+        start_char = current_char
+        end_char = start_char + len(block_text)
+
+        current_char = end_char + 2
+        current_line = end_line + 2
+
+        kind = block["kind"]
+        section_id = block["section_id"]
+
+        if kind == "heading":
+            node_type = "heading"
+            name = lines[0]
+            level = int(block.get("level") or 1)
+            metadata = {"level": level, "section_id": section_id}
+            heading_indices_by_section.setdefault(section_id, []).append((idx, level))
+        elif kind == "list":
+            node_type = "list"
+            name = "list"
+            metadata = {"section_id": section_id}
+        elif kind == "table":
+            node_type = "table"
+            name = "table"
+            metadata = {"section_id": section_id}
+        else:
+            node_type = "paragraph"
+            name = "paragraph"
+            metadata = {"section_id": section_id}
+
+        block_drafts.append(
+            _NodeDraft(
+                node_type=node_type,
+                name=name,
+                start_line=start_line,
+                end_line=end_line,
+                start_char=start_char,
+                end_char=end_char,
+                metadata=metadata,
+            )
+        )
+
+    for section_id, heading_indices in heading_indices_by_section.items():
+        if not heading_indices:
+            continue
+        if section_id is None:
+            end_limit = len(block_drafts) - 1
+        else:
+            section = sections[section_id]
+            if section["end_block"] < section["start_block"]:
+                continue
+            end_limit = section["end_block"]
+        _apply_section_spans(block_drafts, heading_indices, end_limit=end_limit)
+
+    section_drafts: List[_NodeDraft] = []
+    section_id_to_index: Dict[int, int] = {}
+
+    for section in sections:
+        start_idx = section["start_block"]
+        end_idx = section["end_block"]
+        if end_idx < start_idx or start_idx >= len(block_drafts):
+            continue
+        if end_idx >= len(block_drafts):
+            end_idx = len(block_drafts) - 1
+
+        start_block = block_drafts[start_idx]
+        end_block = block_drafts[end_idx]
+
+        heading_name = None
+        for idx in range(start_idx, end_idx + 1):
+            if blocks[idx]["kind"] == "heading":
+                heading_name = blocks[idx]["lines"][0]
+                break
+
+        label = section.get("label")
+        tag = section.get("tag", "section")
+        name = heading_name or label or tag.title()
+
+        section_id_to_index[section["id"]] = len(section_drafts)
+        section_drafts.append(
+            _NodeDraft(
+                node_type="section",
+                name=name,
+                start_line=start_block.start_line,
+                end_line=end_block.end_line,
+                start_char=start_block.start_char,
+                end_char=end_block.end_char,
+                metadata={"tag": tag, "label": label},
+            )
+        )
+
+    combined_text = "\n\n".join(block_texts)
+    drafts = section_drafts + block_drafts
+    node_ids: List[str] = [
+        stable_node_id(
+            content_hash,
+            draft.node_type,
+            draft.name,
+            draft.start_line,
+            draft.end_line,
+            draft.start_char,
+            draft.end_char,
+            0,
+            None,
+        )
+        for draft in drafts
+    ]
+
+    section_node_ids: Dict[int, str] = {
+        sid: node_ids[idx] for sid, idx in section_id_to_index.items()
+    }
+
+    parent_by_node_id: Dict[str, Optional[str]] = {}
+    for section in sections:
+        sid = section["id"]
+        if sid not in section_node_ids:
+            continue
+        node_id = section_node_ids[sid]
+        parent_sid = section.get("parent")
+        parent_by_node_id[node_id] = section_node_ids.get(parent_sid)
+
+    block_offset = len(section_drafts)
+    heading_stacks: Dict[Optional[int], List[Tuple[int, str]]] = {}
+
+    for idx, block in enumerate(blocks):
+        node_id = node_ids[block_offset + idx]
+        section_id = block["section_id"]
+        stack = heading_stacks.setdefault(section_id, [])
+        section_parent_id = section_node_ids.get(section_id)
+
+        if block["kind"] == "heading":
+            level = int(block.get("level") or 1)
+            while stack and stack[-1][0] >= level:
+                stack.pop()
+            parent = stack[-1][1] if stack else section_parent_id
+            parent_by_node_id[node_id] = parent
+            stack.append((level, node_id))
+        else:
+            parent = stack[-1][1] if stack else section_parent_id
+            parent_by_node_id[node_id] = parent
+
+    return _assemble_graph(
+        path,
+        combined_text,
+        content_hash,
+        drafts,
+        parent_by_node_id=parent_by_node_id,
+    )
+
+
 _GRAPH_CACHE: Dict[str, FileGraph] = {}
 
 
@@ -1003,6 +1284,12 @@ def get_file_graph(path: Path | str) -> FileGraph:
             graph = _build_pdf_graph(file_path, content_hash, page_segments)
         else:
             graph = _build_text_graph(file_path, text, content_hash)
+        _GRAPH_CACHE[content_hash] = graph
+        return graph
+
+    if suffix in HTML_EXTENSIONS:
+        text = _decode_bytes(content_bytes)
+        graph = _build_html_graph(file_path, text, content_hash)
         _GRAPH_CACHE[content_hash] = graph
         return graph
 
