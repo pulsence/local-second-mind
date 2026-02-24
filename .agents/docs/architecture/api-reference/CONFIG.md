@@ -352,6 +352,7 @@ Fields:
 
 - `timeout_seconds: int = 300`
 - `timeout_action: str = deny` (`deny` or `approve`)
+- `auto_continue: bool = false` (auto-respond to `ask_user` prompts)
 
 Methods:
 

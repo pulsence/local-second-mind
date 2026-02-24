@@ -641,6 +641,7 @@ def build_interaction_config(raw: Any) -> InteractionConfig:
     return InteractionConfig(
         timeout_seconds=int(raw.get("timeout_seconds", 300)),
         timeout_action=str(raw.get("timeout_action", "deny")),
+        auto_continue=bool(raw.get("auto_continue", False)),
     )
 
 
@@ -1199,6 +1200,7 @@ def config_to_raw(config: LSMConfig) -> Dict[str, Any]:
             "interaction": {
                 "timeout_seconds": config.agents.interaction.timeout_seconds,
                 "timeout_action": config.agents.interaction.timeout_action,
+                "auto_continue": config.agents.interaction.auto_continue,
             },
             "agent_configs": dict(config.agents.agent_configs),
             "schedules": [

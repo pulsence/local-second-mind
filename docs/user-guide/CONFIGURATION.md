@@ -390,7 +390,8 @@ Agents are configured under the top-level `agents` key.
   },
   "interaction": {
     "timeout_seconds": 300,
-    "timeout_action": "deny"
+    "timeout_action": "deny",
+    "auto_continue": false
   }
 }
 ```
@@ -414,6 +415,7 @@ Agents are configured under the top-level `agents` key.
 
 - `timeout_seconds` (`int`, default `300`): max seconds to wait for user interaction response.
 - `timeout_action` (`string`, default `deny`): timeout fallback; `deny` raises a permission error, `approve` auto-approves.
+- `auto_continue` (`bool`, default `false`): auto-respond to `ask_user` prompts with "Continue with your best judgment."
 
 Per-agent LLM overrides (under `agents.agent_configs.<agent_name>`):
 

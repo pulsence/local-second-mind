@@ -14,6 +14,7 @@ All notable changes to Local Second Mind are documented here.
 - Graph-aware read and metadata tooling with section selection and optional graph output.
 - Standard per-agent workspace layout (`logs/`, `artifacts/`, `memory/`) with file tools defaulting to the agent workspace root.
 - Native tool-calling support with provider function-calling APIs (OpenAI, Anthropic, Gemini) and prompt-schema fallback for providers without tool APIs.
+- `agents.interaction.auto_continue` to auto-respond to `ask_user` prompts with a continuation message.
 
 ### Changed
 

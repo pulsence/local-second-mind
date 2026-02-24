@@ -86,7 +86,8 @@ Agents are configured in top-level `agents`:
   },
   "interaction": {
     "timeout_seconds": 300,
-    "timeout_action": "deny"
+    "timeout_action": "deny",
+    "auto_continue": false
   },
   "agent_configs": {
     "research": {
@@ -117,6 +118,7 @@ Agents are configured in top-level `agents`:
 - `context_window_strategy`: `compact` or `fresh`
 - `interaction.timeout_seconds`: wait timeout for an interaction response (default `300`)
 - `interaction.timeout_action`: timeout fallback (`deny` or `approve`, default `deny`)
+- `interaction.auto_continue`: auto-respond to `ask_user` prompts with "Continue with your best judgment." (default `false`)
 - `memory`: persistent memory backend config and TTL caps
 
 ## Workspace Layout

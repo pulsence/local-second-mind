@@ -56,7 +56,7 @@ def test_agent_config_validate_happy_path() -> None:
             allowed_write_paths=[Path(".")],
             allow_url_access=False,
         ),
-        interaction=InteractionConfig(timeout_seconds=60, timeout_action="deny"),
+        interaction=InteractionConfig(timeout_seconds=60, timeout_action="deny", auto_continue=True),
     )
     cfg.validate()
 
@@ -110,6 +110,7 @@ def test_build_config_reads_agents_section(tmp_path: Path) -> None:
         "interaction": {
             "timeout_seconds": 42,
             "timeout_action": "approve",
+            "auto_continue": True,
         },
         "agent_configs": {
             "research": {"max_iterations": 10}
@@ -145,6 +146,7 @@ def test_build_config_reads_agents_section(tmp_path: Path) -> None:
     assert config.agents.memory.ttl_cache_hours == 12
     assert config.agents.interaction.timeout_seconds == 42
     assert config.agents.interaction.timeout_action == "approve"
+    assert config.agents.interaction.auto_continue is True
     assert config.agents.agent_configs["research"]["max_iterations"] == 10
 
 
@@ -191,6 +193,7 @@ def test_config_to_raw_includes_agents_section(tmp_path: Path) -> None:
         "interaction": {
             "timeout_seconds": 120,
             "timeout_action": "deny",
+            "auto_continue": True,
         },
         "agent_configs": {"research": {"enabled": True}},
     }
@@ -221,6 +224,7 @@ def test_config_to_raw_includes_agents_section(tmp_path: Path) -> None:
     assert serialized["agents"]["memory"]["ttl_cache_hours"] == 24
     assert serialized["agents"]["interaction"]["timeout_seconds"] == 120
     assert serialized["agents"]["interaction"]["timeout_action"] == "deny"
+    assert serialized["agents"]["interaction"]["auto_continue"] is True
     assert serialized["agents"]["agent_configs"]["research"]["enabled"] is True
 
 

@@ -50,6 +50,12 @@ class AskUserTool(BaseTool):
         if not prompt:
             raise ValueError("prompt is required")
         context = str(args.get("context", "")).strip()
+        auto_continue = bool(
+            getattr(getattr(harness, "agent_config", None), "interaction", None)
+            and getattr(harness.agent_config.interaction, "auto_continue", False)
+        )
+        if auto_continue:
+            return "Continue with your best judgment."
 
         request = InteractionRequest(
             request_id=f"clarify-{uuid4().hex}",

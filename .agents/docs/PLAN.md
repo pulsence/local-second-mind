@@ -36,7 +36,7 @@ Utils module, agent log format conversion, tiered model configuration, and agent
 
 Graph schema, code file grapher, text document grapher, PDF document grapher, HTML document grapher, tool integration hooks, and fixtures.
 
-### [Phase 3: Agent Framework Overhaul](../plan_phases/PHASE_3.md)
+### [Phase 3: Agent Framework Overhaul](../plan_phases/PHASE_3.md) (COMPLETED)
 
 Agent package restructure, workspace defaults, tool API standardization, and universal ask_user.
 

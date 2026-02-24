@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import time
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -14,6 +15,7 @@ from lsm.agents.tools.ask_user import AskUserTool
 from lsm.agents.tools.base import ToolRegistry
 from lsm.agents.tools.sandbox import ToolSandbox
 from lsm.config.loader import build_config_from_raw
+from lsm.config.models import InteractionConfig
 
 
 def _base_raw(tmp_path: Path) -> dict:
@@ -121,6 +123,21 @@ def test_ask_user_tool_denial_raises_permission_error() -> None:
     tool.bind_harness(StubHarness())
     with pytest.raises(PermissionError, match="No clarification allowed"):
         tool.execute({"prompt": "Can I ask a follow-up?"})
+
+
+def test_ask_user_tool_auto_continue_skips_prompt() -> None:
+    class StubHarness:
+        def __init__(self) -> None:
+            self.agent_config = SimpleNamespace(
+                interaction=InteractionConfig(auto_continue=True)
+            )
+
+        def request_interaction(self, request):
+            raise AssertionError("auto-continue should not prompt for interaction")
+
+    tool = AskUserTool()
+    tool.bind_harness(StubHarness())
+    assert tool.execute({"prompt": "Proceed?"}) == "Continue with your best judgment."
 
 
 def test_harness_handles_ask_user_clarification_and_waiting_status(

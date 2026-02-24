@@ -278,9 +278,13 @@ class InteractionConfig:
     timeout_action: str = "deny"
     """Timeout behavior (`deny` or `approve`)."""
 
+    auto_continue: bool = False
+    """Auto-respond to ask_user prompts with a continue message."""
+
     def __post_init__(self) -> None:
         self.timeout_seconds = int(self.timeout_seconds)
         self.timeout_action = str(self.timeout_action or "deny").strip().lower()
+        self.auto_continue = bool(self.auto_continue)
 
     def validate(self) -> None:
         """Validate interaction configuration."""

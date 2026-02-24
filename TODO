@@ -55,6 +55,9 @@ substantially changed over time.
   consider refactoring if abstractions have become too leaky.
 - Check Tests to make sure there is no artifical duplication.
 - Review for any legacy/backwards-capatability/dead-code and review it.
+- Remove Azure AI provider. OpenRouter will be the go to endpoint for sources
+  beyond OpenAI/Anthropic/Google.
+- Search for feature crepe or bloat.
 
 ### Deployment
 
