@@ -5,9 +5,11 @@ Tool for summarizing evidence by source.
 from __future__ import annotations
 
 import json
-from typing import Any, Dict, List, Set, Tuple
+from pathlib import Path
+from typing import Any, Dict, List, Set
 
 from .base import BaseTool
+from lsm.utils.file_graph import build_graph_outline, get_file_graph
 
 
 class SourceMapTool(BaseTool):
@@ -21,12 +23,16 @@ class SourceMapTool(BaseTool):
         "properties": {
             "evidence": {
                 "type": "array",
-                "description": "Evidence entries with source_path/snippet/score. May include node_id and node_type from file graph.",
+                "description": "Evidence entries with source_path and optional node_id metadata.",
                 "items": {"type": "object"},
             },
-            "max_snippets_per_source": {
+            "max_depth": {
                 "type": "integer",
-                "description": "Maximum snippets to include per source.",
+                "description": "Maximum outline depth to include per source.",
+            },
+            "node_type": {
+                "type": "string",
+                "description": "Optional graph node type filter for outlines.",
             },
         },
         "required": ["evidence"],
@@ -37,9 +43,9 @@ class SourceMapTool(BaseTool):
         if not isinstance(raw_evidence, list):
             raise ValueError("evidence must be an array")
 
-        max_snippets_per_source = max(1, int(args.get("max_snippets_per_source", 3)))
+        max_depth = max(1, int(args.get("max_depth", 2)))
+        node_type = str(args.get("node_type") or "").strip()
         counts: Dict[str, int] = {}
-        snippets_by_source: Dict[str, List[Tuple[float, str]]] = {}
         node_ids_by_source: Dict[str, List[str]] = {}
         seen_node_ids_by_source: Dict[str, Set[str]] = {}
 
@@ -51,17 +57,7 @@ class SourceMapTool(BaseTool):
             if not source_path:
                 source_path = "unknown"
 
-            score = self._coerce_float(item.get("score", item.get("relevance", 0.0)))
-            snippet = str(
-                item.get("snippet")
-                or item.get("text")
-                or item.get("excerpt")
-                or ""
-            ).strip()
-
             counts[source_path] = counts.get(source_path, 0) + 1
-            if snippet:
-                snippets_by_source.setdefault(source_path, []).append((score, snippet))
 
             node_id = str(item.get("node_id") or "").strip()
             if node_id:
@@ -72,34 +68,24 @@ class SourceMapTool(BaseTool):
 
         output: Dict[str, Dict[str, Any]] = {}
         for source_path in sorted(counts.keys()):
-            ranked_snippets = sorted(
-                snippets_by_source.get(source_path, []),
-                key=lambda value: value[0],
-                reverse=True,
-            )
-            unique_snippets: List[str] = []
-            seen_snippets: set[str] = set()
-            for _, snippet in ranked_snippets:
-                if snippet in seen_snippets:
-                    continue
-                seen_snippets.add(snippet)
-                unique_snippets.append(snippet)
-                if len(unique_snippets) >= max_snippets_per_source:
-                    break
-
-            entry: Dict[str, Any] = {
-                "count": counts[source_path],
-                "top_snippets": unique_snippets,
-            }
+            entry: Dict[str, Any] = {"count": counts[source_path], "outline": []}
+            outline_error = None
+            if source_path != "unknown":
+                path = Path(source_path)
+                if path.exists() and path.is_file():
+                    graph = get_file_graph(path)
+                    entry["outline"] = build_graph_outline(
+                        graph,
+                        max_depth=max_depth,
+                        node_types=[node_type] if node_type else None,
+                    )
+                else:
+                    outline_error = "File not found"
             node_ids = node_ids_by_source.get(source_path)
             if node_ids:
                 entry["node_ids"] = node_ids
+            if outline_error:
+                entry["outline_error"] = outline_error
             output[source_path] = entry
 
         return json.dumps(output, indent=2)
-
-    def _coerce_float(self, value: Any) -> float:
-        try:
-            return float(value)
-        except (TypeError, ValueError):
-            return 0.0

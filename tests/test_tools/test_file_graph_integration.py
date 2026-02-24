@@ -18,9 +18,9 @@ def test_read_file_returns_section_by_node_id(tmp_path: Path) -> None:
     heading = next(node for node in graph.nodes if node.node_type == "heading")
 
     tool = ReadFileTool()
-    output = tool.execute({"path": str(path), "node_id": heading.id})
+    output = json.loads(tool.execute({"path": str(path), "section": heading.id}))
 
-    assert output.strip() == "Intro\n\nPara text."
+    assert output["content"].strip() == "Intro\n\nPara text."
 
 
 def test_file_metadata_can_include_graph(tmp_path: Path) -> None:

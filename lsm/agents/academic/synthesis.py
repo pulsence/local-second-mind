@@ -328,7 +328,7 @@ class SynthesisAgent(BaseAgent):
             if isinstance(source_map_input, list) and source_map_input:
                 source_map_args = {
                     "evidence": source_map_input,
-                    "max_snippets_per_source": 3,
+                    "max_depth": 2,
                 }
                 output = self._run_tool("source_map", source_map_args)
                 parsed = self._parse_json(output)
@@ -513,19 +513,27 @@ class SynthesisAgent(BaseAgent):
             if not isinstance(details, dict):
                 details = {}
             count = int(details.get("count", 0))
-            snippets = details.get("top_snippets", [])
-            if not isinstance(snippets, list):
-                snippets = []
+            outline = details.get("outline", [])
+            if not isinstance(outline, list):
+                outline = []
 
             lines.append(f"## {source_path}")
             lines.append("")
             lines.append(f"- Evidence items: {count}")
-            if snippets:
-                lines.append("- Top snippets:")
-                for snippet in snippets:
-                    cleaned = str(snippet).strip().replace("\n", " ")
-                    if cleaned:
-                        lines.append(f"  - {cleaned}")
+            if outline:
+                lines.append("- Outline:")
+                for node in outline:
+                    if not isinstance(node, dict):
+                        continue
+                    node_type = str(node.get("node_type", "")).strip() or "node"
+                    name = str(node.get("name", "")).strip()
+                    span = node.get("span") or {}
+                    start_line = span.get("start_line")
+                    end_line = span.get("end_line")
+                    label = f"{node_type}: {name}" if name else node_type
+                    if start_line and end_line:
+                        label = f"{label} (lines {start_line}-{end_line})"
+                    lines.append(f"- {label}")
             lines.append("")
 
         return "\n".join(lines).strip() + "\n"

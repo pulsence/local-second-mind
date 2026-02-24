@@ -188,25 +188,30 @@ def test_similarity_search_supports_path_input() -> None:
     assert collection.path_call_count == 2
 
 
-def test_source_map_aggregates_counts_and_top_snippets() -> None:
+def test_source_map_aggregates_counts_and_outlines(tmp_path: Path) -> None:
+    path_a = tmp_path / "a.md"
+    path_b = tmp_path / "b.md"
+    path_a.write_text("# A\n\nAlpha.", encoding="utf-8")
+    path_b.write_text("# B\n\nBeta.", encoding="utf-8")
+
     tool = SourceMapTool()
     payload = json.loads(
         tool.execute(
             {
                 "evidence": [
-                    {"source_path": "a.md", "snippet": "A1", "score": 0.9},
-                    {"source_path": "a.md", "snippet": "A2", "score": 0.4},
-                    {"source_path": "a.md", "snippet": "A1", "score": 0.3},
-                    {"source_path": "b.md", "snippet": "B1", "score": 0.8},
+                    {"source_path": str(path_a), "snippet": "A1", "score": 0.9},
+                    {"source_path": str(path_a), "snippet": "A2", "score": 0.4},
+                    {"source_path": str(path_a), "snippet": "A1", "score": 0.3},
+                    {"source_path": str(path_b), "snippet": "B1", "score": 0.8},
                 ],
-                "max_snippets_per_source": 2,
+                "max_depth": 1,
             }
         )
     )
-    assert payload["a.md"]["count"] == 3
-    assert payload["a.md"]["top_snippets"] == ["A1", "A2"]
-    assert payload["b.md"]["count"] == 1
-    assert payload["b.md"]["top_snippets"] == ["B1"]
+    assert payload[str(path_a)]["count"] == 3
+    assert payload[str(path_b)]["count"] == 1
+    assert payload[str(path_a)]["outline"]
+    assert payload[str(path_b)]["outline"]
 
 
 def test_append_file_appends_content(tmp_path: Path) -> None:

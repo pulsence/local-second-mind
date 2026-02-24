@@ -175,7 +175,7 @@ class WritingAgent(BaseAgent):
         if "source_map" in available and grounding["snippets"]:
             source_map_args = {
                 "evidence": grounding["snippets"],
-                "max_snippets_per_source": 3,
+                "max_depth": 2,
             }
             output = self._run_tool("source_map", source_map_args)
             parsed = self._parse_json(output)

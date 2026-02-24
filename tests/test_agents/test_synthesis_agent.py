@@ -110,7 +110,7 @@ class SourceMapStubTool(BaseTool):
         "type": "object",
         "properties": {
             "evidence": {"type": "array"},
-            "max_snippets_per_source": {"type": "integer"},
+            "max_depth": {"type": "integer"},
         },
         "required": ["evidence"],
     }
@@ -120,11 +120,8 @@ class SourceMapStubTool(BaseTool):
         output: dict[str, dict[str, object]] = {}
         for item in evidence:
             path = str(item.get("source_path", "unknown"))
-            output.setdefault(path, {"count": 0, "top_snippets": []})
+            output.setdefault(path, {"count": 0, "outline": []})
             output[path]["count"] = int(output[path]["count"]) + 1
-            snippet = str(item.get("snippet", "")).strip()
-            if snippet and snippet not in output[path]["top_snippets"]:
-                output[path]["top_snippets"].append(snippet)
         return json.dumps(output)
 
 
