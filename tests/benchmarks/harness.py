@@ -19,6 +19,9 @@ from lsm.agents.tools.base import ToolRegistry
 from lsm.agents.tools.read_file import ReadFileTool
 from lsm.agents.tools.read_folder import ReadFolderTool
 from lsm.agents.tools.write_file import WriteFileTool
+from lsm.agents.tools.find_file import FindFileTool
+from lsm.agents.tools.find_section import FindSectionTool
+from lsm.agents.tools.edit_file import EditFileTool
 from lsm.agents.tools.sandbox import ToolSandbox
 from lsm.config.models.agents import SandboxConfig
 
@@ -137,6 +140,9 @@ class BenchmarkRunner:
         registry = ToolRegistry()
         registry.register(ReadFolderTool())
         registry.register(ReadFileTool())
+        registry.register(FindFileTool())
+        registry.register(FindSectionTool())
+        registry.register(EditFileTool())
         registry.register(WriteFileTool())
         return registry
 

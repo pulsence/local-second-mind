@@ -9,7 +9,12 @@ from pathlib import Path
 from typing import Any, Dict, List
 
 from .base import BaseTool
-from lsm.utils.file_graph import HTML_EXTENSIONS, compute_line_hashes, get_file_graph
+from lsm.utils.file_graph import (
+    HTML_EXTENSIONS,
+    build_graph_outline,
+    compute_line_hashes,
+    get_file_graph,
+)
 
 
 class EditFileTool(BaseTool):
@@ -208,6 +213,7 @@ class EditFileTool(BaseTool):
         path.write_text(updated_text, encoding="utf-8")
 
         graph = get_file_graph(path)
+        outline = build_graph_outline(graph, max_depth=2)
 
         return json.dumps(
             {
@@ -217,7 +223,11 @@ class EditFileTool(BaseTool):
                 "end_line": end_idx + 1,
                 "replaced_lines": end_idx - start_idx + 1,
                 "new_lines": len(new_lines),
-                "graph": graph.to_dict(),
+                "graph": {
+                    "path": graph.path,
+                    "content_hash": graph.content_hash,
+                    "outline": outline,
+                },
             },
             indent=2,
         )

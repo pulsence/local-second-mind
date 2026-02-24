@@ -41,6 +41,7 @@ def test_edit_file_replaces_range_and_returns_graph(tmp_path: Path) -> None:
 
     assert result["status"] == "ok"
     assert "graph" in result
+    assert result["graph"]["outline"]
     updated = path.read_text(encoding="utf-8")
     assert "New line" in updated
     assert "Old line" not in updated
