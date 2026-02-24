@@ -6,6 +6,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
+from lsm.utils.text_processing import extract_docx_text, is_list_block, split_paragraphs
+
 
 GRAPH_NODE_VERSION = 1
 
@@ -24,6 +26,13 @@ CODE_EXTENSIONS = {
     ".cpp",
     ".hpp",
     ".cs",
+}
+
+TEXT_EXTENSIONS = {
+    ".md",
+    ".txt",
+    ".rst",
+    ".docx",
 }
 
 
@@ -240,6 +249,7 @@ def _assemble_graph(
     text: str,
     content_hash: str,
     drafts: Sequence[_NodeDraft],
+    parent_by_node_id: Optional[Dict[str, Optional[str]]] = None,
 ) -> FileGraph:
     lines, _ = _line_offsets(text)
     total_lines = max(len(lines), 1)
@@ -300,25 +310,40 @@ def _assemble_graph(
         base_nodes.append(node)
 
     parent_map: Dict[str, str] = {}
-    for node in base_nodes:
-        parent_candidate: Optional[GraphNode] = None
-        for other in base_nodes:
-            if other.id == node.id:
-                continue
-            if other.start_line <= node.start_line and other.end_line >= node.end_line:
-                if parent_candidate is None:
-                    parent_candidate = other
+    if parent_by_node_id is None:
+        for node in base_nodes:
+            parent_candidate: Optional[GraphNode] = None
+            for other in base_nodes:
+                if other.id == node.id:
                     continue
-                span_len = other.end_line - other.start_line
-                parent_span = parent_candidate.end_line - parent_candidate.start_line
-                if span_len < parent_span:
-                    parent_candidate = other
-        parent_map[node.id] = parent_candidate.id if parent_candidate else root_id
+                if other.start_line <= node.start_line and other.end_line >= node.end_line:
+                    if parent_candidate is None:
+                        parent_candidate = other
+                        continue
+                    span_len = other.end_line - other.start_line
+                    parent_span = parent_candidate.end_line - parent_candidate.start_line
+                    if span_len < parent_span:
+                        parent_candidate = other
+            parent_map[node.id] = parent_candidate.id if parent_candidate else root_id
+    else:
+        node_ids = {node.id for node in base_nodes}
+        for node in base_nodes:
+            candidate = parent_by_node_id.get(node.id)
+            if candidate is None or candidate == node.id:
+                parent_map[node.id] = root_id
+            elif candidate != root_id and candidate not in node_ids:
+                parent_map[node.id] = root_id
+            else:
+                parent_map[node.id] = candidate
 
     def _depth_for(node_id: str) -> int:
         depth = 0
         current = node_id
+        visited = set()
         while True:
+            if current in visited:
+                return depth
+            visited.add(current)
             parent_id = parent_map.get(current)
             if not parent_id:
                 return depth
@@ -729,6 +754,72 @@ def _build_code_graph(path: Path, text: str, content_hash: str) -> FileGraph:
     return _assemble_graph(path, text, content_hash, nodes)
 
 
+def _build_text_graph(path: Path, text: str, content_hash: str) -> FileGraph:
+    paragraphs = split_paragraphs(text, allow_plain_headings=True)
+    drafts: List[_NodeDraft] = []
+    node_ids: List[str] = []
+
+    for para in paragraphs:
+        if para.is_heading:
+            level = para.heading_level or 1
+            node_type = "heading"
+            name = para.heading or para.text
+            metadata = {"level": level}
+        else:
+            if is_list_block(para.text):
+                node_type = "list"
+                name = "list"
+            else:
+                node_type = "paragraph"
+                name = "paragraph"
+            metadata = {"heading": para.heading, "index": para.index}
+
+        draft = _NodeDraft(
+            node_type=node_type,
+            name=name,
+            start_line=para.start_line,
+            end_line=para.end_line,
+            start_char=para.start_char,
+            end_char=para.end_char,
+            metadata=metadata,
+        )
+        drafts.append(draft)
+        node_ids.append(
+            stable_node_id(
+                content_hash,
+                draft.node_type,
+                draft.name,
+                draft.start_line,
+                draft.end_line,
+                draft.start_char,
+                draft.end_char,
+                0,
+                None,
+            )
+        )
+
+    parent_by_node_id: Dict[str, Optional[str]] = {}
+    heading_stack: List[Tuple[int, str]] = []
+
+    for draft, node_id in zip(drafts, node_ids):
+        if draft.node_type == "heading":
+            level = int(draft.metadata.get("level", 1) or 1)
+            while heading_stack and heading_stack[-1][0] >= level:
+                heading_stack.pop()
+            parent_by_node_id[node_id] = heading_stack[-1][1] if heading_stack else None
+            heading_stack.append((level, node_id))
+        else:
+            parent_by_node_id[node_id] = heading_stack[-1][1] if heading_stack else None
+
+    return _assemble_graph(
+        path,
+        text,
+        content_hash,
+        drafts,
+        parent_by_node_id=parent_by_node_id,
+    )
+
+
 _GRAPH_CACHE: Dict[str, FileGraph] = {}
 
 
@@ -745,9 +836,16 @@ def get_file_graph(path: Path | str) -> FileGraph:
     if cached is not None:
         return cached.with_path(file_path)
 
-    text = _decode_bytes(content_bytes)
-    if file_path.suffix.lower() in CODE_EXTENSIONS:
+    suffix = file_path.suffix.lower()
+    if suffix == ".docx":
+        text = extract_docx_text(file_path)
+    else:
+        text = _decode_bytes(content_bytes)
+
+    if suffix in CODE_EXTENSIONS:
         graph = _build_code_graph(file_path, text, content_hash)
+    elif suffix in TEXT_EXTENSIONS:
+        graph = _build_text_graph(file_path, text, content_hash)
     else:
         graph = _assemble_graph(file_path, text, content_hash, [])
     _GRAPH_CACHE[content_hash] = graph

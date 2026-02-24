@@ -17,6 +17,9 @@ from typing import Dict, Any, List, Optional
 
 from lsm.config.models.constants import DEFAULT_CHUNK_OVERLAP, DEFAULT_CHUNK_SIZE
 from lsm.ingest.models import PageSegment
+from lsm.utils.text_processing import detect_heading as _detect_heading_info
+from lsm.utils.text_processing import Paragraph as _Paragraph
+from lsm.utils.text_processing import split_paragraphs as _split_paragraphs_base
 
 
 # ------------------------------------------------------------------
@@ -48,13 +51,6 @@ class StructuredChunk:
     """1-based page number where this chunk ends (PDF/DOCX only)."""
 
 
-# ------------------------------------------------------------------
-# Heading detection
-# ------------------------------------------------------------------
-_MD_HEADING_RE = re.compile(r"^(#{1,6})\s+(.+)$")
-_HTML_HEADING_RE = re.compile(r"<h([1-6])[^>]*>(.*?)</h\1>", re.IGNORECASE)
-_BOLD_LINE_RE = re.compile(r"^\*\*(.+)\*\*$")
-
 # Sentence-boundary regex – handles common abbreviations gracefully.
 _SENTENCE_SPLIT_RE = re.compile(
     r"(?<=[.!?])"   # lookbehind for sentence-ending punctuation
@@ -63,98 +59,16 @@ _SENTENCE_SPLIT_RE = re.compile(
 )
 
 
+# ------------------------------------------------------------------
+# Heading detection + paragraph splitting now live in utils.text_processing
+# ------------------------------------------------------------------
 def _detect_heading(line: str) -> Optional[str]:
-    """Return the heading text if *line* is a heading, else ``None``.
-
-    Supports:
-    - Markdown headings (``# Heading``)
-    - Bold-only lines (``**Heading**``) – common in PDF extractions
-    """
-    m = _MD_HEADING_RE.match(line.strip())
-    if m:
-        return m.group(2).strip()
-
-    m = _HTML_HEADING_RE.match(line.strip())
-    if m:
-        heading_text = re.sub(r"<[^>]+>", "", m.group(2))
-        heading_text = re.sub(r"\s+", " ", heading_text).strip()
-        if heading_text:
-            return heading_text
-
-    m = _BOLD_LINE_RE.match(line.strip())
-    if m:
-        return m.group(1).strip()
-
-    return None
-
-
-# ------------------------------------------------------------------
-# Paragraph splitting
-# ------------------------------------------------------------------
-@dataclass
-class _Paragraph:
-    """Internal representation of a parsed paragraph."""
-
-    text: str
-    heading: Optional[str]
-    index: int
-    start_char: int
-    end_char: int
-    is_heading: bool = False
+    info = _detect_heading_info(line, allow_plain_headings=False)
+    return info.text if info else None
 
 
 def _split_paragraphs(text: str) -> List[_Paragraph]:
-    """Split *text* into paragraphs separated by blank lines.
-
-    Each paragraph records its character offsets and detects whether
-    its first line is a heading.
-    """
-    paragraphs: List[_Paragraph] = []
-    current_heading: Optional[str] = None
-    idx = 0
-
-    # Split on one or more blank lines (double newline)
-    raw_blocks = re.split(r"\n\s*\n", text)
-
-    char_offset = 0
-    for block in raw_blocks:
-        block_stripped = block.strip()
-        if not block_stripped:
-            # Account for the separator
-            char_offset += len(block) + 2  # +2 for the \n\n separator
-            continue
-
-        # Find the actual start offset in the original text
-        start = text.find(block_stripped, char_offset)
-        if start == -1:
-            start = char_offset
-        end = start + len(block_stripped)
-
-        # Check if entire block is a heading
-        heading_text = _detect_heading(block_stripped)
-        if heading_text:
-            current_heading = heading_text
-            paragraphs.append(_Paragraph(
-                text=block_stripped,
-                heading=current_heading,
-                index=idx,
-                start_char=start,
-                end_char=end,
-                is_heading=True,
-            ))
-        else:
-            paragraphs.append(_Paragraph(
-                text=block_stripped,
-                heading=current_heading,
-                index=idx,
-                start_char=start,
-                end_char=end,
-            ))
-
-        idx += 1
-        char_offset = end
-
-    return paragraphs
+    return _split_paragraphs_base(text, allow_plain_headings=False)
 
 
 # ------------------------------------------------------------------
