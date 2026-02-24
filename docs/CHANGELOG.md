@@ -21,6 +21,7 @@ All notable changes to Local Second Mind are documented here.
 - Core agent catalog entries (`general`, `librarian`, `assistant`, `manuscript_editor`) with registry metadata exposure and UI listing updates.
 - General agent tool loop with custom system prompt, summary artifact output, and guardrail coverage tests.
 - Librarian agent workflow for embeddings-driven idea graphs with memory proposal artifacts.
+- Assistant agent summaries aggregating run activity with memory candidate proposals.
 - Standard per-agent workspace layout (`logs/`, `artifacts/`, `memory/`) with file tools defaulting to the agent workspace root.
 - Native tool-calling support with provider function-calling APIs (OpenAI, Anthropic, Gemini) and prompt-schema fallback for providers without tool APIs.
 - `agents.interaction.auto_continue` to auto-respond to `ask_user` prompts with a continuation message.
