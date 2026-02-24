@@ -32,6 +32,7 @@
   - Update all test imports.
   - Write tests for backward-compatible imports, factory registration from new locations, and config reference resolution (TDD: write tests before implementation).
   - Run the relevant test suite (`pytest tests/test_providers/remote/`) and verify all new and existing tests pass.
+  - Commit the implementation following the format in `.agents/docs/COMMIT_MESSAGE.md`.
 - **Files:**
   - `lsm/remote/providers/*/`
   - `lsm/remote/__init__.py`
@@ -49,6 +50,7 @@
   - Audit and update all existing providers to conform to the validated output contract.
   - Write tests for `validate_output()` with valid and invalid results, `get_output_fields()` enforcement, chain field mapping validation, and the `RemoteProviderOutputTest` base class itself (TDD: write tests before implementation).
   - Run the relevant test suite (`pytest tests/test_providers/remote/`) and verify all new and existing tests pass.
+  - Commit the implementation following the format in `.agents/docs/COMMIT_MESSAGE.md`.
 - **Files:**
   - `lsm/remote/base.py`
   - `lsm/remote/chain.py`
@@ -68,6 +70,7 @@
   - Add config support for enabling/disabling preconfigured chains: users can list enabled chains under a `remote.chains` section in their config file, and disabled chains are skipped during provider resolution.
   - Write tests for each provider's structured output, chain end-to-end execution, preconfigured chain enable/disable config, and full-text retrieval fallback behavior (TDD: write tests before implementation).
   - Run the relevant test suite (`pytest tests/test_providers/remote/`) and verify all new and existing tests pass.
+  - Commit the implementation following the format in `.agents/docs/COMMIT_MESSAGE.md`.
 - **Files:**
   - `lsm/remote/providers/academic/openalex.py`
   - `lsm/remote/providers/academic/crossref.py`
@@ -87,6 +90,7 @@
   - Implement each provider conforming to `BaseRemoteProvider` and structured output contract (8.1).
   - Write tests for each provider's search/structured output, `RemoteResult` normalization, and open-access link resolution; inherit from `RemoteProviderOutputTest` base class (TDD: write tests before implementation).
   - Run the relevant test suite (`pytest tests/test_providers/remote/`) and verify all new and existing tests pass.
+  - Commit the implementation following the format in `.agents/docs/COMMIT_MESSAGE.md`.
 - **Files:**
   - `lsm/remote/providers/academic/pubmed.py`
   - `lsm/remote/providers/academic/ssrn.py`
@@ -109,6 +113,7 @@
   - Implement each provider conforming to `BaseRemoteProvider` and structured output contract (8.1).
   - Write tests for each provider's search/structured output, `RemoteResult` normalization, and stable ID generation; inherit from `RemoteProviderOutputTest` base class (TDD: write tests before implementation).
   - Run the relevant test suite (`pytest tests/test_providers/remote/`) and verify all new and existing tests pass.
+  - Commit the implementation following the format in `.agents/docs/COMMIT_MESSAGE.md`.
 - **Files:**
   - `lsm/remote/providers/cultural/archive_org.py`
   - `lsm/remote/providers/cultural/dpla.py`
@@ -132,6 +137,7 @@
   - Implement each provider conforming to `BaseRemoteProvider` and structured output contract (8.1).
   - Write tests for each provider's search/structured output, `RemoteResult` normalization, timestamp handling, and RSS fallback integration; inherit from `RemoteProviderOutputTest` base class (TDD: write tests before implementation).
   - Run the relevant test suite (`pytest tests/test_providers/remote/`) and verify all new and existing tests pass.
+  - Commit the implementation following the format in `.agents/docs/COMMIT_MESSAGE.md`.
 - **Files:**
   - `lsm/remote/providers/news/nytimes.py`
   - `lsm/remote/providers/news/guardian.py`
@@ -146,6 +152,7 @@
   - Implement provider conforming to `BaseRemoteProvider` and structured output contract (8.1).
   - Write tests for CTS URN query handling, text passage retrieval, citation metadata, and `RemoteResult` normalization; inherit from `RemoteProviderOutputTest` base class (TDD: write tests before implementation).
   - Run the relevant test suite (`pytest tests/test_providers/remote/`) and verify all new and existing tests pass.
+  - Commit the implementation following the format in `.agents/docs/COMMIT_MESSAGE.md`.
 - **Files:**
   - `lsm/remote/providers/cultural/perseus_cts.py`
 - **Success criteria:** CTS URN queries return text passages with citation metadata. Passes output validation.
@@ -157,6 +164,7 @@
   - Add integration tests for at least one provider per category.
   - Document API keys and configuration in `docs/` and `.env.example`.
   - Run the full test suite (`pytest tests/`) and verify all new and existing tests pass, including all tests added in tasks 8.0–8.6.
+  - Commit the implementation following the format in `.agents/docs/COMMIT_MESSAGE.md`.
 - **Files:**
   - `tests/test_remote/`
   - `docs/`

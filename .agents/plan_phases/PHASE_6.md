@@ -20,6 +20,7 @@
   - Ensure agent metadata (description, default tools, risk posture) is exposed.
   - Write tests for new agent registration in factory, UI/shell agent list inclusion, and metadata exposure (TDD: write tests before implementation).
   - Run the relevant test suite (`pytest tests/test_agents/ tests/test_ui/`) and verify all new and existing tests pass.
+  - Commit the implementation following the format in `.agents/docs/COMMIT_MESSAGE.md`.
 - **Files:**
   - `lsm/agents/factory.py`
   - `lsm/ui/shell/commands/agents.py`
@@ -34,6 +35,7 @@
   - Add guardrails for permission and iteration limits.
   - Write tests for General Agent prompt configuration, tool allowlist defaults, run output format (summary + artifacts), and permission/iteration guardrails (TDD: write tests before implementation).
   - Run the relevant test suite (`pytest tests/test_agents/`) and verify all new and existing tests pass.
+  - Commit the implementation following the format in `.agents/docs/COMMIT_MESSAGE.md`.
 - **Files:**
   - `lsm/agents/productivity/general.py`
   - `lsm/agents/harness.py`
@@ -47,6 +49,7 @@
   - Emit `idea_graph.md` and supporting artifacts.
   - Write tests for Librarian Agent embeddings query workflow, graph output integration, and artifact generation (TDD: write tests before implementation).
   - Run the relevant test suite (`pytest tests/test_agents/`) and verify all new and existing tests pass.
+  - Commit the implementation following the format in `.agents/docs/COMMIT_MESSAGE.md`.
 - **Files:**
   - `lsm/agents/productivity/librarian.py`
   - `lsm/agents/tools/query_embeddings.py`
@@ -62,6 +65,7 @@
   - Integrate with memory tools for promotion/rejection workflow.
   - Write tests for run summary aggregation, consolidated output format, memory candidate identification, and promotion/rejection workflow (TDD: write tests before implementation).
   - Run the relevant test suite (`pytest tests/test_agents/`) and verify all new and existing tests pass.
+  - Commit the implementation following the format in `.agents/docs/COMMIT_MESSAGE.md`.
 - **Files:**
   - `lsm/agents/assistants/assistant.py`
   - `lsm/agents/memory/**`
@@ -75,6 +79,7 @@
   - Emit revision logs and a final manuscript artifact.
   - Write tests for Manuscript Editor workflow stages: outline reading, section identification, iterative editing, revision log generation, and final artifact output (TDD: write tests before implementation).
   - Run the relevant test suite (`pytest tests/test_agents/`) and verify all new and existing tests pass.
+  - Commit the implementation following the format in `.agents/docs/COMMIT_MESSAGE.md`.
 - **Files:**
   - `lsm/agents/productivity/manuscript_editor.py`
   - `lsm/utils/file_graph.py`

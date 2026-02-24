@@ -14,6 +14,7 @@
 - **Tasks:**
   - Update `pyproject.toml`, `lsm/__init__.py`, and any runtime version references to `0.7.0`.
   - Run the full test suite (`pytest tests/`) and verify no regressions from version changes.
+  - Commit the implementation following the format in `.agents/docs/COMMIT_MESSAGE.md`.
 - **Files:**
   - `pyproject.toml`
   - `lsm/__init__.py`
@@ -26,6 +27,7 @@
   - Verify architecture docs reflect restructured agent packages and provider sub-packages.
   - Verify security docs cover new tools (bash, powershell, MCP) and new providers (OAuth-gated).
   - Run the full test suite (`pytest tests/`) and verify no regressions.
+  - Commit the implementation following the format in `.agents/docs/COMMIT_MESSAGE.md`.
 - **Files:**
   - `docs/**`
   - `.agents/docs/**`
@@ -38,6 +40,7 @@
   - Update `.env.example` with new API keys (OpenRouter, news APIs, financial APIs, OAuth client IDs).
   - Write tests to validate that `example_config.json` loads successfully through the config loader without errors.
   - Run the full test suite (`pytest tests/`) and verify no regressions.
+  - Commit the implementation following the format in `.agents/docs/COMMIT_MESSAGE.md`.
 - **Files:**
   - `example_config.json`
   - `.env.example`
@@ -49,6 +52,7 @@
   - Update `lsm/ui/tui/screens/help.py` WHATS_NEW section with v0.7.0 highlights.
   - Write/update tests for the WHATS_NEW screen content to verify v0.7.0 features are displayed.
   - Run the full test suite (`pytest tests/`) and verify all tests pass.
+  - Commit the implementation following the format in `.agents/docs/COMMIT_MESSAGE.md`.
 - **Files:**
   - `lsm/ui/tui/screens/help.py`
   - `tests/test_ui/tui/test_screens.py`

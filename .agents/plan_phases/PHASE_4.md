@@ -23,6 +23,7 @@
   - Update tool metadata (risk level, runner preference, network needs).
   - Write tests for tool schema registration, metadata correctness, and discoverability in the ToolRegistry (TDD: write tests before implementation).
   - Run the relevant test suite (`pytest tests/test_agents/`) and verify all new and existing tests pass.
+  - Commit the implementation following the format in `.agents/docs/COMMIT_MESSAGE.md`.
 - **Files:**
   - `lsm/agents/tools/base.py`
   - `lsm/agents/tools/**`
@@ -38,6 +39,7 @@
   - Add collision detection: if the same hash appears multiple times, require additional disambiguation (line number or surrounding context).
   - Write tests for line-hash computation, successful edits with matching hashes, hash mismatch error diagnostics, collision detection and disambiguation, and post-edit graph refresh (TDD: write tests before implementation).
   - Run the relevant test suite (`pytest tests/test_tools/`) and verify all new and existing tests pass.
+  - Commit the implementation following the format in `.agents/docs/COMMIT_MESSAGE.md`.
 - **Files:**
   - `lsm/agents/tools/edit_file.py`
   - `lsm/utils/file_graph.py`
@@ -52,6 +54,7 @@
   - Output includes line hashes for immediate use with `edit_file`.
   - Write tests for `find_file` name/content pattern search, `find_section` heading/function/class lookup, graph-aware filter behavior, and line hash inclusion in output (TDD: write tests before implementation).
   - Run the relevant test suite (`pytest tests/test_tools/`) and verify all new and existing tests pass.
+  - Commit the implementation following the format in `.agents/docs/COMMIT_MESSAGE.md`.
 - **Files:**
   - `lsm/agents/tools/find_file.py`
   - `lsm/agents/tools/find_section.py`
@@ -67,6 +70,7 @@
   - All read outputs include line hashes when `include_hashes=true`.
   - Write tests for section-targeted reads, `max_depth` outline filtering, `source_map` structural output, and `include_hashes` flag behavior (TDD: write tests before implementation).
   - Run the relevant test suite (`pytest tests/test_tools/`) and verify all new and existing tests pass.
+  - Commit the implementation following the format in `.agents/docs/COMMIT_MESSAGE.md`.
 - **Files:**
   - `lsm/agents/tools/read_file.py`
   - `lsm/agents/tools/source_map.py`
@@ -82,6 +86,7 @@
   - Compare: tool call count, total tokens consumed, wall-clock time, success rate.
   - Document results and flag any tools that do not demonstrate improvement.
   - Run the benchmark harness (`pytest tests/benchmarks/`) and verify all benchmark tasks complete without errors.
+  - Commit the implementation following the format in `.agents/docs/COMMIT_MESSAGE.md`.
 - **Files:**
   - `tests/benchmarks/tasks/`
   - `tests/benchmarks/results/`
@@ -93,6 +98,7 @@
   - Add tests for find/read/edit flows using fixtures.
   - Document tool schemas and examples in `docs/`.
   - Run the full test suite (`pytest tests/`) and verify all new and existing tests pass, including all tests added in tasks 4.1–4.5.
+  - Commit the implementation following the format in `.agents/docs/COMMIT_MESSAGE.md`.
 - **Files:**
   - `tests/test_tools/`
   - `docs/`

@@ -20,6 +20,7 @@
   - Update runner selection to respect `execution_mode` and `force_docker` policy.
   - Write tests for runner selection logic under various policy configurations, WSL2 config field validation, and `execution_mode`/`force_docker` enforcement (TDD: write tests before implementation).
   - Run the relevant test suite (`pytest tests/test_agents/`) and verify all new and existing tests pass.
+  - Commit the implementation following the format in `.agents/docs/COMMIT_MESSAGE.md`.
 - **Files:**
   - `lsm/agents/tools/sandbox.py`
   - `lsm/config/**`
@@ -35,6 +36,7 @@
   - Document runner constraints and failure modes.
   - Write tests for volume mapping with sandbox path enforcement, environment scrubbing, timeout limits, and lifecycle behavior (TDD: write tests before implementation).
   - Run the relevant test suite (`pytest tests/test_agents/`) and verify all new and existing tests pass.
+  - Commit the implementation following the format in `.agents/docs/COMMIT_MESSAGE.md`.
 - **Files:**
   - `lsm/agents/tools/docker_runner.py`
   - `lsm/agents/tools/env_scrubber.py`
@@ -49,6 +51,7 @@
   - Add logging and error handling for WSL2 invocation failures.
   - Write tests for WSL2 path translation, environment scrubbing, availability checks, and invocation error handling (TDD: write tests before implementation).
   - Run the relevant test suite (`pytest tests/test_agents/`) and verify all new and existing tests pass.
+  - Commit the implementation following the format in `.agents/docs/COMMIT_MESSAGE.md`.
 - **Files:**
   - `lsm/agents/tools/wsl2_runner.py`
   - `lsm/agents/tools/sandbox.py`
@@ -71,6 +74,7 @@
   - Chained command sequences that individually pass but collectively escape sandbox
   - Tests must be added to the existing STRIDE security test suite (T1–T8 categories), specifically T1 (file access), T2 (command escalation), and T5 (resource exhaustion).
   - Run the relevant test suite (`pytest tests/test_agents/`) including all STRIDE security tests and verify all pass.
+  - Commit the implementation following the format in `.agents/docs/COMMIT_MESSAGE.md`.
 - **Files:**
   - `lsm/agents/tools/bash.py`
   - `lsm/agents/tools/powershell.py`
@@ -85,6 +89,7 @@
   - Add integration tests for Docker and WSL2 runners (when available).
   - Document config options and usage examples.
   - Run the full test suite (`pytest tests/`) and verify all new and existing tests pass, including all tests added in tasks 5.1–5.4.
+  - Commit the implementation following the format in `.agents/docs/COMMIT_MESSAGE.md`.
 - **Files:**
   - `tests/test_agents_tools/`
   - `docs/`

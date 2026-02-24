@@ -49,9 +49,16 @@ See [ARCHITECTURE.md](./ARCHITECTURE.md) for detailed package structure and key 
 
 ## Developer Guides
 
-- [CREATE_PLAN.md](./CREATE_PLAN.md) - How to create task plans
-- [COMMIT_MESSAGE.md](./COMMIT_MESSAGE.md) - Commit message format
+- When asked to create a plan read how to do so here: [CREATE_PLAN.md](./CREATE_PLAN.md).
+- Always use the commit message format in [COMMIT_MESSAGE.md](./COMMIT_MESSAGE.md).
 - [CODING_PATTERNS.md](./CODING_PATTERNS.md) - Coding conventions
+- When asked to create a research plan, research the requested task in details and in depth.
+  You should explore and document all the considerations needed implement the assigned task
+  taking into considering the current code base. At the end of the document you should include
+  a `Clarifications Required:` section with a list of questions for the user so he can clarify
+  and answer questions in one place. This research plan should be saved in a file:
+  .agents/docs/RESEARCH_PLAN.md. This document will be used by the user to iteratively fleshout
+  ideas and design considerations before producings an implementation plan.
 - [PLAN.md](./PLAN.md) - Documentation transition plan and phases
 
 ## Commands

@@ -20,6 +20,7 @@
   - Add to `.env.example`: `OPENROUTER_API_KEY`.
   - Write tests for OpenRouter provider instantiation, model selection via config, fallback behavior, usage tracking, and integration with the provider registry (TDD: write tests before implementation).
   - Run the relevant test suite (`pytest tests/test_config/ tests/test_providers/`) and verify all new and existing tests pass.
+  - Commit the implementation following the format in `.agents/docs/COMMIT_MESSAGE.md`.
 - **Files:**
   - `lsm/providers/openrouter.py`
   - `lsm/config/models/llm.py`
@@ -35,6 +36,7 @@
   - New OAI-based providers in Phase 8 must use this base.
   - Write tests for `BaseOAIProvider` shared logic (record parsing, resumption tokens, metadata mapping), and verify refactored providers maintain identical behavior (TDD: write tests before implementation).
   - Run the relevant test suite (`pytest tests/test_providers/remote/`) and verify all new and existing tests pass.
+  - Commit the implementation following the format in `.agents/docs/COMMIT_MESSAGE.md`.
 - **Files:**
   - `lsm/remote/providers/base_oai.py`
   - `lsm/remote/providers/arxiv.py`
@@ -51,6 +53,7 @@
   - Wire MCP server lifecycle management: start servers on demand, restart on failure, shutdown on application exit.
   - Write tests for MCP host client connection, tool registration in ToolRegistry, config field validation, sandbox constraint enforcement on MCP tools, and server lifecycle management (TDD: write tests before implementation).
   - Run the relevant test suite (`pytest tests/test_agents/ tests/test_config/`) and verify all new and existing tests pass.
+  - Commit the implementation following the format in `.agents/docs/COMMIT_MESSAGE.md`.
 - **Files:**
   - `lsm/agents/tools/mcp_host.py`
   - `lsm/config/models/global_config.py`
@@ -66,6 +69,7 @@
   - Expose as both a standalone remote provider (`rss` type) and a utility for other providers.
   - Write tests for RSS 2.0 and Atom feed parsing, cache TTL behavior, seen-item tracking (only new entries returned), and `RemoteResult` normalization (TDD: write tests before implementation).
   - Run the relevant test suite (`pytest tests/test_providers/remote/`) and verify all new and existing tests pass.
+  - Commit the implementation following the format in `.agents/docs/COMMIT_MESSAGE.md`.
 - **Files:**
   - `lsm/remote/providers/rss.py`
   - `lsm/remote/storage.py`

@@ -25,6 +25,7 @@
   - Update UI agent lists (`lsm/ui/shell/commands/agents.py`, `lsm/ui/tui/screens/agents.py`) to display agents grouped by theme.
   - Write/update tests for agent discovery from sub-packages, backward-compatible imports, theme/category metadata on registry entries, and UI agent grouping (TDD: write tests before implementation).
   - Run the relevant test suite (`pytest tests/test_agents/ tests/test_ui/`) and verify all new and existing tests pass.
+  - Commit the implementation following the format in `.agents/docs/COMMIT_MESSAGE.md`.
 - **Files:**
   - `lsm/agents/academic/`
   - `lsm/agents/productivity/`
@@ -44,6 +45,7 @@
   - Document workspace structure in agent architecture docs.
   - Write tests for workspace directory auto-creation, relative path resolution within workspace, and file tool default path behavior (TDD: write tests before implementation).
   - Run the relevant test suite (`pytest tests/test_agents/`) and verify all new and existing tests pass.
+  - Commit the implementation following the format in `.agents/docs/COMMIT_MESSAGE.md`.
 - **Files:**
   - `lsm/agents/harness.py`
   - `lsm/agents/tools/read_file.py`
@@ -60,6 +62,7 @@
   - Update tool response parsing to handle both native function call responses and text-based tool invocations.
   - Write tests for native function calling with supported providers, text-based fallback for unsupported providers, `supports_function_calling` property behavior, and tool response parsing for both paths (TDD: write tests before implementation).
   - Run the relevant test suite (`pytest tests/test_agents/`) and verify all new and existing tests pass.
+  - Commit the implementation following the format in `.agents/docs/COMMIT_MESSAGE.md`.
 - **Files:**
   - `lsm/agents/harness.py`
   - `lsm/providers/base.py`
@@ -74,6 +77,7 @@
   - Add config field: `agents.interaction.auto_continue: bool = false`.
   - Write tests for `ask_user` availability in all agents regardless of allowlist, `auto_continue` mode behavior, and config field validation (TDD: write tests before implementation).
   - Run the relevant test suite (`pytest tests/test_agents/`) and verify all new and existing tests pass.
+  - Commit the implementation following the format in `.agents/docs/COMMIT_MESSAGE.md`.
 - **Files:**
   - `lsm/agents/base.py`
   - `lsm/agents/tools/ask_user.py`

@@ -20,6 +20,7 @@
   - Document graph serialization for meta-agent prompts.
   - Write tests for `parallel_group` node creation, dependency gate enforcement, deterministic ordering within parallel groups, and graph serialization round-trips (TDD: write tests before implementation).
   - Run the relevant test suite (`pytest tests/test_agents/`) and verify all new and existing tests pass.
+  - Commit the implementation following the format in `.agents/docs/COMMIT_MESSAGE.md`.
 - **Files:**
   - `lsm/agents/meta/task_graph.py`
   - `lsm/agents/meta/meta.py`
@@ -34,6 +35,7 @@
   - Collect artifacts concurrently and merge results deterministically (sorted by agent name, then task order).
   - Write tests for concurrent sub-agent execution, sandbox monotonicity enforcement, `max_concurrent` resource limits, and deterministic artifact merge ordering (TDD: write tests before implementation).
   - Run the relevant test suite (`pytest tests/test_agents/`) and verify all new and existing tests pass.
+  - Commit the implementation following the format in `.agents/docs/COMMIT_MESSAGE.md`.
 - **Files:**
   - `lsm/agents/meta/meta.py`
   - `lsm/agents/tools/spawn_agent.py`
@@ -49,6 +51,7 @@
   - Emit final consolidated artifact (`final_result.md`).
   - Write tests for meta-agent sub-agent selection logic, tool allowlist enforcement, and consolidated artifact generation (TDD: write tests before implementation).
   - Run the relevant test suite (`pytest tests/test_agents/`) and verify all new and existing tests pass.
+  - Commit the implementation following the format in `.agents/docs/COMMIT_MESSAGE.md`.
 - **Files:**
   - `lsm/agents/meta/meta.py`
   - `lsm/agents/factory.py`
@@ -62,6 +65,7 @@
   - Emit summary artifacts and action recommendations.
   - Write tests for assistant-meta prompt behavior, validation passes over sub-agent outputs, and summary artifact generation (TDD: write tests before implementation).
   - Run the relevant test suite (`pytest tests/test_agents/`) and verify all new and existing tests pass.
+  - Commit the implementation following the format in `.agents/docs/COMMIT_MESSAGE.md`.
 - **Files:**
   - `lsm/agents/meta/meta.py`
   - `lsm/agents/assistants/assistant.py`
@@ -73,6 +77,7 @@
   - Add tests for parallel plan execution and sandbox monotonicity.
   - Document meta-agent configuration and usage.
   - Run the full test suite (`pytest tests/`) and verify all new and existing tests pass, including all tests added in tasks 10.1–10.4.
+  - Commit the implementation following the format in `.agents/docs/COMMIT_MESSAGE.md`.
 - **Files:**
   - `tests/test_agents_meta/`
   - `docs/`
