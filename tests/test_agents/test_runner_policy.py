@@ -302,3 +302,19 @@ def test_runner_policy_force_docker_blocks_even_with_wsl2() -> None:
         sandbox.execute(ExecTool(), {})
     assert local.calls == 0
     assert wsl2.calls == 0
+
+
+def test_runner_policy_wsl2_unavailable_blocks(monkeypatch) -> None:
+    from lsm.agents.tools.wsl2_runner import WSL2Runner
+
+    monkeypatch.setattr(WSL2Runner, "is_available", lambda self: False)
+    sandbox = ToolSandbox(
+        SandboxConfig(
+            execution_mode="prefer_docker",
+            docker={"enabled": False},
+            wsl2={"enabled": True},
+        ),
+        docker_runner=None,
+    )
+    with pytest.raises(PermissionError, match="requires user confirmation"):
+        sandbox.execute(ExecTool(), {})

@@ -20,6 +20,7 @@ from lsm.utils.paths import resolve_path
 from .env_scrubber import scrub_environment
 from .base import BaseTool
 from .docker_runner import DockerRunner
+from .wsl2_runner import WSL2Runner
 from .runner import BaseRunner, LocalRunner, ToolExecutionResult
 
 logger = get_logger(__name__)
@@ -49,16 +50,16 @@ class ToolSandbox:
     ) -> None:
         self.config = config
         self.global_sandbox = global_sandbox
-        self.permission_gate = PermissionGate(config)
-        self.local_runner: BaseRunner = local_runner or self._build_local_runner()
-        self.docker_runner: Optional[BaseRunner] = docker_runner or self._build_docker_runner()
-        self.wsl2_runner: Optional[BaseRunner] = wsl2_runner
-        self.interaction_channel = interaction_channel
-        self.waiting_state_callback = waiting_state_callback
-        self.last_execution_result: Optional[ToolExecutionResult] = None
         self.workspace_root: Optional[Path] = (
             resolve_path(workspace_root, strict=False) if workspace_root is not None else None
         )
+        self.permission_gate = PermissionGate(config)
+        self.local_runner: BaseRunner = local_runner or self._build_local_runner()
+        self.docker_runner: Optional[BaseRunner] = docker_runner or self._build_docker_runner()
+        self.wsl2_runner: Optional[BaseRunner] = wsl2_runner or self._build_wsl2_runner()
+        self.interaction_channel = interaction_channel
+        self.waiting_state_callback = waiting_state_callback
+        self.last_execution_result: Optional[ToolExecutionResult] = None
         self._validate_not_exceeding_global()
 
     def execute(self, tool: BaseTool, args: Dict[str, Any]) -> str:
@@ -535,6 +536,22 @@ class ToolSandbox:
             mem_limit_mb=int(self.config.docker.get("mem_limit_mb", 512)),
             read_only_root=bool(self.config.docker.get("read_only_root", True)),
         )
+
+    def _build_wsl2_runner(self) -> Optional[BaseRunner]:
+        if not bool(self.config.wsl2.get("enabled", False)):
+            return None
+        runner = WSL2Runner(
+            workspace_root=self._select_workspace_root(),
+            distro=self.config.wsl2.get("distro", ""),
+            wsl_bin=self.config.wsl2.get("wsl_bin", "wsl"),
+            shell=self.config.wsl2.get("shell", "bash"),
+            timeout_s_default=float(self.config.limits.get("timeout_s_default", 30.0)),
+            max_stdout_kb=int(self.config.limits.get("max_stdout_kb", 256)),
+        )
+        if not runner.is_available():
+            logger.warning("WSL2 runner unavailable; falling back to local execution policy")
+            return None
+        return runner
 
     def _select_workspace_root(self) -> Path:
         allowed_paths = self._effective_write_paths() + self._effective_read_paths()

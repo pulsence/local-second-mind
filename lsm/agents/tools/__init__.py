@@ -32,6 +32,7 @@ from .spawn_agent import SpawnAgentTool
 from .await_agent import AwaitAgentTool
 from .collect_artifacts import CollectArtifactsTool
 from .docker_runner import DockerRunner
+from .wsl2_runner import WSL2Runner
 from .runner import BaseRunner, LocalRunner, ToolExecutionResult
 
 if TYPE_CHECKING:
@@ -69,6 +70,7 @@ __all__ = [
     "AwaitAgentTool",
     "CollectArtifactsTool",
     "DockerRunner",
+    "WSL2Runner",
     "BaseRunner",
     "LocalRunner",
     "ToolExecutionResult",
