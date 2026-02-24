@@ -4,6 +4,7 @@ Google Gemini provider implementation.
 
 from __future__ import annotations
 
+import json
 import os
 from typing import Any, Dict, List, Optional
 
@@ -45,6 +46,10 @@ class GeminiProvider(BaseLLMProvider):
     def model(self) -> str:
         return self.config.model
 
+    @property
+    def supports_function_calling(self) -> bool:
+        return True
+
     def is_available(self) -> bool:
         return bool(self._api_key)
 
@@ -80,11 +85,66 @@ class GeminiProvider(BaseLLMProvider):
             self._client = genai.Client(api_key=self._api_key)
         return self._client
 
-    def _build_config(self, temperature: float, max_tokens: int):
+    def _build_config(
+        self,
+        temperature: float,
+        max_tokens: int,
+        *,
+        tools: Optional[list[genai_types.Tool]] = None,
+        tool_config: Optional[genai_types.ToolConfig] = None,
+        system_instruction: Optional[str] = None,
+    ):
         return genai_types.GenerateContentConfig(
             temperature=temperature,
             max_output_tokens=max_tokens,
+            tools=tools,
+            tool_config=tool_config,
+            system_instruction=system_instruction,
         )
+
+    @staticmethod
+    def _format_tool_definitions(
+        tools: list[Dict[str, Any]],
+    ) -> list[genai_types.FunctionDeclaration]:
+        declarations: list[genai_types.FunctionDeclaration] = []
+        for tool in tools:
+            if not isinstance(tool, dict):
+                continue
+            declarations.append(
+                genai_types.FunctionDeclaration(
+                    name=tool.get("name"),
+                    description=tool.get("description"),
+                    parameters_json_schema=tool.get("input_schema", {}),
+                )
+            )
+        return declarations
+
+    @staticmethod
+    def _extract_tool_calls(response: Any) -> list[Dict[str, Any]]:
+        tool_calls: list[Dict[str, Any]] = []
+        for candidate in getattr(response, "candidates", []) or []:
+            content = getattr(candidate, "content", None)
+            for part in getattr(content, "parts", []) or []:
+                function_call = getattr(part, "function_call", None)
+                if function_call is None and isinstance(part, dict):
+                    function_call = part.get("function_call")
+                if not function_call:
+                    continue
+                name = getattr(function_call, "name", None)
+                if name is None and isinstance(function_call, dict):
+                    name = function_call.get("name")
+                args = getattr(function_call, "args", None)
+                if args is None and isinstance(function_call, dict):
+                    args = function_call.get("args")
+                tool_calls.append(
+                    {
+                        "name": str(name or "").strip(),
+                        "arguments": args if isinstance(args, dict) else {},
+                    }
+                )
+            if tool_calls:
+                break
+        return tool_calls
 
     def _is_retryable_error(self, error: Exception) -> bool:
         return error.__class__.__name__ in {
@@ -94,15 +154,21 @@ class GeminiProvider(BaseLLMProvider):
             "InternalServerError",
         }
 
-    def _generate(self, prompt: str, temperature: float, max_tokens: int) -> str:
+    def _generate(
+        self,
+        prompt: str,
+        *,
+        temperature: float,
+        max_tokens: int,
+        config: Optional[genai_types.GenerateContentConfig] = None,
+    ) -> str:
         client = self._ensure_client()
 
         def _call() -> Any:
-            config = self._build_config(temperature, max_tokens)
             return client.models.generate_content(
                 model=self.model,
                 contents=prompt,
-                config=config,
+                config=config or self._build_config(temperature, max_tokens),
             )
 
         resp = self._with_retry(_call, "generate_content", retry_on=self._is_retryable_error)
@@ -120,8 +186,48 @@ class GeminiProvider(BaseLLMProvider):
         max_tokens: int,
         **kwargs,
     ) -> str:
+        tools = kwargs.get("tools")
+        if tools:
+            client = self._ensure_client()
+            declarations = self._format_tool_definitions(tools)
+            tool_config = genai_types.ToolConfig(
+                function_calling_config=genai_types.FunctionCallingConfig(
+                    mode=genai_types.FunctionCallingConfigMode.AUTO
+                )
+            )
+            config = self._build_config(
+                temperature=temperature if temperature is not None else 0.0,
+                max_tokens=max_tokens,
+                tools=[genai_types.Tool(function_declarations=declarations)],
+                tool_config=tool_config,
+                system_instruction=system,
+            )
+            response = self._with_retry(
+                lambda: client.models.generate_content(
+                    model=self.model,
+                    contents=user,
+                    config=config,
+                ),
+                "generate_content",
+                retry_on=self._is_retryable_error,
+            )
+            self.last_response_id = getattr(response, "response_id", None) or getattr(
+                response, "id", None
+            )
+            tool_calls = self._extract_tool_calls(response)
+            text = getattr(response, "text", None)
+            if tool_calls:
+                return json.dumps(
+                    {"response": (text or "").strip(), "tool_calls": tool_calls}
+                )
+            return (text or "").strip()
+
         prompt = f"{system}\n\n{user}"
-        return self._generate(prompt, temperature=temperature or 0.0, max_tokens=max_tokens)
+        return self._generate(
+            prompt,
+            temperature=temperature if temperature is not None else 0.0,
+            max_tokens=max_tokens,
+        )
 
     def _send_streaming_message(
         self,

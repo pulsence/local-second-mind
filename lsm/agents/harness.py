@@ -168,15 +168,12 @@ class AgentHarness:
                 self.context.budget_tracking["iterations"] += 1
                 standing_context_block = self._build_standing_context_block()
                 messages_for_llm = self._prepare_messages(self.context)
-                prompt = self._messages_to_prompt(
-                    messages_for_llm,
+                raw_response, system_prompt, user_prompt = self._call_llm(
+                    llm_provider,
+                    messages_for_llm=messages_for_llm,
                     standing_context_block=standing_context_block,
                 )
-                raw_response = llm_provider.synthesize(
-                    question=prompt,
-                    context=self._tools_context_block(),
-                    mode="insight",
-                )
+                prompt = f"{system_prompt}\n\n{user_prompt}".strip()
                 self._consume_tokens(raw_response)
                 tool_response = self._parse_tool_response(raw_response)
                 self._append_log(
@@ -631,6 +628,33 @@ class AgentHarness:
         if not isinstance(parsed, dict):
             return ToolResponse(response=text, action=None, action_arguments={})
 
+        tool_calls = parsed.get("tool_calls") or parsed.get("tool_call")
+        if tool_calls:
+            if isinstance(tool_calls, dict):
+                tool_calls = [tool_calls]
+            if isinstance(tool_calls, list) and tool_calls:
+                first_call = tool_calls[0]
+                action = (
+                    str(first_call.get("name")).strip()
+                    if isinstance(first_call, dict) and first_call.get("name") is not None
+                    else None
+                )
+                arguments = {}
+                if isinstance(first_call, dict):
+                    arguments = first_call.get("arguments") or first_call.get("args") or {}
+                if isinstance(arguments, str):
+                    try:
+                        arguments = json.loads(arguments)
+                    except json.JSONDecodeError:
+                        arguments = {}
+                if not isinstance(arguments, dict):
+                    arguments = {}
+                return ToolResponse(
+                    response=str(parsed.get("response", "")),
+                    action=action,
+                    action_arguments=arguments,
+                )
+
         action_arguments = parsed.get("action_arguments", {})
         if not isinstance(action_arguments, dict):
             action_arguments = {}
@@ -649,6 +673,7 @@ class AgentHarness:
         messages: list[Dict[str, Any]],
         *,
         standing_context_block: str = "",
+        include_response_instruction: bool = True,
     ) -> str:
         lines = []
         if standing_context_block:
@@ -660,10 +685,11 @@ class AgentHarness:
             role = str(message.get("role", "user")).upper()
             content = str(message.get("content", ""))
             lines.append(f"{role}: {content}")
-        lines.append(
-            "Respond with strict JSON: "
-            '{"response":"...","action":"TOOL_OR_DONE","action_arguments":{}}'
-        )
+        if include_response_instruction:
+            lines.append(
+                "Respond with strict JSON: "
+                '{"response":"...","action":"TOOL_OR_DONE","action_arguments":{}}'
+            )
         return "\n".join(lines)
 
     def _prepare_messages(self, context: AgentContext) -> list[Dict[str, Any]]:
@@ -680,6 +706,89 @@ class AgentHarness:
         recent = messages[-8:]
         summary = f"Compacted {len(older)} earlier messages."
         return [{"role": "system", "content": summary}] + recent
+
+    @staticmethod
+    def _format_tool_definitions_for_prompt(
+        tool_definitions: list[Dict[str, Any]],
+    ) -> str:
+        formatted: list[Dict[str, Any]] = []
+        for definition in tool_definitions:
+            formatted.append(
+                {
+                    "name": definition.get("name"),
+                    "description": definition.get("description"),
+                    "parameters": definition.get("input_schema", {}),
+                }
+            )
+        return json.dumps(formatted, indent=2)
+
+    def _build_system_prompt(
+        self,
+        tool_definitions: list[Dict[str, Any]],
+        *,
+        use_function_calling: bool,
+    ) -> str:
+        lines = [
+            "You are an agent that can call tools to complete tasks.",
+            "If no tool is required, respond directly.",
+        ]
+        if use_function_calling:
+            lines.append("Use the provided tool schema when calling tools.")
+            return "\n".join(lines)
+
+        if tool_definitions:
+            lines.append("Available tools (function calling schema):")
+            lines.append(self._format_tool_definitions_for_prompt(tool_definitions))
+        return "\n".join(lines)
+
+    def _call_llm(
+        self,
+        llm_provider: Any,
+        *,
+        messages_for_llm: list[Dict[str, Any]],
+        standing_context_block: str,
+    ) -> tuple[str, str, str]:
+        tool_definitions = (
+            self.context.tool_definitions
+            if self.context is not None
+            else self._list_tool_definitions()
+        )
+        supports_function_calling = bool(
+            getattr(llm_provider, "supports_function_calling", False)
+        )
+        system_prompt = self._build_system_prompt(
+            tool_definitions,
+            use_function_calling=supports_function_calling,
+        )
+        user_prompt = self._messages_to_prompt(
+            messages_for_llm,
+            standing_context_block=standing_context_block,
+            include_response_instruction=not supports_function_calling,
+        )
+        temperature = None
+        max_tokens = None
+        temperature_resolver = getattr(llm_provider, "_default_temperature", None)
+        max_tokens_resolver = getattr(llm_provider, "_default_max_tokens", None)
+        if callable(temperature_resolver):
+            temperature = temperature_resolver()
+        if callable(max_tokens_resolver):
+            max_tokens = max_tokens_resolver()
+        if max_tokens is None:
+            max_tokens = int(self.agent_config.max_tokens_budget)
+
+        llm_kwargs: dict[str, Any] = {}
+        if supports_function_calling and tool_definitions:
+            llm_kwargs["tools"] = tool_definitions
+            llm_kwargs["tool_choice"] = "auto"
+
+        raw_response = llm_provider._send_message(
+            system=system_prompt,
+            user=user_prompt,
+            temperature=temperature,
+            max_tokens=int(max_tokens),
+            **llm_kwargs,
+        )
+        return str(raw_response), system_prompt, user_prompt
 
     def _tools_context_block(self) -> str:
         if self.context is not None:

@@ -4,6 +4,7 @@ Anthropic Claude provider implementation.
 
 from __future__ import annotations
 
+import json
 import os
 from typing import Any, Dict, List, Optional
 
@@ -49,6 +50,47 @@ class AnthropicProvider(BaseLLMProvider):
     @property
     def model(self) -> str:
         return self.config.model
+
+    @property
+    def supports_function_calling(self) -> bool:
+        return True
+
+    @staticmethod
+    def _format_tool_definition(definition: Dict[str, Any]) -> Dict[str, Any]:
+        return {
+            "name": definition.get("name"),
+            "description": definition.get("description"),
+            "input_schema": definition.get("input_schema", {}),
+        }
+
+    @staticmethod
+    def _extract_tool_calls(response: Any) -> tuple[list[Dict[str, Any]], str]:
+        tool_calls: list[Dict[str, Any]] = []
+        text_parts: list[str] = []
+        for part in getattr(response, "content", []) or []:
+            part_type = getattr(part, "type", None)
+            if part_type is None and isinstance(part, dict):
+                part_type = part.get("type")
+            if part_type == "tool_use":
+                name = getattr(part, "name", None)
+                if name is None and isinstance(part, dict):
+                    name = part.get("name")
+                tool_input = getattr(part, "input", None)
+                if tool_input is None and isinstance(part, dict):
+                    tool_input = part.get("input")
+                tool_calls.append(
+                    {
+                        "name": str(name or "").strip(),
+                        "arguments": tool_input if isinstance(tool_input, dict) else {},
+                    }
+                )
+                continue
+            text = getattr(part, "text", None)
+            if text is None and isinstance(part, dict):
+                text = part.get("text")
+            if text:
+                text_parts.append(text)
+        return tool_calls, "\n".join(text_parts).strip()
 
     def is_available(self) -> bool:
         return bool(self._api_key)
@@ -113,18 +155,42 @@ class AnthropicProvider(BaseLLMProvider):
                 {"type": "text", "text": system, "cache_control": {"type": "ephemeral"}}
             ]
 
+        tools = kwargs.get("tools")
+        tool_choice = kwargs.get("tool_choice")
+        tools_payload = None
+        if tools:
+            tools_payload = [
+                self._format_tool_definition(tool)
+                for tool in tools
+                if isinstance(tool, dict)
+            ]
+
+        tool_choice_payload = None
+        if isinstance(tool_choice, str) and tool_choice:
+            tool_choice_payload = {"type": tool_choice}
+        elif isinstance(tool_choice, dict):
+            tool_choice_payload = tool_choice
+
         def _call() -> Any:
-            return self.client.messages.create(
-                model=self.model,
-                max_tokens=max_tokens,
-                temperature=temperature,
-                system=system_payload,
-                messages=[{"role": "user", "content": user}],
-            )
+            request_args: Dict[str, Any] = {
+                "model": self.model,
+                "max_tokens": max_tokens,
+                "temperature": temperature,
+                "system": system_payload,
+                "messages": [{"role": "user", "content": user}],
+            }
+            if tools_payload is not None:
+                request_args["tools"] = tools_payload
+            if tool_choice_payload is not None:
+                request_args["tool_choice"] = tool_choice_payload
+            return self.client.messages.create(**request_args)
 
         resp = self._with_retry(_call, "send_message", retry_on=self._is_retryable_error)
         self.last_response_id = getattr(resp, "id", None)
-        return self._extract_text(resp)
+        tool_calls, text = self._extract_tool_calls(resp)
+        if tool_calls:
+            return json.dumps({"response": text, "tool_calls": tool_calls})
+        return text or self._extract_text(resp)
 
     def _send_streaming_message(
         self,

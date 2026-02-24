@@ -187,8 +187,8 @@ def test_harness_redacts_tool_output_before_logging(monkeypatch, tmp_path: Path)
                 json.dumps({"response": "Done", "action": "DONE", "action_arguments": {}}),
             ]
 
-        def synthesize(self, question, context, mode="insight", **kwargs):
-            _ = question, context, mode, kwargs
+        def _send_message(self, system, user, temperature, max_tokens, **kwargs):
+            _ = system, user, temperature, max_tokens, kwargs
             return self.responses.pop(0)
 
     monkeypatch.setattr("lsm.agents.harness.create_provider", lambda config: FakeProvider())

@@ -164,13 +164,13 @@ def test_harness_injects_memory_standing_context(monkeypatch, tmp_path: Path) ->
         model = "fake-model"
 
         def __init__(self) -> None:
-            self.last_question = ""
-            self.last_context = ""
+            self.last_system_prompt = ""
+            self.last_user_prompt = ""
 
-        def synthesize(self, question, context, mode="insight", **kwargs):
-            _ = mode, kwargs
-            self.last_question = str(question)
-            self.last_context = str(context)
+        def _send_message(self, system, user, temperature, max_tokens, **kwargs):
+            _ = temperature, max_tokens, kwargs
+            self.last_system_prompt = str(system)
+            self.last_user_prompt = str(user)
             return json.dumps({"response": "done", "action": "DONE", "action_arguments": {}})
 
     provider = FakeProvider()
@@ -206,12 +206,13 @@ def test_harness_injects_memory_standing_context(monkeypatch, tmp_path: Path) ->
             AgentContext(messages=[{"role": "user", "content": "memory integration topic"}])
         )
         assert state.status.value == "completed"
-        assert "Standing Context (Memory)" in provider.last_question
-        assert "memory_anchor" in provider.last_question
+        assert "Standing Context (Memory)" in provider.last_user_prompt
+        assert "memory_anchor" in provider.last_user_prompt
 
-        parsed_context = json.loads(provider.last_context)
+        marker = "Available tools (function calling schema):"
+        _, _, payload = provider.last_system_prompt.partition(marker)
+        parsed_context = json.loads(payload.strip() or "[]")
         assert isinstance(parsed_context, list)
         assert parsed_context[0]["name"] == "echo"
     finally:
         store.close()
-

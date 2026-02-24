@@ -80,6 +80,14 @@ def _base_raw(tmp_path: Path) -> dict:
     }
 
 
+def _extract_tools_payload(system_prompt: str) -> list[dict]:
+    marker = "Available tools (function calling schema):"
+    if marker not in system_prompt:
+        return []
+    _, _, payload = system_prompt.partition(marker)
+    return json.loads(payload.strip() or "[]")
+
+
 def test_harness_allowlist_filters_llm_tool_context_and_blocks_execution(
     monkeypatch,
     tmp_path: Path,
@@ -89,11 +97,11 @@ def test_harness_allowlist_filters_llm_tool_context_and_blocks_execution(
         model = "fake-model"
 
         def __init__(self) -> None:
-            self.last_tools_context = ""
+            self.last_system_prompt = ""
 
-        def synthesize(self, question, context, mode="insight", **kwargs):
-            _ = question, mode, kwargs
-            self.last_tools_context = str(context)
+        def _send_message(self, system, user, temperature, max_tokens, **kwargs):
+            _ = user, temperature, max_tokens, kwargs
+            self.last_system_prompt = str(system)
             return json.dumps(
                 {
                     "response": "Try blocked tool",
@@ -127,7 +135,7 @@ def test_harness_allowlist_filters_llm_tool_context_and_blocks_execution(
     assert blocked.calls == 0
     assert any("not allowed" in entry.content for entry in state.log_entries)
 
-    context_payload = json.loads(provider.last_tools_context)
+    context_payload = _extract_tools_payload(provider.last_system_prompt)
     assert isinstance(context_payload, list)
     assert [item["name"] for item in context_payload] == ["allowed"]
 
@@ -150,8 +158,8 @@ def test_harness_creates_workspace_and_persists_context_path(monkeypatch, tmp_pa
         name = "fake"
         model = "fake-model"
 
-        def synthesize(self, question, context, mode="insight", **kwargs):
-            _ = question, context, mode, kwargs
+        def _send_message(self, system, user, temperature, max_tokens, **kwargs):
+            _ = system, user, temperature, max_tokens, kwargs
             return json.dumps({"response": "Done", "action": "DONE", "action_arguments": {}})
 
     monkeypatch.setattr("lsm.agents.harness.create_provider", lambda cfg: FakeProvider())

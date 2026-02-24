@@ -82,8 +82,8 @@ def test_security_resources_iteration_cap_enforced(monkeypatch, tmp_path: Path) 
         name = "fake"
         model = "fake-model"
 
-        def synthesize(self, question, context, mode="insight", **kwargs):
-            _ = question, context, mode, kwargs
+        def _send_message(self, system, user, temperature, max_tokens, **kwargs):
+            _ = system, user, temperature, max_tokens, kwargs
             return json.dumps(
                 {
                     "response": "loop",
@@ -113,8 +113,8 @@ def test_security_resources_token_budget_exhaustion_stops_execution(monkeypatch,
         name = "fake"
         model = "fake-model"
 
-        def synthesize(self, question, context, mode="insight", **kwargs):
-            _ = question, context, mode, kwargs
+        def _send_message(self, system, user, temperature, max_tokens, **kwargs):
+            _ = system, user, temperature, max_tokens, kwargs
             return json.dumps(
                 {
                     "response": "run",
@@ -144,8 +144,8 @@ def test_security_resources_budget_tracking_accuracy(monkeypatch, tmp_path: Path
         name = "fake"
         model = "fake-model"
 
-        def synthesize(self, question, context, mode="insight", **kwargs):
-            _ = question, context, mode, kwargs
+        def _send_message(self, system, user, temperature, max_tokens, **kwargs):
+            _ = system, user, temperature, max_tokens, kwargs
             return payload
 
     monkeypatch.setattr("lsm.agents.harness.create_provider", lambda cfg: DoneProvider())
@@ -175,8 +175,8 @@ def test_security_resources_large_tool_output_is_truncated(monkeypatch, tmp_path
                 json.dumps({"response": "done", "action": "DONE", "action_arguments": {}}),
             ]
 
-        def synthesize(self, question, context, mode="insight", **kwargs):
-            _ = question, context, mode, kwargs
+        def _send_message(self, system, user, temperature, max_tokens, **kwargs):
+            _ = system, user, temperature, max_tokens, kwargs
             return self.responses.pop(0)
 
     monkeypatch.setattr("lsm.agents.harness.create_provider", lambda cfg: Provider())
@@ -211,8 +211,8 @@ def test_security_resources_graceful_stop_on_mid_iteration_budget_hit(
         def __init__(self) -> None:
             self.calls = 0
 
-        def synthesize(self, question, context, mode="insight", **kwargs):
-            _ = question, context, mode, kwargs
+        def _send_message(self, system, user, temperature, max_tokens, **kwargs):
+            _ = system, user, temperature, max_tokens, kwargs
             self.calls += 1
             return json.dumps({"response": "step", "action": "big_output", "action_arguments": {}})
 

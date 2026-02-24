@@ -54,8 +54,8 @@ def test_harness_creates_agent_workspace_layout(monkeypatch, tmp_path: Path) -> 
         name = "fake"
         model = "fake-model"
 
-        def synthesize(self, question, context, mode="insight", **kwargs):
-            _ = question, context, mode, kwargs
+        def _send_message(self, system, user, temperature, max_tokens, **kwargs):
+            _ = system, user, temperature, max_tokens, kwargs
             return json.dumps({"response": "Done", "action": "DONE", "action_arguments": {}})
 
     monkeypatch.setattr("lsm.agents.harness.create_provider", lambda cfg: FakeProvider())

@@ -73,6 +73,13 @@ class BaseLLMProvider(ABC):
             self._GLOBAL_HEALTH_STATS[key] = ProviderHealthStats()
         self._health_stats = self._GLOBAL_HEALTH_STATS[key]
 
+    @property
+    def supports_function_calling(self) -> bool:
+        """
+        Whether this provider supports native function/tool calling APIs.
+        """
+        return False
+
     @abstractmethod
     def _send_message(
         self,

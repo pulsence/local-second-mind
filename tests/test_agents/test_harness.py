@@ -86,7 +86,8 @@ def test_harness_executes_tool_then_done(monkeypatch, tmp_path: Path) -> None:
                 ),
             ]
 
-        def synthesize(self, question, context, mode="insight", **kwargs):
+        def _send_message(self, system, user, temperature, max_tokens, **kwargs):
+            _ = system, user, temperature, max_tokens, kwargs
             return self._responses.pop(0)
 
     monkeypatch.setattr("lsm.agents.harness.create_provider", lambda config: FakeProvider())
@@ -130,8 +131,8 @@ def test_harness_log_callback_receives_entries(monkeypatch, tmp_path: Path) -> N
                 ),
             ]
 
-        def synthesize(self, question, context, mode="insight", **kwargs):
-            _ = question, context, mode, kwargs
+        def _send_message(self, system, user, temperature, max_tokens, **kwargs):
+            _ = system, user, temperature, max_tokens, kwargs
             return self._responses.pop(0)
 
     monkeypatch.setattr("lsm.agents.harness.create_provider", lambda config: FakeProvider())
@@ -181,8 +182,8 @@ def test_harness_writes_run_summary_json(monkeypatch, tmp_path: Path) -> None:
                 ),
             ]
 
-        def synthesize(self, question, context, mode="insight", **kwargs):
-            _ = question, context, mode, kwargs
+        def _send_message(self, system, user, temperature, max_tokens, **kwargs):
+            _ = system, user, temperature, max_tokens, kwargs
             return self._responses.pop(0)
 
     monkeypatch.setattr("lsm.agents.harness.create_provider", lambda config: FakeProvider())
@@ -234,7 +235,8 @@ def test_harness_fresh_context_strategy(monkeypatch, tmp_path: Path) -> None:
         name = "fake"
         model = "fake-model"
 
-        def synthesize(self, question, context, mode="insight", **kwargs):
+        def _send_message(self, system, user, temperature, max_tokens, **kwargs):
+            _ = system, user, temperature, max_tokens, kwargs
             return json.dumps({"response": "Done.", "action": "DONE", "action_arguments": {}})
 
     monkeypatch.setattr("lsm.agents.harness.create_provider", lambda config: FakeProvider())
@@ -263,7 +265,8 @@ def test_harness_background_pause_resume_and_state_save(monkeypatch, tmp_path: P
         name = "fake"
         model = "fake-model"
 
-        def synthesize(self, question, context, mode="insight", **kwargs):
+        def _send_message(self, system, user, temperature, max_tokens, **kwargs):
+            _ = system, user, temperature, max_tokens, kwargs
             started.set()
             proceed.wait(timeout=1.5)
             return json.dumps({"response": "Done.", "action": "DONE", "action_arguments": {}})

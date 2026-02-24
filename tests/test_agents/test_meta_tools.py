@@ -54,8 +54,8 @@ def test_meta_system_tools_spawn_await_and_collect(monkeypatch, tmp_path: Path) 
         name = "fake"
         model = "fake-model"
 
-        def synthesize(self, question, context, mode="insight", **kwargs):
-            _ = question, context, mode, kwargs
+        def _send_message(self, system, user, temperature, max_tokens, **kwargs):
+            _ = system, user, temperature, max_tokens, kwargs
             return json.dumps(
                 {
                     "response": "Done",

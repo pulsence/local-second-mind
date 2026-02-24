@@ -6,6 +6,7 @@ Implements provider-specific transport for OpenAI's Responses API.
 
 from __future__ import annotations
 
+import json
 import os
 from typing import Any, Dict, List, Optional
 
@@ -66,6 +67,56 @@ class OpenAIProvider(BaseLLMProvider):
     def model(self) -> str:
         return self.config.model
 
+    @property
+    def supports_function_calling(self) -> bool:
+        return True
+
+    @staticmethod
+    def _format_tool_definition(definition: Dict[str, Any]) -> Dict[str, Any]:
+        return {
+            "type": "function",
+            "function": {
+                "name": definition.get("name"),
+                "description": definition.get("description"),
+                "parameters": definition.get("input_schema", {}),
+            },
+        }
+
+    @staticmethod
+    def _parse_tool_arguments(arguments: Any) -> Dict[str, Any]:
+        if isinstance(arguments, dict):
+            return arguments
+        if isinstance(arguments, str):
+            try:
+                parsed = json.loads(arguments)
+            except json.JSONDecodeError:
+                return {}
+            if isinstance(parsed, dict):
+                return parsed
+        return {}
+
+    def _extract_tool_calls(self, response: Any) -> list[Dict[str, Any]]:
+        tool_calls: list[Dict[str, Any]] = []
+        for item in getattr(response, "output", []) or []:
+            item_type = getattr(item, "type", None)
+            if item_type is None and isinstance(item, dict):
+                item_type = item.get("type")
+            if item_type != "function_call":
+                continue
+            name = getattr(item, "name", None)
+            if name is None and isinstance(item, dict):
+                name = item.get("name")
+            arguments = getattr(item, "arguments", None)
+            if arguments is None and isinstance(item, dict):
+                arguments = item.get("arguments")
+            tool_calls.append(
+                {
+                    "name": str(name or "").strip(),
+                    "arguments": self._parse_tool_arguments(arguments),
+                }
+            )
+        return tool_calls
+
     def is_available(self) -> bool:
         return bool(self.config.api_key) or bool(os.getenv("OPENAI_API_KEY"))
 
@@ -116,6 +167,14 @@ class OpenAIProvider(BaseLLMProvider):
             "input": [{"role": "user", "content": user}],
             "max_output_tokens": max_tokens,
         }
+        tools = kwargs.get("tools")
+        if tools:
+            request_args["tools"] = [
+                self._format_tool_definition(tool) for tool in tools if isinstance(tool, dict)
+            ]
+            tool_choice = kwargs.get("tool_choice")
+            if tool_choice:
+                request_args["tool_choice"] = tool_choice
 
         previous_response_id = kwargs.get("previous_response_id")
         if kwargs.get("enable_server_cache") and previous_response_id:
@@ -166,6 +225,11 @@ class OpenAIProvider(BaseLLMProvider):
                 raise
 
         self.last_response_id = getattr(resp, "id", None)
+        tool_calls = self._extract_tool_calls(resp) if tools else []
+        if tool_calls:
+            return json.dumps(
+                {"response": (resp.output_text or "").strip(), "tool_calls": tool_calls}
+            )
         return (resp.output_text or "").strip()
 
     def _send_streaming_message(
