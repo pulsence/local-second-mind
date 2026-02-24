@@ -525,8 +525,9 @@ class ToolSandbox:
             return None
         return DockerRunner(
             image=str(self.config.docker.get("image", "lsm-agent-sandbox:latest")),
-            workspace_root=Path.cwd(),
+            workspace_root=self._select_workspace_root(),
             read_paths=self._effective_read_paths(),
+            write_paths=self._effective_write_paths(),
             timeout_s_default=float(self.config.limits.get("timeout_s_default", 30.0)),
             max_stdout_kb=int(self.config.limits.get("max_stdout_kb", 256)),
             network_default=str(self.config.docker.get("network_default", "none")),
@@ -534,6 +535,18 @@ class ToolSandbox:
             mem_limit_mb=int(self.config.docker.get("mem_limit_mb", 512)),
             read_only_root=bool(self.config.docker.get("read_only_root", True)),
         )
+
+    def _select_workspace_root(self) -> Path:
+        allowed_paths = self._effective_write_paths() + self._effective_read_paths()
+        if self.workspace_root is not None:
+            candidate = self._canonicalize_path(self.workspace_root)
+            if any(self._is_relative_to(candidate, root) for root in allowed_paths):
+                return candidate
+        if self._effective_write_paths():
+            return self._effective_write_paths()[0]
+        if self._effective_read_paths():
+            return self._effective_read_paths()[0]
+        return Path.cwd().resolve(strict=False)
 
     def _select_runner(self, tool: BaseTool) -> BaseRunner:
         risk_level = str(tool.risk_level or "read_only")

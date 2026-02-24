@@ -50,12 +50,17 @@ def test_docker_runner_builds_restricted_command_and_parses_output(monkeypatch, 
     monkeypatch.setattr("lsm.agents.tools.docker_runner.shutil.which", lambda _: "docker")
     monkeypatch.setattr("lsm.agents.tools.docker_runner.subprocess.run", fake_run)
 
+    workspace_root = tmp_path / "workspace"
     read_root = tmp_path / "docs"
+    write_root = tmp_path / "out"
+    workspace_root.mkdir()
     read_root.mkdir()
+    write_root.mkdir()
     runner = DockerRunner(
         image="lsm-agent-sandbox:test",
-        workspace_root=tmp_path,
+        workspace_root=workspace_root,
         read_paths=[read_root],
+        write_paths=[write_root],
         timeout_s_default=12,
         max_stdout_kb=64,
         network_default="none",
@@ -90,12 +95,64 @@ def test_docker_runner_builds_restricted_command_and_parses_output(monkeypatch, 
     assert "lsm.agents.tools._docker_entrypoint" in command
     assert any("dst=/workspace,rw" in token for token in command)
     assert any("dst=/sandbox/ro/0,readonly" in token for token in command)
+    assert any("dst=/sandbox/rw/0,rw" in token for token in command)
 
     payload = json.loads(captured["input"])
     assert payload["tool_name"] == "echo"
     assert payload["tool_module"] == EchoTool.__module__
     assert payload["tool_class"] == EchoTool.__name__
     assert payload["args"] == {"text": "hello"}
+
+
+def test_docker_runner_scrubs_env_and_translates_paths(monkeypatch, tmp_path: Path) -> None:
+    captured: Dict[str, Any] = {}
+
+    def fake_run(command, *, input, capture_output, text, timeout, check):
+        _ = capture_output, text, timeout, check
+        captured["command"] = list(command)
+        captured["input"] = input
+        return subprocess.CompletedProcess(
+            args=command,
+            returncode=0,
+            stdout=json.dumps({"stdout": "ok", "stderr": "", "artifacts": []}),
+            stderr="",
+        )
+
+    monkeypatch.setattr("lsm.agents.tools.docker_runner.shutil.which", lambda _: "docker")
+    monkeypatch.setattr("lsm.agents.tools.docker_runner.subprocess.run", fake_run)
+
+    workspace_root = tmp_path / "workspace"
+    read_root = tmp_path / "docs"
+    write_root = tmp_path / "out"
+    workspace_root.mkdir()
+    read_root.mkdir()
+    write_root.mkdir()
+    args = {
+        "path": str(read_root / "note.txt"),
+        "paths": [str(write_root / "draft.txt"), str(read_root / "ref.txt")],
+    }
+    runner = DockerRunner(
+        workspace_root=workspace_root,
+        read_paths=[read_root],
+        write_paths=[write_root],
+    )
+    runner.run(
+        EchoTool(),
+        args,
+        {"PATH": "/usr/bin", "OPENAI_API_KEY": "secret", "HOME": "/home/user"},
+    )
+
+    command = captured["command"]
+    assert "--env" in command
+    env_tokens = [token for token in command if token.startswith("PATH=") or token.startswith("HOME=")]
+    assert any(token.startswith("PATH=") for token in env_tokens)
+    assert any(token.startswith("HOME=") for token in env_tokens)
+    assert not any("OPENAI_API_KEY" in token for token in command)
+
+    payload = json.loads(captured["input"])
+    assert payload["args"]["path"] == "/sandbox/ro/0/note.txt"
+    assert payload["args"]["paths"][0] == "/sandbox/rw/0/draft.txt"
+    assert payload["args"]["paths"][1] == "/sandbox/ro/0/ref.txt"
 
 
 def test_docker_runner_raises_when_docker_unavailable(monkeypatch, tmp_path: Path) -> None:

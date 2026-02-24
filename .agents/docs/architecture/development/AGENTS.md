@@ -188,6 +188,13 @@ Runner selection policy is:
 `network`/`exec` in `prefer_docker` mode -> docker runner when available, otherwise confirmation-required block.
 When `force_docker=true`, all risks require Docker and local fallback is blocked.
 
+Docker runner behavior:
+- Runs tools in a fresh container per invocation (`docker run --rm`), not a persistent hot-loaded container.
+- Mounts the workspace root at `/workspace` plus sandbox-allowed read paths under `/sandbox/ro/*` and write paths under `/sandbox/rw/*`.
+- Translates absolute tool path arguments into container mount paths before execution.
+- Scrubs environment variables to a minimal safe subset; secrets are never passed to the container.
+- Failure modes surface as `RuntimeError` for missing Docker CLI or non-zero exits, and `TimeoutError` when execution exceeds the sandbox timeout.
+
 ## Memory Storage
 
 Memory storage is configured in `agents.memory` and implemented in `lsm/agents/memory/`.

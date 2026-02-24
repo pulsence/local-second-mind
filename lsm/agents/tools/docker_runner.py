@@ -14,6 +14,7 @@ from typing import Any, Dict, List, Mapping, Sequence
 from lsm.logging import get_logger
 
 from .base import BaseTool
+from .env_scrubber import scrub_environment
 from .runner import BaseRunner, ToolExecutionResult
 
 logger = get_logger(__name__)
@@ -32,6 +33,7 @@ class DockerRunner(BaseRunner):
         image: str = "lsm-agent-sandbox:latest",
         workspace_root: Path | str | None = None,
         read_paths: Sequence[Path | str] | None = None,
+        write_paths: Sequence[Path | str] | None = None,
         timeout_s_default: float = 30.0,
         max_stdout_kb: int = 256,
         network_default: str = "none",
@@ -44,6 +46,7 @@ class DockerRunner(BaseRunner):
         self.image = str(image or "lsm-agent-sandbox:latest").strip()
         self.workspace_root = Path(workspace_root or Path.cwd()).expanduser().resolve(strict=False)
         self.read_paths = self._normalize_read_paths(read_paths)
+        self.write_paths = self._normalize_write_paths(write_paths)
         self.timeout_s_default = float(timeout_s_default)
         self.max_stdout_kb = int(max_stdout_kb)
         self.network_default = str(network_default or "none").strip() or "none"
@@ -59,17 +62,18 @@ class DockerRunner(BaseRunner):
         args: Dict[str, Any],
         env: Mapping[str, str],
     ) -> ToolExecutionResult:
-        _ = env  # Docker CLI does not need sandbox environment variables.
         if shutil.which(self.docker_bin) is None:
             raise RuntimeError("Docker CLI is not available on PATH")
 
+        clean_env = scrub_environment(env)
+        translated_args = self._translate_args(args)
         payload = {
             "tool_name": tool.name,
             "tool_module": tool.__class__.__module__,
             "tool_class": tool.__class__.__name__,
-            "args": args,
+            "args": translated_args,
         }
-        command = self._build_command()
+        command = self._build_command(clean_env)
         logger.debug(
             "Docker runner executing tool='%s' image='%s'",
             tool.name,
@@ -114,7 +118,7 @@ class DockerRunner(BaseRunner):
             artifacts=artifacts,
         )
 
-    def _build_command(self) -> List[str]:
+    def _build_command(self, env: Mapping[str, str]) -> List[str]:
         command = [
             self.docker_bin,
             "run",
@@ -133,6 +137,8 @@ class DockerRunner(BaseRunner):
             "--mount",
             f"type=bind,src={self.workspace_root},dst=/workspace,rw",
         ]
+        for key, value in env.items():
+            command.extend(["--env", f"{key}={value}"])
         if self.read_only_root:
             command.extend(["--read-only", "--tmpfs", "/tmp:rw,size=64m"])
         for index, path in enumerate(self.read_paths):
@@ -140,6 +146,13 @@ class DockerRunner(BaseRunner):
                 [
                     "--mount",
                     f"type=bind,src={path},dst=/sandbox/ro/{index},readonly",
+                ]
+            )
+        for index, path in enumerate(self.write_paths):
+            command.extend(
+                [
+                    "--mount",
+                    f"type=bind,src={path},dst=/sandbox/rw/{index},rw",
                 ]
             )
         command.append(self.image)
@@ -196,3 +209,70 @@ class DockerRunner(BaseRunner):
                 continue
             normalized.append(path)
         return normalized
+
+    def _normalize_write_paths(
+        self,
+        write_paths: Sequence[Path | str] | None,
+    ) -> List[Path]:
+        if not write_paths:
+            return []
+        normalized: List[Path] = []
+        for item in write_paths:
+            path = Path(item).expanduser().resolve(strict=False)
+            if path == self.workspace_root:
+                continue
+            if path in normalized:
+                continue
+            normalized.append(path)
+        return normalized
+
+    def _translate_args(self, args: Dict[str, Any]) -> Dict[str, Any]:
+        def translate(value: Any) -> Any:
+            if isinstance(value, str):
+                return self._translate_path(value)
+            if isinstance(value, list):
+                return [translate(item) for item in value]
+            if isinstance(value, dict):
+                return {key: translate(item) for key, item in value.items()}
+            return value
+
+        return translate(dict(args))
+
+    def _translate_path(self, value: str) -> str:
+        text = str(value).strip()
+        if not text:
+            return value
+        path = Path(text).expanduser()
+        if not path.is_absolute():
+            return value
+        resolved = path.resolve(strict=False)
+        candidate = self._map_to_container(resolved)
+        return candidate if candidate is not None else value
+
+    def _map_to_container(self, path: Path) -> str | None:
+        from pathlib import PurePosixPath
+
+        mappings: List[tuple[Path, str]] = [(self.workspace_root, "/workspace")]
+        for index, root in enumerate(self.write_paths):
+            mappings.append((root, f"/sandbox/rw/{index}"))
+        for index, root in enumerate(self.read_paths):
+            mappings.append((root, f"/sandbox/ro/{index}"))
+
+        best_root: Path | None = None
+        best_target: str | None = None
+        best_relative: Path | None = None
+        best_length = -1
+        for root, target in mappings:
+            try:
+                relative = path.relative_to(root)
+            except ValueError:
+                continue
+            length = len(root.parts)
+            if length > best_length:
+                best_root = root
+                best_target = target
+                best_length = length
+                best_relative = relative
+        if best_root is None or best_target is None or best_relative is None:
+            return None
+        return str(PurePosixPath(best_target) / PurePosixPath(best_relative.as_posix()))
