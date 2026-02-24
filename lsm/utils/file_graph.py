@@ -1320,6 +1320,37 @@ def get_line_hashes(path: Path | str, *, size: int = LINE_HASH_CHARS) -> List[st
     return compute_line_hashes(lines, size=size)
 
 
+def build_graph_outline(
+    graph: FileGraph,
+    *,
+    max_depth: Optional[int] = None,
+    node_types: Optional[Sequence[str]] = None,
+) -> List[Dict[str, Any]]:
+    allowed_types = {str(value) for value in node_types or [] if str(value)}
+    outline: List[Dict[str, Any]] = []
+    for node in graph.nodes:
+        if max_depth is not None and node.depth > max_depth:
+            continue
+        if allowed_types and node.node_type not in allowed_types:
+            continue
+        outline.append(
+            {
+                "id": node.id,
+                "node_type": node.node_type,
+                "name": node.name,
+                "span": {
+                    "start_line": node.start_line,
+                    "end_line": node.end_line,
+                    "start_char": node.start_char,
+                    "end_char": node.end_char,
+                },
+                "depth": node.depth,
+                "line_hash": node.line_hash,
+            }
+        )
+    return outline
+
+
 _GRAPH_CACHE: Dict[str, FileGraph] = {}
 
 
