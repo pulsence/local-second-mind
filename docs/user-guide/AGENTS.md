@@ -140,6 +140,13 @@ Every agent has access to a set of tools governed by its sandbox configuration. 
 | `collect_artifacts` | Collect artifact files written by a completed sub-agent run. |
 | `ask_user` | Request clarification or approval from the user at runtime. Always available to every agent regardless of sandbox configuration. |
 
+### Execution
+
+| Tool | Description |
+|------|-------------|
+| `bash` | Execute a bash command string. Respects sandbox command allow/deny lists and blocks command chaining. |
+| `powershell` | Execute a PowerShell command string. Respects sandbox command allow/deny lists and blocks command chaining. |
+
 ## Agent Configuration
 
 Agents are configured under the `"agents"` section of your `config.json`:
@@ -214,6 +221,7 @@ Each agent runs inside a `ToolSandbox` that enforces path and network boundaries
 - **Read paths** — Directories the agent may read from. Add your knowledge base roots here if agents need to read your documents directly.
 - **Write paths** — Directories the agent may write to. The workspace directory is always included.
 - **URL access** — Disabled by default. Enable to allow `load_url` and remote provider tools.
+- **Shell command lists** — Use `command_allowlist`/`command_denylist` to permit or block specific commands for `bash`/`powershell`.
 - **Tool allowlist** — Restrict which tools a given agent can call. `ask_user` is always available regardless of the allowlist.
 - **Permission prompts** — Tools marked `writes_workspace` (e.g. `write_file`, `edit_file`) will prompt for approval unless `require_permission_by_risk` is set to `false`.
 

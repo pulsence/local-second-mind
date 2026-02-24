@@ -381,7 +381,10 @@ Agents are configured under the top-level `agents` key.
     "require_user_permission": {},
     "require_permission_by_risk": {},
     "execution_mode": "local_only",
-    "force_docker": false
+    "force_docker": false,
+    "command_allowlist": ["ls", "cat"],
+    "command_denylist": ["rm"],
+    "wsl2": { "enabled": false, "distro": "Ubuntu" }
   },
   "memory": {
     "enabled": true,
@@ -423,6 +426,16 @@ Per-agent LLM overrides (under `agents.agent_configs.<agent_name>`):
 - `llm_service`: use a named service from `llms.services`
 - `llm_provider` + `llm_model`: override provider/model directly
 - `llm_temperature`, `llm_max_tokens`: optional runtime overrides
+
+`agents.sandbox` highlights:
+
+- `execution_mode`: `local_only` or `prefer_docker` (prefers Docker/WSL2 for exec+network tools).
+- `force_docker`: require Docker for all tool risks; blocks execution when Docker is unavailable.
+- `limits`: `timeout_s_default`, `max_stdout_kb`, `max_file_write_mb`.
+- `docker`: `enabled`, `image`, `network_default`, `cpu_limit`, `mem_limit_mb`, `read_only_root`.
+- `wsl2`: `enabled`, `distro`, `wsl_bin`, `shell`.
+- `command_allowlist`: optional list of allowed command prefixes for `bash`/`powershell`.
+- `command_denylist`: optional list of blocked command prefixes for `bash`/`powershell`.
 
 ## Environment Variables
 

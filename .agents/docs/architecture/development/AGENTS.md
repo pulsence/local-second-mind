@@ -176,6 +176,9 @@ Sandbox rules are defined in `agents.sandbox` and enforced by `ToolSandbox`.
 - `force_docker`: require Docker execution for all tool risks; block when Docker is unavailable
 - `limits`: execution limits (`timeout_s_default`, `max_stdout_kb`, `max_file_write_mb`)
 - `docker`: docker runner settings (`enabled`, `image`, `network_default`, `cpu_limit`, `mem_limit_mb`, `read_only_root`)
+- `wsl2`: WSL2 runner settings (`enabled`, `distro`, `wsl_bin`, `shell`)
+- `command_allowlist`: optional command prefixes permitted for shell tools
+- `command_denylist`: optional command prefixes blocked for shell tools
 - `tool_llm_assignments`: optional per-tool service mapping
 
 The sandbox is deny-by-default outside configured paths.
@@ -185,7 +188,7 @@ Execution flow is:
 permission checks -> runner selection -> environment scrubbing -> runner execution -> output redaction.
 Runner selection policy is:
 `read_only`/`writes_workspace` -> local runner (unless `force_docker=true`);
-`network`/`exec` in `prefer_docker` mode -> docker runner when available, otherwise confirmation-required block.
+`network`/`exec` in `prefer_docker` mode -> docker runner when available, otherwise WSL2 when enabled, otherwise confirmation-required block.
 When `force_docker=true`, all risks require Docker and local fallback is blocked.
 
 Docker runner behavior:

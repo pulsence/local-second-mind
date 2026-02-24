@@ -373,6 +373,9 @@ Fields:
 - `force_docker: bool = false`
 - `limits: dict[str, Any]` (`timeout_s_default`, `max_stdout_kb`, `max_file_write_mb`)
 - `docker: dict[str, Any]` (`enabled`, `image`, `network_default`, `cpu_limit`, `mem_limit_mb`, `read_only_root`)
+- `wsl2: dict[str, Any]` (`enabled`, `distro`, `wsl_bin`, `shell`)
+- `command_allowlist: list[str] = []`
+- `command_denylist: list[str] = []`
 - `tool_llm_assignments: dict[str, str] = {}`
 
 Methods:

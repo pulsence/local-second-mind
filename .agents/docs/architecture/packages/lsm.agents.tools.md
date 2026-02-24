@@ -9,6 +9,7 @@ Folder Path: `lsm/agents/tools/`
 - [sandbox.py](../../lsm/agents/tools/sandbox.py): ToolSandbox permission enforcement and runner policy
 - [runner.py](../../lsm/agents/tools/runner.py): Runner abstraction and LocalRunner implementation
 - [docker_runner.py](../../lsm/agents/tools/docker_runner.py): DockerRunner implementation
+- [wsl2_runner.py](../../lsm/agents/tools/wsl2_runner.py): WSL2Runner implementation
 - [env_scrubber.py](../../lsm/agents/tools/env_scrubber.py): Environment variable scrubbing for runner isolation
 - [spawn_agent.py](../../lsm/agents/tools/spawn_agent.py): Meta-system tool for spawning sub-agent runs
 - [await_agent.py](../../lsm/agents/tools/await_agent.py): Meta-system tool for waiting on spawned sub-agent completion
@@ -22,6 +23,8 @@ Folder Path: `lsm/agents/tools/`
 - [hash_file.py](../../lsm/agents/tools/hash_file.py): File hashing tool
 - [source_map.py](../../lsm/agents/tools/source_map.py): Source map aggregation tool; returns per-source outlines and propagates `node_id` fields into `node_ids` lists
 - [edit_file.py](../../lsm/agents/tools/edit_file.py): Line-hash edit tool with post-edit outline refresh
+- [bash.py](../../lsm/agents/tools/bash.py): Bash command execution tool with sandbox-enforced allow/deny lists
+- [powershell.py](../../lsm/agents/tools/powershell.py): PowerShell command execution tool with sandbox-enforced allow/deny lists
 - [write_file.py](../../lsm/agents/tools/write_file.py): File writing tool
 - [append_file.py](../../lsm/agents/tools/append_file.py): File appending tool
 - [create_folder.py](../../lsm/agents/tools/create_folder.py): Folder creation tool
