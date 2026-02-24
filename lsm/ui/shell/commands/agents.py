@@ -23,7 +23,7 @@ from lsm.agents import (
     InteractionResponse,
     create_agent,
 )
-from lsm.agents.log_formatter import format_agent_log
+from lsm.agents.log_redactor import redact_secrets
 from lsm.agents.memory import Memory, MemoryCandidate, create_memory_store
 from lsm.agents.memory.models import now_utc
 from lsm.agents.models import AgentContext, AgentLogEntry
@@ -656,7 +656,30 @@ class AgentRuntimeManager:
         entries = list(getattr(entry.agent.state, "log_entries", []))
         if not entries:
             return "No log entries yet.\n"
-        return format_agent_log(entries)
+        return self._format_log_entries_for_shell(entries)
+
+    @staticmethod
+    def _format_log_entries_for_shell(entries: list[AgentLogEntry]) -> str:
+        lines: list[str] = []
+        for entry in entries:
+            actor = str(getattr(entry, "actor", "") or "").strip() or "agent"
+            label = actor.capitalize()
+            content = redact_secrets(str(getattr(entry, "content", "") or ""))
+            line = f"{label}: {content}".rstrip()
+            action = getattr(entry, "action", None)
+            if action:
+                line = f"{line} action={redact_secrets(str(action))}"
+            args = getattr(entry, "action_arguments", None)
+            if args:
+                try:
+                    args_text = json.dumps(args, ensure_ascii=True, sort_keys=True)
+                except Exception:
+                    args_text = str(args)
+                args_text = redact_secrets(args_text)
+                if args_text:
+                    line = f"{line} args={args_text}"
+            lines.append(line)
+        return "\n".join(lines).strip() + ("\n" if lines else "")
 
     def get_log_entries(self, agent_id: Optional[str] = None) -> list[dict[str, Any]]:
         """Return raw log entries for an agent as dicts for UI formatting.

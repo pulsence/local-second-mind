@@ -683,8 +683,13 @@ class AgentsScreen(ManagedScreenMixin, Widget):
 
     def _show_log(self) -> None:
         manager = get_agent_runtime_manager()
-        entries = self._call_manager_with_agent_id(manager.get_log_entries, self._selected_agent_id)
-        self._replace_log(entries, force_scroll_end=True)
+        get_entries = getattr(manager, "get_log_entries", None)
+        if callable(get_entries):
+            entries = self._call_manager_with_agent_id(get_entries, self._selected_agent_id)
+            self._replace_log(entries, force_scroll_end=True)
+        else:
+            output = self._call_manager_with_agent_id(manager.log, self._selected_agent_id)
+            self._replace_log(output, force_scroll_end=True)
         self._refresh_meta_panel()
 
     def _show_meta_log(self) -> None:
@@ -899,7 +904,8 @@ class AgentsScreen(ManagedScreenMixin, Widget):
         manager = get_agent_runtime_manager()
         try:
             running = list(manager.list_running())
-            completed = list(manager.list_completed())
+            list_completed = getattr(manager, "list_completed", None)
+            completed = list(list_completed()) if callable(list_completed) else []
         except Exception as exc:
             running_table.clear(columns=False)
             self._running_agent_ids = []
@@ -982,7 +988,7 @@ class AgentsScreen(ManagedScreenMixin, Widget):
             self._running_row_index = 0
             self._selected_agent_id = None
             self._unread_log_counts = {}
-            output_widget.update("No agents.")
+            output_widget.update("No running agents.")
             return
 
         selected_index = 0
@@ -1032,7 +1038,7 @@ class AgentsScreen(ManagedScreenMixin, Widget):
         elif completed_count > 0:
             output_widget.update(f"{completed_count} completed agent(s).")
         else:
-            output_widget.update("No agents.")
+            output_widget.update("No running agents.")
 
         if str(self._selected_agent_id or "").strip() != previous_selected:
             self._show_selected_agent_log()
@@ -1070,8 +1076,13 @@ class AgentsScreen(ManagedScreenMixin, Widget):
             return
         self._clear_unread_for_agent(agent_id)
         manager = get_agent_runtime_manager()
-        entries = self._call_manager_with_agent_id(manager.get_log_entries, agent_id)
-        self._replace_log(entries)
+        get_entries = getattr(manager, "get_log_entries", None)
+        if callable(get_entries):
+            entries = self._call_manager_with_agent_id(get_entries, agent_id)
+            self._replace_log(entries)
+        else:
+            output = self._call_manager_with_agent_id(manager.log, agent_id)
+            self._replace_log(output)
         clear_stream = getattr(manager, "clear_log_stream", None)
         if callable(clear_stream):
             try:
@@ -1096,9 +1107,14 @@ class AgentsScreen(ManagedScreenMixin, Widget):
         self._refresh_running_agents()
 
     def _call_manager_with_agent_id(self, method, agent_id: Optional[str]) -> str:
-        if agent_id:
-            return method(agent_id=agent_id)
-        return method(agent_id=None)
+        try:
+            if agent_id:
+                return method(agent_id=agent_id)
+            return method(agent_id=None)
+        except TypeError:
+            if agent_id:
+                return method(agent_id)
+            return method()
 
     def _drain_log_streams(self) -> None:
         if not self._log_follow_selected:
@@ -1993,6 +2009,7 @@ class AgentsScreen(ManagedScreenMixin, Widget):
         log_widget = self.query_one("#agents-log", RichLog)
         should_scroll_end = (
             force_scroll_end
+            or self._log_follow_selected
             or self._is_log_scrolled_to_bottom(log_widget)
         )
         if replace:

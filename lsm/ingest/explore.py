@@ -20,8 +20,8 @@ def normalize_query_path(value: str) -> str:
         Normalized path with consistent separators
     """
     normalized = value.strip().lower()
-    normalized = normalized.replace("/", os.sep).replace("\\", os.sep)
-    return normalized.strip(os.sep)
+    normalized = normalized.replace("/", "\\").replace("\\", "\\")
+    return normalized.strip("\\/")
 
 
 def parse_explore_query(

@@ -4,6 +4,7 @@ Agent scheduler service for recurring harness runs.
 
 from __future__ import annotations
 
+import inspect
 import json
 import threading
 import time
@@ -549,21 +550,24 @@ class AgentScheduler:
             permissions=permissions,
         )
 
+        harness_kwargs = {
+            "agent_name": schedule.agent_name,
+            "tool_allowlist": allowlist,
+            "llm_service": llm_selection.get("service"),
+            "llm_tier": llm_selection.get("tier"),
+            "llm_provider": llm_selection.get("provider"),
+            "llm_model": llm_selection.get("model"),
+            "llm_temperature": llm_selection.get("temperature"),
+            "llm_max_tokens": llm_selection.get("max_tokens"),
+            "vectordb_config": self.config.vectordb,
+            "memory_store": memory_store,
+        }
         harness = self.harness_cls(
             effective_agent_config,
             tool_registry,
             self.config.llm,
             sandbox,
-            agent_name=schedule.agent_name,
-            tool_allowlist=allowlist,
-            llm_service=llm_selection.get("service"),
-            llm_tier=llm_selection.get("tier"),
-            llm_provider=llm_selection.get("provider"),
-            llm_model=llm_selection.get("model"),
-            llm_temperature=llm_selection.get("temperature"),
-            llm_max_tokens=llm_selection.get("max_tokens"),
-            vectordb_config=self.config.vectordb,
-            memory_store=memory_store,
+            **self._filter_harness_kwargs(self.harness_cls, harness_kwargs),
         )
         topic = str(schedule.params.get("topic", "")).strip()
         if not topic:
@@ -582,6 +586,25 @@ class AgentScheduler:
             "context": context,
             "memory_store": memory_store,
         }
+
+    @staticmethod
+    def _filter_harness_kwargs(harness_cls: Any, kwargs: Dict[str, Any]) -> Dict[str, Any]:
+        try:
+            signature = inspect.signature(harness_cls)
+        except (TypeError, ValueError):
+            return kwargs
+        parameters = signature.parameters
+        if any(
+            param.kind == inspect.Parameter.VAR_KEYWORD
+            for param in parameters.values()
+        ):
+            return kwargs
+        allowed = {
+            name
+            for name in parameters
+            if name and name != "self"
+        }
+        return {key: value for key, value in kwargs.items() if key in allowed}
 
     def _resolve_schedule_permissions(self, schedule: ScheduleConfig) -> Dict[str, bool]:
         params = schedule.params if isinstance(schedule.params, dict) else {}

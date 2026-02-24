@@ -143,7 +143,7 @@ _WHATS_NEW: tuple[str, ...] = (
     f"Version: {_WHATS_NEW_VERSION}",
     "Compact TUI layout with density modes (auto/compact/comfortable) for small terminals.",
     "Split modular CSS and refactored settings screen with MVC architecture.",
-    "Interactive agent approvals/replies with multi-agent runtime support.",
+    "Interactive agent approvals and replies with multi-agent runtime support.",
     "Real-time log streaming, schedule controls, and session-completed agent history.",
     "TUI startup under 1 second with lazy background ML initialization.",
 )
