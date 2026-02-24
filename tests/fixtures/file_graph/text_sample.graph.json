@@ -1,0 +1,113 @@
+{
+  "path": "/mnt/c/Users/TimEckII/OneDrive - Personal Use/Documents/Development/Local Second Mind/tests/fixtures/file_graph/text_sample.md",
+  "content_hash": "38e2ed2769671cc57771bf230236b2c601151306da98bd1c8f4a027374b4e473",
+  "nodes": [
+    {
+      "id": "04a74b353f20366b458085682675ffb24b56855d",
+      "node_type": "document",
+      "name": "text_sample.md",
+      "span": {
+        "start_line": 1,
+        "end_line": 9,
+        "start_char": 0,
+        "end_char": 55
+      },
+      "depth": 0,
+      "parent_id": null,
+      "children": [
+        "6fc5befefa7d3c8e663c713f08e65d8398309961"
+      ],
+      "metadata": {
+        "path": "tests/fixtures/file_graph/text_sample.md"
+      },
+      "line_hash": "29cb47ba119935462ec77e6e83d2ad09a18c197081fde68f3b8e1bd07cabdfa9",
+      "version": 1
+    },
+    {
+      "id": "6fc5befefa7d3c8e663c713f08e65d8398309961",
+      "node_type": "heading",
+      "name": "Title",
+      "span": {
+        "start_line": 1,
+        "end_line": 8,
+        "start_char": 0,
+        "end_char": 54
+      },
+      "depth": 1,
+      "parent_id": "04a74b353f20366b458085682675ffb24b56855d",
+      "children": [
+        "0297d95c7bc82631b1347fa62f82ce39c6938ecd",
+        "0392e855c3711b526abb95d59e2ba48af5221461"
+      ],
+      "metadata": {
+        "level": 1
+      },
+      "line_hash": "29cb47ba119935462ec77e6e83d2ad09a18c197081fde68f3b8e1bd07cabdfa9",
+      "version": 1
+    },
+    {
+      "id": "0297d95c7bc82631b1347fa62f82ce39c6938ecd",
+      "node_type": "paragraph",
+      "name": "paragraph",
+      "span": {
+        "start_line": 3,
+        "end_line": 3,
+        "start_char": 9,
+        "end_char": 23
+      },
+      "depth": 2,
+      "parent_id": "6fc5befefa7d3c8e663c713f08e65d8398309961",
+      "children": [],
+      "metadata": {
+        "heading": "Title",
+        "index": 1
+      },
+      "line_hash": "dbcba560ab93aa79c7e358a69848177ed0b52365f631c40ca4db070a2e319e96",
+      "version": 1
+    },
+    {
+      "id": "0392e855c3711b526abb95d59e2ba48af5221461",
+      "node_type": "heading",
+      "name": "Section",
+      "span": {
+        "start_line": 5,
+        "end_line": 8,
+        "start_char": 25,
+        "end_char": 54
+      },
+      "depth": 2,
+      "parent_id": "6fc5befefa7d3c8e663c713f08e65d8398309961",
+      "children": [
+        "2f5dd2c0baf96c6ad66b283261b79dc10a953442"
+      ],
+      "metadata": {
+        "level": 2
+      },
+      "line_hash": "4f8e693d34523fd38aa892fcfa91cb9bad22d791f2b128d800d8b42b55138993",
+      "version": 1
+    },
+    {
+      "id": "2f5dd2c0baf96c6ad66b283261b79dc10a953442",
+      "node_type": "list",
+      "name": "list",
+      "span": {
+        "start_line": 7,
+        "end_line": 8,
+        "start_char": 37,
+        "end_char": 54
+      },
+      "depth": 3,
+      "parent_id": "0392e855c3711b526abb95d59e2ba48af5221461",
+      "children": [],
+      "metadata": {
+        "heading": "Section",
+        "index": 3
+      },
+      "line_hash": "75bcc4779f21e8328d155e1534778095e94f99ca6ed94f9994a484daf63cdf20",
+      "version": 1
+    }
+  ],
+  "root_ids": [
+    "04a74b353f20366b458085682675ffb24b56855d"
+  ]
+}

@@ -9,6 +9,9 @@ All notable changes to Local Second Mind are documented here.
 - Tiered LLM configuration via `llms.tiers` for agent/tool model selection.
 - Agent/tool tier declarations with tier-based model selection in agent harness runs.
 - Benchmark harness for agent/tool regression tracking with baseline file-operation tasks in `tests/benchmarks/`.
+- File graphing system with unified graph schema, deterministic IDs, content-hash caching, and line-hash metadata.
+- Code/text/PDF/HTML graphers with section-aware spans, fixtures, and coverage.
+- Graph-aware read and metadata tooling with section selection and optional graph output.
 
 ## 0.6.0 - 2026-02-19
 

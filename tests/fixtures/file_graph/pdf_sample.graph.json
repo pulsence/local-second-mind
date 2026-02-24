@@ -1,0 +1,159 @@
+{
+  "path": "/mnt/c/Users/TimEckII/OneDrive - Personal Use/Documents/Development/Local Second Mind/tests/fixtures/file_graph/pdf_sample.pdf",
+  "content_hash": "dedc37eb690a406e2d03e1284bc9f7d37da9a51f19589ef3d1cbfe9ebf093b3c",
+  "nodes": [
+    {
+      "id": "2be3957ab5befd3b4517cc8e1c06cb226a2e5dcd",
+      "node_type": "document",
+      "name": "pdf_sample.pdf",
+      "span": {
+        "start_line": 1,
+        "end_line": 7,
+        "start_char": 0,
+        "end_char": 37
+      },
+      "depth": 0,
+      "parent_id": null,
+      "children": [
+        "677241920bb3434a1ff1fc0917abbc7e28388c56",
+        "a87696c934322435f6090431ce0e5d80ef72d508"
+      ],
+      "metadata": {
+        "path": "tests/fixtures/file_graph/pdf_sample.pdf"
+      },
+      "line_hash": "82a25dfc3966e875a6d557f6b2f60494ff96b0f87e5e26510e48326a47a07bf2",
+      "version": 1
+    },
+    {
+      "id": "677241920bb3434a1ff1fc0917abbc7e28388c56",
+      "node_type": "page",
+      "name": "Page 1",
+      "span": {
+        "start_line": 1,
+        "end_line": 3,
+        "start_char": 0,
+        "end_char": 16
+      },
+      "depth": 1,
+      "parent_id": "2be3957ab5befd3b4517cc8e1c06cb226a2e5dcd",
+      "children": [
+        "076eaafe22087614078eed225c5a017347adf06d"
+      ],
+      "metadata": {
+        "page_number": 1
+      },
+      "line_hash": "8f9748d23dd896315c444fc5b86c96968801303314c726bebc0c63bfb0460d47",
+      "version": 1
+    },
+    {
+      "id": "076eaafe22087614078eed225c5a017347adf06d",
+      "node_type": "heading",
+      "name": "Intro",
+      "span": {
+        "start_line": 1,
+        "end_line": 3,
+        "start_char": 0,
+        "end_char": 16
+      },
+      "depth": 2,
+      "parent_id": "677241920bb3434a1ff1fc0917abbc7e28388c56",
+      "children": [
+        "a404e0c7acee9a63585ef468925c7e699ab20fdf"
+      ],
+      "metadata": {
+        "level": 1,
+        "page_number": 1
+      },
+      "line_hash": "8f9748d23dd896315c444fc5b86c96968801303314c726bebc0c63bfb0460d47",
+      "version": 1
+    },
+    {
+      "id": "a404e0c7acee9a63585ef468925c7e699ab20fdf",
+      "node_type": "paragraph",
+      "name": "paragraph",
+      "span": {
+        "start_line": 3,
+        "end_line": 3,
+        "start_char": 9,
+        "end_char": 16
+      },
+      "depth": 3,
+      "parent_id": "076eaafe22087614078eed225c5a017347adf06d",
+      "children": [],
+      "metadata": {
+        "heading": "Intro",
+        "index": 1,
+        "page_number": 1
+      },
+      "line_hash": "79551ac36eda53f3c5338c7016ea07797ea5606985c65a9c85ee6065288e5ba4",
+      "version": 1
+    },
+    {
+      "id": "a87696c934322435f6090431ce0e5d80ef72d508",
+      "node_type": "page",
+      "name": "Page 2",
+      "span": {
+        "start_line": 5,
+        "end_line": 7,
+        "start_char": 18,
+        "end_char": 37
+      },
+      "depth": 1,
+      "parent_id": "2be3957ab5befd3b4517cc8e1c06cb226a2e5dcd",
+      "children": [
+        "abb1ff626a6dbd30932d269d1779c9cebc5ffab8"
+      ],
+      "metadata": {
+        "page_number": 2
+      },
+      "line_hash": "418e195783290e8cddb3e263488e61ce8e99eabf90383e297e50e35fd8fb04be",
+      "version": 1
+    },
+    {
+      "id": "abb1ff626a6dbd30932d269d1779c9cebc5ffab8",
+      "node_type": "heading",
+      "name": "Section",
+      "span": {
+        "start_line": 5,
+        "end_line": 7,
+        "start_char": 18,
+        "end_char": 37
+      },
+      "depth": 2,
+      "parent_id": "a87696c934322435f6090431ce0e5d80ef72d508",
+      "children": [
+        "82db19028e0223f70c7153e66df68ae4204c5e53"
+      ],
+      "metadata": {
+        "level": 2,
+        "page_number": 2
+      },
+      "line_hash": "418e195783290e8cddb3e263488e61ce8e99eabf90383e297e50e35fd8fb04be",
+      "version": 1
+    },
+    {
+      "id": "82db19028e0223f70c7153e66df68ae4204c5e53",
+      "node_type": "paragraph",
+      "name": "paragraph",
+      "span": {
+        "start_line": 7,
+        "end_line": 7,
+        "start_char": 30,
+        "end_char": 37
+      },
+      "depth": 3,
+      "parent_id": "abb1ff626a6dbd30932d269d1779c9cebc5ffab8",
+      "children": [],
+      "metadata": {
+        "heading": "Section",
+        "index": 1,
+        "page_number": 2
+      },
+      "line_hash": "ffad7db86621ee38f27e1b35aeb271e64a805d5fd8444492c3bb194937f7da43",
+      "version": 1
+    }
+  ],
+  "root_ids": [
+    "2be3957ab5befd3b4517cc8e1c06cb226a2e5dcd"
+  ]
+}

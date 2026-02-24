@@ -1,0 +1,114 @@
+{
+  "path": "/mnt/c/Users/TimEckII/OneDrive - Personal Use/Documents/Development/Local Second Mind/tests/fixtures/file_graph/code_sample.py",
+  "content_hash": "d44e720debde8e3274b7812692cdab91ce698259bfe599b98ed8bedf23dbb2a8",
+  "nodes": [
+    {
+      "id": "ec3153d94dc4f18fc5e287756ede7aa181e07971",
+      "node_type": "document",
+      "name": "code_sample.py",
+      "span": {
+        "start_line": 1,
+        "end_line": 9,
+        "start_char": 0,
+        "end_char": 92
+      },
+      "depth": 0,
+      "parent_id": null,
+      "children": [
+        "f0595f7fcf832c489169dbcf94e3959d285c23bc",
+        "1f2070426a804c468d3cecc4c44cccaa9010f661",
+        "375c298c048c0e4f159b9ea57f2ce561f9cbf83b"
+      ],
+      "metadata": {
+        "path": "tests/fixtures/file_graph/code_sample.py"
+      },
+      "line_hash": "acf03e12b9dcfa13b1c4a9847605651618dd301016edf0fee3f9682301050ab6",
+      "version": 1
+    },
+    {
+      "id": "f0595f7fcf832c489169dbcf94e3959d285c23bc",
+      "node_type": "import",
+      "name": "import",
+      "span": {
+        "start_line": 1,
+        "end_line": 1,
+        "start_char": 0,
+        "end_char": 9
+      },
+      "depth": 1,
+      "parent_id": "ec3153d94dc4f18fc5e287756ede7aa181e07971",
+      "children": [],
+      "metadata": {
+        "language": "python",
+        "parser": "heuristic"
+      },
+      "line_hash": "de2abade832c8e350a1bdc98cfcdb1e202ac4749c5fc51a4a970d41736b6df5c",
+      "version": 1
+    },
+    {
+      "id": "1f2070426a804c468d3cecc4c44cccaa9010f661",
+      "node_type": "class",
+      "name": "Widget",
+      "span": {
+        "start_line": 3,
+        "end_line": 5,
+        "start_char": 11,
+        "end_char": 63
+      },
+      "depth": 1,
+      "parent_id": "ec3153d94dc4f18fc5e287756ede7aa181e07971",
+      "children": [
+        "e4590d007d194ddfec583c2c6a69081ce643b70b"
+      ],
+      "metadata": {
+        "language": "python",
+        "parser": "heuristic"
+      },
+      "line_hash": "7259cce047105c64a078d7e48c5d1bafaee57b9539e3bc0f7a7a76448347cb24",
+      "version": 1
+    },
+    {
+      "id": "e4590d007d194ddfec583c2c6a69081ce643b70b",
+      "node_type": "function",
+      "name": "method",
+      "span": {
+        "start_line": 4,
+        "end_line": 5,
+        "start_char": 25,
+        "end_char": 63
+      },
+      "depth": 2,
+      "parent_id": "1f2070426a804c468d3cecc4c44cccaa9010f661",
+      "children": [],
+      "metadata": {
+        "language": "python",
+        "parser": "heuristic"
+      },
+      "line_hash": "51d0d359dab83224e403ffc214dba53fd50b75bae6f38365e7fc917dafa773ea",
+      "version": 1
+    },
+    {
+      "id": "375c298c048c0e4f159b9ea57f2ce561f9cbf83b",
+      "node_type": "function",
+      "name": "helper",
+      "span": {
+        "start_line": 7,
+        "end_line": 8,
+        "start_char": 65,
+        "end_char": 91
+      },
+      "depth": 1,
+      "parent_id": "ec3153d94dc4f18fc5e287756ede7aa181e07971",
+      "children": [],
+      "metadata": {
+        "language": "python",
+        "parser": "heuristic"
+      },
+      "line_hash": "5b1471d6f7cfe1b6acbc5c8fed641b3298816b56fea0dc8fefd21ae160657bfe",
+      "version": 1
+    }
+  ],
+  "root_ids": [
+    "ec3153d94dc4f18fc5e287756ede7aa181e07971"
+  ]
+}
