@@ -10,6 +10,7 @@ from lsm.utils.text_processing import extract_docx_text, is_list_block, split_pa
 
 
 GRAPH_NODE_VERSION = 1
+LINE_HASH_CHARS = 8
 
 CODE_EXTENSIONS = {
     ".py",
@@ -210,6 +211,18 @@ def compute_content_hash(content: bytes) -> str:
 def compute_line_hash(lines: Sequence[str]) -> str:
     normalized = "\n".join(lines).rstrip("\n")
     return hashlib.sha256(normalized.encode("utf-8")).hexdigest()
+
+
+def compute_line_hashes(
+    lines: Sequence[str],
+    *,
+    size: int = LINE_HASH_CHARS,
+) -> List[str]:
+    hashes: List[str] = []
+    for line in lines:
+        digest = hashlib.sha256(line.encode("utf-8")).hexdigest()
+        hashes.append(digest[:size] if size else digest)
+    return hashes
 
 
 def _decode_bytes(content: bytes) -> str:
@@ -1299,6 +1312,12 @@ def get_graph_text(path: Path | str) -> str:
         return extract_docx_text(file_path)
 
     return _decode_bytes(content_bytes)
+
+
+def get_line_hashes(path: Path | str, *, size: int = LINE_HASH_CHARS) -> List[str]:
+    text = get_graph_text(path)
+    lines = text.split("\n") if text else [""]
+    return compute_line_hashes(lines, size=size)
 
 
 _GRAPH_CACHE: Dict[str, FileGraph] = {}
