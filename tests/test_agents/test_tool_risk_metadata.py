@@ -6,6 +6,7 @@ from lsm.agents.tools import (
     AskUserTool,
     AwaitAgentTool,
     AppendFileTool,
+    BashTool,
     CollectArtifactsTool,
     CreateFolderTool,
     EditFileTool,
@@ -18,6 +19,7 @@ from lsm.agents.tools import (
     MemoryPutTool,
     MemoryRemoveTool,
     MemorySearchTool,
+    PowerShellTool,
     QueryEmbeddingsTool,
     QueryLLMTool,
     QueryRemoteChainTool,
@@ -84,6 +86,8 @@ def test_base_tool_definition_includes_risk_metadata_defaults() -> None:
         (SpawnAgentTool, "exec", False),
         (AwaitAgentTool, "exec", False),
         (CollectArtifactsTool, "exec", False),
+        (BashTool, "exec", False),
+        (PowerShellTool, "exec", False),
     ],
 )
 def test_builtin_tool_classes_have_expected_risk_metadata(

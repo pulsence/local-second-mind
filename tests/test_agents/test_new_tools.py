@@ -239,6 +239,8 @@ def test_default_tool_registry_registers_new_tools_with_dependency_rules(tmp_pat
     assert "spawn_agent" in no_vectors_names
     assert "await_agent" in no_vectors_names
     assert "collect_artifacts" in no_vectors_names
+    assert "bash" in no_vectors_names
+    assert "powershell" in no_vectors_names
     assert "similarity_search" not in no_vectors_names
     assert "extract_snippets" not in no_vectors_names
 
@@ -256,3 +258,5 @@ def test_default_tool_registry_registers_new_tools_with_dependency_rules(tmp_pat
     assert "spawn_agent" in with_vectors_names
     assert "await_agent" in with_vectors_names
     assert "collect_artifacts" in with_vectors_names
+    assert "bash" in with_vectors_names
+    assert "powershell" in with_vectors_names

@@ -35,6 +35,9 @@ class ToolSandbox:
     _WRITE_TOOL_NAMES = {"write_file", "create_folder"}
     _NETWORK_TOOL_NAMES = {"load_url", "query_llm", "query_remote", "query_remote_chain"}
     _DOCKER_ELIGIBLE_RISKS = {"network", "exec"}
+    _COMMAND_TOOL_NAMES = {"bash", "powershell"}
+    _COMMAND_WRITE_OPS = {"rm", "mv", "cp", "touch", "mkdir", "rmdir", "tee", "truncate", "dd"}
+    _COMMAND_REDIRECT_TOKENS = {">", ">>", "1>", "1>>", "2>", "2>>"}
 
     def __init__(
         self,
@@ -220,6 +223,8 @@ class ToolSandbox:
             path = args.get("path")
             if path is not None:
                 self.check_write_path(Path(str(path)))
+        if tool.name in self._COMMAND_TOOL_NAMES:
+            self._enforce_command_policy(tool, args)
 
     def _resolve_workspace_args(self, tool: BaseTool, args: Dict[str, Any]) -> Dict[str, Any]:
         if tool.name not in self._READ_TOOL_NAMES and tool.name not in self._WRITE_TOOL_NAMES:
@@ -564,6 +569,133 @@ class ToolSandbox:
         if self._effective_read_paths():
             return self._effective_read_paths()[0]
         return Path.cwd().resolve(strict=False)
+
+    def _enforce_command_policy(self, tool: BaseTool, args: Dict[str, Any]) -> None:
+        command = str(args.get("command", "")).strip()
+        if not command:
+            raise ValueError(f"Tool '{tool.name}' requires a command")
+        if self._has_command_chaining(command):
+            raise PermissionError("Command chaining is not allowed in sandbox")
+
+        tokens = self._split_command(command, posix=(tool.name != "powershell"))
+        base_cmd = self._extract_base_command(tokens)
+        self._enforce_command_lists(base_cmd)
+
+        read_paths, write_paths = self._extract_command_paths(tokens, base_cmd)
+        for path in read_paths:
+            self.check_read_path(path)
+        for path in write_paths:
+            self.check_write_path(path)
+
+    def _has_command_chaining(self, command: str) -> bool:
+        if any(token in command for token in ("&&", "||", ";", "|", "`", "$(", "&")):
+            return True
+        if "$" in command:
+            return True
+        return False
+
+    def _split_command(self, command: str, *, posix: bool) -> list[str]:
+        import shlex
+
+        try:
+            return shlex.split(command, posix=posix)
+        except ValueError:
+            return [token for token in command.split(" ") if token]
+
+    def _extract_base_command(self, tokens: list[str]) -> str:
+        for token in tokens:
+            if not token:
+                continue
+            if "=" in token and not token.startswith(("/", ".", "~")):
+                continue
+            return token
+        return ""
+
+    def _enforce_command_lists(self, base_cmd: str) -> None:
+        allowlist = [str(item).strip().lower() for item in self.config.command_allowlist]
+        denylist = [str(item).strip().lower() for item in self.config.command_denylist]
+        if not base_cmd:
+            if allowlist:
+                raise PermissionError("Command not in allowlist")
+            return
+        normalized = self._normalize_command_name(base_cmd)
+        if denylist and (normalized in denylist or base_cmd.lower() in denylist):
+            raise PermissionError("Command is blocked by denylist")
+        if allowlist and normalized not in allowlist and base_cmd.lower() not in allowlist:
+            raise PermissionError("Command not in allowlist")
+
+    def _extract_command_paths(self, tokens: list[str], base_cmd: str) -> tuple[list[Path], list[Path]]:
+        read_paths: list[Path] = []
+        write_paths: list[Path] = []
+        redirections: list[str] = []
+
+        for idx, token in enumerate(tokens):
+            if token in self._COMMAND_REDIRECT_TOKENS:
+                if idx + 1 < len(tokens):
+                    redirections.append(tokens[idx + 1])
+                continue
+            if token.startswith(">") and len(token) > 1:
+                redirections.append(token.lstrip(">"))
+
+        path_tokens: list[str] = []
+        for idx, token in enumerate(tokens):
+            if idx == 0:
+                continue
+            if not token or token.startswith("-"):
+                continue
+            if token in redirections:
+                continue
+            if self._looks_like_path(token):
+                path_tokens.append(token)
+
+        normalized_cmd = self._normalize_command_name(base_cmd)
+        if normalized_cmd in {"cp", "mv"} and len(path_tokens) >= 2:
+            for token in path_tokens[:-1]:
+                read_paths.append(Path(self._normalize_command_path_token(token)))
+            write_paths.append(Path(self._normalize_command_path_token(path_tokens[-1])))
+        elif normalized_cmd in self._COMMAND_WRITE_OPS:
+            for token in path_tokens:
+                write_paths.append(Path(self._normalize_command_path_token(token)))
+        else:
+            for token in path_tokens:
+                read_paths.append(Path(self._normalize_command_path_token(token)))
+
+        for token in redirections:
+            if token and self._looks_like_path(token):
+                write_paths.append(Path(self._normalize_command_path_token(token)))
+
+        return read_paths, write_paths
+
+    @staticmethod
+    def _looks_like_path(token: str) -> bool:
+        text = str(token)
+        if not text:
+            return False
+        if text.startswith(("/", "./", "../", "~")):
+            return True
+        if "\\" in text or ":" in text:
+            return True
+        return False
+
+    @staticmethod
+    def _normalize_command_path_token(token: str) -> str:
+        text = str(token)
+        if "\\" in text and "/" not in text:
+            return text.replace("\\", "/")
+        return text
+
+    @staticmethod
+    def _normalize_command_name(token: str) -> str:
+        import pathlib
+
+        text = str(token).strip()
+        if not text:
+            return ""
+        if len(text) > 1 and text[1] == ":" and text[0].isalpha():
+            return pathlib.PureWindowsPath(text).name.lower()
+        if text.startswith("\\\\"):
+            return pathlib.PureWindowsPath(text).name.lower()
+        return pathlib.Path(text).name.lower()
 
     def _select_runner(self, tool: BaseTool) -> BaseRunner:
         risk_level = str(tool.risk_level or "read_only")

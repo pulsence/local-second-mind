@@ -34,6 +34,8 @@ from .collect_artifacts import CollectArtifactsTool
 from .docker_runner import DockerRunner
 from .wsl2_runner import WSL2Runner
 from .runner import BaseRunner, LocalRunner, ToolExecutionResult
+from .bash import BashTool
+from .powershell import PowerShellTool
 
 if TYPE_CHECKING:
     from lsm.config.models import LSMConfig
@@ -74,6 +76,8 @@ __all__ = [
     "BaseRunner",
     "LocalRunner",
     "ToolExecutionResult",
+    "BashTool",
+    "PowerShellTool",
     "create_default_tool_registry",
 ]
 
@@ -146,4 +150,6 @@ def create_default_tool_registry(
     registry.register(SpawnAgentTool())
     registry.register(AwaitAgentTool())
     registry.register(CollectArtifactsTool())
+    registry.register(BashTool())
+    registry.register(PowerShellTool())
     return registry
