@@ -13,7 +13,10 @@ from .append_file import AppendFileTool
 from .create_folder import CreateFolderTool
 from .extract_snippets import ExtractSnippetsTool
 from .file_metadata import FileMetadataTool
+from .find_file import FindFileTool
+from .find_section import FindSectionTool
 from .hash_file import HashFileTool
+from .edit_file import EditFileTool
 from .load_url import LoadURLTool
 from .query_embeddings import QueryEmbeddingsTool
 from .query_llm import QueryLLMTool
@@ -47,7 +50,10 @@ __all__ = [
     "CreateFolderTool",
     "ExtractSnippetsTool",
     "FileMetadataTool",
+    "FindFileTool",
+    "FindSectionTool",
     "HashFileTool",
+    "EditFileTool",
     "LoadURLTool",
     "QueryEmbeddingsTool",
     "QueryLLMTool",
@@ -95,8 +101,11 @@ def create_default_tool_registry(
     registry.register(ReadFileTool())
     registry.register(ReadFolderTool())
     registry.register(FileMetadataTool())
+    registry.register(FindFileTool())
+    registry.register(FindSectionTool())
     registry.register(HashFileTool())
     registry.register(SourceMapTool())
+    registry.register(EditFileTool())
     registry.register(WriteFileTool())
     registry.register(AppendFileTool())
     registry.register(CreateFolderTool())

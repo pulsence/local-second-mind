@@ -223,6 +223,9 @@ def test_default_tool_registry_registers_new_tools_with_dependency_rules(tmp_pat
 
     no_vectors = create_default_tool_registry(config)
     no_vectors_names = {tool.name for tool in no_vectors.list_tools()}
+    assert "find_file" in no_vectors_names
+    assert "find_section" in no_vectors_names
+    assert "edit_file" in no_vectors_names
     assert "file_metadata" in no_vectors_names
     assert "hash_file" in no_vectors_names
     assert "source_map" in no_vectors_names
