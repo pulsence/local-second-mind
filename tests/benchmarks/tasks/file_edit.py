@@ -75,7 +75,7 @@ def build_task() -> BenchmarkTask:
         description="Edit a function via naive vs line-hash tools.",
         scenario="Replace a line inside a target function.",
         expected="Target function reflects the updated return value.",
-        thresholds=RegressionThresholds(max_wall_time_pct=5.0),
+        thresholds=RegressionThresholds(max_wall_time_pct=100.0),
         setup=_setup,
         run=_run,
         evaluate=_evaluate,

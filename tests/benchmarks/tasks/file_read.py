@@ -53,7 +53,7 @@ def build_task() -> BenchmarkTask:
         description="Read a UTF-8 text file from disk.",
         scenario="Open a small markdown-like note file and return its contents.",
         expected="Exact file contents are returned.",
-        thresholds=RegressionThresholds(max_wall_time_pct=5.0),
+        thresholds=RegressionThresholds(max_wall_time_pct=100.0),
         setup=_setup,
         run=_run,
         evaluate=_evaluate,

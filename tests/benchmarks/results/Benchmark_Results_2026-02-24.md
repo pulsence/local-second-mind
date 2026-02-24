@@ -1,4 +1,4 @@
-# Phase 4 Benchmark Results
+# Benchmark Results - 2026-02-24
 
 Baseline: `tests/benchmarks/baselines/file_ops.json` (naive workflows)
 Advanced: graph-aware tools (find_file/find_section/edit_file + structured read)

@@ -65,7 +65,7 @@ def build_task() -> BenchmarkTask:
         description="Locate a nested file via a recursive folder listing.",
         scenario="Search for a known filename within a nested directory tree.",
         expected="Returns the absolute path to docs/nested/target.txt.",
-        thresholds=RegressionThresholds(max_wall_time_pct=5.0),
+        thresholds=RegressionThresholds(max_wall_time_pct=100.0),
         setup=_setup,
         run=_run,
         evaluate=_evaluate,

@@ -12,6 +12,9 @@ All notable changes to Local Second Mind are documented here.
 - File graphing system with unified graph schema, deterministic IDs, content-hash caching, and line-hash metadata.
 - Code/text/PDF/HTML graphers with section-aware spans, fixtures, and coverage.
 - Graph-aware read and metadata tooling with section selection and optional graph output.
+- Graph-aware file tooling: `find_file`, `find_section`, and line-hash `edit_file` for structural navigation and edits.
+- Structured `read_file` output with section selection, outlines, and optional line hashes.
+- Benchmark comparisons for advanced tooling with recorded Phase 4 results in `tests/benchmarks/results/phase_4.md`.
 - Standard per-agent workspace layout (`logs/`, `artifacts/`, `memory/`) with file tools defaulting to the agent workspace root.
 - Native tool-calling support with provider function-calling APIs (OpenAI, Anthropic, Gemini) and prompt-schema fallback for providers without tool APIs.
 - `agents.interaction.auto_continue` to auto-respond to `ask_user` prompts with a continuation message.
@@ -19,6 +22,7 @@ All notable changes to Local Second Mind are documented here.
 ### Changed
 
 - Restructured built-in agents into academic/productivity/meta subpackages with registry theme/category metadata and grouped agent lists in shell/TUI.
+- `source_map` now returns structural outlines derived from file graphs instead of snippet lists.
 
 ## 0.6.0 - 2026-02-19
 

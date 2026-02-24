@@ -230,14 +230,17 @@ Migration helpers are provided in `lsm/agents/memory/migrations.py` for SQLite-t
 
 Default tool registry (`create_default_tool_registry`) includes:
 
-- `read_file` (`risk_level=read_only`)
+- `read_file` (`risk_level=read_only`) (section-aware reads with outlines + optional line hashes)
 - `read_folder` (`risk_level=read_only`)
 - `file_metadata` (`risk_level=read_only`)
+- `find_file` (`risk_level=read_only`)
+- `find_section` (`risk_level=read_only`)
 - `hash_file` (`risk_level=read_only`)
-- `source_map` (`risk_level=read_only`)
+- `source_map` (`risk_level=read_only`) (structural outlines by source)
 - `query_embeddings` (`risk_level=read_only`) (registered only when vector DB provider + embedder are available)
 - `extract_snippets` (`risk_level=read_only`) (registered only when vector DB provider + embedder are available)
 - `similarity_search` (`risk_level=read_only`) (registered only when vector DB provider is available)
+- `edit_file` (`risk_level=writes_workspace`)
 - `write_file` (`risk_level=writes_workspace`)
 - `append_file` (`risk_level=writes_workspace`)
 - `create_folder` (`risk_level=writes_workspace`)
