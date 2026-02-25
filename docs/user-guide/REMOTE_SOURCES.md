@@ -15,7 +15,7 @@ and provider configuration.
 Remote results are included in the LLM context and also presented as a
 separate section.
 
-## Structured Provider Protocol (Phase 5.1)
+## Structured Provider Protocol (Phase 8.1)
 
 All built-in remote providers now expose a dict-based protocol in addition to
 plain text query search:
@@ -37,47 +37,102 @@ You can define `remote_provider_chains` in config to run providers as a
 pipeline. Each link can map prior output fields into next-link input fields
 using `"output:input"` mappings (for example, `"doi:doi"`).
 
+Preconfigured chains can be enabled via the top-level `remote.chains` list.
+The built-in `scholarly_discovery` chain runs OpenAlex → Crossref →
+Unpaywall → CORE and downloads full text into `<global_folder>/Downloads/scholarly`.
+
+```json
+"remote": {
+  "chains": ["scholarly_discovery"]
+}
+```
+
 ## Built-In Providers
 
-LSM ships with ten built-in remote providers covering STEM, humanities, and cross-disciplinary research:
+LSM ships with remote providers spanning web search, academic databases,
+cultural archives, and news APIs.
 
 ### General & Web Search
 - **Brave Search** - General web search
-  - Type: `web_search` or `brave_search`
-  - Environment variable: `BRAVE_API_KEY`
+- Type: `web_search` or `brave_search`
+- Environment variable: `BRAVE_API_KEY`
 - **Wikipedia** - Encyclopedia articles
-  - Type: `wikipedia`
-  - No API key required (user agent recommended)
+- Type: `wikipedia`
+- Environment variable: `LSM_WIKIPEDIA_USER_AGENT` (recommended)
 
-### STEM Research
-- **arXiv** - Physics, Math, CS, Quantitative Biology, etc.
-  - Type: `arxiv`
-  - No API key required
-- **Semantic Scholar** - Computer Science, Neuroscience, Biomedical
-  - Type: `semantic_scholar`
-  - Environment variable: `SEMANTIC_SCHOLAR_API_KEY` (optional, increases rate limit)
-- **CORE** - Open access research aggregator
-  - Type: `core`
-  - Environment variable: `CORE_API_KEY` (required)
-
-### Humanities & Philosophy
-- **PhilPapers** - Philosophy papers and books
-  - Type: `philpapers`
-  - Environment variable: `PHILPAPERS_API_ID` and `PHILPAPERS_API_KEY`
-- **IxTheo** - Theology and religious studies (Index Theologicus)
-  - Type: `ixtheo`
-  - No API key required
-
-### Cross-Disciplinary Academic
-- **OpenAlex** - Comprehensive academic database (200M+ works)
-  - Type: `openalex`
-  - No API key required (email recommended for polite pool)
+### Academic & Biomedical
+- **arXiv** - Physics, math, CS, quantitative biology
+- Type: `arxiv`
+- **Semantic Scholar** - Computer science, neuroscience, biomedical
+- Type: `semantic_scholar`
+- Environment variable: `SEMANTIC_SCHOLAR_API_KEY` (optional, higher rate limits)
+- **OpenAlex** - Cross-disciplinary academic works
+- Type: `openalex`
+- Environment variables: `OPENALEX_EMAIL` (polite pool), `OPENALEX_API_KEY` (recommended)
 - **Crossref** - DOI metadata and bibliographic search
-  - Type: `crossref`
-  - No API key required (email recommended)
+- Type: `crossref`
+- Environment variables: `CROSSREF_EMAIL` (polite pool), `CROSSREF_API_KEY` (optional)
+- **Unpaywall** - Open access DOI resolver
+- Type: `unpaywall`
+- Environment variable: `UNPAYWALL_EMAIL` (required by policy)
+- **CORE** - Open access aggregation + full text
+- Type: `core`
+- Environment variable: `CORE_API_KEY` (required)
+- **PubMed** - Biomedical and PubMed Central metadata
+- Type: `pubmed`
+- Environment variable: `PUBMED_API_KEY` (optional)
+- **SSRN** - Preprints (OAI-PMH)
+- Type: `ssrn`
+- **PhilArchive** - Philosophy preprints (OAI-PMH)
+- Type: `philarchive`
+- **Project MUSE** - Humanities metadata (OAI-PMH)
+- Type: `project_muse`
+- **PhilPapers** - Philosophy papers and books
+- Type: `philpapers`
+- Environment variables: `PHILPAPERS_API_ID`, `PHILPAPERS_API_KEY`
+- **IxTheo** - Theology and religious studies
+- Type: `ixtheo`
 - **OAI-PMH** - Generic harvester for institutional repositories
-  - Type: `oai_pmh`
-  - Supports: arXiv, PubMed Central, Zenodo, DOAJ, HAL, RePEc, Europeana, PhilPapers
+- Type: `oai_pmh`
+- Environment variable: `LSM_OAI_PMH_USER_AGENT` (recommended)
+
+### Cultural Heritage & Archives
+- **Archive.org** - Books, media, and documents
+- Type: `archive_org`
+- **DPLA** - Digital Public Library of America
+- Type: `dpla`
+- Environment variable: `DPLA_API_KEY` (required)
+- **Library of Congress** - LOC JSON API
+- Type: `loc`
+- **Smithsonian** - Smithsonian Open Access API
+- Type: `smithsonian`
+- Environment variable: `SMITHSONIAN_API_KEY` (required)
+- **Met Museum** - Metropolitan Museum of Art collection
+- Type: `met`
+- **Rijksmuseum** - Rijksmuseum data services
+- Type: `rijksmuseum`
+- Environment variable: `RIJKSMUSEUM_API_KEY` (required)
+- **IIIF** - Image/Presentation/Content Search APIs
+- Type: `iiif`
+- **Wikidata** - SPARQL endpoint
+- Type: `wikidata`
+- **Perseus CTS** - Classical text passages by CTS URN
+- Type: `perseus_cts`
+
+### News Sources
+- **NYTimes** - Top Stories + Article Search
+- Type: `nytimes`
+- Environment variable: `NYTIMES_API_KEY` (required)
+- **The Guardian** - Content API
+- Type: `guardian`
+- Environment variable: `GUARDIAN_API_KEY` (required)
+- **GDELT** - Global news/event coverage
+- Type: `gdelt`
+- **NewsAPI** - Topic aggregation
+- Type: `newsapi`
+- Environment variable: `NEWSAPI_API_KEY` (required)
+- **RSS/Atom** - Any feed URL
+- Type: `rss`
 
 ## Configuring Brave Search
 

@@ -8,7 +8,8 @@ import json
 from typing import Any, Dict
 
 from lsm.config.models import LSMConfig
-from lsm.remote.chains import build_chain
+from lsm.remote.chain import RemoteProviderChain
+from lsm.remote.chains import get_preconfigured_chain
 
 from .base import BaseTool
 
@@ -47,6 +48,12 @@ class QueryRemoteChainTool(BaseTool):
             raise ValueError(f"Remote provider chain is not configured: {chain_name}")
 
         max_results = int(args.get("max_results", 5))
-        chain = build_chain(self.config, chain_config)
+        chain = self._build_chain(chain_config)
         results = chain.execute(chain_input, max_results=max_results)
         return json.dumps(results, indent=2)
+
+    def _build_chain(self, chain_config):
+        entry = get_preconfigured_chain(chain_config.name)
+        if entry is None:
+            return RemoteProviderChain(config=self.config, chain_config=chain_config)
+        return entry.chain_cls(config=self.config, chain_config=chain_config)

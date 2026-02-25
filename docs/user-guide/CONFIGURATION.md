@@ -37,6 +37,7 @@ fields in the config file. The top-level keys are:
 | `modes` | `list[ModeConfig]` | Query mode definitions |
 | `notes` | `NotesConfig` | Notes system settings |
 | `chats` | `ChatsConfig` | Chat transcript saving settings |
+| `remote` | `RemoteConfig` | Global remote settings (preconfigured chains) |
 | `remote_providers` | `list[RemoteProviderConfig]` | Remote source providers |
 | `remote_provider_chains` | `list[RemoteProviderChainConfig]` | Named multi-provider remote pipelines |
 | `agents` | `AgentConfig` | Agent runtime, sandbox, memory, scheduling, and interaction settings |
@@ -353,6 +354,20 @@ Chats are configured once at the top level and can be overridden by modes.
 }
 ```
 
+## Remote Configuration
+
+Preconfigured remote chains can be enabled globally via the `remote` section.
+
+```json
+"remote": {
+  "chains": ["scholarly_discovery"]
+}
+```
+
+- `remote.chains` is a list of enabled preconfigured chain names.
+- `scholarly_discovery` runs OpenAlex → Crossref → Unpaywall → CORE and downloads
+  full text into `<global_folder>/Downloads/scholarly`.
+
 ## Remote Providers
 
 Remote providers live in `remote_providers` and are used when a mode enables
@@ -404,6 +419,32 @@ Provider `type` must be registered by the remote provider factory. Built-ins:
 - `brave_search`
 - `wikipedia`
 - `arxiv`
+- `semantic_scholar`
+- `openalex`
+- `crossref`
+- `unpaywall`
+- `core`
+- `pubmed`
+- `ssrn`
+- `philarchive`
+- `project_muse`
+- `philpapers`
+- `ixtheo`
+- `oai_pmh`
+- `archive_org`
+- `dpla`
+- `loc`
+- `smithsonian`
+- `met`
+- `rijksmuseum`
+- `iiif`
+- `wikidata`
+- `perseus_cts`
+- `nytimes`
+- `guardian`
+- `gdelt`
+- `newsapi`
+- `rss`
 
 ## Agents Configuration
 
@@ -643,3 +684,10 @@ an API key.
 - If OpenAI is not available, set `OPENAI_API_KEY` in `.env` or in the provider's `api_key` field.
 - For Brave Search, set `BRAVE_API_KEY` or the `remote_providers` entry `api_key`.
 - For Wikipedia, set `LSM_WIKIPEDIA_USER_AGENT` or the `remote_providers` entry `user_agent`.
+- For OpenAlex, set `OPENALEX_EMAIL` (polite pool) or `OPENALEX_API_KEY`.
+- For Crossref, set `CROSSREF_EMAIL` (polite pool) or `CROSSREF_API_KEY`.
+- For Unpaywall, set `UNPAYWALL_EMAIL`.
+- For CORE, set `CORE_API_KEY`.
+- For PubMed, set `PUBMED_API_KEY` (optional).
+- For NYTimes, Guardian, NewsAPI, DPLA, Smithsonian, and Rijksmuseum, set their
+  respective API keys in `.env` or via provider config.

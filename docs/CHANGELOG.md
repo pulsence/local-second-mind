@@ -11,6 +11,11 @@ All notable changes to Local Second Mind are documented here.
 - BaseOAIProvider shared OAI-PMH parsing utilities with consolidated client/parser logic.
 - MCP host support with `global.mcp_servers` for registering external tool servers.
 - RSS/Atom remote provider with feed caching, seen-item tracking, and normalized RemoteResult output.
+- Remote provider sub-packages with structured output validation for all remote sources.
+- Scholarly discovery chain (OpenAlex → Crossref → Unpaywall → CORE) with preconfigured `remote.chains` enablement and full-text downloads.
+- New academic providers: Unpaywall, PubMed, SSRN, PhilArchive, Project MUSE.
+- New cultural heritage providers: Archive.org, DPLA, Library of Congress, Smithsonian, Met Museum, Rijksmuseum, IIIF, Wikidata, Perseus CTS.
+- New news providers: NYTimes, The Guardian, GDELT, NewsAPI.
 - Agent/tool tier declarations with tier-based model selection in agent harness runs.
 - Benchmark harness for agent/tool regression tracking with baseline file-operation tasks in `tests/benchmarks/`.
 - File graphing system with unified graph schema, deterministic IDs, content-hash caching, and line-hash metadata.

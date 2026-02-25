@@ -307,6 +307,11 @@
     }
   ],
 
+  "_comment_remote": "Optional preconfigured remote chains (by name).",
+  "remote": {
+    "chains": ["scholarly_discovery"]
+  },
+
   "_comment_remote_provider_chains": "Optional named multi-step remote pipelines. map entries are 'output_field:input_field'.",
   "remote_provider_chains": [
     {
@@ -494,6 +499,230 @@
       "cache_ttl": 86400,
       "min_interval_seconds": 1.0,
       "snippet_max_chars": 700
+    },
+    {
+      "_comment": "Unpaywall - open access resolver",
+      "name": "unpaywall",
+      "type": "unpaywall",
+      "weight": 0.9,
+      "email": "you@example.com",
+      "max_results": 5,
+      "cache_results": false,
+      "cache_ttl": 86400,
+      "min_interval_seconds": 0.5,
+      "snippet_max_chars": 600
+    },
+    {
+      "_comment": "PubMed - biomedical literature",
+      "name": "pubmed",
+      "type": "pubmed",
+      "weight": 0.9,
+      "api_key": "INSERT_YOUR_PUBMED_API_KEY",
+      "email": "you@example.com",
+      "max_results": 5,
+      "cache_results": false,
+      "cache_ttl": 86400,
+      "min_interval_seconds": 0.34,
+      "snippet_max_chars": 700
+    },
+    {
+      "_comment": "SSRN - preprints via OAI-PMH",
+      "name": "ssrn",
+      "type": "ssrn",
+      "weight": 0.8,
+      "max_results": 5,
+      "cache_results": false,
+      "cache_ttl": 86400,
+      "min_interval_seconds": 1.0,
+      "snippet_max_chars": 700
+    },
+    {
+      "_comment": "PhilArchive - philosophy preprints via OAI-PMH",
+      "name": "philarchive",
+      "type": "philarchive",
+      "weight": 0.8,
+      "max_results": 5,
+      "cache_results": false,
+      "cache_ttl": 86400,
+      "min_interval_seconds": 1.0,
+      "snippet_max_chars": 700
+    },
+    {
+      "_comment": "Project MUSE - humanities metadata via OAI-PMH",
+      "name": "project_muse",
+      "type": "project_muse",
+      "weight": 0.8,
+      "max_results": 5,
+      "cache_results": false,
+      "cache_ttl": 86400,
+      "min_interval_seconds": 1.0,
+      "snippet_max_chars": 700
+    },
+    {
+      "_comment": "Archive.org - cultural archives",
+      "name": "archive_org",
+      "type": "archive_org",
+      "weight": 0.8,
+      "max_results": 5,
+      "cache_results": false,
+      "cache_ttl": 86400,
+      "min_interval_seconds": 0.5,
+      "snippet_max_chars": 700,
+      "collection": null,
+      "media_type": null
+    },
+    {
+      "_comment": "DPLA - Digital Public Library of America",
+      "name": "dpla",
+      "type": "dpla",
+      "weight": 0.8,
+      "api_key": "INSERT_YOUR_DPLA_API_KEY",
+      "max_results": 5,
+      "cache_results": false,
+      "cache_ttl": 86400,
+      "min_interval_seconds": 0.5,
+      "snippet_max_chars": 700
+    },
+    {
+      "_comment": "Library of Congress - LOC JSON API",
+      "name": "loc",
+      "type": "loc",
+      "weight": 0.8,
+      "max_results": 5,
+      "cache_results": false,
+      "cache_ttl": 86400,
+      "min_interval_seconds": 0.5,
+      "snippet_max_chars": 700
+    },
+    {
+      "_comment": "Smithsonian Open Access",
+      "name": "smithsonian",
+      "type": "smithsonian",
+      "weight": 0.8,
+      "api_key": "INSERT_YOUR_SMITHSONIAN_API_KEY",
+      "max_results": 5,
+      "cache_results": false,
+      "cache_ttl": 86400,
+      "min_interval_seconds": 0.5,
+      "snippet_max_chars": 700
+    },
+    {
+      "_comment": "Met Museum collection",
+      "name": "met",
+      "type": "met",
+      "weight": 0.8,
+      "max_results": 5,
+      "cache_results": false,
+      "cache_ttl": 86400,
+      "min_interval_seconds": 0.5,
+      "snippet_max_chars": 700
+    },
+    {
+      "_comment": "Rijksmuseum",
+      "name": "rijksmuseum",
+      "type": "rijksmuseum",
+      "weight": 0.8,
+      "api_key": "INSERT_YOUR_RIJKSMUSEUM_API_KEY",
+      "max_results": 5,
+      "cache_results": false,
+      "cache_ttl": 86400,
+      "min_interval_seconds": 0.5,
+      "snippet_max_chars": 700
+    },
+    {
+      "_comment": "IIIF content search",
+      "name": "iiif",
+      "type": "iiif",
+      "weight": 0.7,
+      "max_results": 5,
+      "cache_results": false,
+      "cache_ttl": 86400,
+      "min_interval_seconds": 0.5,
+      "snippet_max_chars": 700,
+      "search_endpoint": "https://iiif.example.org/search"
+    },
+    {
+      "_comment": "Wikidata SPARQL endpoint",
+      "name": "wikidata",
+      "type": "wikidata",
+      "weight": 0.7,
+      "max_results": 5,
+      "cache_results": false,
+      "cache_ttl": 86400,
+      "min_interval_seconds": 0.5,
+      "snippet_max_chars": 700
+    },
+    {
+      "_comment": "Perseus CTS - classical text passages",
+      "name": "perseus_cts",
+      "type": "perseus_cts",
+      "weight": 0.7,
+      "max_results": 3,
+      "cache_results": false,
+      "cache_ttl": 86400,
+      "min_interval_seconds": 0.5,
+      "snippet_max_chars": 800
+    },
+    {
+      "_comment": "NYTimes - Top Stories and Article Search",
+      "name": "nytimes",
+      "type": "nytimes",
+      "weight": 0.8,
+      "api_key": "INSERT_YOUR_NYTIMES_API_KEY",
+      "max_results": 5,
+      "cache_results": false,
+      "cache_ttl": 86400,
+      "min_interval_seconds": 0.5,
+      "snippet_max_chars": 700,
+      "section": "world"
+    },
+    {
+      "_comment": "The Guardian - Content API",
+      "name": "guardian",
+      "type": "guardian",
+      "weight": 0.8,
+      "api_key": "INSERT_YOUR_GUARDIAN_API_KEY",
+      "max_results": 5,
+      "cache_results": false,
+      "cache_ttl": 86400,
+      "min_interval_seconds": 0.5,
+      "snippet_max_chars": 700
+    },
+    {
+      "_comment": "GDELT - global news/event coverage",
+      "name": "gdelt",
+      "type": "gdelt",
+      "weight": 0.7,
+      "max_results": 5,
+      "cache_results": false,
+      "cache_ttl": 3600,
+      "min_interval_seconds": 0.5,
+      "snippet_max_chars": 700
+    },
+    {
+      "_comment": "NewsAPI - topic aggregation",
+      "name": "newsapi",
+      "type": "newsapi",
+      "weight": 0.8,
+      "api_key": "INSERT_YOUR_NEWSAPI_API_KEY",
+      "max_results": 5,
+      "cache_results": false,
+      "cache_ttl": 3600,
+      "min_interval_seconds": 0.5,
+      "snippet_max_chars": 700
+    },
+    {
+      "_comment": "RSS / Atom feeds",
+      "name": "rss",
+      "type": "rss",
+      "weight": 0.6,
+      "feeds": ["https://example.com/feed.xml"],
+      "max_results": 5,
+      "cache_results": true,
+      "cache_ttl": 1800,
+      "min_interval_seconds": 0.0,
+      "snippet_max_chars": 700,
+      "user_agent": "LocalSecondMind/1.0 (rss)"
     }
   ]
 }
