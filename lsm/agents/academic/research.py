@@ -45,6 +45,12 @@ class ResearchAgent(BaseAgent):
     description = (
         "Decomposes a topic, gathers evidence via tools, and writes a structured outline."
     )
+    tool_allowlist = {
+        "query_embeddings",
+        "query_remote",
+        "query_remote_chain",
+        "query_llm",
+    }
     risk_posture = "network"
 
     def __init__(
@@ -211,7 +217,10 @@ class ResearchAgent(BaseAgent):
     def _select_tools(self, provider: Any, subtopic: str) -> List[str]:
         if self._is_stop_requested():
             return []
-        tool_definitions = self._get_tool_definitions(self.tool_registry)
+        tool_definitions = self._get_tool_definitions(
+            self.tool_registry,
+            tool_allowlist=self.tool_allowlist,
+        )
         available = [str(item.get("name", "")).strip() for item in tool_definitions]
         available = [name for name in available if name]
         prompt = (
@@ -219,11 +228,13 @@ class ResearchAgent(BaseAgent):
             "Return JSON object: {\"tools\":[\"tool_name\", ...]}.\n"
             f"Subtopic: {subtopic}\n"
             "Available tools (name, description, args schema):\n"
-            f"{self._format_tool_definitions_for_prompt(self.tool_registry)}"
+            f"{self._format_tool_definitions_for_prompt(self.tool_registry, self.tool_allowlist)}"
         )
         response = provider.synthesize(prompt, "", mode="insight")
         self._consume_tokens(response)
-        selected = self._parse_tool_selection(response, available)
+        selected = [
+            name for name in self._parse_tool_selection(response, available) if name in available
+        ]
         if selected:
             return selected
 
@@ -242,6 +253,11 @@ class ResearchAgent(BaseAgent):
             return {"chain": "Research Digest", "input": {"query": subtopic}, "max_results": 5}
         if tool_name == "query_llm":
             return {"prompt": f"Summarize key ideas for: {subtopic}"}
+        if tool_name == "ask_user":
+            return {
+                "prompt": f"Need clarification to research: {subtopic}",
+                "context": "Research agent requested clarification.",
+            }
         return {"text": subtopic}
 
     def _first_remote_provider_name(self) -> str:

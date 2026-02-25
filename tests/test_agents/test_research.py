@@ -43,6 +43,26 @@ class QueryRemoteStubTool(BaseTool):
         )
 
 
+class AskUserStubTool(BaseTool):
+    name = "ask_user"
+    description = "Stub ask-user tool."
+    input_schema = {
+        "type": "object",
+        "properties": {
+            "prompt": {"type": "string"},
+            "context": {"type": "string"},
+        },
+        "required": ["prompt"],
+    }
+
+    def __init__(self) -> None:
+        self.calls: list[dict] = []
+
+    def execute(self, args: dict) -> str:
+        self.calls.append(dict(args))
+        return "Stub response"
+
+
 def _base_raw(tmp_path: Path) -> dict:
     return {
         "global": {"global_folder": str(tmp_path / "global")},
@@ -199,3 +219,73 @@ def test_agent_registry_rejects_unknown_agent(tmp_path: Path) -> None:
             sandbox=sandbox,
             agent_config=config.agents,
         )
+
+
+def test_research_agent_filters_unknown_tools(monkeypatch, tmp_path: Path) -> None:
+    class FakeProvider:
+        name = "fake"
+        model = "fake-model"
+
+        def synthesize(self, question, context, mode="insight", **kwargs):
+            lower = str(question).lower()
+            if "decompose the topic" in lower:
+                return json.dumps(["Scope"])
+            if "select the best tools" in lower:
+                return json.dumps({"tools": ["load_url"]})
+            if "review this research outline" in lower:
+                return json.dumps({"sufficient": True, "suggestions": []})
+            if "summarize findings for subtopic" in lower:
+                return "- Summary"
+            return json.dumps({"sufficient": True, "suggestions": []})
+
+    monkeypatch.setattr(
+        "lsm.agents.academic.research.create_provider",
+        lambda cfg: FakeProvider(),
+    )
+
+    config = build_config_from_raw(_base_raw(tmp_path), tmp_path / "config.json")
+    registry = ToolRegistry()
+    registry.register(QueryEmbeddingsStubTool())
+    sandbox = ToolSandbox(config.agents.sandbox)
+    agent = ResearchAgent(config.llm, registry, sandbox, config.agents)
+
+    state = agent.run(AgentContext(messages=[{"role": "user", "content": "AI safety"}]))
+    assert state.status.value == "completed"
+    assert not any(
+        entry.action == "load_url" for entry in state.log_entries if entry.actor == "tool"
+    )
+
+
+def test_research_agent_builds_ask_user_args(monkeypatch, tmp_path: Path) -> None:
+    class FakeProvider:
+        name = "fake"
+        model = "fake-model"
+
+        def synthesize(self, question, context, mode="insight", **kwargs):
+            lower = str(question).lower()
+            if "decompose the topic" in lower:
+                return json.dumps(["Scope"])
+            if "select the best tools" in lower:
+                return json.dumps({"tools": ["ask_user"]})
+            if "review this research outline" in lower:
+                return json.dumps({"sufficient": True, "suggestions": []})
+            if "summarize findings for subtopic" in lower:
+                return "- Summary"
+            return json.dumps({"sufficient": True, "suggestions": []})
+
+    monkeypatch.setattr(
+        "lsm.agents.academic.research.create_provider",
+        lambda cfg: FakeProvider(),
+    )
+
+    config = build_config_from_raw(_base_raw(tmp_path), tmp_path / "config.json")
+    registry = ToolRegistry()
+    ask_user = AskUserStubTool()
+    registry.register(ask_user)
+    sandbox = ToolSandbox(config.agents.sandbox)
+    agent = ResearchAgent(config.llm, registry, sandbox, config.agents)
+
+    state = agent.run(AgentContext(messages=[{"role": "user", "content": "AI safety"}]))
+    assert state.status.value == "completed"
+    assert ask_user.calls
+    assert ask_user.calls[0].get("prompt")
