@@ -14,7 +14,7 @@ from unittest.mock import Mock, patch, MagicMock
 
 import pytest
 
-from lsm.remote.providers.oai_pmh import (
+from lsm.remote.providers.academic.oai_pmh import (
     OAIPMHProvider,
     OAIPMHClient,
     OAIPMHError,

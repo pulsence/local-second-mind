@@ -110,10 +110,8 @@ def test_remote_provider_chain_raises_for_missing_provider() -> None:
         name="Bad",
         links=[ChainLink(source="missing")],
     )
-    chain = RemoteProviderChain(config=config, chain_config=chain_config)
-
     with pytest.raises(ValueError, match="Remote provider not configured"):
-        chain.execute({"query": "test"})
+        RemoteProviderChain(config=config, chain_config=chain_config)
 
 
 def test_remote_provider_chain_passes_provider_specific_options(
@@ -140,3 +138,17 @@ def test_remote_provider_chain_passes_provider_specific_options(
     results = chain.execute({"query": "test"}, max_results=5)
     assert results == [{"ok": True}]
     assert captured_cfg["email"] == "you@example.com"
+
+
+def test_remote_provider_chain_validates_mapping_fields() -> None:
+    config = _base_config()
+    chain_config = RemoteProviderChainConfig(
+        name="BadMap",
+        links=[
+            ChainLink(source="openalex"),
+            ChainLink(source="crossref", map=["unknown_field:doi"]),
+        ],
+    )
+
+    with pytest.raises(ValueError, match="expects output field"):
+        RemoteProviderChain(config=config, chain_config=chain_config)

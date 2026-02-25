@@ -4,7 +4,7 @@ Tests for Wikipedia provider implementation.
 
 from unittest.mock import Mock, patch
 
-from lsm.remote.providers.wikipedia import WikipediaProvider
+from lsm.remote.providers.web.wikipedia import WikipediaProvider
 
 
 class TestWikipediaProvider:
@@ -111,8 +111,8 @@ class TestWikipediaProvider:
         )
         provider._last_request_time = 10.0
 
-        with patch("lsm.query.remote.wikipedia.time.time") as mock_time, \
-            patch("lsm.query.remote.wikipedia.time.sleep") as mock_sleep:
+        with patch("lsm.remote.providers.web.wikipedia.time.time") as mock_time, \
+            patch("lsm.remote.providers.web.wikipedia.time.sleep") as mock_sleep:
             mock_time.side_effect = [10.2, 11.0]
 
             provider._throttle()

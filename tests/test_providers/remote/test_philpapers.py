@@ -5,7 +5,7 @@ Tests for PhilPapers provider implementation.
 from unittest.mock import Mock, patch
 import pytest
 
-from lsm.remote.providers.philpapers import PhilPapersProvider
+from lsm.remote.providers.academic.philpapers import PhilPapersProvider
 
 
 # Sample OAI-PMH ListRecords response

@@ -5,7 +5,7 @@ Tests for remote provider factory.
 import pytest
 
 from lsm.remote.base import BaseRemoteProvider, RemoteResult
-from lsm.remote.providers.brave import BraveSearchProvider
+from lsm.remote.providers.web.brave import BraveSearchProvider
 
 
 # Note: The import error from the original file suggests these functions

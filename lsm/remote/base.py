@@ -38,12 +38,19 @@ class RemoteResult:
     """Relevance score (0.0-1.0, higher is better)."""
 
     metadata: Dict[str, Any] = None
-    """Additional provider-specific metadata."""
+    """Additional provider-specific metadata (must include a stable source_id)."""
 
     def __post_init__(self):
         """Initialize metadata dict if None."""
         if self.metadata is None:
             self.metadata = {}
+        if not str(self.title or "").strip() and self.url:
+            self.title = str(self.url)
+        if self.snippet is None or not str(self.snippet).strip():
+            fallback = str(self.title or "").strip()
+            self.snippet = fallback or str(self.url or "").strip()
+        if not str(self.metadata.get("source_id", "")).strip() and self.url:
+            self.metadata["source_id"] = str(self.url)
 
 
 class BaseRemoteProvider(ABC):

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from lsm.remote.providers.arxiv import ArXivProvider
+from lsm.remote.providers.academic.arxiv import ArXivProvider
 from tests.test_providers.remote.live_checks import (
     assert_empty_query_returns_empty,
     assert_non_empty_results,

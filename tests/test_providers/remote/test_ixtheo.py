@@ -5,7 +5,7 @@ Tests for IxTheo provider implementation.
 from unittest.mock import Mock, patch
 import pytest
 
-from lsm.remote.providers.ixtheo import IxTheoProvider
+from lsm.remote.providers.academic.ixtheo import IxTheoProvider
 
 
 # Sample RSS response from IxTheo

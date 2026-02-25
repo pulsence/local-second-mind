@@ -9,7 +9,8 @@ from typing import Any, Dict, List, Optional
 
 from lsm.config.models import LSMConfig, RemoteProviderChainConfig
 from lsm.logging import get_logger
-from lsm.remote.factory import create_remote_provider
+from lsm.remote.factory import create_remote_provider, get_registered_providers
+from lsm.remote.validation import collect_field_names
 
 logger = get_logger(__name__)
 
@@ -56,6 +57,7 @@ class RemoteProviderChain:
     ):
         self.config = config
         self.chain_config = chain_config
+        self._validate_link_contracts()
 
     def execute(
         self,
@@ -106,6 +108,50 @@ class RemoteProviderChain:
             if provider.name.lower() == provider_name.lower():
                 return provider
         raise ValueError(f"Remote provider not configured for chain link: {provider_name}")
+
+    def _validate_link_contracts(self) -> None:
+        registry = get_registered_providers()
+        prev_output_fields: List[str] | None = None
+        prev_provider_name: str | None = None
+
+        for idx, link in enumerate(self.chain_config.links):
+            provider_cfg = self._get_provider_config(link.source)
+            provider_cls = registry.get(provider_cfg.type)
+            if provider_cls is None:
+                raise ValueError(f"Remote provider type not registered: {provider_cfg.type}")
+
+            provider = provider_cls({})
+            input_fields = collect_field_names(provider.get_input_fields())
+            output_fields = collect_field_names(provider.get_output_fields())
+            if not output_fields:
+                raise ValueError(
+                    f"Remote provider '{link.source}' has no declared output fields"
+                )
+
+            if prev_output_fields is not None:
+                if link.map:
+                    for mapping in link.map:
+                        src_field, dst_field = [part.strip() for part in mapping.split(":", 1)]
+                        if src_field not in prev_output_fields:
+                            raise ValueError(
+                                f"Chain link '{link.source}' expects output field "
+                                f"'{src_field}' from '{prev_provider_name}'"
+                            )
+                        if dst_field not in input_fields:
+                            raise ValueError(
+                                f"Chain link '{link.source}' maps to unknown input field "
+                                f"'{dst_field}'"
+                            )
+                else:
+                    overlap = set(prev_output_fields).intersection(input_fields)
+                    if not overlap:
+                        raise ValueError(
+                            f"Chain link '{link.source}' has no compatible input fields "
+                            f"from '{prev_provider_name}'"
+                        )
+
+            prev_output_fields = output_fields
+            prev_provider_name = link.source
 
     @staticmethod
     def _map_fields(

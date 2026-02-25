@@ -1,17 +1,17 @@
 from __future__ import annotations
 
 from lsm.remote.base import RemoteResult
-from lsm.remote.providers.arxiv import ArXivProvider
-from lsm.remote.providers.brave import BraveSearchProvider
-from lsm.remote.providers.core import COREProvider
-from lsm.remote.providers.crossref import CrossrefProvider
-from lsm.remote.providers.ixtheo import IxTheoProvider
-from lsm.remote.providers.oai_pmh import OAIPMHProvider
-from lsm.remote.providers.openalex import OpenAlexProvider
-from lsm.remote.providers.philpapers import PhilPapersProvider
-from lsm.remote.providers.semantic_scholar import SemanticScholarProvider
-from lsm.remote.providers.wikipedia import WikipediaProvider
-from lsm.remote.providers.rss import RSSProvider
+from lsm.remote.providers.academic.arxiv import ArXivProvider
+from lsm.remote.providers.web.brave import BraveSearchProvider
+from lsm.remote.providers.academic.core import COREProvider
+from lsm.remote.providers.academic.crossref import CrossrefProvider
+from lsm.remote.providers.academic.ixtheo import IxTheoProvider
+from lsm.remote.providers.academic.oai_pmh import OAIPMHProvider
+from lsm.remote.providers.academic.openalex import OpenAlexProvider
+from lsm.remote.providers.academic.philpapers import PhilPapersProvider
+from lsm.remote.providers.academic.semantic_scholar import SemanticScholarProvider
+from lsm.remote.providers.web.wikipedia import WikipediaProvider
+from lsm.remote.providers.news.rss import RSSProvider
 
 
 PROVIDER_CLASSES = [

@@ -69,7 +69,7 @@ def __getattr__(name: str) -> Any:
     if name == "remote":
         import lsm.remote as _remote
         if not hasattr(_remote, "wikipedia"):
-            from lsm.remote.providers import wikipedia as _wikipedia
+            from lsm.remote.providers.web import wikipedia as _wikipedia
 
             setattr(_remote, "wikipedia", _wikipedia)
 

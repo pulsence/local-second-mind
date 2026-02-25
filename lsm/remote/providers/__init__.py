@@ -1,17 +1,12 @@
 """LSM Remote Providers - individual provider implementations.
 
-This module contains all remote source provider implementations:
-- brave: Brave Search API
-- wikipedia: Wikipedia API
-- arxiv: arXiv OAI-PMH
-- semantic_scholar: Semantic Scholar API
-- core: CORE academic repository
-- oai_pmh: Generic OAI-PMH harvester
-- philpapers: PhilPapers philosophy database
-- ixtheo: IxTheo theology/philosophy database
-- openalex: OpenAlex research metadata
-- crossref: Crossref bibliographic data
-- rss: RSS/Atom feed reader
+This module re-exports remote providers from domain subpackages:
+- academic: scholarly and metadata sources
+- cultural: archives and cultural heritage datasets
+- news: news APIs and RSS
+- web: web search and encyclopedias
+
+Backward-compatible import modules live in this package to preserve legacy paths.
 """
 
 from __future__ import annotations
@@ -34,15 +29,15 @@ __all__ = [
     "CrossrefProvider",
 ]
 
-from lsm.remote.providers.brave import BraveSearchProvider
-from lsm.remote.providers.wikipedia import WikipediaProvider
-from lsm.remote.providers.arxiv import ArXivProvider
-from lsm.remote.providers.semantic_scholar import SemanticScholarProvider
-from lsm.remote.providers.core import COREProvider
+from lsm.remote.providers.web.brave import BraveSearchProvider
+from lsm.remote.providers.web.wikipedia import WikipediaProvider
+from lsm.remote.providers.academic.arxiv import ArXivProvider
+from lsm.remote.providers.academic.semantic_scholar import SemanticScholarProvider
+from lsm.remote.providers.academic.core import COREProvider
 from lsm.remote.providers.base_oai import BaseOAIProvider
-from lsm.remote.providers.oai_pmh import OAIPMHProvider, OAIPMHClient, OAIRecord, KNOWN_REPOSITORIES
-from lsm.remote.providers.rss import RSSProvider
-from lsm.remote.providers.philpapers import PhilPapersProvider
-from lsm.remote.providers.ixtheo import IxTheoProvider
-from lsm.remote.providers.openalex import OpenAlexProvider
-from lsm.remote.providers.crossref import CrossrefProvider
+from lsm.remote.providers.academic.oai_pmh import OAIPMHProvider, OAIPMHClient, OAIRecord, KNOWN_REPOSITORIES
+from lsm.remote.providers.news.rss import RSSProvider
+from lsm.remote.providers.academic.philpapers import PhilPapersProvider
+from lsm.remote.providers.academic.ixtheo import IxTheoProvider
+from lsm.remote.providers.academic.openalex import OpenAlexProvider
+from lsm.remote.providers.academic.crossref import CrossrefProvider

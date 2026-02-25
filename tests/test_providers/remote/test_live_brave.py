@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from lsm.remote.providers.brave import BraveSearchProvider
+from lsm.remote.providers.web.brave import BraveSearchProvider
 from tests.test_providers.remote.live_checks import (
     assert_empty_query_returns_empty,
     assert_non_empty_results,

@@ -5,7 +5,7 @@ Tests for Semantic Scholar provider implementation.
 from unittest.mock import Mock, patch
 import pytest
 
-from lsm.remote.providers.semantic_scholar import SemanticScholarProvider
+from lsm.remote.providers.academic.semantic_scholar import SemanticScholarProvider
 
 
 SEMANTIC_SCHOLAR_RESPONSE = {

@@ -5,6 +5,7 @@ Tests for BaseRemoteProvider abstract interface.
 import pytest
 
 from lsm.remote.base import BaseRemoteProvider, RemoteResult
+from lsm.remote.validation import validate_output
 
 
 class MockRemoteProvider(BaseRemoteProvider):
@@ -92,7 +93,7 @@ class TestRemoteResult:
         )
 
         assert result.score == 1.0
-        assert result.metadata == {}
+        assert result.metadata["source_id"] == "https://example.com"
 
     def test_remote_result_to_dict(self):
         """Test converting RemoteResult to dict."""
@@ -114,3 +115,34 @@ class TestRemoteResult:
         assert as_dict["url"] == "https://example.com"
         assert as_dict["snippet"] == "Snippet"
         assert as_dict["score"] == 0.9
+
+
+class RemoteProviderOutputTest:
+    """Base class for validating RemoteResult outputs."""
+
+    def assert_valid_output(self, results: list[RemoteResult]) -> None:
+        violations = validate_output(results)
+        assert violations == []
+
+
+def test_validate_output_accepts_valid_results() -> None:
+    results = [
+        RemoteResult(
+            title="Title",
+            url="https://example.com/item",
+            snippet="Summary",
+            score=0.8,
+            metadata={"source_id": "item-1"},
+        )
+    ]
+    assert validate_output(results) == []
+
+
+def test_validate_output_detects_missing_fields() -> None:
+    results = [RemoteResult(title="", url="", snippet="", score=2.0)]
+    violations = validate_output(results)
+    assert any("title" in item for item in violations)
+    assert any("url" in item for item in violations)
+    assert any("snippet" in item for item in violations)
+    assert any("score" in item for item in violations)
+    assert any("source_id" in item for item in violations)

@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from lsm.remote.providers.rss import RSSProvider
+from lsm.remote.providers.news.rss import RSSProvider
 
 
 RSS_FEED = """<?xml version="1.0" encoding="UTF-8"?>
