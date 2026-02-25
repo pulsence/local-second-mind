@@ -304,12 +304,16 @@ class BaseAgent(ABC):
         tool_allowlist: Optional[set[str]] = None,
     ) -> list[Dict[str, Any]]:
         """
-        Return tool definitions, optionally filtered by allowlist.
+        Return tool definitions, filtered by the merged allowlist when present.
         """
         definitions = tool_registry.list_definitions()
-        if not tool_allowlist:
+        allowed: set[str] = set()
+        if self.tool_allowlist:
+            allowed |= {name.strip() for name in self.tool_allowlist if str(name).strip()}
+        if tool_allowlist:
+            allowed |= {name.strip() for name in tool_allowlist if str(name).strip()}
+        if not allowed:
             return definitions
-        allowed = {name.strip() for name in tool_allowlist if str(name).strip()}
         allowed |= set(self._always_available_tools)
         return [item for item in definitions if str(item.get("name", "")).strip() in allowed]
 

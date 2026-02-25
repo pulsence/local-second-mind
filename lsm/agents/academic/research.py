@@ -49,7 +49,6 @@ class ResearchAgent(BaseAgent):
         "query_embeddings",
         "query_remote",
         "query_remote_chain",
-        "query_llm",
     }
     risk_posture = "network"
 
@@ -217,10 +216,7 @@ class ResearchAgent(BaseAgent):
     def _select_tools(self, provider: Any, subtopic: str) -> List[str]:
         if self._is_stop_requested():
             return []
-        tool_definitions = self._get_tool_definitions(
-            self.tool_registry,
-            tool_allowlist=self.tool_allowlist,
-        )
+        tool_definitions = self._get_tool_definitions(self.tool_registry)
         available = [str(item.get("name", "")).strip() for item in tool_definitions]
         available = [name for name in available if name]
         prompt = (
@@ -228,7 +224,7 @@ class ResearchAgent(BaseAgent):
             "Return JSON object: {\"tools\":[\"tool_name\", ...]}.\n"
             f"Subtopic: {subtopic}\n"
             "Available tools (name, description, args schema):\n"
-            f"{self._format_tool_definitions_for_prompt(self.tool_registry, self.tool_allowlist)}"
+            f"{self._format_tool_definitions_for_prompt(self.tool_registry)}"
         )
         response = provider.synthesize(prompt, "", mode="insight")
         self._consume_tokens(response)
@@ -251,8 +247,6 @@ class ResearchAgent(BaseAgent):
             return {"provider": provider_name, "input": {"query": subtopic}, "max_results": 5}
         if tool_name == "query_remote_chain":
             return {"chain": "Research Digest", "input": {"query": subtopic}, "max_results": 5}
-        if tool_name == "query_llm":
-            return {"prompt": f"Summarize key ideas for: {subtopic}"}
         if tool_name == "ask_user":
             return {
                 "prompt": f"Need clarification to research: {subtopic}",
@@ -275,14 +269,104 @@ class ResearchAgent(BaseAgent):
     ) -> str:
         if self._is_stop_requested():
             return ""
-        findings_block = json.dumps(findings, indent=2)
+        sources_block = self._build_sources_block(findings)
+        if not sources_block:
+            return "No sources available for this subtopic."
         prompt = (
             f"Summarize findings for subtopic '{subtopic}'. "
-            "Produce concise markdown bullet points."
+            "Produce concise markdown bullet points and cite sources as [S#]. "
+            "Only use sources provided below; do not invent citations."
         )
-        response = provider.synthesize(prompt, findings_block, mode="grounded")
+        response = provider.synthesize(prompt, sources_block, mode="grounded")
         self._consume_tokens(response)
         return str(response).strip()
+
+    def _build_sources_block(self, findings: List[Dict[str, Any]]) -> str:
+        sources: list[dict[str, str]] = []
+        for finding in findings:
+            tool_name = str(finding.get("tool", "")).strip()
+            output = str(finding.get("output", "")).strip()
+            if not output:
+                continue
+            sources.extend(self._extract_sources_from_output(tool_name, output))
+
+        if not sources:
+            return ""
+
+        lines = ["Sources:"]
+        for idx, source in enumerate(sources, 1):
+            title = source.get("title", "").strip() or "Untitled"
+            location = source.get("location", "").strip()
+            snippet = source.get("snippet", "").strip()
+            if location:
+                lines.append(f"[S{idx}] {title} ({location})")
+            else:
+                lines.append(f"[S{idx}] {title}")
+            if snippet:
+                lines.append(f"  {snippet}")
+        return "\n".join(lines)
+
+    def _extract_sources_from_output(self, tool_name: str, output: str) -> list[dict[str, str]]:
+        parsed = self._parse_json(output)
+        sources: list[dict[str, str]] = []
+        if tool_name == "query_embeddings" and isinstance(parsed, list):
+            for item in parsed:
+                if not isinstance(item, dict):
+                    continue
+                text = str(item.get("text", "")).strip()
+                metadata = item.get("metadata")
+                source_path = ""
+                title = ""
+                if isinstance(metadata, dict):
+                    source_path = str(metadata.get("source_path", "")).strip()
+                    title = str(metadata.get("title", "")).strip()
+                snippet = self._truncate_text(text, 400)
+                if not snippet and metadata:
+                    snippet = self._truncate_text(json.dumps(metadata, ensure_ascii=True), 400)
+                sources.append(
+                    {
+                        "title": title or source_path or "Local source",
+                        "location": source_path,
+                        "snippet": snippet,
+                    }
+                )
+            return sources
+
+        if tool_name in {"query_remote", "query_remote_chain"} and isinstance(parsed, list):
+            for item in parsed:
+                if not isinstance(item, dict):
+                    continue
+                title = str(item.get("title", "")).strip() or str(item.get("name", "")).strip()
+                url = str(item.get("url", "")).strip()
+                snippet = str(item.get("snippet", "")).strip() or str(item.get("summary", "")).strip()
+                if not snippet:
+                    snippet = self._truncate_text(json.dumps(item, ensure_ascii=True), 400)
+                sources.append(
+                    {
+                        "title": title or url or "Remote source",
+                        "location": url,
+                        "snippet": self._truncate_text(snippet, 400),
+                    }
+                )
+            return sources
+
+        sources.append(
+            {
+                "title": tool_name or "Tool output",
+                "location": "",
+                "snippet": self._truncate_text(output, 400),
+            }
+        )
+        return sources
+
+    @staticmethod
+    def _truncate_text(text: str, limit: int) -> str:
+        cleaned = str(text or "").strip()
+        if not cleaned:
+            return ""
+        if len(cleaned) <= limit:
+            return cleaned
+        return cleaned[: limit - 3].rstrip() + "..."
 
     def _review_outline(self, provider: Any, topic: str, outline: str) -> Dict[str, Any]:
         if self._is_stop_requested():

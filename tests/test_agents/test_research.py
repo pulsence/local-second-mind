@@ -16,10 +16,29 @@ from lsm.config.loader import build_config_from_raw
 class QueryEmbeddingsStubTool(BaseTool):
     name = "query_embeddings"
     description = "Stub local retrieval tool."
-    input_schema = {"type": "object", "properties": {"query": {"type": "string"}}}
+    input_schema = {
+        "type": "object",
+        "properties": {
+            "query": {"type": "string"},
+            "top_k": {"type": "integer"},
+            "max_chars": {"type": "integer"},
+        },
+        "required": ["query"],
+    }
 
     def execute(self, args: dict) -> str:
-        return json.dumps([{"source": "local", "query": args.get("query"), "score": 0.9}])
+        return json.dumps(
+            [
+                {
+                    "text": f"Local snippet for {args.get('query')}",
+                    "relevance": 0.9,
+                    "metadata": {
+                        "source_path": "docs/source.md",
+                        "title": "Local Source",
+                    },
+                }
+            ]
+        )
 
 
 class QueryRemoteStubTool(BaseTool):
@@ -289,3 +308,41 @@ def test_research_agent_builds_ask_user_args(monkeypatch, tmp_path: Path) -> Non
     assert state.status.value == "completed"
     assert ask_user.calls
     assert ask_user.calls[0].get("prompt")
+
+
+def test_research_agent_passes_sources_to_llm(monkeypatch, tmp_path: Path) -> None:
+    class FakeProvider:
+        name = "fake"
+        model = "fake-model"
+
+        def __init__(self) -> None:
+            self.contexts: list[str] = []
+
+        def synthesize(self, question, context, mode="insight", **kwargs):
+            self.contexts.append(str(context))
+            lower = str(question).lower()
+            if "decompose the topic" in lower:
+                return json.dumps(["Scope"])
+            if "select the best tools" in lower:
+                return json.dumps({"tools": ["query_embeddings"]})
+            if "review this research outline" in lower:
+                return json.dumps({"sufficient": True, "suggestions": []})
+            if "summarize findings for subtopic" in lower:
+                return "- Summary [S1]"
+            return json.dumps({"sufficient": True, "suggestions": []})
+
+    provider = FakeProvider()
+    monkeypatch.setattr(
+        "lsm.agents.academic.research.create_provider",
+        lambda cfg: provider,
+    )
+
+    config = build_config_from_raw(_base_raw(tmp_path), tmp_path / "config.json")
+    registry = ToolRegistry()
+    registry.register(QueryEmbeddingsStubTool())
+    sandbox = ToolSandbox(config.agents.sandbox)
+    agent = ResearchAgent(config.llm, registry, sandbox, config.agents)
+
+    state = agent.run(AgentContext(messages=[{"role": "user", "content": "AI safety"}]))
+    assert state.status.value == "completed"
+    assert any("[S1]" in ctx for ctx in provider.contexts)
