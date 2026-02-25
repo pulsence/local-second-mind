@@ -59,3 +59,16 @@ class EmailDraft:
     body: str
     thread_id: Optional[str] = None
     metadata: Dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
+class CalendarEvent:
+    event_id: str
+    title: str
+    start: Optional[datetime]
+    end: Optional[datetime]
+    location: Optional[str] = None
+    description: Optional[str] = None
+    attendees: List[str] = field(default_factory=list)
+    status: Optional[str] = None
+    metadata: Dict[str, Any] = field(default_factory=dict)

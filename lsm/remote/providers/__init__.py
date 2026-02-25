@@ -50,6 +50,9 @@ __all__ = [
     "IMAPProvider",
     "EmailMessage",
     "EmailDraft",
+    "GoogleCalendarProvider",
+    "MicrosoftGraphCalendarProvider",
+    "CalDAVProvider",
 ]
 
 from lsm.remote.providers.web.brave import BraveSearchProvider
@@ -86,3 +89,6 @@ from lsm.remote.providers.communication.gmail import GmailProvider
 from lsm.remote.providers.communication.microsoft_graph_mail import MicrosoftGraphMailProvider
 from lsm.remote.providers.communication.imap import IMAPProvider
 from lsm.remote.providers.communication.models import EmailMessage, EmailDraft
+from lsm.remote.providers.communication.google_calendar import GoogleCalendarProvider
+from lsm.remote.providers.communication.microsoft_graph_calendar import MicrosoftGraphCalendarProvider
+from lsm.remote.providers.communication.caldav import CalDAVProvider

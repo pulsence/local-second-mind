@@ -70,6 +70,9 @@ __all__ = [
     "IMAPProvider",
     "EmailMessage",
     "EmailDraft",
+    "GoogleCalendarProvider",
+    "MicrosoftGraphCalendarProvider",
+    "CalDAVProvider",
 ]
 
 # Base classes
@@ -129,6 +132,9 @@ from lsm.remote.providers.communication.gmail import GmailProvider
 from lsm.remote.providers.communication.microsoft_graph_mail import MicrosoftGraphMailProvider
 from lsm.remote.providers.communication.imap import IMAPProvider
 from lsm.remote.providers.communication.models import EmailMessage, EmailDraft
+from lsm.remote.providers.communication.google_calendar import GoogleCalendarProvider
+from lsm.remote.providers.communication.microsoft_graph_calendar import MicrosoftGraphCalendarProvider
+from lsm.remote.providers.communication.caldav import CalDAVProvider
 
 # Register providers with the factory
 register_remote_provider("web_search", BraveSearchProvider)
@@ -162,5 +168,8 @@ register_remote_provider("perseus_cts", PerseusCTSProvider)
 register_remote_provider("gmail", GmailProvider)
 register_remote_provider("microsoft_graph_mail", MicrosoftGraphMailProvider)
 register_remote_provider("imap", IMAPProvider)
+register_remote_provider("google_calendar", GoogleCalendarProvider)
+register_remote_provider("microsoft_graph_calendar", MicrosoftGraphCalendarProvider)
+register_remote_provider("caldav", CalDAVProvider)
 register_remote_provider("oai_pmh", OAIPMHProvider)
 register_remote_provider("rss", RSSProvider)
