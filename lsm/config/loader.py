@@ -24,6 +24,7 @@ from .models import (
     MemoryConfig,
     SandboxConfig,
     GlobalConfig,
+    MCPServerConfig,
     IngestConfig,
     RootConfig,
     QueryConfig,
@@ -278,6 +279,18 @@ def build_global_config(raw: Dict[str, Any], config_path: Path | None = None) ->
     if tui_density_mode_raw is None:
         tui_density_mode_raw = GlobalConfig.tui_density_mode
 
+    mcp_servers_raw = global_raw.get("mcp_servers") or []
+    if not isinstance(mcp_servers_raw, list):
+        raise ValueError("global.mcp_servers must be a list when provided")
+    mcp_servers = []
+    for entry in mcp_servers_raw:
+        if isinstance(entry, MCPServerConfig):
+            mcp_servers.append(entry)
+        elif isinstance(entry, dict):
+            mcp_servers.append(MCPServerConfig(**entry))
+        else:
+            raise ValueError("global.mcp_servers entries must be objects")
+
     return GlobalConfig(
         global_folder=global_folder,
         embed_model=global_raw.get("embed_model", GlobalConfig.embed_model),
@@ -285,6 +298,7 @@ def build_global_config(raw: Dict[str, Any], config_path: Path | None = None) ->
         batch_size=int(global_raw.get("batch_size", GlobalConfig.batch_size)),
         embedding_dimension=embedding_dimension,
         tui_density_mode=str(tui_density_mode_raw).lower(),
+        mcp_servers=mcp_servers,
     )
 
 
@@ -1172,6 +1186,14 @@ def config_to_raw(config: LSMConfig) -> Dict[str, Any]:
             remote_provider_chains.append(chain_entry)
 
     gs = config.global_settings
+    mcp_servers = []
+    for server in gs.mcp_servers or []:
+        mcp_servers.append({
+            "name": server.name,
+            "command": server.command,
+            "args": list(server.args or []),
+            "env": dict(server.env or {}),
+        })
     agents_raw = None
     if config.agents is not None:
         agents_raw = {
@@ -1240,6 +1262,7 @@ def config_to_raw(config: LSMConfig) -> Dict[str, Any]:
             "batch_size": gs.batch_size,
             "embedding_dimension": gs.embedding_dimension,
             "tui_density_mode": gs.tui_density_mode,
+            "mcp_servers": mcp_servers or None,
         },
         "ingest": {
             "roots": [

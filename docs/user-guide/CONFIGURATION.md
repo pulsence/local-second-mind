@@ -58,9 +58,36 @@ Global settings live under the `"global"` key and map to `GlobalConfig`
 | `embed_model` | string | `sentence-transformers/all-MiniLM-L6-v2` | Embedding model for ingest/query. |
 | `device` | string | `cpu` | Embedding device, e.g. `cpu`, `cuda`, `cuda:0`, `mps`. |
 | `batch_size` | int | `32` | Embedding batch size. |
+| `tui_density_mode` | string | `auto` | TUI layout density: `auto`, `compact`, `comfortable`. |
+| `mcp_servers` | list[object] | `[]` | MCP server definitions for external tool integrations. |
 
 Environment variable overrides: `LSM_GLOBAL_FOLDER`, `LSM_EMBED_MODEL`,
 `LSM_DEVICE`.
+
+### MCP Servers
+
+MCP servers are configured globally so both agents and (future) query workflows
+can access external tools. Each entry includes:
+
+- `name`: stable identifier used for tool name prefixes
+- `command`: executable to launch the MCP server
+- `args`: optional argument list
+- `env`: optional environment variables
+
+Example:
+
+```json
+"global": {
+  "mcp_servers": [
+    {
+      "name": "acme",
+      "command": "acme-mcp",
+      "args": ["--stdio"],
+      "env": { "ACME_TOKEN": "..." }
+    }
+  ]
+}
+```
 
 ## Ingest Settings
 

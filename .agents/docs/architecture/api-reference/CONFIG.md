@@ -52,7 +52,9 @@ In config JSON/YAML these fields live under the `"global"` key:
     "global_folder": "...",
     "embed_model": "sentence-transformers/all-MiniLM-L6-v2",
     "device": "cpu",
-    "batch_size": 32
+    "batch_size": 32,
+    "tui_density_mode": "auto",
+    "mcp_servers": []
   }
 }
 ```
@@ -63,6 +65,8 @@ Fields:
 - `embed_model: str = sentence-transformers/all-MiniLM-L6-v2`
 - `device: str = cpu` (`cpu`, `cuda`, `cuda:0`, `mps`)
 - `batch_size: int = 32`
+- `tui_density_mode: str = auto` (`auto`, `compact`, `comfortable`)
+- `mcp_servers: list[MCPServerConfig] = []`
 
 Environment variable overrides:
 
@@ -73,6 +77,17 @@ Environment variable overrides:
 Methods:
 
 - `validate()`
+
+### MCPServerConfig
+
+Defines one MCP server entry in `global.mcp_servers`.
+
+Fields:
+
+- `name: str` (required)
+- `command: str` (required)
+- `args: list[str] = []`
+- `env: dict[str, str] = {}`
 
 ## IngestConfig
 

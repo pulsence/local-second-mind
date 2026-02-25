@@ -3,7 +3,7 @@ from pathlib import Path
 
 import pytest
 
-from lsm.config.models.global_config import GlobalConfig
+from lsm.config.models.global_config import GlobalConfig, MCPServerConfig
 
 
 @pytest.fixture(autouse=True)
@@ -103,4 +103,33 @@ def test_global_config_validate_negative_batch_size() -> None:
 def test_global_config_validate_invalid_tui_density_mode() -> None:
     cfg = GlobalConfig(tui_density_mode="invalid")
     with pytest.raises(ValueError, match="tui_density_mode must be one of"):
+        cfg.validate()
+
+
+def test_global_config_mcp_server_normalization() -> None:
+    cfg = GlobalConfig(
+        mcp_servers=[
+            {
+                "name": " demo ",
+                "command": "  run  ",
+                "args": ["  --flag", ""],
+                "env": {" KEY ": "VALUE"},
+            }
+        ]
+    )
+    server = cfg.mcp_servers[0]
+    assert server.name == "demo"
+    assert server.command == "run"
+    assert server.args == ["--flag"]
+    assert server.env == {"KEY": "VALUE"}
+
+
+def test_global_config_mcp_server_duplicate_names() -> None:
+    cfg = GlobalConfig(
+        mcp_servers=[
+            MCPServerConfig(name="dup", command="run"),
+            MCPServerConfig(name="dup", command="run2"),
+        ]
+    )
+    with pytest.raises(ValueError, match="Duplicate MCP server name"):
         cfg.validate()

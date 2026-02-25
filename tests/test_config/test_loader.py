@@ -96,6 +96,29 @@ def test_build_global_config_custom_values() -> None:
     assert isinstance(cfg.global_folder, Path)
 
 
+def test_build_global_config_reads_mcp_servers() -> None:
+    cfg = build_global_config(
+        {
+            "global": {
+                "mcp_servers": [
+                    {
+                        "name": "demo",
+                        "command": "demo-server",
+                        "args": ["--flag"],
+                        "env": {"DEMO": "1"},
+                    }
+                ]
+            }
+        }
+    )
+    assert len(cfg.mcp_servers) == 1
+    server = cfg.mcp_servers[0]
+    assert server.name == "demo"
+    assert server.command == "demo-server"
+    assert server.args == ["--flag"]
+    assert server.env == {"DEMO": "1"}
+
+
 def test_build_llm_config_loads_tiers(tmp_path: Path) -> None:
     raw = _base_raw(tmp_path)
     raw["llms"]["tiers"] = {
@@ -266,6 +289,25 @@ def test_config_to_raw_includes_global_folder(tmp_path: Path) -> None:
     serialized = config_to_raw(config)
 
     assert serialized["global"]["global_folder"] == str((tmp_path / "lsm-global").resolve())
+
+
+def test_config_to_raw_includes_mcp_servers(tmp_path: Path) -> None:
+    raw = _base_raw(tmp_path)
+    raw["global"]["mcp_servers"] = [
+        {
+            "name": "demo",
+            "command": "demo-server",
+            "args": ["--flag"],
+            "env": {"DEMO": "1"},
+        }
+    ]
+    config = build_config_from_raw(raw, tmp_path / "config.json")
+    serialized = config_to_raw(config)
+
+    mcp = serialized["global"]["mcp_servers"]
+    assert isinstance(mcp, list)
+    assert mcp[0]["name"] == "demo"
+    assert mcp[0]["command"] == "demo-server"
 
 
 def test_notes_config_is_global_not_mode_scoped(tmp_path: Path) -> None:

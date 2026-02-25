@@ -23,7 +23,7 @@ from .constants import (
     DEFAULT_LLM_TEMPERATURE,
     DEFAULT_LLM_MAX_TOKENS,
 )
-from .global_config import GlobalConfig
+from .global_config import GlobalConfig, MCPServerConfig
 from .llm import (
     LLMConfig,
     LLMProviderConfig,
@@ -76,6 +76,7 @@ __all__ = [
     "DEFAULT_LLM_TEMPERATURE",
     "DEFAULT_LLM_MAX_TOKENS",
     "GlobalConfig",
+    "MCPServerConfig",
     "LLMConfig",
     "LLMProviderConfig",
     "LLMRegistryConfig",

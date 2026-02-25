@@ -36,6 +36,7 @@ from .wsl2_runner import WSL2Runner
 from .runner import BaseRunner, LocalRunner, ToolExecutionResult
 from .bash import BashTool
 from .powershell import PowerShellTool
+from .mcp_host import MCPHost
 
 if TYPE_CHECKING:
     from lsm.config.models import LSMConfig
@@ -78,6 +79,7 @@ __all__ = [
     "ToolExecutionResult",
     "BashTool",
     "PowerShellTool",
+    "MCPHost",
     "create_default_tool_registry",
 ]
 
@@ -152,4 +154,7 @@ def create_default_tool_registry(
     registry.register(CollectArtifactsTool())
     registry.register(BashTool())
     registry.register(PowerShellTool())
+    if getattr(config.global_settings, "mcp_servers", None):
+        mcp_host = MCPHost(config.global_settings.mcp_servers)
+        mcp_host.register_tools(registry)
     return registry

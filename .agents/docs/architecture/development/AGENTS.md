@@ -58,6 +58,7 @@ Tooling:
 - `lsm/agents/tools/await_agent.py`: meta-system tool for sub-agent completion waits
 - `lsm/agents/tools/collect_artifacts.py`: meta-system tool for sub-agent artifact collection
 - `lsm/agents/tools/ask_user.py`: clarification tool for runtime user interaction
+- `lsm/agents/tools/mcp_host.py`: MCP host client and external tool adapters
 - `lsm/agents/tools/*.py`: built-in tool implementations
 - Tool metadata includes `risk_level`, `preferred_runner`, and `needs_network`
 
