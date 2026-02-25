@@ -499,6 +499,8 @@ Agents are configured under the top-level `agents` key.
 | `agent_configs` | object | `{}` | Per-agent override dictionary keyed by agent name. |
 | `schedules` | list | `[]` | Optional scheduler entries. |
 
+Meta-agent parallel execution honors `max_concurrent` as the upper bound for simultaneous sub-agent runs.
+
 `agents.interaction` fields:
 
 - `timeout_seconds` (`int`, default `300`): max seconds to wait for user interaction response.

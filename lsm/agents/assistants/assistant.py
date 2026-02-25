@@ -264,44 +264,6 @@ class AssistantAgent(BaseAgent):
 
         return "\n".join(lines).strip() + "\n"
 
-
-_ASSISTANT_VALIDATION_RULES = {
-    "permission denied": "Permission denial detected.",
-    "denied": "Permission denial detected.",
-    "todo": "Outstanding TODO item found.",
-    "tbd": "Unresolved TBD item found.",
-    "error": "Potential error reported.",
-    "failed": "Failure reported.",
-}
-
-
-def scan_assistant_findings(text: str) -> list[str]:
-    """
-    Scan text for compliance or review findings.
-    """
-    findings: list[str] = []
-    haystack = str(text or "").lower()
-    for token, message in _ASSISTANT_VALIDATION_RULES.items():
-        if token in haystack:
-            findings.append(message)
-    return findings
-
-
-def build_action_recommendations(findings: list[str]) -> list[str]:
-    """
-    Convert findings into actionable recommendations.
-    """
-    recommendations: list[str] = []
-    if any("permission" in item.lower() for item in findings):
-        recommendations.append("Review permission denials and update approvals.")
-    if any("todo" in item.lower() or "tbd" in item.lower() for item in findings):
-        recommendations.append("Resolve outstanding TODO/TBD items.")
-    if any("error" in item.lower() or "failed" in item.lower() for item in findings):
-        recommendations.append("Investigate errors and re-run failed steps.")
-    if not recommendations and findings:
-        recommendations.append("Review flagged findings and take follow-up actions.")
-    return recommendations
-
     def _propose_memory(self, payload: dict[str, Any]) -> list[dict[str, Any]]:
         payloads: list[dict[str, Any]] = []
         if "memory_put" not in self._available_tools():
@@ -376,3 +338,41 @@ def build_action_recommendations(findings: list[str]) -> list[str]:
                 continue
             counts[normalized] = counts.get(normalized, 0) + 1
         return sorted(counts.items(), key=lambda row: row[1], reverse=True)[:limit]
+
+
+_ASSISTANT_VALIDATION_RULES = {
+    "permission denied": "Permission denial detected.",
+    "denied": "Permission denial detected.",
+    "todo": "Outstanding TODO item found.",
+    "tbd": "Unresolved TBD item found.",
+    "error": "Potential error reported.",
+    "failed": "Failure reported.",
+}
+
+
+def scan_assistant_findings(text: str) -> list[str]:
+    """
+    Scan text for compliance or review findings.
+    """
+    findings: list[str] = []
+    haystack = str(text or "").lower()
+    for token, message in _ASSISTANT_VALIDATION_RULES.items():
+        if token in haystack:
+            findings.append(message)
+    return findings
+
+
+def build_action_recommendations(findings: list[str]) -> list[str]:
+    """
+    Convert findings into actionable recommendations.
+    """
+    recommendations: list[str] = []
+    if any("permission" in item.lower() for item in findings):
+        recommendations.append("Review permission denials and update approvals.")
+    if any("todo" in item.lower() or "tbd" in item.lower() for item in findings):
+        recommendations.append("Resolve outstanding TODO/TBD items.")
+    if any("error" in item.lower() or "failed" in item.lower() for item in findings):
+        recommendations.append("Investigate errors and re-run failed steps.")
+    if not recommendations and findings:
+        recommendations.append("Review flagged findings and take follow-up actions.")
+    return recommendations

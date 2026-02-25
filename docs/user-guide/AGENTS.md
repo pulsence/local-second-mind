@@ -82,7 +82,15 @@ Agents are organized into four themes.
 
 | Name | Launch As | Purpose |
 |------|-----------|---------|
-| Meta | `meta` | Orchestrator. Breaks a complex goal into a task graph and spawns sub-agents (`research`, `synthesis`, `curator`, `writing`) to execute each task, then consolidates their artifacts into a final output. |
+| Meta | `meta` | Orchestrator. Breaks a complex goal into a task graph and spawns sub-agents (`research`, `synthesis`, `curator`, `writing`, assistants) to execute each task, then consolidates their artifacts into a final output. |
+| Assistant Meta | `assistant_meta` | Runs assistant-oriented sub-agents, validates their outputs, and produces a review summary plus action recommendations. |
+
+Meta agents execute independent tasks in parallel (up to `agents.max_concurrent`) and write consolidated artifacts into their run workspace:
+
+- `final_result.md`
+- `meta_log.md`
+- `assistant_meta_summary.md` (assistant meta only)
+- `assistant_meta_summary.json` (assistant meta only)
 
 ### Assistants
 
