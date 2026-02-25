@@ -65,6 +65,11 @@ __all__ = [
     "GDELTProvider",
     "NewsAPIProvider",
     "PerseusCTSProvider",
+    "GmailProvider",
+    "MicrosoftGraphMailProvider",
+    "IMAPProvider",
+    "EmailMessage",
+    "EmailDraft",
 ]
 
 # Base classes
@@ -120,6 +125,10 @@ from lsm.remote.providers.news.guardian import GuardianProvider
 from lsm.remote.providers.news.gdelt import GDELTProvider
 from lsm.remote.providers.news.newsapi import NewsAPIProvider
 from lsm.remote.providers.cultural.perseus_cts import PerseusCTSProvider
+from lsm.remote.providers.communication.gmail import GmailProvider
+from lsm.remote.providers.communication.microsoft_graph_mail import MicrosoftGraphMailProvider
+from lsm.remote.providers.communication.imap import IMAPProvider
+from lsm.remote.providers.communication.models import EmailMessage, EmailDraft
 
 # Register providers with the factory
 register_remote_provider("web_search", BraveSearchProvider)
@@ -150,5 +159,8 @@ register_remote_provider("guardian", GuardianProvider)
 register_remote_provider("gdelt", GDELTProvider)
 register_remote_provider("newsapi", NewsAPIProvider)
 register_remote_provider("perseus_cts", PerseusCTSProvider)
+register_remote_provider("gmail", GmailProvider)
+register_remote_provider("microsoft_graph_mail", MicrosoftGraphMailProvider)
+register_remote_provider("imap", IMAPProvider)
 register_remote_provider("oai_pmh", OAIPMHProvider)
 register_remote_provider("rss", RSSProvider)

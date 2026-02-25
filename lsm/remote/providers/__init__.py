@@ -45,6 +45,11 @@ __all__ = [
     "GDELTProvider",
     "NewsAPIProvider",
     "PerseusCTSProvider",
+    "GmailProvider",
+    "MicrosoftGraphMailProvider",
+    "IMAPProvider",
+    "EmailMessage",
+    "EmailDraft",
 ]
 
 from lsm.remote.providers.web.brave import BraveSearchProvider
@@ -77,3 +82,7 @@ from lsm.remote.providers.news.guardian import GuardianProvider
 from lsm.remote.providers.news.gdelt import GDELTProvider
 from lsm.remote.providers.news.newsapi import NewsAPIProvider
 from lsm.remote.providers.cultural.perseus_cts import PerseusCTSProvider
+from lsm.remote.providers.communication.gmail import GmailProvider
+from lsm.remote.providers.communication.microsoft_graph_mail import MicrosoftGraphMailProvider
+from lsm.remote.providers.communication.imap import IMAPProvider
+from lsm.remote.providers.communication.models import EmailMessage, EmailDraft
