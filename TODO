@@ -64,7 +64,9 @@ substantially changed over time.
 - Review for any legacy/backwards-capatability/dead-code and review it.
 - Remove Azure AI provider. OpenRouter will be the go to endpoint for sources
   beyond OpenAI/Anthropic/Google.
-- Search for feature crepe or bloat.
+- Search for feature creep or bloat.
+- Update Config search path to start by searching in <GLOBAL_FOLDER> and 
+  load env files from there
 
 ### Deployment
 
