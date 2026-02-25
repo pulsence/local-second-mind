@@ -56,11 +56,11 @@ General, Librarian, Assistant, and Manuscript Editor agents.
 
 OpenRouter provider, OAI-protocol consolidation, MCP host support, and generic RSS reader.
 
-### [Phase 8: Remote Source Providers](../plan_phases/PHASE_8.md)
+### [Phase 8: Remote Source Providers](../plan_phases/PHASE_8.md) (COMPLETED)
 
 Provider sub-package restructure, structured output validation, scholarly/academic/cultural/news providers, and specialized protocols.
 
-### [Phase 9: Communication Platform](../plan_phases/PHASE_9.md)
+### [Phase 9: Communication Platform](../plan_phases/PHASE_9.md) (COMPLETED)
 
 OAuth2 infrastructure, email/calendar providers, and email/calendar/news assistant agents.
 
