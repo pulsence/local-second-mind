@@ -18,14 +18,16 @@ LSM uses an abstract provider interface defined by `BaseLLMProvider`. See [PROVI
 ### Current Providers
 
 - **OpenAI** - GPT models (gpt-5.2, gpt-4o-mini, etc.)
+- **OpenRouter** - OpenAI-compatible routing to multiple model vendors
+- **Anthropic Claude** - Claude 3/4 families
+- **Google Gemini** - Gemini models via Google GenAI API
+- **Azure OpenAI** - OpenAI models via Azure
+- **Local** - Ollama/local HTTP models
 
 ### Planned Providers
 
-- **Anthropic Claude** - Claude 3 family (Opus, Sonnet, Haiku)
-- **Local Models** - Via Ollama, llama.cpp, or transformers
-- **Azure OpenAI** - OpenAI models via Azure
 - **Cohere** - Command models
-- **Google Vertex AI** - PaLM and Gemini models
+- **Google Vertex AI** - Hosted Gemini/Vertex models
 
 ## Implementation Guide
 

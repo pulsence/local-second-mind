@@ -7,6 +7,7 @@ All notable changes to Local Second Mind are documented here.
 ### Added
 
 - Tiered LLM configuration via `llms.tiers` for agent/tool model selection.
+- OpenRouter LLM provider with model fallback routing, prompt caching markers, and usage tracking.
 - Agent/tool tier declarations with tier-based model selection in agent harness runs.
 - Benchmark harness for agent/tool regression tracking with baseline file-operation tasks in `tests/benchmarks/`.
 - File graphing system with unified graph schema, deterministic IDs, content-hash caching, and line-hash metadata.

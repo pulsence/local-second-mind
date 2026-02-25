@@ -143,14 +143,31 @@ Notes:
   optional and fall back to `"default"` if not defined.
 - `decomposition` controls which model is used for natural-language query decomposition.
 - Each service's `provider` field (when set) must reference a name from `providers[]`.
-- Supported providers: `openai`, `anthropic`, `gemini`, `local`, `azure_openai`.
+- Supported providers: `openai`, `openrouter`, `anthropic`, `gemini`, `local`, `azure_openai`.
 
 Provider-specific fields:
 
 - `base_url` is used for local/hosted providers (e.g., Ollama).
 - `endpoint`, `api_version`, and `deployment_name` are used for Azure OpenAI.
+- `fallback_models` (optional) configures OpenRouter model routing fallbacks.
 
 ### Provider Examples
+
+OpenRouter:
+
+```json
+"llms": {
+  "providers": [
+    {
+      "provider_name": "openrouter",
+      "fallback_models": ["anthropic/claude-3.5-sonnet"]
+    }
+  ],
+  "services": {
+    "query": { "provider": "openrouter", "model": "openai/gpt-4o" }
+  }
+}
+```
 
 Anthropic:
 
@@ -442,12 +459,15 @@ Per-agent LLM overrides (under `agents.agent_configs.<agent_name>`):
 Common environment variables:
 
 - `OPENAI_API_KEY` (OpenAI provider)
+- `OPENROUTER_API_KEY` (OpenRouter provider)
 - `ANTHROPIC_API_KEY` (Anthropic provider)
 - `GOOGLE_API_KEY` (Gemini provider)
 - `AZURE_OPENAI_API_KEY` (Azure OpenAI provider)
 - `AZURE_OPENAI_ENDPOINT` (Azure OpenAI endpoint)
 - `AZURE_OPENAI_API_VERSION` (Azure OpenAI API version)
 - `AZURE_OPENAI_DEPLOYMENT_NAME` (Azure OpenAI deployment name)
+- `OPENROUTER_APP_NAME` (optional OpenRouter app attribution)
+- `OPENROUTER_APP_URL` (optional OpenRouter app attribution)
 - `OLLAMA_BASE_URL` (Local/Ollama base URL)
 - `BRAVE_API_KEY` (Brave Search provider)
 - `LSM_WIKIPEDIA_USER_AGENT` (Wikipedia provider User-Agent)

@@ -76,6 +76,15 @@ Location: `lsm/providers/openai.py`
 - Handles unsupported parameters by retrying without them.
 - Provides rough cost estimation.
 
+## OpenRouter Provider Behavior
+
+Location: `lsm/providers/openrouter.py`
+
+- Uses OpenRouter's OpenAI-compatible Chat Completions API.
+- Supports routing with fallback models via `llms.providers[].fallback_models`.
+- Emits prompt caching markers when `enable_llm_server_cache` is enabled.
+- Captures response usage metadata for token tracking.
+
 ## Error Handling
 
 Providers should raise exceptions for API errors. The query pipeline catches

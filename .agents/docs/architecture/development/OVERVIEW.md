@@ -81,7 +81,7 @@ Config (loader + dataclasses)
 ### Provider Layers
 
 - LLM providers: `lsm/providers/`
-  - OpenAI, Anthropic, Gemini, Azure OpenAI, Local
+  - OpenAI, OpenRouter, Anthropic, Gemini, Azure OpenAI, Local
 - Remote providers: `lsm/remote/providers/`
   - Brave, Wikipedia, arXiv, Semantic Scholar, Crossref, OpenAlex, CORE, OAI-PMH, IxTheo, PhilPapers
 - Vector DB providers: `lsm/vectordb/`

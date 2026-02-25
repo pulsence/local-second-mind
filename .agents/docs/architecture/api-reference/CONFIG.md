@@ -182,11 +182,13 @@ Fields:
 - `endpoint: str | None = None` (Azure OpenAI)
 - `api_version: str | None = None` (Azure OpenAI)
 - `deployment_name: str | None = None` (Azure OpenAI)
+- `fallback_models: list[str] | None = None` (OpenRouter routing fallbacks)
 
 Notes:
 
 - Providers hold connection/auth details only.
 - `model`, `temperature`, and `max_tokens` are configured in services.
+- `fallback_models` is only used by providers that support routing (OpenRouter).
 
 ## LLMServiceConfig
 

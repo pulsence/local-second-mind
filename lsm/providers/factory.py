@@ -18,6 +18,7 @@ logger = get_logger(__name__)
 # Registry maps provider name -> "module:ClassName"
 PROVIDER_REGISTRY: Dict[str, str | Type[BaseLLMProvider]] = {
     "openai": "lsm.providers.openai:OpenAIProvider",
+    "openrouter": "lsm.providers.openrouter:OpenRouterProvider",
     "anthropic": "lsm.providers.anthropic:AnthropicProvider",
     "claude": "lsm.providers.anthropic:AnthropicProvider",
     "local": "lsm.providers.local:LocalProvider",

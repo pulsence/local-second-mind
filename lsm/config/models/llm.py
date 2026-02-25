@@ -110,8 +110,15 @@ class LLMConfig:
     deployment_name: Optional[str] = None
     """Provider deployment name (e.g., Azure OpenAI deployment)."""
 
+    fallback_models: Optional[List[str]] = None
+    """Provider-specific fallback model list (e.g., OpenRouter routing)."""
+
     def __post_init__(self):
         """Load API key from environment if not provided."""
+        if self.fallback_models is not None:
+            cleaned = [str(m).strip() for m in self.fallback_models if str(m).strip()]
+            self.fallback_models = cleaned or None
+
         if not self.api_key:
             if self.provider == "gemini":
                 self.api_key = os.getenv("GOOGLE_API_KEY")
@@ -192,10 +199,17 @@ class LLMProviderConfig:
     deployment_name: Optional[str] = None
     """Provider deployment name (e.g., Azure OpenAI deployment)."""
 
+    fallback_models: Optional[List[str]] = None
+    """Optional fallback models for providers that support routing (e.g., OpenRouter)."""
+
     def validate(self) -> None:
         """Validate provider configuration."""
         if not self.provider_name:
             raise ValueError("providers[].provider_name is required")
+        if self.fallback_models is not None:
+            cleaned = [str(m).strip() for m in self.fallback_models if str(m).strip()]
+            if not cleaned:
+                raise ValueError("providers[].fallback_models must include at least one model")
 
 
 @dataclass
@@ -268,6 +282,7 @@ class LLMRegistryConfig:
             endpoint=provider.endpoint,
             api_version=provider.api_version,
             deployment_name=provider.deployment_name,
+            fallback_models=provider.fallback_models,
         )
 
     def resolve_tier(self, name: str) -> LLMConfig:
@@ -310,6 +325,7 @@ class LLMRegistryConfig:
             endpoint=provider.endpoint,
             api_version=provider.api_version,
             deployment_name=provider.deployment_name,
+            fallback_models=provider.fallback_models,
         )
 
     def resolve_any_for_provider(self, provider_name: str) -> Optional[LLMConfig]:
@@ -489,4 +505,5 @@ class LLMRegistryConfig:
             endpoint=provider.endpoint,
             api_version=provider.api_version,
             deployment_name=provider.deployment_name,
+            fallback_models=provider.fallback_models,
         )

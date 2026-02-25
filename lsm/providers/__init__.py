@@ -14,6 +14,7 @@ from .factory import create_provider, list_available_providers, register_provide
 _LAZY_EXPORTS = {
     "BaseLLMProvider": ("lsm.providers.base", "BaseLLMProvider"),
     "OpenAIProvider": ("lsm.providers.openai", "OpenAIProvider"),
+    "OpenRouterProvider": ("lsm.providers.openrouter", "OpenRouterProvider"),
     "AnthropicProvider": ("lsm.providers.anthropic", "AnthropicProvider"),
     "LocalProvider": ("lsm.providers.local", "LocalProvider"),
     "GeminiProvider": ("lsm.providers.gemini", "GeminiProvider"),
@@ -38,6 +39,7 @@ def __dir__() -> list[str]:
 __all__ = [
     "BaseLLMProvider",
     "OpenAIProvider",
+    "OpenRouterProvider",
     "AnthropicProvider",
     "LocalProvider",
     "GeminiProvider",
