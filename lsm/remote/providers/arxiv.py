@@ -17,13 +17,14 @@ import xml.etree.ElementTree as ET
 
 import requests
 
-from lsm.remote.base import BaseRemoteProvider, RemoteResult
+from lsm.remote.base import RemoteResult
+from lsm.remote.providers.base_oai import BaseOAIProvider
 from lsm.logging import get_logger
 
 logger = get_logger(__name__)
 
 
-class ArXivProvider(BaseRemoteProvider):
+class ArXivProvider(BaseOAIProvider):
     """
     Remote provider using the arXiv API.
 
@@ -80,6 +81,7 @@ class ArXivProvider(BaseRemoteProvider):
             or "LocalSecondMind/1.0 (local usage; contact: you@example.com)"
         )
         self._last_request_time = 0.0
+        self.normalize_snippet_whitespace = False
 
     @property
     def name(self) -> str:
@@ -313,11 +315,6 @@ class ArXivProvider(BaseRemoteProvider):
     def _clean_text(self, text: str) -> str:
         return " ".join((text or "").split())
 
-    def _truncate(self, text: str) -> str:
-        if len(text) <= self.snippet_max_chars:
-            return text
-        return text[: self.snippet_max_chars].rstrip() + "..."
-
     def _normalize_abs_url(self, url: str) -> str:
         if not url:
             return ""
@@ -360,8 +357,4 @@ class ArXivProvider(BaseRemoteProvider):
         return f"{author_str} ({year}). {title}. {id_part}. {abs_url} (accessed {date_str})."
 
     def _format_authors(self, authors: List[str]) -> str:
-        if not authors:
-            return "arXiv"
-        if len(authors) <= 3:
-            return ", ".join(authors)
-        return ", ".join(authors[:3]) + ", et al."
+        return super()._format_authors(authors, fallback="arXiv")

@@ -247,6 +247,7 @@ rate limits. Metadata Plus subscription available for production use.
 - Config keys: `repository`, `repositories`, `custom_repositories`, `metadata_prefix`,
   `set_spec`, `timeout`, `min_interval_seconds`, `snippet_max_chars`, `user_agent`
 - Environment variable: `LSM_OAI_PMH_USER_AGENT` (optional)
+- Shared parsing logic lives in `lsm/remote/providers/base_oai.py` via `BaseOAIProvider`.
 
 OAI-PMH (Open Archives Initiative Protocol for Metadata Harvesting) is a
 protocol for harvesting metadata from institutional repositories, digital

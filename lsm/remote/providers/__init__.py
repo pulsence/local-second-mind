@@ -21,6 +21,7 @@ __all__ = [
     "ArXivProvider",
     "SemanticScholarProvider",
     "COREProvider",
+    "BaseOAIProvider",
     "OAIPMHProvider",
     "OAIPMHClient",
     "OAIRecord",
@@ -36,6 +37,7 @@ from lsm.remote.providers.wikipedia import WikipediaProvider
 from lsm.remote.providers.arxiv import ArXivProvider
 from lsm.remote.providers.semantic_scholar import SemanticScholarProvider
 from lsm.remote.providers.core import COREProvider
+from lsm.remote.providers.base_oai import BaseOAIProvider
 from lsm.remote.providers.oai_pmh import OAIPMHProvider, OAIPMHClient, OAIRecord, KNOWN_REPOSITORIES
 from lsm.remote.providers.philpapers import PhilPapersProvider
 from lsm.remote.providers.ixtheo import IxTheoProvider

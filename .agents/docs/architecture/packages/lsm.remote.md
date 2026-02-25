@@ -15,6 +15,7 @@ Folder Path: `lsm/remote/`
 - [brave.py](../lsm/remote/providers/brave.py): Brave Search API provider
 - [wikipedia.py](../lsm/remote/providers/wikipedia.py): Wikipedia provider
 - [arxiv.py](../lsm/remote/providers/arxiv.py): ArXiv provider
+- [base_oai.py](../lsm/remote/providers/base_oai.py): Shared OAI-PMH helpers and BaseOAIProvider
 - [semantic_scholar.py](../lsm/remote/providers/semantic_scholar.py): Semantic Scholar provider
 - [crossref.py](../lsm/remote/providers/crossref.py): CrossRef provider
 - [openalex.py](../lsm/remote/providers/openalex.py): OpenAlex provider
