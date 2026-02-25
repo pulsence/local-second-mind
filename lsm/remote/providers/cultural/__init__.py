@@ -11,6 +11,7 @@ __all__ = [
     "RijksmuseumProvider",
     "IIIFProvider",
     "WikidataProvider",
+    "PerseusCTSProvider",
 ]
 
 from lsm.remote.providers.cultural.archive_org import ArchiveOrgProvider
@@ -21,3 +22,4 @@ from lsm.remote.providers.cultural.met import MetProvider
 from lsm.remote.providers.cultural.rijksmuseum import RijksmuseumProvider
 from lsm.remote.providers.cultural.iiif import IIIFProvider
 from lsm.remote.providers.cultural.wikidata import WikidataProvider
+from lsm.remote.providers.cultural.perseus_cts import PerseusCTSProvider

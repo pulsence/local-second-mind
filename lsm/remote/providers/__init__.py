@@ -44,6 +44,7 @@ __all__ = [
     "GuardianProvider",
     "GDELTProvider",
     "NewsAPIProvider",
+    "PerseusCTSProvider",
 ]
 
 from lsm.remote.providers.web.brave import BraveSearchProvider
@@ -75,3 +76,4 @@ from lsm.remote.providers.news.nytimes import NYTimesProvider
 from lsm.remote.providers.news.guardian import GuardianProvider
 from lsm.remote.providers.news.gdelt import GDELTProvider
 from lsm.remote.providers.news.newsapi import NewsAPIProvider
+from lsm.remote.providers.cultural.perseus_cts import PerseusCTSProvider

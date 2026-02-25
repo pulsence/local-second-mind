@@ -60,6 +60,7 @@ __all__ = [
     "GuardianProvider",
     "GDELTProvider",
     "NewsAPIProvider",
+    "PerseusCTSProvider",
 ]
 
 # Base classes
@@ -113,6 +114,7 @@ from lsm.remote.providers.news.nytimes import NYTimesProvider
 from lsm.remote.providers.news.guardian import GuardianProvider
 from lsm.remote.providers.news.gdelt import GDELTProvider
 from lsm.remote.providers.news.newsapi import NewsAPIProvider
+from lsm.remote.providers.cultural.perseus_cts import PerseusCTSProvider
 
 # Register providers with the factory
 register_remote_provider("web_search", BraveSearchProvider)
@@ -142,5 +144,6 @@ register_remote_provider("nytimes", NYTimesProvider)
 register_remote_provider("guardian", GuardianProvider)
 register_remote_provider("gdelt", GDELTProvider)
 register_remote_provider("newsapi", NewsAPIProvider)
+register_remote_provider("perseus_cts", PerseusCTSProvider)
 register_remote_provider("oai_pmh", OAIPMHProvider)
 register_remote_provider("rss", RSSProvider)
