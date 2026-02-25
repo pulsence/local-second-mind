@@ -10,6 +10,7 @@ All notable changes to Local Second Mind are documented here.
 - OpenRouter LLM provider with model fallback routing, prompt caching markers, and usage tracking.
 - BaseOAIProvider shared OAI-PMH parsing utilities with consolidated client/parser logic.
 - MCP host support with `global.mcp_servers` for registering external tool servers.
+- RSS/Atom remote provider with feed caching, seen-item tracking, and normalized RemoteResult output.
 - Agent/tool tier declarations with tier-based model selection in agent harness runs.
 - Benchmark harness for agent/tool regression tracking with baseline file-operation tasks in `tests/benchmarks/`.
 - File graphing system with unified graph schema, deterministic IDs, content-hash caching, and line-hash metadata.

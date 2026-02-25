@@ -23,6 +23,9 @@ __all__ = [
     # Storage helpers
     "save_results",
     "load_cached_results",
+    "save_feed_cache",
+    "load_feed_cache",
+    "FeedCache",
     # Provider implementations
     "BraveSearchProvider",
     "WikipediaProvider",
@@ -33,6 +36,7 @@ __all__ = [
     "OAIPMHClient",
     "OAIRecord",
     "KNOWN_REPOSITORIES",
+    "RSSProvider",
     "PhilPapersProvider",
     "IxTheoProvider",
     "OpenAlexProvider",
@@ -51,7 +55,13 @@ from lsm.remote.factory import (
     RemoteProviderFactory,
 )
 from lsm.remote.chain import RemoteProviderChain
-from lsm.remote.storage import save_results, load_cached_results
+from lsm.remote.storage import (
+    save_results,
+    load_cached_results,
+    save_feed_cache,
+    load_feed_cache,
+    FeedCache,
+)
 
 # Provider implementations
 from lsm.remote.providers.brave import BraveSearchProvider
@@ -61,6 +71,7 @@ from lsm.remote.providers.semantic_scholar import SemanticScholarProvider
 from lsm.remote.providers.core import COREProvider
 from lsm.remote.providers.base_oai import BaseOAIProvider
 from lsm.remote.providers.oai_pmh import OAIPMHProvider, OAIPMHClient, OAIRecord, KNOWN_REPOSITORIES
+from lsm.remote.providers.rss import RSSProvider
 from lsm.remote.providers.philpapers import PhilPapersProvider
 from lsm.remote.providers.ixtheo import IxTheoProvider
 from lsm.remote.providers.openalex import OpenAlexProvider
@@ -78,3 +89,4 @@ register_remote_provider("ixtheo", IxTheoProvider)
 register_remote_provider("openalex", OpenAlexProvider)
 register_remote_provider("crossref", CrossrefProvider)
 register_remote_provider("oai_pmh", OAIPMHProvider)
+register_remote_provider("rss", RSSProvider)

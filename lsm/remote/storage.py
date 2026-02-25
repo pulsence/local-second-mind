@@ -8,6 +8,7 @@ import hashlib
 import json
 import re
 import time
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -85,3 +86,77 @@ def load_cached_results(
         return None
 
     return results
+
+
+@dataclass
+class FeedCache:
+    """Cached RSS/Atom feed payload."""
+
+    feed_url: str
+    saved_at: int
+    items: List[Dict[str, Any]]
+    seen_ids: List[str]
+    fresh: bool
+
+
+def _feed_cache_path(feed_url: str, global_folder: Optional[str | Path]) -> Path:
+    return _cache_path("rss", feed_url, global_folder)
+
+
+def save_feed_cache(
+    feed_url: str,
+    items: List[Dict[str, Any]],
+    seen_ids: List[str],
+    global_folder: Optional[str | Path],
+) -> Path:
+    """
+    Save RSS/Atom feed cache to disk.
+    """
+    cache_file = _feed_cache_path(feed_url, global_folder)
+    payload = {
+        "feed_url": feed_url,
+        "saved_at": int(time.time()),
+        "items": items,
+        "seen_ids": [str(value) for value in seen_ids if str(value).strip()],
+    }
+    cache_file.write_text(json.dumps(payload, ensure_ascii=True, indent=2), encoding="utf-8")
+    return cache_file
+
+
+def load_feed_cache(
+    feed_url: str,
+    global_folder: Optional[str | Path],
+    max_age: int,
+) -> Optional[FeedCache]:
+    """
+    Load cached RSS/Atom feed data when available.
+    """
+    cache_file = _feed_cache_path(feed_url, global_folder)
+    if not cache_file.exists():
+        return None
+
+    try:
+        payload = json.loads(cache_file.read_text(encoding="utf-8"))
+    except Exception as exc:
+        logger.warning(f"Failed to read feed cache file '{cache_file}': {exc}")
+        return None
+
+    saved_at = payload.get("saved_at")
+    items = payload.get("items")
+    seen_ids = payload.get("seen_ids") or []
+    if not isinstance(saved_at, int):
+        return None
+    if not isinstance(items, list):
+        items = []
+    if not isinstance(seen_ids, list):
+        seen_ids = []
+
+    age = int(time.time()) - saved_at
+    fresh = age <= max_age
+    return FeedCache(
+        feed_url=feed_url,
+        saved_at=saved_at,
+        items=items,
+        seen_ids=[str(value) for value in seen_ids if str(value).strip()],
+        fresh=fresh,
+    )

@@ -11,6 +11,7 @@ This module contains all remote source provider implementations:
 - ixtheo: IxTheo theology/philosophy database
 - openalex: OpenAlex research metadata
 - crossref: Crossref bibliographic data
+- rss: RSS/Atom feed reader
 """
 
 from __future__ import annotations
@@ -26,6 +27,7 @@ __all__ = [
     "OAIPMHClient",
     "OAIRecord",
     "KNOWN_REPOSITORIES",
+    "RSSProvider",
     "PhilPapersProvider",
     "IxTheoProvider",
     "OpenAlexProvider",
@@ -39,6 +41,7 @@ from lsm.remote.providers.semantic_scholar import SemanticScholarProvider
 from lsm.remote.providers.core import COREProvider
 from lsm.remote.providers.base_oai import BaseOAIProvider
 from lsm.remote.providers.oai_pmh import OAIPMHProvider, OAIPMHClient, OAIRecord, KNOWN_REPOSITORIES
+from lsm.remote.providers.rss import RSSProvider
 from lsm.remote.providers.philpapers import PhilPapersProvider
 from lsm.remote.providers.ixtheo import IxTheoProvider
 from lsm.remote.providers.openalex import OpenAlexProvider

@@ -44,9 +44,12 @@ class QueryRemoteTool(BaseTool):
 
         max_results = int(args.get("max_results", 5))
         provider_cfg = self._find_provider(provider_name)
+        provider_config = self._provider_config_to_dict(provider_cfg)
+        if self.config.global_folder is not None:
+            provider_config["global_folder"] = str(self.config.global_folder)
         provider = create_remote_provider(
             provider_cfg.type,
-            self._provider_config_to_dict(provider_cfg),
+            provider_config,
         )
         results = provider.search_structured(
             provider_input,

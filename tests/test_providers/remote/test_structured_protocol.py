@@ -11,6 +11,7 @@ from lsm.remote.providers.openalex import OpenAlexProvider
 from lsm.remote.providers.philpapers import PhilPapersProvider
 from lsm.remote.providers.semantic_scholar import SemanticScholarProvider
 from lsm.remote.providers.wikipedia import WikipediaProvider
+from lsm.remote.providers.rss import RSSProvider
 
 
 PROVIDER_CLASSES = [
@@ -24,6 +25,7 @@ PROVIDER_CLASSES = [
     OpenAlexProvider,
     CrossrefProvider,
     OAIPMHProvider,
+    RSSProvider,
 ]
 
 

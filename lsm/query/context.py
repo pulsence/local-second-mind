@@ -11,6 +11,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
+from pathlib import Path
 from typing import Callable, List, Dict, Any, Optional, Tuple
 
 from lsm.config.models import LSMConfig
@@ -23,7 +24,11 @@ from lsm.logging import get_logger
 logger = get_logger(__name__)
 
 
-def _remote_provider_runtime_config(provider_config: Any, effective_weight: float) -> Dict[str, Any]:
+def _remote_provider_runtime_config(
+    provider_config: Any,
+    effective_weight: float,
+    global_folder: Optional[str | Path] = None,
+) -> Dict[str, Any]:
     """Build provider runtime config preserving provider-specific passthrough fields."""
     runtime_config: Dict[str, Any] = {
         "type": provider_config.type,
@@ -39,6 +44,8 @@ def _remote_provider_runtime_config(provider_config: Any, effective_weight: floa
         "snippet_max_chars": provider_config.snippet_max_chars,
         "include_disambiguation": provider_config.include_disambiguation,
     }
+    if global_folder is not None:
+        runtime_config["global_folder"] = str(global_folder)
     if getattr(provider_config, "extra", None):
         runtime_config.update(provider_config.extra)
     return runtime_config
@@ -310,7 +317,11 @@ def fetch_remote_sources(
             if raw_results is None:
                 provider = create_remote_provider(
                     provider_config.type,
-                    _remote_provider_runtime_config(provider_config, effective_weight),
+                    _remote_provider_runtime_config(
+                        provider_config,
+                        effective_weight,
+                        config.global_folder,
+                    ),
                 )
 
                 max_results = provider_config.max_results or remote_policy.max_results

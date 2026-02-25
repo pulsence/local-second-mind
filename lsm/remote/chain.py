@@ -4,7 +4,8 @@ Remote provider chain execution.
 
 from __future__ import annotations
 
-from typing import Any, Dict, List
+from pathlib import Path
+from typing import Any, Dict, List, Optional
 
 from lsm.config.models import LSMConfig, RemoteProviderChainConfig
 from lsm.logging import get_logger
@@ -13,7 +14,11 @@ from lsm.remote.factory import create_remote_provider
 logger = get_logger(__name__)
 
 
-def _provider_runtime_config(provider_cfg: Any) -> Dict[str, Any]:
+def _provider_runtime_config(
+    provider_cfg: Any,
+    *,
+    global_folder: Optional[str | Path] = None,
+) -> Dict[str, Any]:
     """Build provider config preserving provider-specific passthrough keys."""
     runtime_config: Dict[str, Any] = {
         "type": provider_cfg.type,
@@ -29,6 +34,8 @@ def _provider_runtime_config(provider_cfg: Any) -> Dict[str, Any]:
         "snippet_max_chars": provider_cfg.snippet_max_chars,
         "include_disambiguation": provider_cfg.include_disambiguation,
     }
+    if global_folder is not None:
+        runtime_config["global_folder"] = str(global_folder)
     if getattr(provider_cfg, "extra", None):
         runtime_config.update(provider_cfg.extra)
     return runtime_config
@@ -65,7 +72,7 @@ class RemoteProviderChain:
             provider_cfg = self._get_provider_config(link.source)
             provider = create_remote_provider(
                 provider_cfg.type,
-                _provider_runtime_config(provider_cfg),
+                _provider_runtime_config(provider_cfg, global_folder=self.config.global_folder),
             )
 
             current_outputs = []

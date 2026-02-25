@@ -98,6 +98,13 @@ Runs links in order:
   `snippet_max_chars`, `include_disambiguation`, `user_agent`
 - Environment variable: `LSM_WIKIPEDIA_USER_AGENT` (recommended)
 
+### RSS / Atom
+
+- Type: `rss`
+- Config keys: `feed_url`, `feeds`, `timeout`, `min_interval_seconds`, `snippet_max_chars`,
+  `cache_ttl_seconds` (or `cache_ttl`), `user_agent`
+- Environment variable: `LSM_RSS_USER_AGENT` (optional)
+
 ### arXiv
 
 - Type: `arxiv`
