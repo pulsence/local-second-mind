@@ -52,7 +52,7 @@ Runner policy updates, Docker runner completion, WSL2 runner, bash/PowerShell to
 
 General, Librarian, Assistant, and Manuscript Editor agents.
 
-### [Phase 7: AI Providers & Protocol Infrastructure](../plan_phases/PHASE_7.md)
+### [Phase 7: AI Providers & Protocol Infrastructure](../plan_phases/PHASE_7.md) (COMPLETED)
 
 OpenRouter provider, OAI-protocol consolidation, MCP host support, and generic RSS reader.
 

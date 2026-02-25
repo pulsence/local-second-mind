@@ -6,7 +6,7 @@ Folder Path: `lsm/config/models/`
 ## Modules
 
 - [constants.py](../lsm/config/models/constants.py): Default values and WELL_KNOWN_EMBED_MODELS dimension dictionary
-- [global_config.py](../lsm/config/models/global_config.py): GlobalConfig dataclass for embed_model, device, batch_size, global_folder
+- [global_config.py](../lsm/config/models/global_config.py): GlobalConfig dataclass for embed_model, device, batch_size, global_folder, and mcp_servers (MCPServerConfig list)
 - [ingest.py](../lsm/config/models/ingest.py): IngestConfig dataclass for roots, manifest, chunk_size, etc.
 - [query.py](../lsm/config/models/query.py): QueryConfig dataclass for query settings
 - [llm.py](../lsm/config/models/llm.py): LLMConfig dataclass for providers and services

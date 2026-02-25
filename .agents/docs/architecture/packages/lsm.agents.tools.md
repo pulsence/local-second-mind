@@ -37,4 +37,5 @@ Folder Path: `lsm/agents/tools/`
 - [query_remote_chain.py](../../lsm/agents/tools/query_remote_chain.py): Remote source chain query tool
 - [query_embeddings.py](../../lsm/agents/tools/query_embeddings.py): Embedding query tool
 - [extract_snippets.py](../../lsm/agents/tools/extract_snippets.py): Snippet extraction tool
+- [mcp_host.py](../../lsm/agents/tools/mcp_host.py): MCP host client; connects to external MCP servers, discovers tools, and registers them in ToolRegistry
 - [similarity_search.py](../../lsm/agents/tools/similarity_search.py): Similarity search tool
