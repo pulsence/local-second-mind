@@ -662,7 +662,7 @@ class AgentsScreen(ManagedScreenMixin, Widget):
     # inherited from ManagedScreenMixin.
 
     def _cancel_managed_workers(self, *, reason: str) -> None:
-        """Override: includes fallback for legacy _stop_worker thread."""
+        """Cancel all managed workers, falling back to direct joins."""
         app_obj = getattr(self, "app", None)
         cancel_owner = getattr(app_obj, "cancel_managed_workers_for_owner", None)
         if callable(cancel_owner):
@@ -709,7 +709,7 @@ class AgentsScreen(ManagedScreenMixin, Widget):
     # inherited from ManagedScreenMixin.
 
     def _stop_managed_timers(self, *, reason: str) -> None:
-        """Override: includes fallback for explicit timer stops."""
+        """Stop all timers, falling back to direct timer stops."""
         app_obj = getattr(self, "app", None)
         stop_owner = getattr(app_obj, "stop_managed_timers_for_owner", None)
         if callable(stop_owner):

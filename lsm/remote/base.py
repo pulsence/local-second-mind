@@ -213,6 +213,3 @@ class BaseRemoteProvider(ABC):
             "metadata": metadata,
         }
 
-
-# Aliases for backward compatibility
-RemoteProvider = BaseRemoteProvider

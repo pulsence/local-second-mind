@@ -39,15 +39,10 @@ def _deserialize_tags(tags_json: Any) -> List[str]:
     """
     Deserialize tags from metadata.
 
-    Handles both JSON strings (new format) and lists (if any legacy data exists).
-    Returns empty list if tags are None or invalid.
+    Handles JSON strings only. Returns empty list if tags are None or invalid.
     """
     if not tags_json:
         return []
-
-    # If already a list (shouldn't happen with new code, but handle legacy data)
-    if isinstance(tags_json, list):
-        return tags_json
 
     # Parse JSON string
     if isinstance(tags_json, str):

@@ -64,13 +64,6 @@ class TestTagSerialization:
         assert len(result) == 3
         assert "python" in result
 
-    def test_deserialize_tags_legacy_list(self):
-        """Test handling legacy list format (shouldn't happen but handle gracefully)."""
-        tags_list = ["python", "tutorial"]
-        result = _deserialize_tags(tags_list)
-
-        assert result == tags_list
-
     def test_deserialize_tags_none(self):
         """Test deserializing None value."""
         result = _deserialize_tags(None)
@@ -829,22 +822,21 @@ class TestGetAllTags:
         assert "valid" in all_tags["ai_tags"]
         assert len(all_tags["ai_tags"]) == 1
 
-    def test_get_all_tags_handles_legacy_lists(self):
-        """Test backward compatibility with legacy list format."""
+    def test_get_all_tags_ignores_non_json_values(self):
+        """Non-JSON tag metadata should be ignored."""
         provider = _mock_provider(
             get_result=VectorDBGetResult(
                 ids=["1", "2"],
                 metadatas=[
-                    {"ai_tags": ["legacy", "list"]},  # Old format
-                    {"ai_tags": '["new", "json"]'},    # New format
+                    {"ai_tags": ["legacy", "list"]},
+                    {"ai_tags": '["new", "json"]'},
                 ],
             ),
         )
 
         all_tags = get_all_tags(provider)
 
-        # Should handle both formats
-        assert "legacy" in all_tags["ai_tags"]
-        assert "list" in all_tags["ai_tags"]
+        assert "legacy" not in all_tags["ai_tags"]
+        assert "list" not in all_tags["ai_tags"]
         assert "new" in all_tags["ai_tags"]
         assert "json" in all_tags["ai_tags"]
