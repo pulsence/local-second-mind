@@ -11,6 +11,61 @@ _VALID_TASK_STATUSES = {"pending", "running", "completed", "failed"}
 
 
 @dataclass
+class ParallelGroup:
+    """
+    Group of tasks that can execute concurrently.
+    """
+
+    id: str
+    """Unique parallel group identifier."""
+
+    tasks: List["AgentTask"] = field(default_factory=list)
+    """Tasks that belong to this parallel group."""
+
+    depends_on: List[str] = field(default_factory=list)
+    """Parallel group IDs that must complete before this group starts."""
+
+    status: str = "pending"
+    """Execution status for the group."""
+
+    def __post_init__(self) -> None:
+        self.id = str(self.id or "").strip()
+        normalized_tasks: list[AgentTask] = []
+        for task in self.tasks:
+            if isinstance(task, AgentTask):
+                normalized_tasks.append(task)
+            elif isinstance(task, dict):
+                normalized_tasks.append(AgentTask(**task))
+            else:
+                raise ValueError("parallel group tasks must be AgentTask objects or dictionaries")
+        self.tasks = normalized_tasks
+        self.depends_on = [
+            str(item).strip()
+            for item in (self.depends_on or [])
+            if str(item).strip()
+        ]
+        self.status = str(self.status or "pending").strip().lower()
+
+    def validate(self) -> None:
+        if not self.id:
+            raise ValueError("parallel_group.id must be non-empty")
+        if self.status not in _VALID_TASK_STATUSES:
+            raise ValueError(
+                f"parallel_group '{self.id}' status must be one of: pending, running, completed, failed"
+            )
+        for task in self.tasks:
+            task.validate()
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "id": self.id,
+            "depends_on": list(self.depends_on),
+            "tasks": [task.id for task in self.tasks],
+            "status": self.status,
+        }
+
+
+@dataclass
 class AgentTask:
     """
     One task node in a meta-agent execution graph.
@@ -31,6 +86,9 @@ class AgentTask:
     depends_on: List[str] = field(default_factory=list)
     """Task IDs that must complete before this task is ready."""
 
+    parallel_group: Optional[str] = None
+    """Optional parallel group identifier for concurrent execution."""
+
     status: str = "pending"
     """Execution status: pending, running, completed, failed."""
 
@@ -48,6 +106,9 @@ class AgentTask:
             for item in self.depends_on
             if str(item).strip()
         ]
+        if self.parallel_group is not None:
+            value = str(self.parallel_group).strip()
+            self.parallel_group = value or None
         self.status = str(self.status or "pending").strip().lower()
 
     def validate(self) -> None:
@@ -62,6 +123,19 @@ class AgentTask:
             raise ValueError(
                 f"task '{self.id}' status must be one of: pending, running, completed, failed"
             )
+
+    def to_dict(self) -> Dict[str, Any]:
+        payload = {
+            "id": self.id,
+            "agent_name": self.agent_name,
+            "params": dict(self.params),
+            "expected_artifacts": list(self.expected_artifacts),
+            "depends_on": list(self.depends_on),
+            "status": self.status,
+        }
+        if self.parallel_group is not None:
+            payload["parallel_group"] = self.parallel_group
+        return payload
 
 
 @dataclass
@@ -89,6 +163,48 @@ class TaskGraph:
             raise ValueError("tasks entries must be AgentTask objects or task dictionaries")
         self.tasks = normalized_tasks
         self.validate()
+
+    def to_dict(self, *, include_parallel_groups: bool = True) -> Dict[str, Any]:
+        """
+        Serialize the task graph for meta-agent prompts.
+
+        Structure:
+        {
+          "goal": "...",
+          "tasks": [ {task fields...} ],
+          "parallel_groups": [
+             {"id": "group_id", "depends_on": [...], "tasks": ["task_id", ...], "status": "pending"}
+          ]
+        }
+        """
+        payload: Dict[str, Any] = {
+            "goal": self.goal,
+            "tasks": [task.to_dict() for task in self.tasks],
+        }
+        if include_parallel_groups:
+            payload["parallel_groups"] = [group.to_dict() for group in self.parallel_groups()]
+        return payload
+
+    @classmethod
+    def from_dict(cls, payload: Dict[str, Any]) -> "TaskGraph":
+        """
+        Rehydrate a TaskGraph from serialized data.
+        """
+        if not isinstance(payload, dict):
+            raise ValueError("task graph payload must be a dict")
+        goal = str(payload.get("goal", "")).strip()
+        raw_tasks = payload.get("tasks", [])
+        if not isinstance(raw_tasks, list):
+            raise ValueError("task graph payload 'tasks' must be a list")
+        tasks = []
+        for entry in raw_tasks:
+            if isinstance(entry, AgentTask):
+                tasks.append(entry)
+            elif isinstance(entry, dict):
+                tasks.append(AgentTask(**entry))
+            else:
+                raise ValueError("task graph payload tasks must be objects")
+        return cls(goal=goal, tasks=tasks)
 
     def validate(self) -> None:
         """
@@ -146,6 +262,68 @@ class TaskGraph:
         if len(ordered_ids) != len(self.tasks):
             raise ValueError("task graph contains a dependency cycle")
         return [task_by_id[task_id] for task_id in ordered_ids]
+
+    def parallel_groups(self) -> List[ParallelGroup]:
+        """
+        Return parallel groups in dependency-safe deterministic order.
+        """
+        if not self.tasks:
+            return []
+
+        task_order = {task.id: idx for idx, task in enumerate(self.tasks)}
+        task_group: Dict[str, str] = {}
+        group_tasks: Dict[str, List[AgentTask]] = {}
+        group_position: Dict[str, int] = {}
+
+        for index, task in enumerate(self.tasks):
+            group_id = task.parallel_group or f"group_{task.id}"
+            task_group[task.id] = group_id
+            group_tasks.setdefault(group_id, []).append(task)
+            group_position[group_id] = min(group_position.get(group_id, index), index)
+
+        group_deps: Dict[str, set[str]] = {group_id: set() for group_id in group_tasks}
+        for task in self.tasks:
+            current_group = task_group[task.id]
+            for dep_id in task.depends_on:
+                dep_group = task_group.get(dep_id)
+                if dep_group and dep_group != current_group:
+                    group_deps[current_group].add(dep_group)
+
+        groups: Dict[str, ParallelGroup] = {}
+        for group_id, tasks in group_tasks.items():
+            ordered_tasks = sorted(tasks, key=lambda item: task_order[item.id])
+            depends = sorted(
+                group_deps.get(group_id, set()),
+                key=lambda value: (group_position.get(value, 0), value),
+            )
+            groups[group_id] = ParallelGroup(
+                id=group_id,
+                tasks=ordered_tasks,
+                depends_on=depends,
+            )
+
+        # Topological sort groups deterministically.
+        dependents: Dict[str, List[str]] = {gid: [] for gid in groups}
+        indegree: Dict[str, int] = {gid: 0 for gid in groups}
+        for gid, group in groups.items():
+            indegree[gid] = len(group.depends_on)
+            for dep in group.depends_on:
+                dependents.setdefault(dep, []).append(gid)
+
+        ready = [gid for gid in groups if indegree[gid] == 0]
+        ordered_group_ids: List[str] = []
+        while ready:
+            ready.sort(key=lambda gid: (group_position.get(gid, 0), gid))
+            current = ready.pop(0)
+            ordered_group_ids.append(current)
+            for dependent in dependents.get(current, []):
+                indegree[dependent] -= 1
+                if indegree[dependent] == 0:
+                    ready.append(dependent)
+
+        if len(ordered_group_ids) != len(groups):
+            raise ValueError("task graph contains a dependency cycle in parallel groups")
+        return [groups[gid] for gid in ordered_group_ids]
 
     def next_ready(self) -> Optional[AgentTask]:
         """

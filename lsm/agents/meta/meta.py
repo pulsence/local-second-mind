@@ -632,6 +632,16 @@ class MetaAgent(BaseAgent):
                     lines.append(f"- Error: {run.error}")
             lines.append("")
 
+        lines.extend(["## Task Graph (Serialized)", ""])
+        try:
+            serialized = json.dumps(graph.to_dict(), indent=2, ensure_ascii=True)
+        except Exception:
+            serialized = "{}"
+        lines.append("```json")
+        lines.append(serialized)
+        lines.append("```")
+        lines.append("")
+
         lines.extend(["## Agent Log Entries", ""])
         for entry in self.state.log_entries:
             stamp = entry.timestamp.isoformat()

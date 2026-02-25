@@ -79,3 +79,55 @@ def test_task_graph_mark_running_rejects_terminal_state() -> None:
     )
     with pytest.raises(ValueError, match="terminal state"):
         graph.mark_running("t1")
+
+
+def test_task_graph_builds_parallel_groups_with_dependency_gates() -> None:
+    graph = TaskGraph(
+        goal="Parallel plan",
+        tasks=[
+            AgentTask(id="a", agent_name="research", parallel_group="group_1"),
+            AgentTask(id="b", agent_name="writing", parallel_group="group_1"),
+            AgentTask(
+                id="c",
+                agent_name="synthesis",
+                depends_on=["a"],
+                parallel_group="group_2",
+            ),
+        ],
+    )
+
+    groups = graph.parallel_groups()
+    assert [group.id for group in groups] == ["group_1", "group_2"]
+    assert groups[0].depends_on == []
+    assert groups[1].depends_on == ["group_1"]
+
+
+def test_task_graph_parallel_groups_use_deterministic_task_order() -> None:
+    graph = TaskGraph(
+        goal="Deterministic parallel order",
+        tasks=[
+            AgentTask(id="t1", agent_name="research", parallel_group="alpha"),
+            AgentTask(id="t2", agent_name="writing", parallel_group="alpha"),
+            AgentTask(id="t3", agent_name="synthesis", parallel_group="beta"),
+        ],
+    )
+
+    groups = graph.parallel_groups()
+    alpha = next(group for group in groups if group.id == "alpha")
+    assert [task.id for task in alpha.tasks] == ["t1", "t2"]
+
+
+def test_task_graph_serialization_round_trip_includes_parallel_groups() -> None:
+    graph = TaskGraph(
+        goal="Serialization",
+        tasks=[
+            AgentTask(id="t1", agent_name="research", parallel_group="alpha"),
+            AgentTask(id="t2", agent_name="writing", depends_on=["t1"]),
+        ],
+    )
+
+    payload = graph.to_dict()
+    rebuilt = TaskGraph.from_dict(payload)
+    assert [task.id for task in rebuilt.tasks] == ["t1", "t2"]
+    assert rebuilt.tasks[0].parallel_group == "alpha"
+    assert "parallel_groups" in payload
