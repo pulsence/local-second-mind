@@ -22,6 +22,10 @@ __all__ = [
     "RemoteProviderChain",
     "ScholarlyDiscoveryChain",
     "build_chain",
+    "OAuth2Client",
+    "OAuthToken",
+    "OAuthTokenStore",
+    "OAuthCallbackServer",
     # Storage helpers
     "save_results",
     "load_cached_results",
@@ -76,6 +80,7 @@ from lsm.remote.factory import (
 )
 from lsm.remote.chain import RemoteProviderChain
 from lsm.remote.chains import ScholarlyDiscoveryChain, build_chain
+from lsm.remote.oauth import OAuth2Client, OAuthToken, OAuthTokenStore, OAuthCallbackServer
 from lsm.remote.storage import (
     save_results,
     load_cached_results,

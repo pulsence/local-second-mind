@@ -69,6 +69,7 @@ class QueryRemoteTool(BaseTool):
             "type": provider_cfg.type,
             "weight": provider_cfg.weight,
             "api_key": provider_cfg.api_key,
+            "oauth": None,
             "endpoint": provider_cfg.endpoint,
             "max_results": provider_cfg.max_results,
             "language": provider_cfg.language,
@@ -79,6 +80,16 @@ class QueryRemoteTool(BaseTool):
             "snippet_max_chars": provider_cfg.snippet_max_chars,
             "include_disambiguation": provider_cfg.include_disambiguation,
         }
+        if provider_cfg.oauth is not None:
+            config["oauth"] = {
+                "client_id": provider_cfg.oauth.client_id,
+                "client_secret": provider_cfg.oauth.client_secret,
+                "scopes": list(provider_cfg.oauth.scopes or []),
+                "redirect_uri": provider_cfg.oauth.redirect_uri,
+                "refresh_buffer_seconds": provider_cfg.oauth.refresh_buffer_seconds,
+            }
+        else:
+            config.pop("oauth", None)
         if provider_cfg.extra:
             config.update(provider_cfg.extra)
         return config

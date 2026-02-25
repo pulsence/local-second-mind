@@ -558,6 +558,39 @@ def test_remote_provider_extra_fields_roundtrip(tmp_path: Path) -> None:
     assert serialized["remote_providers"][0]["open_access_only"] is True
 
 
+def test_remote_provider_oauth_roundtrip(tmp_path: Path) -> None:
+    raw = _base_raw(tmp_path)
+    raw["remote_providers"] = [
+        {
+            "name": "gmail",
+            "type": "gmail",
+            "oauth": {
+                "client_id": "client-id",
+                "client_secret": "client-secret",
+                "scopes": ["scope.one", "scope.two"],
+                "redirect_uri": "http://localhost:9999/callback",
+                "refresh_buffer_seconds": 120,
+            },
+        }
+    ]
+
+    config = build_config_from_raw(raw, tmp_path / "config.json")
+    provider = config.remote_providers[0]
+    assert provider.oauth is not None
+    assert provider.oauth.client_id == "client-id"
+    assert provider.oauth.scopes == ["scope.one", "scope.two"]
+    assert provider.oauth.redirect_uri == "http://localhost:9999/callback"
+    assert provider.oauth.refresh_buffer_seconds == 120
+
+    serialized = config_to_raw(config)
+    oauth = serialized["remote_providers"][0]["oauth"]
+    assert oauth["client_id"] == "client-id"
+    assert oauth["client_secret"] == "client-secret"
+    assert oauth["scopes"] == ["scope.one", "scope.two"]
+    assert oauth["redirect_uri"] == "http://localhost:9999/callback"
+    assert oauth["refresh_buffer_seconds"] == 120
+
+
 def test_save_and_load_config_json_roundtrip(tmp_path: Path) -> None:
     raw = _base_raw(tmp_path)
     config = build_config_from_raw(raw, tmp_path / "config.json")

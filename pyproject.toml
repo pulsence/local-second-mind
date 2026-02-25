@@ -26,6 +26,7 @@ dependencies = [
   "google-genai",
   "requests",
   "python-dotenv",
+  "cryptography",
   "pytesseract",  # For OCR support
   "Pillow",       # For image handling
   "textual",

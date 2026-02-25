@@ -3,6 +3,7 @@ import pytest
 from lsm.config.models.modes import (
     ChainLink,
     ModeConfig,
+    OAuthConfig,
     RemoteProviderChainConfig,
     RemoteProviderConfig,
 )
@@ -34,6 +35,12 @@ def test_remote_provider_config_validate_rejects_invalid_cache_ttl() -> None:
     provider = RemoteProviderConfig(name="wikipedia", type="wikipedia", cache_ttl=0)
     with pytest.raises(ValueError, match="cache_ttl must be positive"):
         provider.validate()
+
+
+def test_oauth_config_requires_client_id() -> None:
+    oauth = OAuthConfig(client_id="", client_secret="secret", scopes=[], redirect_uri="http://localhost")
+    with pytest.raises(ValueError, match="oauth.client_id is required"):
+        oauth.validate()
 
 
 def test_chain_link_validate_rejects_bad_map_format() -> None:

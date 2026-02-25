@@ -40,6 +40,7 @@ from .models import (
     ModelKnowledgePolicy,
     NotesConfig,
     ChatsConfig,
+    OAuthConfig,
     RemoteProviderConfig,
     RemoteProviderChainConfig,
     RemoteConfig,
@@ -60,6 +61,7 @@ _REMOTE_PROVIDER_BASE_KEYS = {
     "language",
     "user_agent",
     "timeout",
+    "oauth",
     "min_interval_seconds",
     "section_limit",
     "snippet_max_chars",
@@ -882,11 +884,33 @@ def build_remote_provider_config(raw: Dict[str, Any]) -> RemoteProviderConfig:
     extra = {
         key: value for key, value in raw.items() if key not in _REMOTE_PROVIDER_BASE_KEYS
     }
+    oauth_config = None
+    oauth_raw = raw.get("oauth")
+    if isinstance(oauth_raw, dict):
+        scopes_raw = oauth_raw.get("scopes", [])
+        if isinstance(scopes_raw, str):
+            scopes = [value for value in scopes_raw.split() if value]
+        elif isinstance(scopes_raw, list):
+            scopes = [str(value).strip() for value in scopes_raw if str(value).strip()]
+        else:
+            scopes = []
+        oauth_config = OAuthConfig(
+            client_id=str(oauth_raw.get("client_id", "")).strip(),
+            client_secret=str(oauth_raw.get("client_secret", "")).strip(),
+            scopes=scopes,
+            redirect_uri=str(
+                oauth_raw.get("redirect_uri", OAuthConfig.redirect_uri)
+            ).strip(),
+            refresh_buffer_seconds=int(
+                oauth_raw.get("refresh_buffer_seconds", OAuthConfig.refresh_buffer_seconds)
+            ),
+        )
     return RemoteProviderConfig(
         name=raw["name"],  # Required field
         type=raw["type"],  # Required field
         weight=float(raw.get("weight", 1.0)),
         api_key=raw.get("api_key"),
+        oauth=oauth_config,
         endpoint=raw.get("endpoint"),
         max_results=raw.get("max_results"),
         language=raw.get("language"),
@@ -1183,6 +1207,7 @@ def config_to_raw(config: LSMConfig) -> Dict[str, Any]:
                 "type": provider.type,
                 "weight": provider.weight,
                 "api_key": provider.api_key,
+                "oauth": None,
                 "endpoint": provider.endpoint,
                 "max_results": provider.max_results,
                 "language": provider.language,
@@ -1195,6 +1220,16 @@ def config_to_raw(config: LSMConfig) -> Dict[str, Any]:
                 "cache_results": provider.cache_results,
                 "cache_ttl": provider.cache_ttl,
             }
+            if provider.oauth is not None:
+                provider_entry["oauth"] = {
+                    "client_id": provider.oauth.client_id,
+                    "client_secret": provider.oauth.client_secret,
+                    "scopes": list(provider.oauth.scopes or []),
+                    "redirect_uri": provider.oauth.redirect_uri,
+                    "refresh_buffer_seconds": provider.oauth.refresh_buffer_seconds,
+                }
+            else:
+                provider_entry.pop("oauth", None)
             for key, value in (provider.extra or {}).items():
                 if key not in provider_entry:
                     provider_entry[key] = value

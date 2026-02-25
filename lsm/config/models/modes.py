@@ -225,6 +225,42 @@ class ModeConfig:
 
 
 @dataclass
+class OAuthConfig:
+    """
+    OAuth2 configuration for remote providers that require user authorization.
+    """
+
+    client_id: str
+    """OAuth2 client identifier."""
+
+    client_secret: str
+    """OAuth2 client secret."""
+
+    scopes: list[str] = field(default_factory=list)
+    """Requested OAuth2 scopes."""
+
+    redirect_uri: str = "http://localhost:8765/callback"
+    """Redirect URI for OAuth2 authorization flow."""
+
+    refresh_buffer_seconds: int = 300
+    """Refresh token this many seconds before expiration."""
+
+    def validate(self) -> None:
+        if not str(self.client_id or "").strip():
+            raise ValueError("oauth.client_id is required")
+        if not str(self.client_secret or "").strip():
+            raise ValueError("oauth.client_secret is required")
+        if not str(self.redirect_uri or "").strip():
+            raise ValueError("oauth.redirect_uri is required")
+        if not isinstance(self.scopes, list):
+            raise ValueError("oauth.scopes must be a list of strings")
+        cleaned = [str(scope).strip() for scope in self.scopes if str(scope).strip()]
+        self.scopes = cleaned
+        if self.refresh_buffer_seconds < 0:
+            raise ValueError("oauth.refresh_buffer_seconds must be non-negative")
+
+
+@dataclass
 class RemoteProviderConfig:
     """
     Configuration for a remote source provider (e.g., web search, API).
@@ -243,6 +279,9 @@ class RemoteProviderConfig:
 
     api_key: Optional[str] = None
     """API key if required by the provider."""
+
+    oauth: Optional[OAuthConfig] = None
+    """Optional OAuth2 configuration for user-authorized providers."""
 
     endpoint: Optional[str] = None
     """Custom endpoint URL if applicable."""
@@ -286,6 +325,8 @@ class RemoteProviderConfig:
             raise ValueError(f"weight must be non-negative, got {self.weight}")
         if self.cache_ttl < 1:
             raise ValueError(f"cache_ttl must be positive, got {self.cache_ttl}")
+        if self.oauth is not None:
+            self.oauth.validate()
 
 
 @dataclass
