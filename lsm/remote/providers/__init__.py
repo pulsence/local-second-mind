@@ -5,8 +5,7 @@ This module re-exports remote providers from domain subpackages:
 - cultural: archives and cultural heritage datasets
 - news: news APIs and RSS
 - web: web search and encyclopedias
-
-Backward-compatible import modules live in this package to preserve legacy paths.
+- communication: email and calendar providers
 """
 
 from __future__ import annotations
