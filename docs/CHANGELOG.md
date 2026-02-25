@@ -16,6 +16,10 @@ All notable changes to Local Second Mind are documented here.
 - New academic providers: Unpaywall, PubMed, SSRN, PhilArchive, Project MUSE.
 - New cultural heritage providers: Archive.org, DPLA, Library of Congress, Smithsonian, Met Museum, Rijksmuseum, IIIF, Wikidata, Perseus CTS.
 - New news providers: NYTimes, The Guardian, GDELT, NewsAPI.
+- OAuth2 infrastructure for user-authorized providers with encrypted token storage and refresh support.
+- Email providers for Gmail, Microsoft Graph Mail, and IMAP/SMTP.
+- Calendar providers for Google Calendar, Microsoft Graph Calendar, and CalDAV.
+- Communication assistants for email, calendar, and news summaries with approval-gated actions.
 - Agent/tool tier declarations with tier-based model selection in agent harness runs.
 - Benchmark harness for agent/tool regression tracking with baseline file-operation tasks in `tests/benchmarks/`.
 - File graphing system with unified graph schema, deterministic IDs, content-hash caching, and line-hash metadata.

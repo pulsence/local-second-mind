@@ -200,6 +200,23 @@
         "stale_days": 365,
         "near_duplicate_threshold": 0.9,
         "top_near_duplicates": 25
+      },
+      "email_assistant": {
+        "enabled": true,
+        "provider": "gmail",
+        "default_window_hours": 24,
+        "max_results": 10
+      },
+      "calendar_assistant": {
+        "enabled": true,
+        "provider": "google_calendar",
+        "default_window_days": 7
+      },
+      "news_assistant": {
+        "enabled": true,
+        "providers": ["nytimes", "guardian", "rss"],
+        "default_window_hours": 24,
+        "max_results": 8
       }
     },
     "_comment_schedules": "Optional scheduled agent runs. interval supports hourly|daily|weekly|<seconds>s|cron syntax.",
@@ -723,6 +740,110 @@
       "min_interval_seconds": 0.0,
       "snippet_max_chars": 700,
       "user_agent": "LocalSecondMind/1.0 (rss)"
+    },
+    {
+      "_comment": "Gmail via OAuth2",
+      "name": "gmail",
+      "type": "gmail",
+      "weight": 1.0,
+      "oauth": {
+        "client_id": "INSERT_GMAIL_CLIENT_ID",
+        "client_secret": "INSERT_GMAIL_CLIENT_SECRET",
+        "scopes": [
+          "https://www.googleapis.com/auth/gmail.readonly",
+          "https://www.googleapis.com/auth/gmail.compose"
+        ],
+        "redirect_uri": "http://localhost:8765/callback",
+        "refresh_buffer_seconds": 300
+      },
+      "max_results": 10,
+      "timeout": 20
+    },
+    {
+      "_comment": "Microsoft Graph Mail via OAuth2",
+      "name": "microsoft_graph_mail",
+      "type": "microsoft_graph_mail",
+      "weight": 1.0,
+      "oauth": {
+        "client_id": "INSERT_GRAPH_CLIENT_ID",
+        "client_secret": "INSERT_GRAPH_CLIENT_SECRET",
+        "scopes": [
+          "offline_access",
+          "Mail.Read",
+          "Mail.ReadWrite",
+          "Mail.Send"
+        ],
+        "redirect_uri": "http://localhost:8765/callback",
+        "refresh_buffer_seconds": 300
+      },
+      "max_results": 10,
+      "timeout": 20
+    },
+    {
+      "_comment": "IMAP/SMTP email provider",
+      "name": "imap",
+      "type": "imap",
+      "weight": 0.8,
+      "host": "imap.example.com",
+      "port": 993,
+      "username": "user@example.com",
+      "password": "INSERT_IMAP_PASSWORD",
+      "use_ssl": true,
+      "folder": "INBOX",
+      "drafts_folder": "Drafts",
+      "smtp_host": "smtp.example.com",
+      "smtp_port": 587,
+      "smtp_username": "user@example.com",
+      "smtp_password": "INSERT_SMTP_PASSWORD",
+      "smtp_use_ssl": false
+    },
+    {
+      "_comment": "Google Calendar via OAuth2",
+      "name": "google_calendar",
+      "type": "google_calendar",
+      "weight": 1.0,
+      "calendar_id": "primary",
+      "oauth": {
+        "client_id": "INSERT_GOOGLE_CLIENT_ID",
+        "client_secret": "INSERT_GOOGLE_CLIENT_SECRET",
+        "scopes": [
+          "https://www.googleapis.com/auth/calendar.readonly",
+          "https://www.googleapis.com/auth/calendar.events"
+        ],
+        "redirect_uri": "http://localhost:8765/callback",
+        "refresh_buffer_seconds": 300
+      },
+      "max_results": 10,
+      "timeout": 20
+    },
+    {
+      "_comment": "Microsoft Graph Calendar via OAuth2",
+      "name": "microsoft_graph_calendar",
+      "type": "microsoft_graph_calendar",
+      "weight": 1.0,
+      "oauth": {
+        "client_id": "INSERT_GRAPH_CLIENT_ID",
+        "client_secret": "INSERT_GRAPH_CLIENT_SECRET",
+        "scopes": [
+          "offline_access",
+          "Calendars.Read",
+          "Calendars.ReadWrite"
+        ],
+        "redirect_uri": "http://localhost:8765/callback",
+        "refresh_buffer_seconds": 300
+      },
+      "max_results": 10,
+      "timeout": 20
+    },
+    {
+      "_comment": "CalDAV calendar provider",
+      "name": "caldav",
+      "type": "caldav",
+      "weight": 0.8,
+      "calendar_url": "https://caldav.example.com/calendars/user/default/",
+      "username": "user@example.com",
+      "password": "INSERT_CALDAV_PASSWORD",
+      "timeout": 20
     }
   ]
 }

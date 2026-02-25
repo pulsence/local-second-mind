@@ -357,13 +357,18 @@ class NewsAssistantAgent(BaseAgent):
         return now - timedelta(hours=hours), now
 
     def _resolve_providers(self, request: Dict[str, Any]) -> List[Any]:
-        if request.get("providers"):
-            providers = request.get("providers")
-            return list(providers)
+        provider_names: List[str] = []
+        providers = request.get("providers")
+        if providers:
+            if all(isinstance(item, str) for item in providers):
+                provider_names = [str(item) for item in providers]
+            else:
+                return list(providers)
         lsm_config = self._resolve_lsm_config()
-        provider_names = request.get("provider_names") or []
-        if isinstance(provider_names, str):
-            provider_names = [provider_names]
+        if not provider_names:
+            provider_names = request.get("provider_names") or []
+            if isinstance(provider_names, str):
+                provider_names = [provider_names]
         if lsm_config is not None:
             candidates = [
                 provider
