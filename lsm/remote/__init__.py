@@ -48,6 +48,14 @@ __all__ = [
     "SSRNProvider",
     "PhilArchiveProvider",
     "ProjectMUSEProvider",
+    "ArchiveOrgProvider",
+    "DPLAProvider",
+    "LOCProvider",
+    "SmithsonianProvider",
+    "MetProvider",
+    "RijksmuseumProvider",
+    "IIIFProvider",
+    "WikidataProvider",
 ]
 
 # Base classes
@@ -89,6 +97,14 @@ from lsm.remote.providers.academic.pubmed import PubMedProvider
 from lsm.remote.providers.academic.ssrn import SSRNProvider
 from lsm.remote.providers.academic.philarchive import PhilArchiveProvider
 from lsm.remote.providers.academic.project_muse import ProjectMUSEProvider
+from lsm.remote.providers.cultural.archive_org import ArchiveOrgProvider
+from lsm.remote.providers.cultural.dpla import DPLAProvider
+from lsm.remote.providers.cultural.loc import LOCProvider
+from lsm.remote.providers.cultural.smithsonian import SmithsonianProvider
+from lsm.remote.providers.cultural.met import MetProvider
+from lsm.remote.providers.cultural.rijksmuseum import RijksmuseumProvider
+from lsm.remote.providers.cultural.iiif import IIIFProvider
+from lsm.remote.providers.cultural.wikidata import WikidataProvider
 
 # Register providers with the factory
 register_remote_provider("web_search", BraveSearchProvider)
@@ -106,5 +122,13 @@ register_remote_provider("pubmed", PubMedProvider)
 register_remote_provider("ssrn", SSRNProvider)
 register_remote_provider("philarchive", PhilArchiveProvider)
 register_remote_provider("project_muse", ProjectMUSEProvider)
+register_remote_provider("archive_org", ArchiveOrgProvider)
+register_remote_provider("dpla", DPLAProvider)
+register_remote_provider("loc", LOCProvider)
+register_remote_provider("smithsonian", SmithsonianProvider)
+register_remote_provider("met", MetProvider)
+register_remote_provider("rijksmuseum", RijksmuseumProvider)
+register_remote_provider("iiif", IIIFProvider)
+register_remote_provider("wikidata", WikidataProvider)
 register_remote_provider("oai_pmh", OAIPMHProvider)
 register_remote_provider("rss", RSSProvider)

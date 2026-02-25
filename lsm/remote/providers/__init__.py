@@ -32,6 +32,14 @@ __all__ = [
     "SSRNProvider",
     "PhilArchiveProvider",
     "ProjectMUSEProvider",
+    "ArchiveOrgProvider",
+    "DPLAProvider",
+    "LOCProvider",
+    "SmithsonianProvider",
+    "MetProvider",
+    "RijksmuseumProvider",
+    "IIIFProvider",
+    "WikidataProvider",
 ]
 
 from lsm.remote.providers.web.brave import BraveSearchProvider
@@ -51,3 +59,11 @@ from lsm.remote.providers.academic.pubmed import PubMedProvider
 from lsm.remote.providers.academic.ssrn import SSRNProvider
 from lsm.remote.providers.academic.philarchive import PhilArchiveProvider
 from lsm.remote.providers.academic.project_muse import ProjectMUSEProvider
+from lsm.remote.providers.cultural.archive_org import ArchiveOrgProvider
+from lsm.remote.providers.cultural.dpla import DPLAProvider
+from lsm.remote.providers.cultural.loc import LOCProvider
+from lsm.remote.providers.cultural.smithsonian import SmithsonianProvider
+from lsm.remote.providers.cultural.met import MetProvider
+from lsm.remote.providers.cultural.rijksmuseum import RijksmuseumProvider
+from lsm.remote.providers.cultural.iiif import IIIFProvider
+from lsm.remote.providers.cultural.wikidata import WikidataProvider
