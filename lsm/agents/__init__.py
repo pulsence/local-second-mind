@@ -14,7 +14,7 @@ from .factory import AgentRegistry, create_agent
 from .harness import AgentHarness
 from .interaction import InteractionChannel, InteractionRequest, InteractionResponse
 from .log_formatter import format_agent_log, load_agent_log, save_agent_log
-from .meta import MetaAgent
+from .meta import AssistantMetaAgent, MetaAgent
 from .models import AgentContext, AgentLogEntry, ToolResponse
 from .scheduler import AgentScheduler
 from .meta import AgentTask, TaskGraph
@@ -41,6 +41,7 @@ __all__ = [
     "CalendarAssistantAgent",
     "NewsAssistantAgent",
     "MetaAgent",
+    "AssistantMetaAgent",
     "AgentTask",
     "TaskGraph",
     "AgentScheduler",

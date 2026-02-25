@@ -2,7 +2,7 @@
 Meta agents and task-graph helpers.
 """
 
-from .meta import MetaAgent
+from .meta import AssistantMetaAgent, MetaAgent
 from .task_graph import AgentTask, TaskGraph, ParallelGroup
 
 AGENT_SPECS = [
@@ -12,6 +12,19 @@ AGENT_SPECS = [
         "theme": "Meta",
         "category": "Orchestration",
     },
+    {
+        "name": "assistant_meta",
+        "agent_cls": AssistantMetaAgent,
+        "theme": "Meta",
+        "category": "Orchestration",
+    },
 ]
 
-__all__ = ["MetaAgent", "AgentTask", "TaskGraph", "ParallelGroup", "AGENT_SPECS"]
+__all__ = [
+    "MetaAgent",
+    "AssistantMetaAgent",
+    "AgentTask",
+    "TaskGraph",
+    "ParallelGroup",
+    "AGENT_SPECS",
+]

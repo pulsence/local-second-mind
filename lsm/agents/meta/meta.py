@@ -14,6 +14,10 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from lsm.config.models import AgentConfig, LLMRegistryConfig
 from lsm.config.models.agents import SandboxConfig
 from lsm.providers.factory import create_provider
+from lsm.agents.assistants.assistant import (
+    scan_assistant_findings,
+    build_action_recommendations,
+)
 
 from ..base import AgentStatus, BaseAgent
 from ..models import AgentContext
@@ -916,3 +920,153 @@ class MetaAgent(BaseAgent):
                 depends_on=["research_1", "writing_1"],
             ),
         ]
+
+
+class AssistantMetaAgent(MetaAgent):
+    """
+    Meta-agent focused on assistant-style reviews and compliance checks.
+    """
+
+    name = "assistant_meta"
+    tier = "complex"
+    description = "Review assistant outputs, run validation checks, and recommend actions."
+    tool_allowlist = set(_META_SYSTEM_TOOL_NAMES)
+    risk_posture = "writes_workspace"
+    system_prompt = (
+        "You are the assistant-meta agent. Review assistant outputs for compliance, "
+        "run security checks, flag risks, and propose actionable follow-ups plus "
+        "memory proposals when relevant."
+    )
+
+    def run(self, initial_context: AgentContext) -> Any:
+        state = super().run(initial_context)
+        if self.last_result is None or self.last_result.run_root is None:
+            return state
+
+        summary_payload = self._build_assistant_meta_summary(
+            goal=self.last_result.goal,
+            task_runs=self.last_result.task_runs,
+        )
+        run_root = self.last_result.run_root
+        summary_json_path = run_root / "assistant_meta_summary.json"
+        summary_json_path.write_text(
+            json.dumps(summary_payload, indent=2, ensure_ascii=True),
+            encoding="utf-8",
+        )
+        summary_path = run_root / "assistant_meta_summary.md"
+        summary_path.write_text(
+            self._format_assistant_meta_markdown(summary_payload),
+            encoding="utf-8",
+        )
+        self.state.add_artifact(str(summary_json_path))
+        self.state.add_artifact(str(summary_path))
+        return state
+
+    def _default_tasks_for_goal(self, goal: str) -> List[AgentTask]:
+        lower_goal = goal.lower()
+        topic = goal.strip() or "Assistant meta goal"
+        tasks: List[AgentTask] = []
+
+        if any(token in lower_goal for token in ("email", "inbox")):
+            tasks.append(
+                AgentTask(
+                    id="email_1",
+                    agent_name="email_assistant",
+                    params={"query": topic},
+                    expected_artifacts=list(_DEFAULT_ARTIFACTS["email_assistant"]),
+                )
+            )
+        if any(token in lower_goal for token in ("calendar", "schedule", "meeting")):
+            tasks.append(
+                AgentTask(
+                    id="calendar_1",
+                    agent_name="calendar_assistant",
+                    params={"query": topic},
+                    expected_artifacts=list(_DEFAULT_ARTIFACTS["calendar_assistant"]),
+                )
+            )
+        if any(token in lower_goal for token in ("news", "briefing", "digest", "headlines")):
+            tasks.append(
+                AgentTask(
+                    id="news_1",
+                    agent_name="news_assistant",
+                    params={"query": topic},
+                    expected_artifacts=list(_DEFAULT_ARTIFACTS["news_assistant"]),
+                )
+            )
+        if not tasks:
+            tasks.append(
+                AgentTask(
+                    id="assistant_1",
+                    agent_name="assistant",
+                    params={"topic": topic},
+                    expected_artifacts=list(_DEFAULT_ARTIFACTS["assistant"]),
+                )
+            )
+        return tasks
+
+    def _build_assistant_meta_summary(
+        self,
+        *,
+        goal: str,
+        task_runs: List[MetaTaskRun],
+    ) -> Dict[str, Any]:
+        findings: List[Dict[str, Any]] = []
+        for run in task_runs:
+            for artifact in run.artifacts:
+                path = Path(artifact)
+                if not path.exists() or not path.is_file():
+                    continue
+                if path.suffix.lower() not in {".md", ".txt", ".json"}:
+                    continue
+                try:
+                    text = path.read_text(encoding="utf-8")
+                except Exception:
+                    continue
+                for finding in scan_assistant_findings(text):
+                    findings.append(
+                        {
+                            "artifact": str(path),
+                            "task_id": run.task_id,
+                            "agent_name": run.agent_name,
+                            "issue": finding,
+                        }
+                    )
+
+        recommendations = build_action_recommendations(
+            [item["issue"] for item in findings]
+        )
+        return {
+            "generated_at": datetime.utcnow().isoformat(),
+            "goal": goal,
+            "findings": findings,
+            "recommendations": recommendations,
+            "task_count": len(task_runs),
+        }
+
+    @staticmethod
+    def _format_assistant_meta_markdown(payload: Dict[str, Any]) -> str:
+        lines = ["# Assistant Meta Summary", ""]
+        lines.append(f"- Generated at: {payload.get('generated_at', '-')}")
+        lines.append(f"- Goal: {payload.get('goal', '-')}")
+        lines.append(f"- Task count: {payload.get('task_count', 0)}")
+        lines.append("")
+        lines.append("## Findings")
+        findings = payload.get("findings") or []
+        if not findings:
+            lines.append("- None")
+        else:
+            for finding in findings:
+                lines.append(
+                    f"- [{finding.get('agent_name')}] {finding.get('issue')} "
+                    f"({finding.get('artifact')})"
+                )
+        lines.append("")
+        lines.append("## Recommendations")
+        recommendations = payload.get("recommendations") or []
+        if not recommendations:
+            lines.append("- None")
+        else:
+            for item in recommendations:
+                lines.append(f"- {item}")
+        return "\n".join(lines).strip() + "\n"
