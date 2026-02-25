@@ -22,7 +22,16 @@ from ..tools.base import ToolRegistry
 from ..tools.sandbox import ToolSandbox
 from ..workspace import ensure_agent_workspace
 
-_SUPPORTED_SUB_AGENTS = {"curator", "research", "synthesis", "writing"}
+_SUPPORTED_SUB_AGENTS = {
+    "assistant",
+    "calendar_assistant",
+    "curator",
+    "email_assistant",
+    "news_assistant",
+    "research",
+    "synthesis",
+    "writing",
+}
 _META_SYSTEM_TOOL_NAMES = {"spawn_agent", "await_agent", "collect_artifacts"}
 
 _DEFAULT_ARTIFACTS = {
@@ -30,6 +39,10 @@ _DEFAULT_ARTIFACTS = {
     "research": ["research_outline.md"],
     "writing": ["deliverable.md"],
     "synthesis": ["synthesis.md"],
+    "assistant": ["assistant_summary.md"],
+    "email_assistant": ["email_summary.md"],
+    "calendar_assistant": ["calendar_summary.md"],
+    "news_assistant": ["news_summary.md"],
 }
 
 
@@ -75,6 +88,7 @@ class MetaAgent(BaseAgent):
     name = "meta"
     tier = "complex"
     description = "Orchestrate multiple agents toward a single goal."
+    tool_allowlist = set(_META_SYSTEM_TOOL_NAMES)
     risk_posture = "writes_workspace"
 
     def __init__(
@@ -825,6 +839,58 @@ class MetaAgent(BaseAgent):
                     depends_on=[],
                 )
             ]
+
+        assistant_tasks: List[AgentTask] = []
+        if any(token in lower_goal for token in ("email", "inbox")):
+            assistant_tasks.append(
+                AgentTask(
+                    id="email_1",
+                    agent_name="email_assistant",
+                    params={"query": topic},
+                    expected_artifacts=list(_DEFAULT_ARTIFACTS["email_assistant"]),
+                )
+            )
+        if any(token in lower_goal for token in ("calendar", "schedule", "meeting")):
+            assistant_tasks.append(
+                AgentTask(
+                    id="calendar_1",
+                    agent_name="calendar_assistant",
+                    params={"query": topic},
+                    expected_artifacts=list(_DEFAULT_ARTIFACTS["calendar_assistant"]),
+                )
+            )
+        if any(token in lower_goal for token in ("news", "briefing", "digest", "headlines")):
+            assistant_tasks.append(
+                AgentTask(
+                    id="news_1",
+                    agent_name="news_assistant",
+                    params={"query": topic},
+                    expected_artifacts=list(_DEFAULT_ARTIFACTS["news_assistant"]),
+                )
+            )
+        if any(token in lower_goal for token in ("summary", "summarize", "review", "recap")):
+            assistant_tasks.append(
+                AgentTask(
+                    id="assistant_1",
+                    agent_name="assistant",
+                    params={"topic": topic},
+                    expected_artifacts=list(_DEFAULT_ARTIFACTS["assistant"]),
+                )
+            )
+
+        if assistant_tasks:
+            if len(assistant_tasks) > 1:
+                depends = [task.id for task in assistant_tasks]
+                assistant_tasks.append(
+                    AgentTask(
+                        id="synthesis_1",
+                        agent_name="synthesis",
+                        params={"topic": topic},
+                        expected_artifacts=list(_DEFAULT_ARTIFACTS["synthesis"]),
+                        depends_on=depends,
+                    )
+                )
+            return assistant_tasks
 
         # Default pipeline: research -> writing -> synthesis.
         return [
