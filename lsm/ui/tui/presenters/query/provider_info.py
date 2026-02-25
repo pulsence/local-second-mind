@@ -12,7 +12,6 @@ from lsm.logging import get_logger
 from lsm.ui.utils import display_provider_name, format_feature_label
 from lsm.providers import create_provider
 from lsm.vectordb import create_vectordb_provider, list_available_providers
-from lsm.remote import get_registered_providers
 
 logger = get_logger(__name__)
 
@@ -393,7 +392,9 @@ def format_remote_providers(config: Any) -> str:
         "",
     ]
 
-    registered = get_registered_providers()
+    from lsm import remote as remote_module
+
+    registered = remote_module.get_registered_providers()
     lines.append(f"Registered Provider Types ({len(registered)}):")
     for provider_type, provider_class in sorted(registered.items()):
         lines.append(f"  {provider_type:20s} -> {provider_class.__name__}")

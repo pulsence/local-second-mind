@@ -329,7 +329,6 @@ class AgentsScreen(ManagedScreenMixin, Widget):
         self._deferred_init_done = False
         self._initialize_running_controls()
         self._initialize_refresh_controls()
-        self._refresh_agent_options()
         self._focus_default_input()
 
     def _ensure_deferred_init(self) -> None:

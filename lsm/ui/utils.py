@@ -13,7 +13,6 @@ from typing import Dict, Any, List
 
 from lsm.config.models import LSMConfig
 from lsm.logging import get_logger
-from lsm.remote import create_remote_provider
 from lsm.query.session import SessionState
 
 logger = get_logger(__name__)
@@ -280,6 +279,8 @@ def run_remote_search(
     try:
         start_time = time.time()
 
+        from lsm.remote import create_remote_provider
+
         provider = create_remote_provider(
             provider_config.type,
             {
@@ -369,6 +370,8 @@ def run_remote_search_all(
         lines.append(f"\n[{provider_name}]")
 
         try:
+            from lsm.remote import create_remote_provider
+
             provider = create_remote_provider(
                 provider_config.type,
                 {

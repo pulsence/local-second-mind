@@ -20,9 +20,15 @@ from lsm.ui.tui.screens.base import ManagedScreenMixin
 from lsm.ui.utils import run_remote_search, run_remote_search_all
 from lsm.query.session import SessionState
 from lsm.query.cost_tracking import CostTracker
-from lsm.remote import get_registered_providers
 
 logger = get_logger(__name__)
+
+
+def get_registered_providers():
+    """Lazy import to avoid remote provider registration during app startup."""
+    from lsm import remote as remote_module
+
+    return remote_module.get_registered_providers()
 
 
 class RemoteScreen(ManagedScreenMixin, Widget):
@@ -86,17 +92,29 @@ class RemoteScreen(ManagedScreenMixin, Widget):
         """Initialize provider list and focus."""
         logger.debug("Remote screen mounted")
         self._updating_provider_select = False
+        if getattr(self.app, "current_context", None) == "remote":
+            self._refresh_provider_list()
+            self._focus_default_input()
+            self._prime_log_buffer()
+
+    def on_show(self) -> None:
         self._refresh_provider_list()
         self._focus_default_input()
+        self._prime_log_buffer()
+
+    def on_unmount(self) -> None:
+        self._cancel_managed_workers(reason="remote-unmount")
+        self._cancel_managed_timers(reason="remote-unmount")
+
+    def _prime_log_buffer(self) -> None:
+        if getattr(self, "_log_buffer_loaded", False):
+            return
         if hasattr(self.app, "_tui_log_buffer"):
             log_widget = self.query_one("#remote-log", TextArea)
             text = "\n".join(self.app._tui_log_buffer) + "\n"
             log_widget.insert(text, log_widget.document.end)
             log_widget.scroll_end()
-
-    def on_unmount(self) -> None:
-        self._cancel_managed_workers(reason="remote-unmount")
-        self._cancel_managed_timers(reason="remote-unmount")
+            self._log_buffer_loaded = True
 
     def _schedule_search_worker(self) -> None:
         self._start_managed_worker(
