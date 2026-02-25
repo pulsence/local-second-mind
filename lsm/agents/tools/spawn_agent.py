@@ -31,8 +31,11 @@ class SpawnAgentTool(BaseTool):
                 "type": "object",
                 "description": "Optional parameter object passed to the sub-agent run.",
             },
+            "agents": {
+                "type": "array",
+                "description": "Optional batch of sub-agent spawn requests.",
+            },
         },
-        "required": ["name"],
     }
 
     def __init__(self) -> None:
@@ -44,6 +47,25 @@ class SpawnAgentTool(BaseTool):
 
     def execute(self, args: Dict[str, Any]) -> str:
         harness = self._require_harness()
+        batch = args.get("agents")
+        if batch is not None:
+            if not isinstance(batch, list):
+                raise ValueError("agents must be a list")
+            results = []
+            for entry in batch:
+                if not isinstance(entry, dict):
+                    raise ValueError("agents entries must be objects")
+                agent_name = str(entry.get("name", "")).strip()
+                if not agent_name:
+                    raise ValueError("agents entry name is required")
+                raw_params = entry.get("params", {})
+                if raw_params is None:
+                    raw_params = {}
+                if not isinstance(raw_params, dict):
+                    raise ValueError("agents entry params must be an object")
+                results.append(harness.spawn_sub_agent(agent_name, dict(raw_params)))
+            return json.dumps({"runs": results}, indent=2, ensure_ascii=True)
+
         agent_name = str(args.get("name", "")).strip()
         if not agent_name:
             raise ValueError("name is required")

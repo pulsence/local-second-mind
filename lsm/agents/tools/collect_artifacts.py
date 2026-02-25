@@ -27,12 +27,15 @@ class CollectArtifactsTool(BaseTool):
                 "type": "string",
                 "description": "Sub-agent run ID returned by spawn_agent.",
             },
+            "agent_ids": {
+                "type": "array",
+                "description": "Optional list of sub-agent run IDs to collect.",
+            },
             "pattern": {
                 "type": "string",
                 "description": "Optional glob pattern for filtering artifact paths.",
             },
         },
-        "required": ["agent_id"],
     }
 
     def __init__(self) -> None:
@@ -44,10 +47,31 @@ class CollectArtifactsTool(BaseTool):
 
     def execute(self, args: Dict[str, Any]) -> str:
         harness = self._require_harness()
+        pattern = str(args.get("pattern", "*") or "*").strip() or "*"
+
+        agent_ids = args.get("agent_ids")
+        if agent_ids is not None:
+            if not isinstance(agent_ids, list):
+                raise ValueError("agent_ids must be a list")
+            normalized_ids = [str(item).strip() for item in agent_ids if str(item).strip()]
+            if not normalized_ids:
+                raise ValueError("agent_ids must contain at least one id")
+            runs = []
+            for agent_id in normalized_ids:
+                artifacts = harness.collect_sub_agent_artifacts(agent_id, pattern=pattern)
+                runs.append(
+                    {
+                        "agent_id": agent_id,
+                        "pattern": pattern,
+                        "artifacts": artifacts,
+                    }
+                )
+            runs.sort(key=lambda item: item.get("agent_id", ""))
+            return json.dumps({"runs": runs}, indent=2, ensure_ascii=True)
+
         agent_id = str(args.get("agent_id", "")).strip()
         if not agent_id:
             raise ValueError("agent_id is required")
-        pattern = str(args.get("pattern", "*") or "*").strip() or "*"
 
         artifacts = harness.collect_sub_agent_artifacts(agent_id, pattern=pattern)
         payload = {

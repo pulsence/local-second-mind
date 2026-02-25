@@ -9,6 +9,7 @@ from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from lsm.config.models import AgentConfig, LLMRegistryConfig
 from lsm.config.models.agents import SandboxConfig
@@ -126,69 +127,85 @@ class MetaAgent(BaseAgent):
         try:
             graph = self._build_task_graph(goal)
             ordered_tasks = graph.topological_sort()
+            parallel_groups = graph.parallel_groups()
+            task_position = {task.id: idx for idx, task in enumerate(ordered_tasks)}
             run_root, shared_workspace, sub_agents_root = self._initialize_run_workspace(initial_context)
 
             execution_order: list[str] = []
             task_runs: list[MetaTaskRun] = []
             sub_agent_counters: Dict[str, int] = {}
 
-            for task in ordered_tasks:
-                sub_dir_name = self._next_sub_agent_dir_name(task.agent_name, sub_agent_counters)
-                sub_dir = sub_agents_root / sub_dir_name
-
-                if not self._dependencies_completed(graph, task):
-                    graph.mark_failed(task.id)
-                    blocked = MetaTaskRun(
-                        task_id=task.id,
-                        agent_name=task.agent_name,
-                        status="failed",
-                        sub_agent_dir=sub_dir,
-                        artifacts=[],
-                        error="Blocked by incomplete dependency.",
-                    )
-                    task_runs.append(blocked)
-                    self._log(
-                        f"Task '{task.id}' blocked due to failed or incomplete dependency."
-                    )
+            for group in parallel_groups:
+                if not self._group_dependencies_completed(parallel_groups, group):
+                    for task in group.tasks:
+                        sub_dir_name = self._next_sub_agent_dir_name(
+                            task.agent_name, sub_agent_counters
+                        )
+                        sub_dir = sub_agents_root / sub_dir_name
+                        graph.mark_failed(task.id)
+                        blocked = MetaTaskRun(
+                            task_id=task.id,
+                            agent_name=task.agent_name,
+                            status="failed",
+                            sub_agent_dir=sub_dir,
+                            artifacts=[],
+                            error="Blocked by incomplete dependency.",
+                        )
+                        task_runs.append(blocked)
+                        self._log(
+                            f"Task '{task.id}' blocked due to failed or incomplete dependency."
+                        )
                     continue
 
-                graph.mark_running(task.id)
-                self._log(
-                    (
-                        f"Planned task '{task.id}' agent={task.agent_name} "
-                        f"depends_on={task.depends_on or []} "
-                        f"expected_artifacts={task.expected_artifacts or []}"
+                sub_dir_map: Dict[str, Path] = {}
+                for task in group.tasks:
+                    sub_dir_name = self._next_sub_agent_dir_name(
+                        task.agent_name, sub_agent_counters
                     )
-                )
+                    sub_dir_map[task.id] = sub_agents_root / sub_dir_name
+                    graph.mark_running(task.id)
+                    self._log(
+                        (
+                            f"Planned task '{task.id}' agent={task.agent_name} "
+                            f"depends_on={task.depends_on or []} "
+                            f"expected_artifacts={task.expected_artifacts or []} "
+                            f"parallel_group={group.id}"
+                        )
+                    )
 
                 if self.execution_mode in {"plan", "planning", "plan_only"}:
-                    graph.mark_complete(task.id)
-                    execution_order.append(task.id)
-                    task_runs.append(
+                    group_runs = [
                         MetaTaskRun(
                             task_id=task.id,
                             agent_name=task.agent_name,
                             status="completed",
-                            sub_agent_dir=sub_dir,
+                            sub_agent_dir=sub_dir_map[task.id],
                             artifacts=[],
                             error=None,
                         )
-                    )
-                    continue
-
-                run_result = self._execute_sub_agent_task(
-                    task=task,
-                    goal=goal,
-                    sub_dir=sub_dir,
-                    shared_workspace=shared_workspace,
-                )
-                task_runs.append(run_result)
-
-                if run_result.status == "completed":
-                    graph.mark_complete(task.id)
-                    execution_order.append(task.id)
+                        for task in group.tasks
+                    ]
                 else:
-                    graph.mark_failed(task.id)
+                    group_runs = self._execute_parallel_group(
+                        tasks=list(group.tasks),
+                        goal=goal,
+                        shared_workspace=shared_workspace,
+                        sub_dir_map=sub_dir_map,
+                    )
+
+                ordered_runs = sorted(
+                    group_runs,
+                    key=lambda run: (run.agent_name, task_position.get(run.task_id, 0)),
+                )
+                task_runs.extend(ordered_runs)
+                self._merge_artifacts(ordered_runs, task_position)
+
+                for run in ordered_runs:
+                    if run.status == "completed":
+                        graph.mark_complete(run.task_id)
+                        execution_order.append(run.task_id)
+                    else:
+                        graph.mark_failed(run.task_id)
 
             self.last_task_graph = graph
             self.last_execution_order = execution_order
@@ -283,6 +300,75 @@ class MetaAgent(BaseAgent):
         by_id = {item.id: item for item in graph.tasks}
         return all(by_id[dep_id].status == "completed" for dep_id in task.depends_on)
 
+    @staticmethod
+    def _group_dependencies_completed(groups: List[Any], group: Any) -> bool:
+        by_id = {item.id: item for item in groups}
+        for dep_id in getattr(group, "depends_on", []) or []:
+            dep_group = by_id.get(dep_id)
+            if dep_group is None:
+                return False
+            if any(task.status != "completed" for task in dep_group.tasks):
+                return False
+        return True
+
+    def _execute_parallel_group(
+        self,
+        *,
+        tasks: List[AgentTask],
+        goal: str,
+        shared_workspace: Path,
+        sub_dir_map: Dict[str, Path],
+    ) -> List[MetaTaskRun]:
+        max_workers = max(1, self._max_concurrent())
+        if max_workers <= 1 or len(tasks) <= 1:
+            return [
+                self._execute_sub_agent_task(
+                    task=task,
+                    goal=goal,
+                    sub_dir=sub_dir_map[task.id],
+                    shared_workspace=shared_workspace,
+                )
+                for task in tasks
+            ]
+
+        runs: List[MetaTaskRun] = []
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            future_map = {
+                executor.submit(
+                    self._execute_sub_agent_task,
+                    task=task,
+                    goal=goal,
+                    sub_dir=sub_dir_map[task.id],
+                    shared_workspace=shared_workspace,
+                ): task
+                for task in tasks
+            }
+            for future in as_completed(future_map):
+                runs.append(future.result())
+        return runs
+
+    def _merge_artifacts(
+        self,
+        task_runs: List[MetaTaskRun],
+        task_position: Dict[str, int],
+    ) -> None:
+        ordered = sorted(
+            task_runs,
+            key=lambda run: (run.agent_name, task_position.get(run.task_id, 0)),
+        )
+        for run in ordered:
+            for artifact in run.artifacts:
+                self.state.add_artifact(str(artifact))
+
+    def _max_concurrent(self) -> int:
+        override = self.agent_overrides.get("max_concurrent")
+        if override is not None:
+            try:
+                return max(1, int(override))
+            except (TypeError, ValueError):
+                return int(self.agent_config.max_concurrent)
+        return int(self.agent_config.max_concurrent)
+
     def _execute_sub_agent_task(
         self,
         *,
@@ -330,8 +416,6 @@ class MetaAgent(BaseAgent):
                 else str(state.status)
             )
             artifacts = self._collect_sub_agent_artifacts(child_agent, sub_dir)
-            for artifact in artifacts:
-                self.state.add_artifact(str(artifact))
 
             error = None
             if status_value != "completed":
@@ -700,6 +784,9 @@ class MetaAgent(BaseAgent):
                 expected_artifacts = []
             if not isinstance(expected_artifacts, list):
                 raise ValueError(f"task '{task_id}' expected_artifacts must be a list")
+            parallel_group = raw_task.get("parallel_group")
+            if parallel_group is not None:
+                parallel_group = str(parallel_group).strip() or None
 
             tasks.append(
                 AgentTask(
@@ -708,6 +795,7 @@ class MetaAgent(BaseAgent):
                     params=dict(params),
                     expected_artifacts=list(expected_artifacts),
                     depends_on=list(depends_on),
+                    parallel_group=parallel_group,
                     status="pending",
                 )
             )
