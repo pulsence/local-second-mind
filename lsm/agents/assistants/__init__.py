@@ -3,6 +3,7 @@ Assistant agents and registry specs.
 """
 
 from .assistant import AssistantAgent
+from .email_assistant import EmailAssistantAgent
 
 AGENT_SPECS = [
     {
@@ -11,6 +12,12 @@ AGENT_SPECS = [
         "theme": "Assistants",
         "category": "Assistant",
     },
+    {
+        "name": "email_assistant",
+        "agent_cls": EmailAssistantAgent,
+        "theme": "Assistants",
+        "category": "Email",
+    },
 ]
 
-__all__ = ["AssistantAgent", "AGENT_SPECS"]
+__all__ = ["AssistantAgent", "EmailAssistantAgent", "AGENT_SPECS"]

@@ -4,7 +4,7 @@ Agent framework exports.
 
 from .base import AgentState, AgentStatus, BaseAgent
 from .academic import CuratorAgent, ResearchAgent, SynthesisAgent
-from .assistants import AssistantAgent
+from .assistants import AssistantAgent, EmailAssistantAgent
 from .factory import AgentRegistry, create_agent
 from .harness import AgentHarness
 from .interaction import InteractionChannel, InteractionRequest, InteractionResponse
@@ -32,6 +32,7 @@ __all__ = [
     "LibrarianAgent",
     "ManuscriptEditorAgent",
     "AssistantAgent",
+    "EmailAssistantAgent",
     "MetaAgent",
     "AgentTask",
     "TaskGraph",
