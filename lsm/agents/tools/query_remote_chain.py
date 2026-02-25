@@ -8,7 +8,7 @@ import json
 from typing import Any, Dict
 
 from lsm.config.models import LSMConfig
-from lsm.remote.chain import RemoteProviderChain
+from lsm.remote.chains import build_chain
 
 from .base import BaseTool
 
@@ -47,6 +47,6 @@ class QueryRemoteChainTool(BaseTool):
             raise ValueError(f"Remote provider chain is not configured: {chain_name}")
 
         max_results = int(args.get("max_results", 5))
-        chain = RemoteProviderChain(self.config, chain_config)
+        chain = build_chain(self.config, chain_config)
         results = chain.execute(chain_input, max_results=max_results)
         return json.dumps(results, indent=2)

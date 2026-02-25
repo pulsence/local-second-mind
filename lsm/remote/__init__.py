@@ -20,6 +20,8 @@ __all__ = [
     "get_remote_provider",
     "RemoteProviderFactory",
     "RemoteProviderChain",
+    "ScholarlyDiscoveryChain",
+    "build_chain",
     # Storage helpers
     "save_results",
     "load_cached_results",
@@ -41,6 +43,7 @@ __all__ = [
     "IxTheoProvider",
     "OpenAlexProvider",
     "CrossrefProvider",
+    "UnpaywallProvider",
 ]
 
 # Base classes
@@ -55,6 +58,7 @@ from lsm.remote.factory import (
     RemoteProviderFactory,
 )
 from lsm.remote.chain import RemoteProviderChain
+from lsm.remote.chains import ScholarlyDiscoveryChain, build_chain
 from lsm.remote.storage import (
     save_results,
     load_cached_results,
@@ -76,6 +80,7 @@ from lsm.remote.providers.academic.philpapers import PhilPapersProvider
 from lsm.remote.providers.academic.ixtheo import IxTheoProvider
 from lsm.remote.providers.academic.openalex import OpenAlexProvider
 from lsm.remote.providers.academic.crossref import CrossrefProvider
+from lsm.remote.providers.academic.unpaywall import UnpaywallProvider
 
 # Register providers with the factory
 register_remote_provider("web_search", BraveSearchProvider)
@@ -88,5 +93,6 @@ register_remote_provider("philpapers", PhilPapersProvider)
 register_remote_provider("ixtheo", IxTheoProvider)
 register_remote_provider("openalex", OpenAlexProvider)
 register_remote_provider("crossref", CrossrefProvider)
+register_remote_provider("unpaywall", UnpaywallProvider)
 register_remote_provider("oai_pmh", OAIPMHProvider)
 register_remote_provider("rss", RSSProvider)

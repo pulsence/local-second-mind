@@ -42,6 +42,7 @@ from .models import (
     ChatsConfig,
     RemoteProviderConfig,
     RemoteProviderChainConfig,
+    RemoteConfig,
     ChainLink,
     RemoteProviderRef,
     VectorDBConfig,
@@ -412,6 +413,7 @@ def build_config_from_raw(raw: Dict[str, Any], path: Path | str) -> LSMConfig:
     notes_config = build_notes_config(raw.get("notes", {}))
     chats_config = build_chats_config(raw.get("chats", {}))
     agents_config = build_agent_config(raw.get("agents"))
+    remote_config = build_remote_config(raw)
     remote_providers = build_remote_providers_registry(raw)
     remote_provider_chains = build_remote_provider_chains_registry(raw)
 
@@ -425,6 +427,7 @@ def build_config_from_raw(raw: Dict[str, Any], path: Path | str) -> LSMConfig:
         notes=notes_config,
         chats=chats_config,
         agents=agents_config,
+        remote=remote_config,
         remote_providers=remote_providers,
         remote_provider_chains=remote_provider_chains,
         config_path=path,
@@ -528,6 +531,30 @@ def build_chats_config(raw: Dict[str, Any]) -> ChatsConfig:
         auto_save=bool(raw.get("auto_save", True)),
         format=str(raw.get("format", "markdown")),
     )
+
+
+def build_remote_config(raw: Dict[str, Any]) -> RemoteConfig:
+    """
+    Build RemoteConfig from raw configuration.
+    """
+    remote_raw = raw.get("remote", {})
+    if remote_raw is None:
+        remote_raw = {}
+    if not isinstance(remote_raw, dict):
+        warnings.warn("Config 'remote' must be an object. Ignoring invalid value.")
+        remote_raw = {}
+
+    chains_raw = remote_raw.get("chains")
+    if chains_raw is not None and not isinstance(chains_raw, list):
+        warnings.warn("Config 'remote.chains' must be a list of chain names.")
+        chains_raw = None
+
+    chains = None
+    if isinstance(chains_raw, list):
+        cleaned = [str(name).strip() for name in chains_raw if str(name).strip()]
+        chains = cleaned or None
+
+    return RemoteConfig(chains=chains)
 
 
 def build_sandbox_config(raw: Dict[str, Any]) -> SandboxConfig:
@@ -1143,6 +1170,10 @@ def config_to_raw(config: LSMConfig) -> Dict[str, Any]:
                     mode_entry["chats"] = chats_entry
             modes.append(mode_entry)
 
+    remote = None
+    if config.remote and config.remote.chains:
+        remote = {"chains": list(config.remote.chains)}
+
     remote_providers = None
     if config.remote_providers:
         remote_providers = []
@@ -1333,6 +1364,7 @@ def config_to_raw(config: LSMConfig) -> Dict[str, Any]:
             "format": config.chats.format,
         },
         "agents": agents_raw,
+        "remote": remote,
         "remote_providers": remote_providers,
         "remote_provider_chains": remote_provider_chains,
         "vectordb": {

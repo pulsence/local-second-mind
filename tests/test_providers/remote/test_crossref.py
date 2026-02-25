@@ -159,6 +159,7 @@ class TestCrossrefProvider:
         assert results[0].url == "https://doi.org/10.1038/s41586-019-1099-1"
         assert "deep learning techniques" in results[0].snippet.lower()
         assert results[0].metadata["doi"] == "10.1038/s41586-019-1099-1"
+        assert results[0].metadata["source_id"] == "10.1038/s41586-019-1099-1"
         assert results[0].metadata["authors"] == ["John Smith", "Jane Doe"]
         assert results[0].metadata["year"] == 2023
         assert results[0].metadata["cited_by_count"] == 500

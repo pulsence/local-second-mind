@@ -161,6 +161,7 @@ class TestCOREProvider:
         assert results[0].metadata["authors"] == ["Jane Smith", "John Doe"]
         assert results[0].metadata["year"] == 2023
         assert results[0].metadata["doi"] == "10.1234/oa.example"
+        assert results[0].metadata["source_id"] == "10.1234/oa.example"
         assert results[0].metadata["repositories"] == ["MIT Repository"]
         assert results[0].metadata["has_full_text"] is True
         assert results[0].metadata["language"] == "en"

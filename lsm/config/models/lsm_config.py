@@ -25,6 +25,7 @@ from .modes import (
     RemoteProviderChainConfig,
     RemoteSourcePolicy,
     SourcePolicyConfig,
+    RemoteConfig,
 )
 from .query import QueryConfig
 from .vectordb import VectorDBConfig
@@ -55,6 +56,9 @@ class LSMConfig:
 
     modes: Optional[dict[str, ModeConfig]] = None
     """Registry of available query modes. If None, uses built-in defaults."""
+
+    remote: RemoteConfig = field(default_factory=RemoteConfig)
+    """Global remote configuration."""
 
     remote_providers: Optional[list[RemoteProviderConfig]] = None
     """List of remote source providers (web search, APIs, etc)."""
@@ -119,6 +123,11 @@ class LSMConfig:
         self.llm.validate()
         self.vectordb.validate()
         self.chats.validate()
+        if self.remote is not None:
+            try:
+                self.remote.validate()
+            except Exception as exc:
+                warnings.warn(f"Remote config failed validation: {exc}")
         if self.agents is not None:
             self.agents.validate()
 
@@ -158,6 +167,8 @@ class LSMConfig:
                 valid_providers.append(provider_config)
             self.remote_providers = valid_providers or None
 
+        self._merge_preconfigured_chains()
+
         if self.remote_provider_chains:
             provider_names = {p.name for p in (self.remote_providers or [])}
             seen_chain_names = set()
@@ -187,6 +198,29 @@ class LSMConfig:
                 seen_chain_names.add(chain.name)
                 valid_chains.append(chain)
             self.remote_provider_chains = valid_chains or None
+
+    def _merge_preconfigured_chains(self) -> None:
+        if not self.remote or not self.remote.chains:
+            return
+        try:
+            from lsm.remote.chains import get_preconfigured_chain_configs
+        except Exception as exc:
+            warnings.warn(f"Failed to load preconfigured chains: {exc}")
+            return
+        preconfigured = get_preconfigured_chain_configs(self.remote.chains)
+        if not preconfigured:
+            return
+        existing = {chain.name.lower(): chain for chain in (self.remote_provider_chains or [])}
+        ordered: list[RemoteProviderChainConfig] = list(
+            self.remote_provider_chains or []
+        )
+        for chain in preconfigured:
+            key = chain.name.lower()
+            if key in existing:
+                continue
+            existing[key] = chain
+            ordered.append(chain)
+        self.remote_provider_chains = ordered or None
 
     @staticmethod
     def _get_builtin_modes() -> dict[str, ModeConfig]:

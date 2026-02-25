@@ -406,7 +406,7 @@ class CrossrefProvider(BaseRemoteProvider):
             title_list = work.get("title", [])
             title = title_list[0] if title_list else "Untitled"
 
-            doi = work.get("DOI")
+            doi = self._normalize_doi(work.get("DOI"))
             url = f"https://doi.org/{doi}" if doi else work.get("URL", "")
 
             # Get abstract (if available)
@@ -506,6 +506,7 @@ class CrossrefProvider(BaseRemoteProvider):
                 "license_url": license_url,
                 "pdf_url": pdf_url,
                 "citation": self._format_citation(title, url, authors, year, doi),
+                "source_id": doi or url,
             }
 
             results.append(
@@ -519,6 +520,12 @@ class CrossrefProvider(BaseRemoteProvider):
             )
 
         return results
+
+    @staticmethod
+    def _normalize_doi(value: Optional[str]) -> Optional[str]:
+        from lsm.remote.utils import normalize_doi
+
+        return normalize_doi(value)
 
     def _truncate(self, text: str) -> str:
         """Truncate text to snippet length."""

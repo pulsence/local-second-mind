@@ -45,6 +45,7 @@ from .modes import (
     RemoteProviderConfig,
     ChainLink,
     RemoteProviderChainConfig,
+    RemoteConfig,
 )
 from .query import QueryConfig
 from .chats import ChatsConfig
@@ -96,6 +97,7 @@ __all__ = [
     "RemoteProviderConfig",
     "ChainLink",
     "RemoteProviderChainConfig",
+    "RemoteConfig",
     "QueryConfig",
     "ChatsConfig",
     "AgentConfig",

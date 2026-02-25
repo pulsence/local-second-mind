@@ -446,6 +446,21 @@ def test_build_config_reads_remote_provider_chains(tmp_path: Path) -> None:
     assert chain.links[1].map == ["doi:doi"]
 
 
+def test_build_config_reads_remote_preconfigured_chains(tmp_path: Path) -> None:
+    raw = _base_raw(tmp_path)
+    raw["remote"] = {"chains": ["scholarly_discovery"]}
+    raw["remote_providers"] = [
+        {"name": "openalex", "type": "openalex"},
+        {"name": "crossref", "type": "crossref"},
+        {"name": "unpaywall", "type": "unpaywall"},
+        {"name": "core", "type": "core", "api_key": "test"},
+    ]
+
+    config = build_config_from_raw(raw, tmp_path / "config.json")
+    assert config.remote_provider_chains is not None
+    assert any(chain.name == "scholarly_discovery" for chain in config.remote_provider_chains)
+
+
 def test_config_to_raw_includes_remote_provider_chains(tmp_path: Path) -> None:
     raw = _base_raw(tmp_path)
     raw["remote_providers"] = [
@@ -468,6 +483,21 @@ def test_config_to_raw_includes_remote_provider_chains(tmp_path: Path) -> None:
     assert serialized["remote_provider_chains"] is not None
     assert serialized["remote_provider_chains"][0]["name"] == "Research Digest"
     assert serialized["remote_provider_chains"][0]["links"][1]["map"] == ["doi:doi"]
+
+
+def test_config_to_raw_includes_remote_chains(tmp_path: Path) -> None:
+    raw = _base_raw(tmp_path)
+    raw["remote"] = {"chains": ["scholarly_discovery"]}
+    raw["remote_providers"] = [
+        {"name": "openalex", "type": "openalex"},
+        {"name": "crossref", "type": "crossref"},
+        {"name": "unpaywall", "type": "unpaywall"},
+        {"name": "core", "type": "core", "api_key": "test"},
+    ]
+
+    config = build_config_from_raw(raw, tmp_path / "config.json")
+    serialized = config_to_raw(config)
+    assert serialized["remote"] == {"chains": ["scholarly_discovery"]}
 
 
 def test_build_config_skips_chain_with_unknown_provider(tmp_path: Path) -> None:

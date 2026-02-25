@@ -27,6 +27,7 @@ __all__ = [
     "IxTheoProvider",
     "OpenAlexProvider",
     "CrossrefProvider",
+    "UnpaywallProvider",
 ]
 
 from lsm.remote.providers.web.brave import BraveSearchProvider
@@ -41,3 +42,4 @@ from lsm.remote.providers.academic.philpapers import PhilPapersProvider
 from lsm.remote.providers.academic.ixtheo import IxTheoProvider
 from lsm.remote.providers.academic.openalex import OpenAlexProvider
 from lsm.remote.providers.academic.crossref import CrossrefProvider
+from lsm.remote.providers.academic.unpaywall import UnpaywallProvider

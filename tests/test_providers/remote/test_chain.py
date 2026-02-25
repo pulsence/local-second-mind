@@ -6,6 +6,7 @@ import pytest
 
 from lsm.config.models import (
     ChainLink,
+    GlobalConfig,
     IngestConfig,
     LLMProviderConfig,
     LLMRegistryConfig,
@@ -17,6 +18,7 @@ from lsm.config.models import (
     VectorDBConfig,
 )
 from lsm.remote.chain import RemoteProviderChain
+from lsm.remote.chains import build_chain
 
 
 def _base_config() -> LSMConfig:
@@ -152,3 +154,74 @@ def test_remote_provider_chain_validates_mapping_fields() -> None:
 
     with pytest.raises(ValueError, match="expects output field"):
         RemoteProviderChain(config=config, chain_config=chain_config)
+
+
+def test_scholarly_chain_downloads_full_text(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    config = _base_config()
+    config.global_settings = GlobalConfig(global_folder=tmp_path)
+    config.remote_providers = [
+        RemoteProviderConfig(name="openalex", type="openalex"),
+        RemoteProviderConfig(name="crossref", type="crossref"),
+        RemoteProviderConfig(name="unpaywall", type="unpaywall"),
+        RemoteProviderConfig(name="core", type="core", api_key="test"),
+    ]
+
+    chain_config = RemoteProviderChainConfig(
+        name="scholarly_discovery",
+        links=[
+            ChainLink(source="openalex"),
+            ChainLink(source="crossref"),
+            ChainLink(source="unpaywall", map=["doi:doi"]),
+            ChainLink(source="core", map=["doi:doi"]),
+        ],
+    )
+
+    class _OpenAlexProvider:
+        def search_structured(self, _input_dict, max_results=5):
+            return [{"doi": "10.1000/a"}][:max_results]
+
+    class _CrossrefProvider:
+        def search_structured(self, _input_dict, max_results=5):
+            return [{"doi": "10.1000/a"}][:max_results]
+
+    class _UnpaywallProvider:
+        def search_structured(self, _input_dict, max_results=5):
+            return [{"doi": "10.1000/a"}][:max_results]
+
+    class _CoreProvider:
+        def search_structured(self, _input_dict, max_results=5):
+            return [
+                {
+                    "title": "Example",
+                    "metadata": {
+                        "pdf_url": "https://example.org/test.pdf",
+                        "source_id": "10.1000/a",
+                    },
+                }
+            ][:max_results]
+
+    def _factory(provider_type, _cfg):
+        if provider_type == "openalex":
+            return _OpenAlexProvider()
+        if provider_type == "crossref":
+            return _CrossrefProvider()
+        if provider_type == "unpaywall":
+            return _UnpaywallProvider()
+        return _CoreProvider()
+
+    monkeypatch.setattr("lsm.remote.chain.create_remote_provider", _factory)
+
+    response = type("Resp", (), {})()
+    response.status_code = 200
+    response.content = b"pdf-bytes"
+    response.raise_for_status = lambda: None
+    monkeypatch.setattr("lsm.remote.chains.requests.get", lambda *args, **kwargs: response)
+
+    chain = build_chain(config=config, chain_config=chain_config)
+    results = chain.execute({"query": "test"}, max_results=1)
+    assert results
+    metadata = results[0]["metadata"]
+    assert metadata["downloaded_path"]
+    assert Path(metadata["downloaded_path"]).exists()

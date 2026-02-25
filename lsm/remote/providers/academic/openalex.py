@@ -28,7 +28,7 @@ class OpenAlexProvider(BaseRemoteProvider):
 
     OpenAlex is a fully open catalog of the global research system,
     indexing over 240 million scholarly works across all disciplines.
-    No API key required - completely free and open access.
+    An API key is recommended for sustained usage.
     """
 
     API_ENDPOINT = "https://api.openalex.org"
@@ -42,6 +42,7 @@ class OpenAlexProvider(BaseRemoteProvider):
 
         Args:
             config: Configuration dict with optional keys:
+                - api_key: OpenAlex API key (recommended)
                 - email: Contact email for polite pool (recommended, increases rate limit)
                 - endpoint: Custom API endpoint
                 - timeout: Request timeout in seconds (default: 15)
@@ -55,6 +56,7 @@ class OpenAlexProvider(BaseRemoteProvider):
         """
         super().__init__(config)
 
+        self.api_key = config.get("api_key") or os.getenv("OPENALEX_API_KEY")
         self.email = config.get("email") or os.getenv("OPENALEX_EMAIL")
         self.endpoint = config.get("endpoint") or self.API_ENDPOINT
         self.timeout = config.get("timeout") or self.DEFAULT_TIMEOUT
@@ -78,7 +80,7 @@ class OpenAlexProvider(BaseRemoteProvider):
         return "openalex"
 
     def is_available(self) -> bool:
-        """API is always available - no key required."""
+        """API is available with or without an API key."""
         return True
 
     def validate_config(self) -> None:
@@ -97,6 +99,10 @@ class OpenAlexProvider(BaseRemoteProvider):
 
         if self.work_type and self.work_type not in self._get_valid_types():
             logger.warning(f"Unknown work type: {self.work_type}. Query may return no results.")
+        if not self.api_key:
+            logger.warning(
+                "OpenAlex API key not configured. Requests may be throttled to a low daily quota."
+            )
 
     def search(self, query: str, max_results: int = 5) -> List[RemoteResult]:
         """
@@ -355,6 +361,8 @@ class OpenAlexProvider(BaseRemoteProvider):
         # Add email for polite pool (increases rate limit)
         if self.email:
             params["mailto"] = self.email
+        if self.api_key:
+            params["api_key"] = self.api_key
 
         headers = {
             "Accept": "application/json",
@@ -387,8 +395,9 @@ class OpenAlexProvider(BaseRemoteProvider):
 
             title = work.get("title") or "Untitled"
             work_id = work.get("id", "")
-            doi = work.get("doi")
-            url = doi if doi else work_id
+            raw_doi = work.get("doi")
+            doi = self._normalize_doi(raw_doi)
+            url = raw_doi if raw_doi else work_id
 
             # Get abstract
             abstract_inverted = work.get("abstract_inverted_index")
@@ -461,6 +470,7 @@ class OpenAlexProvider(BaseRemoteProvider):
                 "pdf_url": pdf_url,
                 "doi": doi,
                 "citation": self._format_citation(title, url, authors, year, doi),
+                "source_id": doi or work_id or url,
             }
 
             results.append(
@@ -518,6 +528,12 @@ class OpenAlexProvider(BaseRemoteProvider):
         author_str = self._format_authors(authors)
         doi_part = doi if doi else url
         return f"{author_str} ({year_str}). {title}. {doi_part} (accessed {date_str})."
+
+    @staticmethod
+    def _normalize_doi(value: Optional[str]) -> Optional[str]:
+        from lsm.remote.utils import normalize_doi
+
+        return normalize_doi(value)
 
     def _format_authors(self, authors: List[str]) -> str:
         """Format author list for citation."""

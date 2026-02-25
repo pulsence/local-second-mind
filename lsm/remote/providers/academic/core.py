@@ -360,7 +360,7 @@ class COREProvider(BaseRemoteProvider):
             identifiers = work.get("identifiers", [])
             for ident in identifiers:
                 if ident and ident.get("type") == "doi":
-                    doi = ident.get("identifier")
+                    doi = self._normalize_doi(ident.get("identifier"))
                     break
 
             # Get repository info
@@ -392,6 +392,7 @@ class COREProvider(BaseRemoteProvider):
                 if work.get("journals")
                 else None,
                 "citation": self._format_citation(title, url, authors, year, doi),
+                "source_id": doi or (f"core:{work_id}" if work_id else url),
             }
 
             results.append(
@@ -405,6 +406,12 @@ class COREProvider(BaseRemoteProvider):
             )
 
         return results
+
+    @staticmethod
+    def _normalize_doi(value: Optional[str]) -> Optional[str]:
+        from lsm.remote.utils import normalize_doi
+
+        return normalize_doi(value)
 
     def _truncate(self, text: str) -> str:
         """Truncate text to snippet length."""

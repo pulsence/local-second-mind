@@ -346,3 +346,21 @@ class RemoteProviderChainConfig:
             raise ValueError(f"remote provider chain '{self.name}' must include at least one link")
         for link in self.links:
             link.validate()
+
+
+@dataclass
+class RemoteConfig:
+    """
+    Global remote configuration.
+    """
+
+    chains: Optional[List[str]] = None
+    """Optional list of enabled preconfigured chain names."""
+
+    def validate(self) -> None:
+        if self.chains is None:
+            return
+        if not isinstance(self.chains, list):
+            raise ValueError("remote.chains must be a list of chain names")
+        cleaned = [str(name).strip() for name in self.chains if str(name).strip()]
+        self.chains = cleaned or None

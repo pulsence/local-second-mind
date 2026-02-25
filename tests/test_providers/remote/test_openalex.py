@@ -128,6 +128,7 @@ class TestOpenAlexProvider:
         assert provider.min_interval_seconds == 0.1
         assert provider.snippet_max_chars == 700
         assert provider.timeout == 15
+        assert provider.api_key is None
         assert provider.email is None
         assert provider.concepts == []
 
@@ -135,6 +136,7 @@ class TestOpenAlexProvider:
         """Test provider initializes with custom config."""
         provider = OpenAlexProvider({
             "type": "openalex",
+            "api_key": "test-key",
             "email": "test@example.com",
             "timeout": 30,
             "min_interval_seconds": 0.5,
@@ -143,6 +145,7 @@ class TestOpenAlexProvider:
             "open_access_only": True,
         })
 
+        assert provider.api_key == "test-key"
         assert provider.email == "test@example.com"
         assert provider.timeout == 30
         assert provider.min_interval_seconds == 0.5
@@ -204,7 +207,8 @@ class TestOpenAlexProvider:
         assert results[0].metadata["year"] == 2023
         assert results[0].metadata["cited_by_count"] == 5000
         assert results[0].metadata["is_open_access"] is True
-        assert results[0].metadata["doi"] == "https://doi.org/10.1038/s41586-019-1099-1"
+        assert results[0].metadata["doi"] == "10.1038/s41586-019-1099-1"
+        assert results[0].metadata["source_id"] == "10.1038/s41586-019-1099-1"
         assert "citation" in results[0].metadata
 
         # Check second result
@@ -243,6 +247,20 @@ class TestOpenAlexProvider:
 
         call_args = mock_get.call_args
         assert call_args[1]["params"]["mailto"] == "test@example.com"
+
+    @patch("requests.get")
+    def test_search_includes_api_key_in_params(self, mock_get):
+        """Test API key is included in request params."""
+        response = Mock()
+        response.status_code = 200
+        response.json.return_value = {"results": []}
+        mock_get.return_value = response
+
+        provider = OpenAlexProvider({"api_key": "test-key"})
+        provider.search("test", max_results=1)
+
+        call_args = mock_get.call_args
+        assert call_args[1]["params"]["api_key"] == "test-key"
 
     @patch("requests.get")
     def test_search_with_author_prefix(self, mock_get):

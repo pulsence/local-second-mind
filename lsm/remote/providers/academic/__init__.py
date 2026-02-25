@@ -8,6 +8,7 @@ __all__ = [
     "COREProvider",
     "CrossrefProvider",
     "OpenAlexProvider",
+    "UnpaywallProvider",
     "PhilPapersProvider",
     "IxTheoProvider",
     "OAIPMHProvider",
@@ -21,6 +22,7 @@ from lsm.remote.providers.academic.semantic_scholar import SemanticScholarProvid
 from lsm.remote.providers.academic.core import COREProvider
 from lsm.remote.providers.academic.crossref import CrossrefProvider
 from lsm.remote.providers.academic.openalex import OpenAlexProvider
+from lsm.remote.providers.academic.unpaywall import UnpaywallProvider
 from lsm.remote.providers.academic.philpapers import PhilPapersProvider
 from lsm.remote.providers.academic.ixtheo import IxTheoProvider
 from lsm.remote.providers.academic.oai_pmh import (
