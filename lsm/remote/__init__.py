@@ -44,6 +44,10 @@ __all__ = [
     "OpenAlexProvider",
     "CrossrefProvider",
     "UnpaywallProvider",
+    "PubMedProvider",
+    "SSRNProvider",
+    "PhilArchiveProvider",
+    "ProjectMUSEProvider",
 ]
 
 # Base classes
@@ -81,6 +85,10 @@ from lsm.remote.providers.academic.ixtheo import IxTheoProvider
 from lsm.remote.providers.academic.openalex import OpenAlexProvider
 from lsm.remote.providers.academic.crossref import CrossrefProvider
 from lsm.remote.providers.academic.unpaywall import UnpaywallProvider
+from lsm.remote.providers.academic.pubmed import PubMedProvider
+from lsm.remote.providers.academic.ssrn import SSRNProvider
+from lsm.remote.providers.academic.philarchive import PhilArchiveProvider
+from lsm.remote.providers.academic.project_muse import ProjectMUSEProvider
 
 # Register providers with the factory
 register_remote_provider("web_search", BraveSearchProvider)
@@ -94,5 +102,9 @@ register_remote_provider("ixtheo", IxTheoProvider)
 register_remote_provider("openalex", OpenAlexProvider)
 register_remote_provider("crossref", CrossrefProvider)
 register_remote_provider("unpaywall", UnpaywallProvider)
+register_remote_provider("pubmed", PubMedProvider)
+register_remote_provider("ssrn", SSRNProvider)
+register_remote_provider("philarchive", PhilArchiveProvider)
+register_remote_provider("project_muse", ProjectMUSEProvider)
 register_remote_provider("oai_pmh", OAIPMHProvider)
 register_remote_provider("rss", RSSProvider)
