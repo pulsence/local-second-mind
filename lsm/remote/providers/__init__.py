@@ -40,6 +40,10 @@ __all__ = [
     "RijksmuseumProvider",
     "IIIFProvider",
     "WikidataProvider",
+    "NYTimesProvider",
+    "GuardianProvider",
+    "GDELTProvider",
+    "NewsAPIProvider",
 ]
 
 from lsm.remote.providers.web.brave import BraveSearchProvider
@@ -67,3 +71,7 @@ from lsm.remote.providers.cultural.met import MetProvider
 from lsm.remote.providers.cultural.rijksmuseum import RijksmuseumProvider
 from lsm.remote.providers.cultural.iiif import IIIFProvider
 from lsm.remote.providers.cultural.wikidata import WikidataProvider
+from lsm.remote.providers.news.nytimes import NYTimesProvider
+from lsm.remote.providers.news.guardian import GuardianProvider
+from lsm.remote.providers.news.gdelt import GDELTProvider
+from lsm.remote.providers.news.newsapi import NewsAPIProvider
