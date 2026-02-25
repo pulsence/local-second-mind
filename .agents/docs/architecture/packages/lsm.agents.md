@@ -7,7 +7,7 @@ Folder Path: `lsm/agents/`
 
 - `lsm.agents.academic`: Academic agents (research, synthesis, curator)
 - `lsm.agents.productivity`: Productivity agents (general, librarian, manuscript editor, writing)
-- `lsm.agents.meta`: Meta-agent orchestration and task-graph models
+- `lsm.agents.meta`: Meta-agent orchestration — `MetaAgent` (parallel execution, sandbox monotonicity, `final_result.md`), `AssistantMetaAgent` (validation passes, action recommendations), `TaskGraph`/`ParallelGroup` (parallel planning with dependency gates and deterministic ordering)
 - `lsm.agents.assistants`: Assistant agent implementations (assistant, email_assistant, calendar_assistant, news_assistant)
 - [lsm.agents.memory](lsm.agents.memory.md): Persistent memory storage with SQLite/PostgreSQL backends and context builders
 - [lsm.agents.tools](lsm.agents.tools.md): Tool registry, sandbox enforcement, runner abstraction, and built-in tools

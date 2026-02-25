@@ -114,3 +114,11 @@ def test_general_meta_agent_tool_allowlist_metadata() -> None:
     assert entry.tool_allowlist is not None
     assert "spawn_agent" in entry.tool_allowlist
     assert "collect_artifacts" in entry.tool_allowlist
+
+
+def test_general_meta_agent_system_prompt() -> None:
+    assert MetaAgent.system_prompt
+    prompt_lower = MetaAgent.system_prompt.lower()
+    assert "meta" in prompt_lower
+    assert "spawn_agent" in prompt_lower
+    assert "final_result" in prompt_lower

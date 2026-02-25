@@ -94,6 +94,12 @@ class MetaAgent(BaseAgent):
     description = "Orchestrate multiple agents toward a single goal."
     tool_allowlist = set(_META_SYSTEM_TOOL_NAMES)
     risk_posture = "writes_workspace"
+    system_prompt = (
+        "You are the meta agent. Plan a dependency-safe task graph for the given goal, "
+        "spawn the required sub-agents in parallel where possible, collect their artifacts, "
+        "and synthesize a final result. Use spawn_agent, await_agent, and collect_artifacts "
+        "to coordinate work. Emit final_result.md when all tasks are complete."
+    )
 
     def __init__(
         self,

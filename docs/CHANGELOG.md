@@ -20,6 +20,10 @@ All notable changes to Local Second Mind are documented here.
 - Email providers for Gmail, Microsoft Graph Mail, and IMAP/SMTP.
 - Calendar providers for Google Calendar, Microsoft Graph Calendar, and CalDAV.
 - Communication assistants for email, calendar, and news summaries with approval-gated actions.
+- Parallel task graph planning: `parallel_group` nodes in `TaskGraph` with dependency gate enforcement, deterministic ordering via topological sort, and graph serialization round-trips.
+- Parallel execution engine in `MetaAgent`: `ThreadPoolExecutor` with `max_concurrent` resource limits, sandbox monotonicity (child sandboxes are strict subsets of parent), and deterministic artifact merge sorted by `(agent_name, task_order)`.
+- General meta-agent (`meta`) with system prompt, keyword-based sub-agent selection, and `final_result.md` artifact emission via LLM synthesis with structured fallback.
+- Assistant meta-agent (`assistant_meta`) with validation passes over sub-agent outputs, findings detection (errors, TODOs, permission denials), and `assistant_meta_summary.json`/`.md` action recommendations.
 - Agent/tool tier declarations with tier-based model selection in agent harness runs.
 - Benchmark harness for agent/tool regression tracking with baseline file-operation tasks in `tests/benchmarks/`.
 - File graphing system with unified graph schema, deterministic IDs, content-hash caching, and line-hash metadata.
