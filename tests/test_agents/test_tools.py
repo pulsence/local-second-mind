@@ -5,7 +5,7 @@ from pathlib import Path
 
 from lsm.agents.tools import (
     CreateFolderTool,
-    QueryEmbeddingsTool,
+    QueryKnowledgeBaseTool,
     QueryLLMTool,
     QueryRemoteChainTool,
     QueryRemoteTool,
@@ -16,7 +16,6 @@ from lsm.agents.tools import (
 )
 from lsm.agents.tools.base import BaseTool
 from lsm.config.loader import build_config_from_raw
-from lsm.vectordb.base import VectorDBQueryResult
 
 
 class EchoTool(BaseTool):
@@ -87,29 +86,43 @@ def test_read_folder_tool_lists_entries(tmp_path: Path) -> None:
     assert "b" in names
 
 
-def test_query_embeddings_tool_returns_hits() -> None:
-    class FakeEmbedder:
-        def encode(self, texts, **kwargs):
-            return [[0.1, 0.2, 0.3]]
+def test_query_knowledge_base_tool_returns_results(monkeypatch) -> None:
+    from lsm.query.api import QueryResult
 
-    class FakeCollection:
-        def query(self, embedding, top_k, filters=None):
-            return VectorDBQueryResult(
-                ids=["c1"],
-                documents=["chunk text"],
-                metadatas=[{"source_path": "doc.md"}],
-                distances=[0.2],
-            )
+    class FakeCandidate:
+        cid = "c1"
+        text = "chunk text"
+        distance = 0.2
 
-    tool = QueryEmbeddingsTool(
-        collection=FakeCollection(),
-        embedder=FakeEmbedder(),
-        batch_size=8,
+        @property
+        def relevance(self):
+            return 1.0 - self.distance
+
+    class FakeConfig:
+        pass
+
+    fake_result = QueryResult(
+        answer="Test answer",
+        sources_display="doc.md",
+        candidates=[FakeCandidate()],
+        cost=0.0,
+        remote_sources=[],
+        debug_info={},
+    )
+
+    monkeypatch.setattr("lsm.agents.tools.query_knowledge_base.query_sync", lambda **kwargs: fake_result)
+
+    tool = QueryKnowledgeBaseTool(
+        config=FakeConfig(),
+        embedder=None,
+        collection=None,
     )
     payload = json.loads(tool.execute({"query": "test", "top_k": 1}))
-    assert len(payload) == 1
-    assert payload[0]["id"] == "c1"
-    assert payload[0]["metadata"]["source_path"] == "doc.md"
+    assert "answer" in payload
+    assert "candidates" in payload
+    assert payload["answer"] == "Test answer"
+    assert len(payload["candidates"]) == 1
+    assert payload["candidates"][0]["id"] == "c1"
 
 
 def test_query_llm_tool_uses_provider_factory(monkeypatch, tmp_path: Path) -> None:

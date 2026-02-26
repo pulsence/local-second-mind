@@ -26,6 +26,7 @@ Built-in agent:
 ## Architecture
 
 - `lsm/agents/base.py`: `BaseAgent`, `AgentState`, lifecycle status model
+- `lsm/agents/phase.py`: `PhaseResult` dataclass for bounded phase execution
 - `lsm/agents/harness.py`: runtime loop, tool-calling execution, budget/iteration guards, state persistence, per-run summaries
 - `lsm/agents/interaction.py`: thread-safe request/response channel for runtime-to-UI interaction handshakes
 - `lsm/agents/models.py`: runtime message/log/response models
@@ -319,6 +320,77 @@ Default tool registry (`create_default_tool_registry`) includes:
 6. Stop on `DONE`, stop request, budget exhaustion, or iteration cap
 
 When waiting on a user interaction request, harness status is set to `WAITING_USER` and restored to `RUNNING` after a response (or `COMPLETED` when a stop request arrives during the wait).
+
+## Phase Execution (v0.7.1+)
+
+The agent framework supports bounded phase execution via `PhaseResult`, `AgentHarness.run_bounded()`, and `BaseAgent._run_phase()`.
+
+### PhaseResult
+
+`PhaseResult` is the return type from `_run_phase()`. It carries operational output from one bounded execution phase but no financial or token accounting data:
+
+```python
+from lsm.agents import PhaseResult
+
+# Attributes:
+# - final_text: str - last LLM response text for this phase
+# - tool_calls: list[dict] - all tool calls made during this phase
+# - stop_reason: str - "done" | "max_iterations" | "budget_exhausted" | "stop_requested"
+```
+
+### AgentHarness.run_bounded()
+
+The `run_bounded()` method drives at most `max_iterations` of the LLM + tool loop and returns a `PhaseResult`. It supports multi-context via `context_label`:
+
+```python
+def run_bounded(
+    user_message: str = "",
+    tool_names: Optional[list[str]] = None,
+    max_iterations: int = 10,
+    continue_context: bool = True,
+    context_label: Optional[str] = None,
+    direct_tool_calls: Optional[list[dict]] = None,
+) -> PhaseResult
+```
+
+**Context Labels**: The harness maintains `_context_histories: dict[Optional[str], list]`, keyed by label:
+- `context_label=None` (default) uses the primary unnamed context
+- `context_label="subtopic_A"` creates or resumes a named context
+- `continue_context=False` resets the history for that label only
+
+**Tool-only Mode**: When `direct_tool_calls` is provided, tools are executed directly without LLM calls. Budget checks do NOT apply in this mode.
+
+### BaseAgent._run_phase()
+
+Agents should use `_run_phase()` for all LLM and tool activity:
+
+```python
+def _run_phase(
+    self,
+    system_prompt: str = "",
+    user_message: str = "",
+    tool_names: Optional[list[str]] = None,
+    max_iterations: int = 10,
+    continue_context: bool = True,
+    context_label: Optional[str] = None,
+    direct_tool_calls: Optional[list[dict]] = None,
+) -> PhaseResult
+```
+
+The method:
+- Creates the harness on first call and reuses it for subsequent calls
+- Forwards all parameters to `AgentHarness.run_bounded()`
+- Returns a `PhaseResult` with no token/cost data
+
+### Workspace Accessors
+
+BaseAgent provides workspace path accessor methods:
+
+- `_workspace_root()`: Returns agent workspace root, creates directories if absent
+- `_artifacts_dir()`: Returns `artifacts/` subdirectory
+- `_logs_dir()`: Returns `logs/` subdirectory  
+- `_memory_dir()`: Returns `memory/` subdirectory
+- `_artifact_filename(name, suffix=".md")`: Generates timestamped filename
 
 ## Runtime Manager
 

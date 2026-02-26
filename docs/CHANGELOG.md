@@ -6,6 +6,11 @@ All notable changes to Local Second Mind are documented here.
 
 ### Added
 
+- `PhaseResult` dataclass in `lsm.agents.phase` for phase execution results (no token/cost data).
+- `AgentHarness.run_bounded()` method with multi-context support via `context_label`, `continue_context`, and tool-only mode via `direct_tool_calls`.
+- `BaseAgent._run_phase()` method for bounded phase execution with context management.
+- `BaseAgent._reset_harness()` helper to reset harness between run() calls.
+- BaseAgent workspace accessor methods: `_workspace_root()`, `_artifacts_dir()`, `_logs_dir()`, `_memory_dir()`, `_artifact_filename()`.
 - `acknowledged_timeout_seconds` config option in `agents.interaction` for two-phase interaction timeout behavior (default `0` = infinite wait once acknowledged).
 - Two-phase timeout in `InteractionChannel`: unacknowledged requests time out after `timeout_seconds`; acknowledged requests wait indefinitely (or for `acknowledged_timeout_seconds` if configured).
 - `acknowledge_interaction(agent_id, request_id)` method in `AgentRuntimeManager` to forward acknowledgment signals to interaction channels.
@@ -16,6 +21,11 @@ All notable changes to Local Second Mind are documented here.
 
 - `InteractionChannel.post_request()` now uses a polling loop with two-phase timeout logic instead of a single `event.wait()` call.
 - `_acknowledged_interaction_ids` tracking in TUI Agents screen to prevent duplicate acknowledgment signals.
+- Replaced `query_embeddings` tool with `query_knowledge_base` tool that uses the full query pipeline (embedding search + reranking + LLM synthesis).
+
+### Removed
+
+- `QueryEmbeddingsTool` from `lsm.agents.tools` - replaced by `QueryKnowledgeBaseTool`.
 
 ## 0.7.0 - 2026-02-25
 

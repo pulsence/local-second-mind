@@ -27,6 +27,7 @@ from .base import AgentState, AgentStatus
 from .factory import create_agent
 from .memory import BaseMemoryStore, MemoryContextBuilder, create_memory_store
 from .models import AgentContext, AgentLogEntry, ToolResponse
+from .phase import PhaseResult
 from .tools.base import ToolRegistry
 from .tools.sandbox import ToolSandbox
 from .workspace import ensure_agent_workspace
@@ -112,6 +113,7 @@ class AgentHarness:
         self._sub_agent_runs: Dict[str, _SubAgentRun] = {}
         self._sub_agent_counter = 0
         self._meta_tool_names = {"spawn_agent", "await_agent", "collect_artifacts"}
+        self._context_histories: Dict[Optional[str], list] = {}
         self.sandbox.set_interaction_channel(
             self.interaction_channel,
             waiting_state_callback=self._set_waiting_for_user,
@@ -136,6 +138,7 @@ class AgentHarness:
             self._tool_usage_counts = {}
             self._tool_sequence = []
             self._permission_events = []
+            self._context_histories = {}
             self.context.tool_definitions = self._list_tool_definitions()
             if not self.context.budget_tracking:
                 self.context.budget_tracking = {}
@@ -284,6 +287,196 @@ class AgentHarness:
         finally:
             self._write_agent_log()
             self._write_run_summary(started_at)
+
+    def run_bounded(
+        self,
+        user_message: str = "",
+        tool_names: Optional[list[str]] = None,
+        max_iterations: int = 10,
+        continue_context: bool = True,
+        context_label: Optional[str] = None,
+        direct_tool_calls: Optional[list[dict]] = None,
+    ) -> PhaseResult:
+        if self._stop_event.is_set():
+            return PhaseResult(final_text="", tool_calls=[], stop_reason="stop_requested")
+
+        if direct_tool_calls is not None:
+            return self._run_bounded_tool_only(direct_tool_calls)
+
+        return self._run_bounded_llm_mode(
+            user_message=user_message,
+            tool_names=tool_names,
+            max_iterations=max_iterations,
+            continue_context=continue_context,
+            context_label=context_label,
+        )
+
+    def _run_bounded_tool_only(
+        self,
+        direct_tool_calls: list[dict],
+    ) -> PhaseResult:
+        tool_results: list[dict] = []
+        for call in direct_tool_calls:
+            tool_name = str(call.get("name", "")).strip()
+            if not tool_name:
+                tool_results.append({
+                    "error": "Tool call missing 'name' field",
+                })
+                continue
+
+            if not self._is_tool_allowed(tool_name):
+                tool_results.append({
+                    "name": tool_name,
+                    "error": f"Tool '{tool_name}' is not allowed",
+                })
+                continue
+
+            tool = self.tool_registry.lookup(tool_name)
+            arguments = call.get("arguments") or call.get("args") or {}
+            if isinstance(arguments, str):
+                try:
+                    arguments = json.loads(arguments)
+                except json.JSONDecodeError:
+                    arguments = {}
+
+            try:
+                output = self.sandbox.execute(tool, arguments)
+                tool_results.append({
+                    "name": tool_name,
+                    "result": output,
+                })
+            except Exception as exc:
+                tool_results.append({
+                    "name": tool_name,
+                    "error": str(exc),
+                })
+
+        return PhaseResult(final_text="", tool_calls=tool_results, stop_reason="done")
+
+    def _run_bounded_llm_mode(
+        self,
+        user_message: str,
+        tool_names: Optional[list[str]],
+        max_iterations: int,
+        continue_context: bool,
+        context_label: Optional[str],
+    ) -> PhaseResult:
+        if not continue_context or context_label not in self._context_histories:
+            self._context_histories[context_label] = []
+
+        history = self._context_histories[context_label]
+
+        if user_message:
+            history.append({"role": "user", "content": user_message})
+
+        llm_config = self._resolve_llm_config()
+        llm_provider = create_provider(llm_config)
+        tool_calls_accumulated: list[dict] = []
+        final_text = ""
+        stop_reason = "done"
+
+        for iteration in range(max_iterations):
+            if self._budget_exhausted():
+                stop_reason = "budget_exhausted"
+                break
+
+            if self._stop_event.is_set():
+                stop_reason = "stop_requested"
+                break
+
+            standing_context_block = self._build_standing_context_block()
+            messages_for_llm = self._prepare_messages_from_history(history)
+            raw_response, system_prompt, user_prompt = self._call_llm(
+                llm_provider,
+                messages_for_llm=messages_for_llm,
+                standing_context_block=standing_context_block,
+            )
+            self._consume_tokens(raw_response)
+            tool_response = self._parse_tool_response(raw_response)
+
+            history.append({"role": "assistant", "content": tool_response.response})
+
+            action = (tool_response.action or "").strip()
+            if not action or action.upper() == "DONE":
+                final_text = tool_response.response
+                break
+
+            tool_names_restricted = tool_names
+            if tool_names is not None:
+                tool_names_restricted = set(tool_names)
+
+            if not self._is_tool_allowed(action):
+                denial_reason = f"Tool '{action}' is not allowed for this harness run"
+                self._record_permission_decision(action, allowed=False, reason=denial_reason)
+                tool_calls_accumulated.append({
+                    "name": action,
+                    "error": denial_reason,
+                })
+                continue
+
+            if tool_names_restricted is not None and action not in tool_names_restricted:
+                denial_reason = f"Tool '{action}' is not in the requested tool_names list"
+                self._record_permission_decision(action, allowed=False, reason=denial_reason)
+                tool_calls_accumulated.append({
+                    "name": action,
+                    "error": denial_reason,
+                })
+                continue
+
+            tool = self.tool_registry.lookup(action)
+            try:
+                tool_output = self.sandbox.execute(tool, tool_response.action_arguments)
+            except PermissionError as exc:
+                self._record_permission_decision(
+                    action,
+                    allowed=False,
+                    reason=str(exc),
+                )
+                tool_calls_accumulated.append({
+                    "name": action,
+                    "error": str(exc),
+                })
+                if self._stop_event.is_set():
+                    stop_reason = "stop_requested"
+                    break
+                continue
+
+            self._record_permission_decision(
+                action,
+                allowed=True,
+                reason="Tool execution allowed",
+            )
+            self._record_tool_execution(action)
+            self._track_artifacts_from_sandbox()
+            self._consume_tokens(tool_output)
+            redacted_tool_output = redact_secrets(tool_output)
+
+            tool_calls_accumulated.append({
+                "name": action,
+                "result": redacted_tool_output,
+            })
+
+            history.append({
+                "role": "tool",
+                "name": action,
+                "content": redacted_tool_output,
+            })
+
+        else:
+            stop_reason = "max_iterations"
+
+        if history and history[-1].get("role") == "user":
+            if not final_text:
+                final_text = history[-1].get("content", "")
+
+        return PhaseResult(
+            final_text=final_text,
+            tool_calls=tool_calls_accumulated,
+            stop_reason=stop_reason,
+        )
+
+    def _prepare_messages_from_history(self, history: list[Dict[str, Any]]) -> list[Dict[str, Any]]:
+        return list(history)
 
     def start_background(self, initial_context: AgentContext) -> threading.Thread:
         """
