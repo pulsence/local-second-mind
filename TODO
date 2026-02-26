@@ -33,6 +33,9 @@
 - Should use LLM to create summaries digests of recent emails
 - Have the ability to draft responses to particular emails
 
+### General Meta Agent
+- Like General Agent, but can spawn General Agents
+
 ## v0.8.0: Embedding Retrevial Improvments
 
 ### DB

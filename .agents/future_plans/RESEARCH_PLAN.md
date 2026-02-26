@@ -22,6 +22,16 @@ All questions from the discovery phase are resolved. No open decisions remain.
 4. [Architectural Overhaul: Retrieval Pipeline](#4-architectural-overhaul-retrieval-pipeline)
    - 4.1 Current Architecture
    - 4.2 Phase 1: Core Retrieval Features
+     - 4.2.1 Unified RetrievalPipeline Abstraction (three-stage API + ContextPackage)
+     - 4.2.2 Retrieval Profiles
+     - 4.2.3 Hybrid Retrieval: Dense + Sparse (BM25/FTS5) + RRF
+     - 4.2.4 Cross-Encoder Reranking
+     - 4.2.5 HyDE (Hypothetical Document Embeddings)
+     - 4.2.6 Diversity and De-duplication
+     - 4.2.7 Temporal-Aware Ranking
+     - 4.2.8 Evaluation Harness
+     - 4.2.9 Mode as Composition Preset
+     - 4.2.10 Agent Integration: Unified Tool Surface
    - 4.3 SQLite-vec: Unified Database Architecture
    - 4.4 Phase 2: Cluster-Aware Retrieval
    - 4.5 Phase 2: Multi-Vector Representation
@@ -33,6 +43,7 @@ All questions from the discovery phase are resolved. No open decisions remain.
    - 6.5 TUI Startup Advisories for Offline Jobs
 7. [Long-Term Design Principles](#7-long-term-design-principles)
 8. [Dependency Map](#8-dependency-map)
+9. [Resolved Decisions Summary](#9-resolved-decisions-summary)
 
 ---
 
@@ -219,15 +230,124 @@ dense results, not a true dual-recall system.
 
 #### 4.2.1 Unified RetrievalPipeline Abstraction
 
-A `RetrievalPipeline` class with a `run(query: Query) → List[Candidate]` interface and
-composable stages (`recall → fuse → rerank → diversify`). Each stage receives the prior
-stage's output and adds score breakdowns. The current function chain across `api.py`,
-`planning.py`, `context.py`, `retrieval.py`, `rerank.py` is replaced by this abstraction.
+**Framing**: The query pipeline is a **Context Builder**. Its job is to produce a structured
+`ContextPackage` — local candidates with score breakdowns, remote sources, and a pre-formatted
+LLM context block — that is then handed to an LLM for synthesis. Both users (TUI/shell) and
+agents are doing the same thing: building a `ContextPackage` and consuming the result. The
+pipeline is the single code path for both.
 
-**Four standard objects**:
+**Decision — Three-stage API**: The `RetrievalPipeline` exposes three composable steps plus
+a high-level convenience entry point:
 
-- **`Query`**: Wraps the user's question string plus retrieval parameters (profile, k,
-  filters).
+```python
+class RetrievalPipeline:
+
+    def build_sources(self, request: QueryRequest) -> ContextPackage:
+        """
+        Stage 1: Retrieve and rank local candidates + fetch remote sources.
+        Runs: recall → fuse → rerank → diversify → remote fetch.
+        Returns a ContextPackage with candidates, remote sources, and the retrieval trace.
+        No LLM synthesis call is made here.
+        """
+
+    def synthesize_context(self, package: ContextPackage) -> ContextPackage:
+        """
+        Stage 2: Format the ContextPackage into a context block for LLM consumption.
+        Assigns [S1]/[S2]/... labels, builds source_labels map, applies any
+        context-window trimming. Returns an enriched ContextPackage ready for execute().
+        No LLM call is made here — this is pure formatting.
+        """
+
+    def execute(self, package: ContextPackage) -> QueryResponse:
+        """
+        Stage 3: Send the formatted ContextPackage to the synthesis LLM.
+        Uses package.synthesis_style and the LLM service from package.query_config.
+        Returns a QueryResponse with the answer, citations, cost, and conversation state.
+        """
+
+    def run(self, request: QueryRequest) -> QueryResponse:
+        """
+        High-level entry point: build_sources → synthesize_context → execute.
+        Used by the TUI/shell user query path and agents that don't need
+        to inspect the intermediate ContextPackage.
+        """
+        package = self.build_sources(request)
+        package = self.synthesize_context(package)
+        return self.execute(package)
+```
+
+**Why three stages**: Agents frequently need to inspect or modify the `ContextPackage` between
+retrieval and synthesis. An agent may want to filter candidates, inject additional context, or
+route the package to a different LLM service than the default synthesis service. The three-stage
+design gives agents that control without duplicating pipeline logic. For users, `run()` provides
+the familiar single-call interface. `QueryLLMTool` is subsumed: an agent calling `execute()`
+with a manually constructed `ContextPackage` achieves the same result with no duplication.
+
+**Standard objects**:
+
+- **`QueryRequest`**: The unified input for both users and agents.
+
+```python
+@dataclass
+class QueryRequest:
+    query: str
+    mode: Optional[str] = None              # Mode name (resolved via config); see §4.2.9
+    mode_config: Optional[ModeConfig] = None  # Direct mode override (agent-composed modes)
+    filters: Optional[FilterSet] = None     # path_contains, ext_allow, ext_deny
+    pinned_chunks: Optional[List[str]] = None
+    context_documents: Optional[List[str]] = None
+    context_chunks: Optional[List[str]] = None
+    k_override: Optional[int] = None        # Override mode's final k
+    conversation_id: Optional[str] = None   # LLM server-side cache / conversation thread ID
+    prior_response_id: Optional[str] = None # Provider-specific ID for conversation chaining
+    trace_enabled: bool = True
+```
+
+`conversation_id` and `prior_response_id` carry the LLM caching and chat-continuation state
+that currently lives in `SessionState.llm_server_cache_ids`. Moving it into `QueryRequest`
+means agents and users share the same conversation management mechanism with no duplication.
+`SessionState` retains its role as a TUI-session artefact store (last candidates, last answer,
+filter overrides) but is no longer the authoritative holder of conversation state.
+
+- **`ContextPackage`**: The first-class output of `build_sources()` and `synthesize_context()`.
+
+```python
+@dataclass
+class ContextPackage:
+    query: str
+    query_config: QueryConfig              # Resolved config (LLM, k, profile) for execute()
+    local_candidates: List[Candidate]      # With ScoreBreakdown attached
+    remote_sources: List[RemoteSource]     # From remote providers (if mode has remote enabled)
+    context_block: str                     # Formatted [S1]/[S2]/... LLM context (after Stage 2)
+    source_labels: Dict[str, Candidate]    # "S1" → Candidate (after Stage 2)
+    synthesis_style: str                   # "grounded" | "insight" — forwarded to execute()
+    model_knowledge_enabled: bool          # Whether to append model knowledge banner
+    conversation_id: Optional[str]         # Carried from QueryRequest; passed to LLM provider
+    prior_response_id: Optional[str]       # Carried from QueryRequest; for provider chaining
+    retrieval_trace: RetrievalTrace        # Full trace (§7.3)
+    retrieval_cost: Optional[CostEntry]    # Cost for embedding + HyDE generation (if any)
+```
+
+- **`QueryResponse`**: The output of `execute()`.
+
+```python
+@dataclass
+class QueryResponse:
+    answer: str
+    package: ContextPackage                # The ContextPackage that produced this answer
+    citations: List[Citation]              # Resolved citations extracted from answer
+    synthesis_cost: CostEntry             # LLM synthesis token cost
+    conversation_id: Optional[str]         # Updated conversation ID (provider may return new)
+    response_id: Optional[str]             # Provider response ID for next turn's prior_response_id
+    total_cost: CostEntry                  # retrieval_cost + synthesis_cost
+```
+
+`conversation_id` and `response_id` on `QueryResponse` are the values the caller passes back
+into the next `QueryRequest.conversation_id` / `QueryRequest.prior_response_id` to continue a
+conversation thread. This replaces the current patchwork of `SessionState.llm_server_cache_ids`
+and per-provider previous-response tracking. Both the TUI session and agent runs use the same
+chain; no duplication.
+
 - **`Candidate`**: Extended with `ScoreBreakdown` and its embedding vector (required for
   MMR diversity selection).
 - **`ScoreBreakdown`**: Per-candidate scoring detail:
@@ -241,15 +361,20 @@ stage's output and adds score breakdowns. The current function chain across `api
 - **`Citation`**: Resolved reference: `chunk_id`, `source_path`, `heading`,
   `page_number`, `url_or_doi`, `snippet`.
 
-**Decision — Stage access to QueryConfig**: Stages have access to the full `QueryConfig`.
-Many stages need cross-cutting parameters: diversity stage needs `max_per_file`;
-temporal stage needs `temporal_boost_days`; rerank stage needs `cross_encoder_model`.
+**Decision — Stage access to resolved QueryConfig**: Stages have access to the fully resolved
+`QueryConfig` carried inside the `ContextPackage`. Many stages need cross-cutting parameters:
+diversity stage needs `max_per_file`; temporal stage needs `temporal_boost_days`; rerank stage
+needs `cross_encoder_model`. The synthesis LLM is also selected via `QueryConfig` — agents
+that want to use a specific LLM for synthesis set `llms.services.query` in the `QueryConfig`
+they pass in `QueryRequest`. There is no separate per-call LLM selector; `QueryConfig`
+is the single source of truth for LLM selection.
 
-**Decision — Hard-coded profiles, not a registry**: Four profiles are hard-coded for
+**Decision — Hard-coded profiles, not a registry**: Five profiles are hard-coded for
 v0.8.0. A registry adds indirection with no benefit for a fixed profile set; the stage
 abstraction is extensible to a registry in v0.9.0 if custom profiles become a requirement.
 
-**Retrieval trace**: Every pipeline run emits a `retrieval_trace.json` to the workspace:
+**Retrieval trace**: Every `build_sources()` call emits a `RetrievalTrace` captured in
+`ContextPackage.retrieval_trace` and written to `retrieval_trace.json` in the workspace:
 - Which stages executed and their timing
 - Intermediate candidates at each stage
 - `ScoreBreakdown` for every returned chunk
@@ -278,8 +403,10 @@ the profile degrades gracefully to `dense_only` with a log warning.
 - `hyde_hybrid` with LLM failure → direct query embedding.
 - `temporal_boost` config absent → boost stage skipped.
 
-`QueryConfig.mode` ("grounded"/"insight") is a synthesis mode, orthogonal to retrieval
-profiles. The legacy `rerank_strategy` config key is removed (breaking change).
+Retrieval Profiles define the **mechanism** of retrieval. Modes define the **intent** — which
+sources to query, how many results to keep, and how to synthesize. A Mode always references
+one Retrieval Profile by name. See §4.2.9 for the complete Mode definition.
+The legacy `rerank_strategy` config key is removed (breaking change).
 
 #### 4.2.3 Hybrid Retrieval: Dense + Sparse (BM25/FTS5) + RRF
 
@@ -433,6 +560,125 @@ lsm eval list-baselines
 or cross-encoder features. No retrieval feature ships without measurable improvement.
 
 ---
+
+#### 4.2.9 Mode as Composition Preset
+
+**Decision — A Mode is a named composition preset, not a set of scattered parameter overrides.**
+A Mode bundles five things:
+
+1. **`retrieval_profile`**: Which `RetrievalPipeline` profile to run (§4.2.2).
+2. **`local_policy`**: Source scope — `k` (final candidate count after reranking),
+   `min_relevance` (gating threshold), `enabled`.
+3. **`remote_policy`**: Which remote providers to query, `max_results`, `rank_strategy`,
+   per-provider weight overrides.
+4. **`model_knowledge_policy`**: Whether to append a model-knowledge banner to the answer.
+5. **`synthesis_style`**: `"grounded"` or `"insight"` — forwarded to `execute()`.
+
+**Updated `ModeConfig`** (breaking change from v0.7.x):
+
+```python
+@dataclass
+class ModeConfig:
+    retrieval_profile: str = "hybrid_rrf"          # one of the §4.2.2 profile names
+    local_policy: LocalSourcePolicy = field(...)    # k, min_relevance, enabled
+    remote_policy: RemoteSourcePolicy = field(...)  # providers, max_results, rank_strategy
+    model_knowledge_policy: ModelKnowledgePolicy = field(...)
+    synthesis_style: str = "grounded"              # "grounded" | "insight"
+    chats: Optional[ModeChatsConfig] = None        # chat-mode overrides (auto_save, dir)
+```
+
+`LocalSourcePolicy.k` is the **post-rerank final candidate count** (what was `k_rerank` in
+v0.7.x). The pipeline's `k_dense` and `k_sparse` (recall pool sizes, §4.2.3) are
+`QueryConfig`-level settings, not mode-level settings. Modes express intent; the pipeline
+controls the recall mechanics.
+
+**Updated built-in modes**:
+
+| Mode | retrieval_profile | k | min_relevance | remote | synthesis_style |
+|------|-------------------|---|---------------|--------|-----------------|
+| `grounded` | `hybrid_rrf` | 12 | 0.25 | off | grounded |
+| `insight` | `hybrid_rrf` | 8 | 0.0 | on (max 5) | insight |
+| `hybrid` | `hybrid_rrf` | 12 | 0.15 | on (max 5) | grounded |
+
+**Decision — Mode config migration**: v0.8.0 is a breaking release. There is no automatic
+migration of v0.7.x `ModeConfig` entries. Users update their own config files. Upgrade
+documentation covers the key changes: `source_policy.local.k_rerank` → `local_policy.k`
+and the addition of `retrieval_profile`.
+
+**Decision — Agent-composed modes and validation**: Agents may pass a `ModeConfig` object
+directly via `QueryRequest.mode_config` (bypassing config-file entries). Before the pipeline
+accepts an agent-composed `ModeConfig`, `AgentHarness` validates it against the global
+settings: the requested `retrieval_profile` must be listed in `QueryConfig.retrieval_profiles`,
+and if `remote_policy.enabled` is `true` then `allow_url_access` must be `true` in the
+agent's sandbox config. Profiles requiring optional dependencies (HyDE requires an LLM;
+`dense_cross_rerank` requires a cross-encoder model) are validated at pipeline init, not at
+validation time — the pipeline degrades gracefully per §4.2.2.
+
+---
+
+#### 4.2.10 Agent Integration: Unified Tool Surface
+
+The four current agent bypass tools (`QueryEmbeddingsTool`, `QueryLLMTool`,
+`QueryRemoteTool`, `SimilaritySearchTool`) are replaced by three pipeline-backed tools plus
+one retained tool:
+
+**`query_context` (new — replaces `QueryEmbeddingsTool` + `QueryRemoteTool`)**
+
+```
+execute(query, mode=None, filters=None, k=None) → ContextPackage (JSON)
+```
+
+Calls `RetrievalPipeline.build_sources(QueryRequest(...))`. Respects the full mode policy:
+local scope, remote providers, retrieval profile. Returns a serialized `ContextPackage` that
+the agent can inspect, filter, or pass directly to `execute_context`. Cost is tracked in the
+pipeline's cost tracker, available in `ContextPackage.retrieval_cost`.
+
+**`execute_context` (new — replaces `QueryLLMTool`, subsumes manual synthesis)**
+
+```
+execute(question, context_package, synthesis_style=None) → QueryResponse (JSON)
+```
+
+Calls `RetrievalPipeline.synthesize_context(package)` followed by
+`RetrievalPipeline.execute(package)`. The agent can pass an unmodified `ContextPackage`
+from `query_context`, or one it has manually constructed (for pure reasoning with no
+retrieval). The synthesis LLM is selected from `package.query_config` (i.e. from
+`QueryConfig` — agents configure LLM selection through the `QueryRequest` they passed to
+`query_context`, or by setting `query_config` directly on a manually constructed package).
+
+**`query_and_synthesize` (convenience — replaces common agent one-shot pattern)**
+
+```
+execute(query, mode=None) → QueryResponse (JSON)
+```
+
+Calls `RetrievalPipeline.run(QueryRequest(...))`. Single tool call for agents that don't
+need to inspect the intermediate `ContextPackage`.
+
+**`SimilaritySearchTool` — retained unchanged**
+
+`SimilaritySearchTool` computes intra-corpus pairwise cosine similarity between specified
+chunks or files. This is orthogonal to the retrieval pipeline (it is not a query-to-corpus
+search) and is retained as-is.
+
+**Pipeline injection into the tool registry**:
+
+A single `RetrievalPipeline` instance is constructed at startup (with embedder, vector DB,
+and config) and injected into the tool registry, analogous to how the vector DB provider is
+currently injected for `QueryEmbeddingsTool`:
+
+```python
+pipeline = RetrievalPipeline(db=sqlite_provider, embedder=embedder, config=lsm_config)
+registry = create_default_tool_registry(
+    vector_db=pipeline.db,
+    embedder=pipeline.embedder,
+    pipeline=pipeline,       # new injection point
+    memory_store=memory_store,
+)
+```
+
+The three pipeline tools (`query_context`, `execute_context`, `query_and_synthesize`) are
+registered only when a `pipeline` is provided to `create_default_tool_registry`.
 
 ### 4.3 SQLite-vec: Unified Database Architecture
 
@@ -958,39 +1204,128 @@ Switching models triggers the schema mismatch detection (§2.4) and prompts `lsm
 ---
 
 ### 4.8 Phase 3: Multi-Hop Retrieval Agents
+ **User feedback:** This seems to replicate the General Meta Agent. How is this any different from launching that agent?
 
 #### 4.8.1 Overview
 
-Multi-hop retrieval decomposes complex queries into sub-queries, retrieves iteratively,
-and synthesises across multiple retrieval rounds. Uses the existing meta-agent system
-as the orchestration layer.
+Multi-hop retrieval addresses queries too complex for a single pipeline pass by decomposing
+them into sub-queries and running the `RetrievalPipeline` iteratively. Uses the existing
+meta-agent system as the orchestration layer. The unified API from §4.2.1
+(`build_sources → synthesize_context → execute`) is the primitive each hop uses.
 
-#### 4.8.2 Foundation
+#### 4.8.2 Two Distinct Multi-Hop Modes
+
+Multi-hop retrieval has two fundamentally different purposes. The implementation supports
+both, selectable via `multihop_strategy`:
+
+**Mode A — Source Surfacing (`strategy: "parallel"`)**
+
+Decompose the query upfront into N sub-questions, retrieve candidates for each in parallel,
+collect all results, deduplicate, and synthesize once from the full combined `ContextPackage`.
+
+```
+query
+  → decompose(query) → [sub_q1, sub_q2, sub_q3]      (one-time LLM call)
+  → build_sources(sub_q1) → pkg1
+  → build_sources(sub_q2) → pkg2
+  → build_sources(sub_q3) → pkg3
+  → merge_packages([pkg1, pkg2, pkg3])                 (deduplicate candidates by chunk_id)
+  → synthesize_context(merged_pkg)
+  → execute(merged_pkg)
+  → QueryResponse
+```
+
+**Purpose**: Surface more sources across multiple query angles. The final LLM call sees a
+richer context block assembled from multiple retrieval passes. Citation trace shows which
+sub-question sourced each candidate.
+
+**Mode B — Iterative Reasoning (`strategy: "iterative"`)**
+
+Run one sub-question per hop; the LLM's partial answer from hop N informs the question for
+hop N+1. Each hop's synthesis is a real LLM call that may refine or redirect the search.
+
+```
+query
+  → sub_question = initial_question(query)
+  → for hop in range(max_hops):
+        pkg = build_sources(sub_question)
+        pkg = synthesize_context(pkg)
+        partial_response = execute(pkg)              (LLM call per hop)
+        if is_sufficient(partial_response):
+            break
+        sub_question = refine_question(query, partial_response)  (LLM informs next hop)
+  → final QueryResponse (last partial_response or synthesized from all partial answers)
+```
+
+**Purpose**: Deep reasoning over the knowledge base where later retrieval is informed by
+earlier synthesis. Analogous to chain-of-thought retrieval (FLARE/IRCoT patterns). Each
+partial answer both checks for sufficiency and refines the next sub-question.
+
+**Trade-offs**:
+
+| | Source Surfacing (`parallel`) | Iterative Reasoning (`iterative`) |
+|---|---|---|
+| LLM calls | 1 synthesis + 1 decompose | N synthesis (one per hop) + 1 final |
+| Retrieval passes | N parallel | N sequential |
+| Context | All sources merged into one | Each hop adds to growing context |
+| Best for | Broad multi-angle coverage | Step-by-step reasoning chains |
+| Citation trace | Per-sub-question source attribution | Per-hop reasoning chain |
+
+**Decision required**: Which mode(s) to implement in v0.8.0 Phase 3? Both are architecturally
+sound. `parallel` (source surfacing) is simpler and lower cost; `iterative` is more powerful
+but N× the LLM cost. Recommendation: implement `parallel` for v0.8.0 and `iterative` for v0.8.x.
+
+#### 4.8.3 Conversation and Caching Integration
+
+Multi-hop retrieval uses the same `QueryRequest`/`QueryResponse` conversation chain
+(§4.2.1) as single-turn queries. Each hop's `QueryResponse.response_id` is passed as the
+next hop's `QueryRequest.prior_response_id`, enabling LLM server-side caching across hops
+within the same multi-hop run. No separate conversation management exists for the agent
+system — both the TUI user session and agent runs use the same chain carried in
+`QueryRequest`/`QueryResponse`.
+
+```python
+@dataclass
+class MultiHopRequest:
+    query: str
+    max_hops: int = 3
+    strategy: str = "parallel"     # "parallel" | "iterative"
+    mode: Optional[str] = None
+    conversation_id: Optional[str] = None  # Carried through all hops
+```
+
+#### 4.8.4 Foundation
 
 `lsm/query/decomposition.py` already extracts keywords, author, title, DOI, and date
 entities from queries. Phase 3 extends this to:
 
-1. **Query decomposition**: LLM breaks a complex query into sub-questions.
-2. **Iterative retrieval**: Each sub-question runs through the `RetrievalPipeline`.
-3. **Context synthesis**: Partial answers from each retrieval round inform the next
-   sub-question.
-4. **Citation chain**: The `retrieval_trace.json` records each hop, producing a hop-wise
-   citation trace.
+1. **Query decomposition**: LLM breaks a complex query into sub-questions (one call, produces
+   a list of sub-questions regardless of `strategy`).
+2. **Iterative retrieval**: Each sub-question runs through `RetrievalPipeline.build_sources()`.
+3. **Package assembly**: Sub-packages are merged (parallel) or accumulated (iterative).
+4. **Citation chain**: `retrieval_trace.json` records each hop, producing a hop-wise citation
+   trace with per-sub-question source attribution.
 
-#### 4.8.3 Implementation Sketch
+#### 4.8.5 Implementation Sketch (parallel mode)
 
 ```python
 class MultiHopRetrievalAgent:
-    def run(self, query: str, max_hops: int = 3) -> List[Candidate]:
-        sub_questions = self.decompose(query)
-        all_candidates = []
+    def run(self, request: MultiHopRequest) -> QueryResponse:
+        sub_questions = self.decompose(request.query)
+        packages = []
+        conv_id = request.conversation_id
         for sub_q in sub_questions:
-            candidates = self.pipeline.run(Query(sub_q))
-            partial_answer = self.synthesise(candidates)
-            all_candidates.extend(candidates)
-            if self.is_sufficient(partial_answer):
+            pkg = self.pipeline.build_sources(QueryRequest(
+                query=sub_q,
+                mode=request.mode,
+                conversation_id=conv_id,
+            ))
+            packages.append(pkg)
+            if self.is_sufficient_sources(packages):
                 break
-        return self.deduplicate(all_candidates)
+        merged = merge_packages(packages)          # dedup by chunk_id, union remote_sources
+        merged = self.pipeline.synthesize_context(merged)
+        return self.pipeline.execute(merged)
 ```
 
 The meta-agent `TaskGraph` system manages sub-agent lifecycle and result aggregation.
@@ -1341,6 +1676,31 @@ SQLite-vec DB (§4.3) → DB Versioning (§2) → RetrievalPipeline (§4.2.1) �
 - Phase 2 Clustering (§4.4) — after RetrievalPipeline; parallel to cross-encoder work.
 - Phase 3 Graph Store (§4.6) — after SQLite-vec DB schema is locked; parallel to Phase 2.
 
+
 ---
 
-*End of research document. All decisions resolved. Ready for implementation planning.*
+
+## 9. Resolved Decisions Summary
+
+Decisions from the Mode/Pipeline/Agent integration analysis have been incorporated directly
+into §4.2 (§4.2.1, §4.2.2, §4.2.9, §4.2.10) and §4.8. This section records the resolved
+questions for traceability.
+
+| # | Topic | Decision |
+|---|-------|----------|
+| 1 | Mode config migration (v0.7.x → v0.8.0) | No migration code in LSM. Breaking change only. Users update their own config files. Upgrade docs cover key renames (`k_rerank` → `local_policy.k`, new `retrieval_profile` field). |
+| 2 | Agent-composed `ModeConfig` validation | `AgentHarness` validates agent-supplied `ModeConfig` against global settings before pipeline accepts it. Requested `retrieval_profile` must be in `QueryConfig.retrieval_profiles`; remote-enabled modes require `allow_url_access=true` in the agent sandbox. |
+| 3 | Pipeline API structure | Three explicit stages: `build_sources(QueryRequest) → ContextPackage`, `synthesize_context(ContextPackage) → ContextPackage`, `execute(ContextPackage) → QueryResponse`. High-level `run(QueryRequest) → QueryResponse` convenience method chains all three. `QueryLLMTool` is subsumed by `execute()` with a manually constructed `ContextPackage`. See §4.2.1. |
+| 4 | Conversation and caching | `QueryRequest` carries `conversation_id` and `prior_response_id`; `QueryResponse` returns updated `conversation_id` and `response_id`. This replaces `SessionState.llm_server_cache_ids`. Agents and users share the same conversation chain. `SessionState` retains last-turn artefact storage only. See §4.2.1. |
+| 5 | Multi-hop strategy selection | Two modes: `parallel` (source surfacing — decompose once, retrieve N sub-queries, merge, synthesize once) and `iterative` (iterative reasoning — each hop's LLM response informs the next sub-question). `parallel` ships in v0.8.0 Phase 3; `iterative` targeted for v0.8.x.|
+| 6 | Synthesis LLM selection for agents | Set via `QueryConfig` carried in the `QueryRequest`. Agents that want a specific LLM for synthesis configure it in the `QueryConfig` they pass in. No per-call LLM selector; `QueryConfig` is the single source of truth. See §4.2.1. |
+
+
+
+## User Feedback:
+- We need to also clarify how the starting prompt is handled. This should be a separate field in QueryRequest and synthesize_context uses the session caches to determine what to do with the prompt.
+- Changes in v0.7.1 and v0.7.2 affect this research plan at several points. Reanalysis in depth the current state of the code base and update the research plan in the light of the current state of the code base and what happened in those versions.
+
+---
+
+*End of research document.*
