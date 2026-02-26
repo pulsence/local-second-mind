@@ -110,6 +110,7 @@ Agents are configured in top-level `agents`:
   "interaction": {
     "timeout_seconds": 300,
     "timeout_action": "deny",
+    "acknowledged_timeout_seconds": 0,
     "auto_continue": false
   },
   "agent_configs": {
@@ -139,8 +140,9 @@ Agents are configured in top-level `agents`:
 - `max_concurrent`: max concurrently running agents (used by multi-agent runtime managers)
 - `log_stream_queue_limit`: max buffered live-log entries per agent before oldest entries are dropped
 - `context_window_strategy`: `compact` or `fresh`
-- `interaction.timeout_seconds`: wait timeout for an interaction response (default `300`)
+- `interaction.timeout_seconds`: wait timeout for an interaction response before acknowledgment (default `300`)
 - `interaction.timeout_action`: timeout fallback (`deny` or `approve`, default `deny`)
+- `interaction.acknowledged_timeout_seconds`: wait timeout after acknowledgment (default `0` = infinite)
 - `interaction.auto_continue`: auto-respond to `ask_user` prompts with "Continue with your best judgment." (default `false`)
 - `memory`: persistent memory backend config and TTL caps
 
@@ -169,6 +171,7 @@ Relative paths passed to `read_file`/`write_file` resolve against the per-agent 
 - `InteractionResponse`: response envelope with `request_id`, `decision`, and optional `user_message`
 - `InteractionChannel`:
   - `post_request(...)` blocks until UI responds or timeout is reached
+  - `acknowledge_request(request_id)` marks a request as acknowledged, switching to the second timeout phase
   - `get_pending_request()` and `has_pending()` support non-blocking UI polling
   - `post_response(...)` fulfills a pending request
   - `cancel_pending(...)` and `shutdown(...)` unblock waiting runtime calls safely
@@ -176,8 +179,17 @@ Relative paths passed to `read_file`/`write_file` resolve against the per-agent 
 
 Timeout behavior is configurable via `agents.interaction`:
 
+- `timeout_seconds`: initial timeout before acknowledgment (default `300`)
 - `timeout_action="deny"` raises `PermissionError` on timeout (safe default)
 - `timeout_action="approve"` auto-approves timed-out requests
+- `acknowledged_timeout_seconds`: timeout after acknowledgment (default `0` = infinite wait)
+
+Two-phase timeout:
+
+- Phase 1: Unacknowledged requests time out after `timeout_seconds`
+- Phase 2: Once acknowledged via `acknowledge_request()`, requests wait indefinitely (or for `acknowledged_timeout_seconds` if > 0)
+- The TUI automatically acknowledges pending interactions when they are rendered in the Agents screen
+- The shell `/agent interact` command acknowledges pending interactions before displaying them
 
 Runtime usage:
 
@@ -185,6 +197,7 @@ Runtime usage:
 - `AgentHarness` posts clarification requests (for example through `ask_user`) and transitions `RUNNING -> WAITING_USER -> RUNNING`
 - `AgentHarness.stop()` cancels any pending request so blocked tool execution unblocks deterministically
 - `AgentRuntimeManager` keeps one interaction channel per running agent and forwards UI responses to the correct run by `agent_id`
+- `AgentRuntimeManager.acknowledge_interaction(agent_id, request_id)` forwards acknowledgment signals from UI to channels
 
 ## Sandbox Model
 

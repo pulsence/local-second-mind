@@ -2,6 +2,21 @@
 
 All notable changes to Local Second Mind are documented here.
 
+## 0.7.1 (unreleased)
+
+### Added
+
+- `acknowledged_timeout_seconds` config option in `agents.interaction` for two-phase interaction timeout behavior (default `0` = infinite wait once acknowledged).
+- Two-phase timeout in `InteractionChannel`: unacknowledged requests time out after `timeout_seconds`; acknowledged requests wait indefinitely (or for `acknowledged_timeout_seconds` if configured).
+- `acknowledge_interaction(agent_id, request_id)` method in `AgentRuntimeManager` to forward acknowledgment signals to interaction channels.
+- Automatic acknowledgment from TUI when pending interactions are rendered in the Agents screen.
+- Automatic acknowledgment from shell `/agent interact` command before displaying interaction prompts.
+
+### Changed
+
+- `InteractionChannel.post_request()` now uses a polling loop with two-phase timeout logic instead of a single `event.wait()` call.
+- `_acknowledged_interaction_ids` tracking in TUI Agents screen to prevent duplicate acknowledgment signals.
+
 ## 0.7.0 - 2026-02-25
 
 ### Added

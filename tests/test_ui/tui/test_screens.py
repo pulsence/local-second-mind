@@ -181,7 +181,7 @@ class TestHelpScreen:
         assert "Ingest: /info" in all_commands
         assert f"Version: v{__version__}" in whats_new
         assert help_module._WHATS_NEW_SECTION_TITLE == f"WHAT'S NEW IN v{__version__}"
-        assert "Interactive agent approvals and replies" in whats_new
+        assert "Agent system overhaul" in whats_new
 
 
 class TestMainScreen:

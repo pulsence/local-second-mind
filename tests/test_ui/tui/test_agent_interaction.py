@@ -216,6 +216,9 @@ class _Manager:
         _ = agent_id
         return "Stopped.\n"
 
+    def acknowledge_interaction(self, agent_id: str, request_id: str) -> None:
+        _ = agent_id, request_id
+
 
 class _TestableAgentsScreen(AgentsScreen):
     def __init__(self, app) -> None:
