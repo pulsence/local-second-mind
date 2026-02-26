@@ -104,6 +104,7 @@ class AgentsScreen(ManagedScreenMixin, Widget):
         self._selected_agent_id: Optional[str] = None
         self._pending_interaction: Optional[dict[str, Any]] = None
         self._known_pending_interaction_ids: set[str] = set()
+        self._acknowledged_interaction_ids: set[str] = set()
         self._deferred_init_done: bool = False
         self._interaction_notifications_initialized: bool = False
         self._running_refresh_timer: Optional[Timer] = None
@@ -1197,6 +1198,7 @@ class AgentsScreen(ManagedScreenMixin, Widget):
         }
         self._emit_interaction_notifications(pending_rows, pending_ids)
         self._known_pending_interaction_ids = pending_ids
+        self._acknowledged_interaction_ids &= pending_ids
         self._interaction_notifications_initialized = True
 
         pending_count = len(pending_rows)
@@ -1210,6 +1212,15 @@ class AgentsScreen(ManagedScreenMixin, Widget):
 
         selected = self._pick_pending_interaction(pending_rows)
         self._pending_interaction = selected
+
+        selected_key = self._pending_interaction_key(selected)
+        if selected_key and selected_key not in self._acknowledged_interaction_ids:
+            agent_id = str(selected.get("agent_id", "")).strip()
+            request_id = str(selected.get("request_id", "")).strip()
+            if agent_id and request_id:
+                manager.acknowledge_interaction(agent_id, request_id)
+            self._acknowledged_interaction_ids.add(selected_key)
+
         self._set_interaction_status(
             (
                 f"Pending {str(selected.get('request_type') or 'interaction')} request "

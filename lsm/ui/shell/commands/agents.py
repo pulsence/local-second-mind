@@ -160,9 +160,11 @@ class AgentRuntimeManager:
             interaction_cfg = getattr(agent_cfg, "interaction", None)
             timeout_seconds = int(getattr(interaction_cfg, "timeout_seconds", 300))
             timeout_action = str(getattr(interaction_cfg, "timeout_action", "deny"))
+            acknowledged_timeout_seconds = int(getattr(interaction_cfg, "acknowledged_timeout_seconds", 0))
             channel = InteractionChannel(
                 timeout_seconds=timeout_seconds,
                 timeout_action=timeout_action,
+                acknowledged_timeout_seconds=acknowledged_timeout_seconds,
             )
             for approved_tool in sorted(self._session_tool_approvals):
                 try:
@@ -1442,6 +1444,34 @@ class AgentRuntimeManager:
         except Exception:
             logger.exception("Failed to call %s on %r", method_name, target)
 
+    def acknowledge_interaction(self, agent_id: str, request_id: str) -> None:
+        """
+        Acknowledge a pending interaction request.
+
+        This signals that the interaction has been displayed to the user,
+        transitioning the timeout from the initial phase to the acknowledged phase.
+
+        Args:
+            agent_id: The ID of the agent run.
+            request_id: The ID of the pending interaction request.
+
+        Note:
+            This method is defensive and returns silently if the agent or channel
+            is not found, or if the request_id does not match.
+        """
+        with self._lock:
+            entry = self._lookup_entry_locked(agent_id, include_completed=False)
+            if entry is None:
+                return
+            try:
+                entry.channel.acknowledge_request(request_id)
+            except Exception:
+                logger.debug(
+                    "Failed to acknowledge interaction %s for agent %s",
+                    request_id,
+                    agent_id,
+                )
+
     def list_schedules(self, app: Any) -> list[dict[str, Any]]:
         scheduler = self._ensure_scheduler(app, start=False)
         return scheduler.list_schedules()
@@ -2015,6 +2045,12 @@ def handle_agent_command(command: str, app: Any) -> str:
         return manager.format_running_agents()
     if action == "interact":
         target_id = parts[2].strip() if len(parts) >= 3 else None
+        pending = manager.get_pending_interactions(agent_id=target_id)
+        for row in pending:
+            agent_id_value = str(row.get("agent_id", "")).strip()
+            request_id = str(row.get("request_id", "")).strip()
+            if agent_id_value and request_id:
+                manager.acknowledge_interaction(agent_id_value, request_id)
         return manager.format_pending_interactions(agent_id=target_id)
     if action in {"approve", "approve-session", "approve_session"}:
         if len(parts) < 3:

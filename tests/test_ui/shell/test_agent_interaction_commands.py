@@ -392,3 +392,86 @@ def test_agent_help_lists_core_agents() -> None:
     assert "librarian" in output
     assert "assistant" in output
     assert "manuscript_editor" in output
+
+
+def test_acknowledge_interaction_forwards_to_channel(monkeypatch) -> None:
+    from lsm.agents.interaction import InteractionChannel
+
+    manager = agent_commands.AgentRuntimeManager(join_timeout_s=0.5)
+    monkeypatch.setattr(agent_commands, "_MANAGER", manager)
+
+    channel = InteractionChannel(timeout_seconds=1.0, timeout_action="deny", acknowledged_timeout_seconds=0)
+    acknowledged_flag = {"called": False}
+
+    original_ack = channel.acknowledge_request
+
+    def _track_ack(request_id: str) -> None:
+        acknowledged_flag["called"] = True
+        original_ack(request_id)
+
+    channel.acknowledge_request = _track_ack
+
+    class _MockEntry:
+        def __init__(self, entry_channel):
+            self.channel = entry_channel
+            self.harness = None
+
+    with manager._lock:
+        manager._agents["test-agent-123"] = _MockEntry(channel)
+
+    manager.acknowledge_interaction("test-agent-123", "req-001")
+
+    assert acknowledged_flag["called"] is True
+
+    with manager._lock:
+        manager._agents.clear()
+
+
+def test_acknowledge_interaction_unknown_agent_is_silent(monkeypatch) -> None:
+    manager = agent_commands.AgentRuntimeManager(join_timeout_s=0.5)
+    monkeypatch.setattr(agent_commands, "_MANAGER", manager)
+
+    manager.acknowledge_interaction("nonexistent-agent-id", "some-request-id")
+
+    manager.shutdown(join_timeout_s=0.5)
+
+
+def test_interact_command_acknowledges_pending_interactions(monkeypatch) -> None:
+    manager = agent_commands.AgentRuntimeManager(join_timeout_s=0.5)
+    monkeypatch.setattr(agent_commands, "_MANAGER", manager)
+    monkeypatch.setattr(agent_commands, "create_default_tool_registry", lambda *args, **kwargs: _DummyRegistry())
+    monkeypatch.setattr(agent_commands, "ToolSandbox", _DummySandbox)
+    monkeypatch.setattr(agent_commands, "AgentHarness", _DummyHarness)
+
+    counter = {"idx": 0}
+
+    def _create_agent(**kwargs):
+        counter["idx"] += 1
+        return _InteractionAgent(
+            kwargs["sandbox"].channel,
+            request_type="permission",
+            request_id=f"interact-req-{counter['idx']}",
+            tool_name="write_file",
+        )
+
+    monkeypatch.setattr(agent_commands, "create_agent", _create_agent)
+
+    app = _app(max_concurrent=1)
+    agent_id = _extract_agent_id(agent_commands.handle_agent_command("/agent start research interact-test", app))
+    assert _wait_until(lambda: len(manager.get_pending_interactions()) == 1)
+
+    with manager._lock:
+        entry = manager._agents.get(agent_id)
+        assert entry is not None
+        channel = entry.channel
+        assert channel._acknowledged is False
+
+    interact_out = agent_commands.handle_agent_command("/agent interact", app)
+    assert "Pending interactions" in interact_out
+
+    with manager._lock:
+        assert channel._acknowledged is True
+
+    agent_commands.handle_agent_command(f"/agent approve {agent_id[:8]}", app)
+    assert _wait_until(lambda: len(manager.list_running()) == 0)
+    manager.shutdown(join_timeout_s=0.5)
