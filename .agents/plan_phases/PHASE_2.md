@@ -2,6 +2,7 @@
 
 **Plan**: [PLAN.md](../docs/PLAN.md)
 **Version**: 0.7.1
+**Status**: Complete
 
 Adds the foundational infrastructure that all subsequent phases depend on:
 `PhaseResult`, `AgentHarness.run_bounded()` with multi-context support,

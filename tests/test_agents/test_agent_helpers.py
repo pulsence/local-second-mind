@@ -10,6 +10,10 @@ class HelperAgent(BaseAgent):
     description = "Helper test agent."
     tool_allowlist = {"alpha", "beta"}
 
+    def __init__(self) -> None:
+        super().__init__()
+        self._tokens_used = 0  # legacy budget tracking; pre-migration agents own this attribute
+
     def run(self, initial_context: AgentContext) -> AgentState:
         _ = initial_context
         return self.state

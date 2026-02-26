@@ -5,6 +5,7 @@ Base classes and state models for agents.
 from __future__ import annotations
 
 import json
+import re
 import warnings
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
@@ -15,6 +16,8 @@ from typing import Any, Dict, List, Optional, Sequence, TYPE_CHECKING
 
 from .log_formatter import save_agent_log
 from .models import AgentContext, AgentLogEntry
+from .phase import PhaseResult
+from .workspace import ensure_agent_workspace
 
 if TYPE_CHECKING:
     from .tools.base import ToolRegistry
@@ -123,8 +126,8 @@ class BaseAgent(ABC):
         self.state = AgentState()
         self._stop_requested = False
         self._stop_logged = False
-        self._tokens_used = 0
         self.max_tokens_budget: Optional[int] = None
+        self._harness: Any = None
 
     @abstractmethod
     def run(self, initial_context: AgentContext) -> AgentState:
@@ -379,3 +382,84 @@ class BaseAgent(ABC):
             if normalized and normalized not in selected:
                 selected.append(normalized)
         return selected
+
+    def _workspace_root(self) -> Path:
+        agent_config = getattr(self, "agent_config", None)
+        if agent_config is None:
+            raise RuntimeError("agent_config is required to access workspace")
+        return ensure_agent_workspace(self.name, agent_config.agents_folder)
+
+    def _artifacts_dir(self) -> Path:
+        artifacts = self._workspace_root() / "artifacts"
+        artifacts.mkdir(parents=True, exist_ok=True)
+        return artifacts
+
+    def _logs_dir(self) -> Path:
+        logs = self._workspace_root() / "logs"
+        logs.mkdir(parents=True, exist_ok=True)
+        return logs
+
+    def _memory_dir(self) -> Path:
+        memory = self._workspace_root() / "memory"
+        memory.mkdir(parents=True, exist_ok=True)
+        return memory
+
+    def _artifact_filename(self, name: str, suffix: str = ".md") -> str:
+        timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+        safe_name = re.sub(r"[^\w\-]", "_", name).strip("_")
+        return f"{safe_name}_{timestamp}{suffix}"
+
+    def _reset_harness(self) -> None:
+        """Reset the harness at the start of each run() call."""
+        self._harness = None
+
+    def _run_phase(
+        self,
+        system_prompt: str = "",
+        user_message: str = "",
+        tool_names: Optional[list[str]] = None,
+        max_iterations: int = 10,
+        continue_context: bool = True,
+        context_label: Optional[str] = None,
+        direct_tool_calls: Optional[list[dict]] = None,
+    ) -> PhaseResult:
+        if self._harness is None:
+            llm_registry = getattr(self, "llm_registry", None)
+            tool_registry = getattr(self, "tool_registry", None)
+            sandbox = getattr(self, "sandbox", None)
+            agent_config = getattr(self, "agent_config", None)
+
+            if llm_registry is None or tool_registry is None or sandbox is None or agent_config is None:
+                raise RuntimeError(
+                    "Agent is missing required attributes (llm_registry, tool_registry, sandbox, agent_config). "
+                    "Ensure the agent was created via the agent factory."
+                )
+
+            from .harness import AgentHarness
+
+            self._harness = AgentHarness(
+                agent_config=agent_config,
+                tool_registry=tool_registry,
+                llm_registry=llm_registry,
+                sandbox=sandbox,
+                agent_name=self.name,
+                tool_allowlist=self.tool_allowlist,
+                system_prompt=system_prompt,
+            )
+        else:
+            if system_prompt:
+                logger = getattr(self, "_logger", None)
+                if logger:
+                    logger.debug(
+                        "system_prompt is ignored on subsequent _run_phase() calls; "
+                        "harness is already initialized"
+                    )
+
+        return self._harness.run_bounded(
+            user_message=user_message,
+            tool_names=tool_names,
+            max_iterations=max_iterations,
+            continue_context=continue_context,
+            context_label=context_label,
+            direct_tool_calls=direct_tool_calls,
+        )
