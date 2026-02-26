@@ -56,7 +56,12 @@ def test_agent_config_validate_happy_path() -> None:
             allowed_write_paths=[Path(".")],
             allow_url_access=False,
         ),
-        interaction=InteractionConfig(timeout_seconds=60, timeout_action="deny", auto_continue=True),
+        interaction=InteractionConfig(
+            timeout_seconds=60,
+            timeout_action="deny",
+            auto_continue=True,
+            acknowledged_timeout_seconds=0,
+        ),
     )
     cfg.validate()
 
@@ -120,6 +125,7 @@ def test_build_config_reads_agents_section(tmp_path: Path) -> None:
             "timeout_seconds": 42,
             "timeout_action": "approve",
             "auto_continue": True,
+            "acknowledged_timeout_seconds": 120,
         },
         "agent_configs": {
             "research": {"max_iterations": 10}
@@ -160,6 +166,7 @@ def test_build_config_reads_agents_section(tmp_path: Path) -> None:
     assert config.agents.interaction.timeout_seconds == 42
     assert config.agents.interaction.timeout_action == "approve"
     assert config.agents.interaction.auto_continue is True
+    assert config.agents.interaction.acknowledged_timeout_seconds == 120
     assert config.agents.agent_configs["research"]["max_iterations"] == 10
 
 
@@ -210,6 +217,7 @@ def test_config_to_raw_includes_agents_section(tmp_path: Path) -> None:
             "timeout_seconds": 120,
             "timeout_action": "deny",
             "auto_continue": True,
+            "acknowledged_timeout_seconds": 60,
         },
         "agent_configs": {"research": {"enabled": True}},
     }
@@ -244,6 +252,7 @@ def test_config_to_raw_includes_agents_section(tmp_path: Path) -> None:
     assert serialized["agents"]["interaction"]["timeout_seconds"] == 120
     assert serialized["agents"]["interaction"]["timeout_action"] == "deny"
     assert serialized["agents"]["interaction"]["auto_continue"] is True
+    assert serialized["agents"]["interaction"]["acknowledged_timeout_seconds"] == 60
     assert serialized["agents"]["agent_configs"]["research"]["enabled"] is True
 
 
@@ -300,4 +309,15 @@ def test_agent_config_validate_rejects_non_positive_max_concurrent() -> None:
 def test_agent_config_validate_rejects_non_positive_log_stream_queue_limit() -> None:
     cfg = AgentConfig(log_stream_queue_limit=0)
     with pytest.raises(ValueError, match="log_stream_queue_limit"):
+        cfg.validate()
+
+
+def test_interaction_config_defaults_acknowledged_timeout_to_zero() -> None:
+    cfg = InteractionConfig()
+    assert cfg.acknowledged_timeout_seconds == 0
+
+
+def test_interaction_config_validate_rejects_negative_acknowledged_timeout() -> None:
+    cfg = InteractionConfig(acknowledged_timeout_seconds=-1)
+    with pytest.raises(ValueError, match="acknowledged_timeout_seconds"):
         cfg.validate()

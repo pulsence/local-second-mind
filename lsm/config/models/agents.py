@@ -313,10 +313,14 @@ class InteractionConfig:
     auto_continue: bool = False
     """Auto-respond to ask_user prompts with a continue message."""
 
+    acknowledged_timeout_seconds: int = 0
+    """Timeout after acknowledgment; 0 means infinite (no timeout once acknowledged)."""
+
     def __post_init__(self) -> None:
         self.timeout_seconds = int(self.timeout_seconds)
         self.timeout_action = str(self.timeout_action or "deny").strip().lower()
         self.auto_continue = bool(self.auto_continue)
+        self.acknowledged_timeout_seconds = int(self.acknowledged_timeout_seconds)
 
     def validate(self) -> None:
         """Validate interaction configuration."""
@@ -326,6 +330,8 @@ class InteractionConfig:
             raise ValueError(
                 "agents.interaction.timeout_action must be one of: deny, approve"
             )
+        if self.acknowledged_timeout_seconds < 0:
+            raise ValueError("agents.interaction.acknowledged_timeout_seconds must be >= 0")
 
 
 @dataclass

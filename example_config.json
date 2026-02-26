@@ -176,7 +176,8 @@
     "interaction": {
       "timeout_seconds": 300,
       "_comment_timeout_action": "deny = safe default, approve = auto-approve on timeout",
-      "timeout_action": "deny"
+      "timeout_action": "deny",
+      "acknowledged_timeout_seconds": 0
     },
     "agent_configs": {
       "research": {
