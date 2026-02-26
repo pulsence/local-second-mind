@@ -135,7 +135,7 @@ def test_run_remote_search_success_no_results(monkeypatch: pytest.MonkeyPatch) -
         include_disambiguation=None,
     )
     config = SimpleNamespace(remote_providers=[provider_config])
-    monkeypatch.setattr(utils, "create_remote_provider", lambda _t, _cfg: _Provider([]))
+    monkeypatch.setattr("lsm.remote.create_remote_provider", lambda _t, _cfg: _Provider([]))
 
     output = utils.run_remote_search("wiki", "python", config)
     assert "No results found" in output
@@ -160,8 +160,7 @@ def test_run_remote_search_success_with_results(monkeypatch: pytest.MonkeyPatch)
     config = SimpleNamespace(remote_providers=[provider_config])
     long_snippet = "x" * 250
     monkeypatch.setattr(
-        utils,
-        "create_remote_provider",
+        "lsm.remote.create_remote_provider",
         lambda _t, _cfg: _Provider([_Result("Title", "https://e.com", long_snippet, 0.9)]),
     )
 
@@ -192,7 +191,7 @@ def test_run_remote_search_handles_exception(monkeypatch: pytest.MonkeyPatch) ->
     def _boom(_t, _cfg):
         raise RuntimeError("bad provider")
 
-    monkeypatch.setattr(utils, "create_remote_provider", _boom)
+    monkeypatch.setattr("lsm.remote.create_remote_provider", _boom)
     output = utils.run_remote_search("wiki", "python", config)
     assert "Search failed: bad provider" in output
 
@@ -253,7 +252,7 @@ def test_run_remote_search_all_dedupes_and_updates_state(monkeypatch: pytest.Mon
         calls["idx"] += 1
         return providers["a"] if calls["idx"] == 1 else providers["b"]
 
-    monkeypatch.setattr(utils, "create_remote_provider", _factory_ordered)
+    monkeypatch.setattr("lsm.remote.create_remote_provider", _factory_ordered)
     output = utils.run_remote_search_all("python", config, state)
 
     assert "Total: 2 unique results" in output
