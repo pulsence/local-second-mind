@@ -18,7 +18,7 @@ from .find_section import FindSectionTool
 from .hash_file import HashFileTool
 from .edit_file import EditFileTool
 from .load_url import LoadURLTool
-from .query_embeddings import QueryEmbeddingsTool
+from .query_knowledge_base import QueryKnowledgeBaseTool
 from .query_llm import QueryLLMTool
 from .query_remote import QueryRemoteTool
 from .query_remote_chain import QueryRemoteChainTool
@@ -59,7 +59,7 @@ __all__ = [
     "HashFileTool",
     "EditFileTool",
     "LoadURLTool",
-    "QueryEmbeddingsTool",
+    "QueryKnowledgeBaseTool",
     "QueryLLMTool",
     "QueryRemoteTool",
     "QueryRemoteChainTool",
@@ -125,10 +125,10 @@ def create_default_tool_registry(
         registry.register(SimilaritySearchTool(collection=collection))
     if collection is not None and embedder is not None:
         registry.register(
-            QueryEmbeddingsTool(
-                collection=collection,
+            QueryKnowledgeBaseTool(
+                config=config,
                 embedder=embedder,
-                batch_size=batch_size,
+                collection=collection,
             )
         )
         registry.register(

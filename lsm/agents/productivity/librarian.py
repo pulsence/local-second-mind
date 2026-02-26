@@ -42,7 +42,7 @@ class LibrarianAgent(BaseAgent):
     tier = "normal"
     description = "Explore embeddings and build idea graphs with metadata summaries."
     tool_allowlist = {
-        "query_embeddings",
+        "query_knowledge_base",
         "extract_snippets",
         "source_map",
         "memory_put",
@@ -89,7 +89,7 @@ class LibrarianAgent(BaseAgent):
         topic = self._extract_topic(initial_context)
         self.state.current_task = f"Librarian: {topic}"
 
-        candidates = self._query_embeddings(topic)
+        candidates = self._query_knowledge_base(topic)
         source_paths = self._extract_source_paths(candidates)
         graph_entries = self._build_graph_entries(source_paths)
         citations = self._build_citations(candidates)
@@ -143,18 +143,20 @@ class LibrarianAgent(BaseAgent):
             if str(item.get("name", "")).strip()
         }
 
-    def _query_embeddings(self, topic: str) -> list[dict[str, Any]]:
+    def _query_knowledge_base(self, topic: str) -> list[dict[str, Any]]:
         if self._handle_stop_request():
             return []
-        if "query_embeddings" not in self._available_tools():
-            self._log("query_embeddings tool is not available; skipping retrieval.")
+        if "query_knowledge_base" not in self._available_tools():
+            self._log("query_knowledge_base tool is not available; skipping retrieval.")
             return []
         output = self._run_tool(
-            "query_embeddings",
+            "query_knowledge_base",
             {"query": topic, "top_k": 8, "max_chars": 500},
         )
         parsed = self._parse_json(output)
-        return parsed if isinstance(parsed, list) else []
+        if isinstance(parsed, dict):
+            return parsed.get("candidates", [])
+        return []
 
     def _extract_source_paths(self, candidates: list[dict[str, Any]]) -> list[str]:
         paths: list[str] = []

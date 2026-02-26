@@ -45,7 +45,7 @@ class SynthesisAgent(BaseAgent):
     risk_posture = "writes_workspace"
     tool_allowlist = {
         "read_folder",
-        "query_embeddings",
+        "query_knowledge_base",
         "read_file",
         "write_file",
         "extract_snippets",
@@ -279,12 +279,12 @@ class SynthesisAgent(BaseAgent):
             "source_map": {},
         }
 
-        if query and "query_embeddings" in available:
+        if query and "query_knowledge_base" in available:
             query_args = {"query": query, "top_k": 10, "max_chars": 700}
-            output = self._run_tool("query_embeddings", query_args)
+            output = self._run_tool("query_knowledge_base", query_args)
             parsed = self._parse_json(output)
-            if isinstance(parsed, list):
-                evidence["candidates"] = parsed
+            if isinstance(parsed, dict):
+                evidence["candidates"] = parsed.get("candidates", [])
 
         if self._is_stop_requested():
             return evidence

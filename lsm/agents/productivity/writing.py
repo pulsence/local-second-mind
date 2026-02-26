@@ -42,7 +42,7 @@ class WritingAgent(BaseAgent):
     description = "Generate grounded written deliverables from the knowledge base."
     risk_posture = "writes_workspace"
     tool_allowlist = {
-        "query_embeddings",
+        "query_knowledge_base",
         "read_file",
         "read_folder",
         "write_file",
@@ -146,12 +146,12 @@ class WritingAgent(BaseAgent):
             if str(item.get("name", "")).strip()
         }
 
-        if "query_embeddings" in available:
+        if "query_knowledge_base" in available:
             query_args = {"query": topic, "top_k": 8, "max_chars": 700}
-            output = self._run_tool("query_embeddings", query_args)
+            output = self._run_tool("query_knowledge_base", query_args)
             parsed = self._parse_json(output)
-            if isinstance(parsed, list):
-                grounding["candidates"] = parsed
+            if isinstance(parsed, dict):
+                grounding["candidates"] = parsed.get("candidates", [])
 
         if self._is_stop_requested():
             return grounding

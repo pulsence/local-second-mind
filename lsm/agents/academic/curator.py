@@ -46,7 +46,7 @@ class CuratorAgent(BaseAgent):
         "read_folder",
         "file_metadata",
         "hash_file",
-        "query_embeddings",
+        "query_knowledge_base",
         "similarity_search",
         "write_file",
     }
@@ -650,7 +650,7 @@ class CuratorAgent(BaseAgent):
     def _collect_quality_signals(self, topic: str) -> List[Dict[str, Any]]:
         if self._is_stop_requested():
             return []
-        if "query_embeddings" not in self._available_tools():
+        if "query_knowledge_base" not in self._available_tools():
             return []
         query = str(
             self.agent_overrides.get(
@@ -661,13 +661,14 @@ class CuratorAgent(BaseAgent):
         if not query:
             return []
         output = self._run_tool(
-            "query_embeddings",
+            "query_knowledge_base",
             {"query": query, "top_k": 10, "max_chars": 500},
         )
         parsed = self._parse_json(output)
-        if not isinstance(parsed, list):
+        if not isinstance(parsed, dict):
             return []
-        return [item for item in parsed if isinstance(item, dict)]
+        candidates = parsed.get("candidates", [])
+        return [item for item in candidates if isinstance(item, dict)]
 
     def _apply_heuristics(
         self,

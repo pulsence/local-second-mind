@@ -46,7 +46,7 @@ class ResearchAgent(BaseAgent):
         "Decomposes a topic, gathers evidence via tools, and writes a structured outline."
     )
     tool_allowlist = {
-        "query_embeddings",
+        "query_knowledge_base",
         "query_remote",
         "query_remote_chain",
     }
@@ -234,13 +234,13 @@ class ResearchAgent(BaseAgent):
         if selected:
             return selected
 
-        defaults = [name for name in ("query_embeddings", "query_remote") if name in available]
+        defaults = [name for name in ("query_knowledge_base", "query_remote") if name in available]
         if defaults:
             return defaults
         return available[:1]
 
     def _build_tool_args(self, tool_name: str, subtopic: str) -> Dict[str, Any]:
-        if tool_name == "query_embeddings":
+        if tool_name == "query_knowledge_base":
             return {"query": subtopic, "top_k": 5}
         if tool_name == "query_remote":
             provider_name = self._first_remote_provider_name()
@@ -309,24 +309,18 @@ class ResearchAgent(BaseAgent):
     def _extract_sources_from_output(self, tool_name: str, output: str) -> list[dict[str, str]]:
         parsed = self._parse_json(output)
         sources: list[dict[str, str]] = []
-        if tool_name == "query_embeddings" and isinstance(parsed, list):
-            for item in parsed:
+        if tool_name == "query_knowledge_base" and isinstance(parsed, dict):
+            candidates = parsed.get("candidates", [])
+            for item in candidates:
                 if not isinstance(item, dict):
                     continue
                 text = str(item.get("text", "")).strip()
-                metadata = item.get("metadata")
-                source_path = ""
-                title = ""
-                if isinstance(metadata, dict):
-                    source_path = str(metadata.get("source_path", "")).strip()
-                    title = str(metadata.get("title", "")).strip()
+                item_id = str(item.get("id", "")).strip()
                 snippet = self._truncate_text(text, 400)
-                if not snippet and metadata:
-                    snippet = self._truncate_text(json.dumps(metadata, ensure_ascii=True), 400)
                 sources.append(
                     {
-                        "title": title or source_path or "Local source",
-                        "location": source_path,
+                        "title": item_id or "Local source",
+                        "location": item_id,
                         "snippet": snippet,
                     }
                 )
