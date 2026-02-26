@@ -102,6 +102,7 @@ class _Manager:
         self.pending_rows = []
         self.schedule_rows = []
         self.status_by_id = {}
+        self.acknowledge_calls: list[tuple[str, str]] = []
 
     def start(self, app, name: str, topic: str) -> str:
         self.started = (name, topic)
@@ -136,6 +137,9 @@ class _Manager:
 
     def get_pending_interactions(self):
         return list(self.pending_rows)
+
+    def acknowledge_interaction(self, agent_id: str, request_id: str) -> None:
+        self.acknowledge_calls.append((agent_id, request_id))
 
     def list_schedules(self, app):
         _ = app
@@ -563,6 +567,30 @@ def test_interaction_pending_notification_uses_high_priority(monkeypatch) -> Non
             {"severity": "warning", "timeout": 10},
         )
     ]
+
+
+def test_interaction_panel_acknowledges_once_per_request_id(monkeypatch) -> None:
+    screen = _screen_with_runtime_widgets()
+    manager = _Manager()
+    monkeypatch.setattr("lsm.ui.tui.screens.agents.get_agent_runtime_manager", lambda: manager)
+
+    pending_row = {
+        "request_id": "req-ack-once",
+        "request_type": "permission",
+        "agent_name": "research",
+        "agent_id": "agent-42",
+        "tool_name": "write_file",
+        "risk_level": "writes_workspace",
+        "reason": "Need approval",
+        "args_summary": "{}",
+        "prompt": "Allow?",
+    }
+    manager.pending_rows = [pending_row]
+
+    for _ in range(5):
+        screen._refresh_interaction_panel()
+
+    assert manager.acknowledge_calls == [("agent-42", "req-ack-once")]
 
 
 def test_schedule_trigger_notification_emitted_on_last_run_change(monkeypatch) -> None:

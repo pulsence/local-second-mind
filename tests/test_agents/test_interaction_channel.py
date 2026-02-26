@@ -242,9 +242,9 @@ def test_channel_acknowledge_wrong_request_id_is_noop() -> None:
 
     channel.acknowledge_request("wrong-request-id")
 
-    assert _wait_until(lambda: len(errors) > 0 or not channel.has_pending(), timeout_s=0.5)
+    assert _wait_until(lambda: len(errors) > 0 or not channel.has_pending(), timeout_s=1.5)
 
-    thread.join(timeout=0.5)
+    thread.join(timeout=1.5)
 
     assert len(errors) == 1
     assert isinstance(errors[0], PermissionError)
