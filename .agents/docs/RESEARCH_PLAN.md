@@ -1,1122 +1,922 @@
-# v0.8.0 Research Plan: Embedding Retrieval Improvements
+# v0.7.1 Research Plan: Agent Foundation Refinement
 
-**Status**: Discovery Phase
-**Version Target**: 0.8.0
-**Source**: `TODO` v0.8.0 section + `.agents/future_plans/INGEST_FUTURE.md`
+**Status**: Clarifications Resolved — Design Finalized
+**Version Target**: 0.7.1
+**Source**: `TODO` v0.7.1 section
 
-This document records design considerations, architectural options, open questions, and
-dependencies for v0.8.0. It is not an implementation plan — that comes after these
-questions are resolved. Clarification questions requiring user decisions are consolidated
-at the end.
+This document records all design findings for v0.7.1. All clarifying questions have been
+resolved. The next step is to produce an implementation plan based on these decisions.
 
 ---
 
 ## Table of Contents
 
-1. [Scope Summary](#1-scope-summary)
-2. [DB Versioning with Migration/Upgrade](#2-db-versioning-with-migrationupgrade)
-3. [DB Completion — Incremental Corpus Updates](#3-db-completion--incremental-corpus-updates)
-4. [Architectural Overhaul: Retrieval Pipeline](#4-architectural-overhaul-retrieval-pipeline)
-5. [Document Headings Improvement](#5-document-headings-improvement)
-6. [Cross-Cutting Concerns](#6-cross-cutting-concerns)
-7. [Long-Term Design Principles (INGEST_FUTURE.md)](#7-long-term-design-principles)
-8. [Dependency Map](#8-dependency-map)
-9. [Clarification Questions](#9-clarification-questions)
+1. [Release Overview](#1-release-overview)
+2. [Core Architecture: Persistent Harness and Phase Execution](#2-core-architecture-persistent-harness-and-phase-execution)
+   - 2.1 [The Problem: Two Divergent Execution Patterns](#21-the-problem-two-divergent-execution-patterns)
+   - 2.2 [What Manual Execution Bypasses](#22-what-manual-execution-bypasses)
+   - 2.3 [BaseAgent vs AgentHarness: Defined Responsibilities](#23-baseagent-vs-agentharness-defined-responsibilities)
+   - 2.4 [Solution: Persistent Harness with _run_phase()](#24-solution-persistent-harness-with-_run_phase)
+   - 2.5 [AgentHarness: run_bounded() and Budget Enforcement](#25-agentharness-run_bounded-and-budget-enforcement)
+   - 2.6 [PhaseResult: The Phase Execution Contract](#26-phaseresult-the-phase-execution-contract)
+   - 2.7 [Workspace and Artifact Management](#27-workspace-and-artifact-management)
+   - 2.8 [Design Options Considered](#28-design-options-considered)
+   - 2.9 [Scope of Agent Migrations](#29-scope-of-agent-migrations)
+3. [Knowledge Base Access: query_knowledge_base Tool](#3-knowledge-base-access-query_knowledge_base-tool)
+   - 3.1 [Problem: Research Agent Reimplements the Query Pipeline](#31-problem-research-agent-reimplements-the-query-pipeline)
+   - 3.2 [What the Query Pipeline Provides](#32-what-the-query-pipeline-provides)
+   - 3.3 [The Dependency Gap](#33-the-dependency-gap)
+   - 3.4 [Chosen Design](#34-chosen-design)
+   - 3.5 [query_embeddings Deprecation](#35-query_embeddings-deprecation)
+   - 3.6 [Design Options Considered](#36-design-options-considered)
+4. [Research Agent Observability](#4-research-agent-observability)
+5. [Interaction Channel: Two-Phase Timeout](#5-interaction-channel-two-phase-timeout)
+   - 5.1 [Problem Statement](#51-problem-statement)
+   - 5.2 [Current Architecture](#52-current-architecture)
+   - 5.3 [Root Cause](#53-root-cause)
+   - 5.4 [Design Options](#54-design-options)
+   - 5.5 [Chosen Design](#55-chosen-design)
+6. [Implementation Plan](#6-implementation-plan)
+   - 6.1 [Dependency Map](#61-dependency-map)
+   - 6.2 [Implementation Order](#62-implementation-order)
+   - 6.3 [Testing Strategy](#63-testing-strategy)
+   - 6.4 [Documentation Updates](#64-documentation-updates)
+7. [Resolved Decisions](#7-resolved-decisions)
 
 ---
 
-## 1. Scope Summary
+## 1. Release Overview
 
-The three TODO items for v0.8.0 are:
+v0.7.1 is an agent refinement release addressing behavioral and architectural problems found after
+v0.7.0. Five areas of work are addressed in a single implementation pass.
 
-| # | TODO item | Complexity |
-|---|-----------|------------|
-| A | DB versioning with migration/upgrade between versions | High |
-| B | DB completion (add new data without full rebuild) | High |
-| C | Architectural overhaul of ingest and embedding retrieval (INGEST_FUTURE.md) | Very High |
-| D | Document headings configurable depth + intelligent selection | Medium |
+| # | Area | Summary |
+|---|------|---------|
+| 1 | Architecture | `BaseAgent` should own all LLM and tool calls via a persistent harness; individual agents only orchestrate |
+| 2 | Research Agent | Eliminate query pipeline duplication; route research queries through `query_knowledge_base` |
+| 3 | Research Agent | Log each subtopic name during iterations, not just the count |
+| 4 | Research Agent | Save output artifacts to the correct per-agent artifacts folder |
+| 5 | General | Interaction channel should not time out when the user is actively viewing the agent prompt |
 
-Items A and B are closely coupled: both require a schema-version concept that does not
-currently exist. Item C is the largest body of work — INGEST_FUTURE.md defines three
-phases of retrieval modernization; this document assesses what v0.8.0 should target.
-Item D is self-contained but interacts with how the ingest pipeline produces chunks.
-
----
-
-## 2. DB Versioning with Migration/Upgrade
-
-### 2.1 What Exists Today
-
-The codebase has a partial versioning foundation:
-
-- **File-level versioning** (`manifest.py:23-36`): `get_next_version()` increments an
-  integer per source file path across ingest runs.
-- **Chunk-level soft-delete** (`pipeline.py:370-386`): When `enable_versioning=True`,
-  old chunks are marked `is_current=False` instead of deleted.
-  **User Response:** Enable versioning should not be a flag but versioning should just be how the system works. And then the VectorDB should have a clean method that cleans up old versions based upon some criteria.
-- **Query-time version filter** (`planning.py:189`): Filters to `is_current=True` when
-  versioning is enabled, hiding historical chunks.
-- **DB-to-DB migration** (`migrations/chromadb_to_postgres.py`): Copies all vectors
-  from ChromaDB to PostgreSQL via the provider interface.
-
-What is **absent**: any notion of *schema version* — tracking what version of the
-chunking algorithm, embedding model, or metadata layout produced a given set of vectors.
-A freshly deployed codebase loads an existing vector DB and has no way to detect
-incompatibility or know which chunks need updating.
-
-### 2.2 What "Schema Version" Means Here
-
-A "schema version" in this context needs to capture at minimum:
-
-| Dimension | Why It Matters | Current State |
-|-----------|---------------|---------------|
-| Embedding model name + dimension | Different models produce incompatible vector spaces | Validated only at ingest time (`pipeline.py:279-287`); not recorded in DB or manifest |
-| Chunking strategy + params | `structure` vs `fixed`, chunk_size, overlap | Not recorded |
-| Metadata field set | Added fields (e.g., `heading`, `page_number`) don't backfill old chunks | Not recorded |
-| Parser version | Parser behaviour changes affect chunk content | Not recorded |
-| Ingest code version | LSM version that produced the chunks | Not recorded |
-
-Without schema versioning, any upgrade to chunking or embedding silently creates a
-mixed-generation corpus — old chunks and new chunks coexist in the same collection with
-different vector spaces and metadata layouts.
-
-### 2.3 Where Schema Version Should Live
-
-There are two natural homes:
-
-**Option A — In the manifest**: Add a top-level `"schema": {...}` block to
-`manifest.json` capturing embedding model, chunking params, and code version. The
-manifest already has a single-writer pattern, making this consistent.
-
-**Option B — In the vector DB as collection metadata**: ChromaDB supports per-collection
-metadata; PostgreSQL supports a metadata table. This keeps schema info co-located with
-the data even if the manifest file is lost.
-
-**Recommended exploration**: Use both. The manifest holds the authoritative schema record
-(since it is already committed transactionally after successful writes in
-`pipeline.py:349`). The vector DB holds a secondary copy as collection metadata for
-self-describing data.
-
-**User Response:** The schema version should live in SQLite if using Chroma and PG if using PG for vector store.
-
-### 2.4 Migration / Upgrade Path
-
-When the system detects a schema mismatch (e.g., user changes `embed_model` in config
-or the code upgrades its default chunking), several strategies are possible:
-
-| Strategy | Description | Trade-offs |
-|----------|-------------|------------|
-| **Full rebuild** | Wipe and re-ingest entire corpus | Simplest; expensive for large corpora |
-| **Selective re-embed** | Re-embed only files whose chunks used the old model | Requires per-chunk model provenance; avoids full rebuild |
-| **Dual-generation query** | Keep old vectors, query both old and new indices, RRF merge | Zero downtime; highest query complexity |
-| **Incremental migration job** | Background job that progressively re-embeds old chunks | Low user disruption; requires per-chunk tracking |
-
-The selective re-embed strategy requires the manifest to record `embedding_model` per
-file entry (or per chunk via vector DB metadata). The dual-generation approach requires
-multi-collection query support in `BaseVectorDBProvider`.
-
-### 2.5 Key Open Questions Before Design
-
-- How should schema mismatch be surfaced to the user (warning, error, or auto-migration)?
-**User Response:** By an error with instruction on how to auto-migrate. Maintaining extra code to handle warnings adds too much code complexity.
-- Is a `lsm migrate` CLI command the intended entry point, or should migration happen
-  automatically at ingest time? **User Response:** Migrate should be a CLI command for ingest and handled by the Ingest screen in the TUI.
-- Should the PostgreSQL provider expose collection metadata APIs to store schema info, or
-  is the manifest sufficient? **User Response:** This data should be stored in DB.
-- What is the expected corpus size? (Under 100k files: manifest can scale; over 500k:
-  SQLite or DB-backed manifest becomes necessary — see §3.4.) **User Response:** Expect the corpus of chunks to be 100k+. DB backed manifest is necessary.
+Items are ordered here by dependency. Item 1 (architecture) is the foundation on which Items 2, 3,
+and 4 are built. Items 3 and 4 are absorbed into Item 1's agent migration work. Item 5 (interaction
+timeout) is independent of the others.
 
 ---
 
-## 3. DB Completion — Incremental Corpus Updates
-
-### 3.1 The Problem
-
-"DB completion" means: given an existing vector DB that was built with version X of LSM,
-bring it up to date with version Y without a full rebuild. Concretely this covers:
-
-1. **New file types**: If a new parser (e.g., `.epub`, `.pptx`) is added in v0.8.0,
-   old corpora should be completable by ingesting only the newly supported file types,
-   not re-processing everything.
-
-2. **New metadata fields**: If `heading` metadata or `page_number` tracking is added,
-   existing chunks lack those fields. Can old chunks be enriched without re-embedding?
-
-3. **Changed chunking**: If `structure` chunking is improved (e.g., heading depth
-   configuration), old chunks have different boundaries. These can only be fixed by
-   re-chunking.
-
-4. **New ingest features**: If AI tagging (`enable_ai_tagging`) or language detection
-   (`enable_language_detection`) is enabled on an existing corpus, old chunks lack those
-   tags. Some enrichment is possible post-hoc (re-read file, re-tag, update metadata);
-   re-embedding is not needed.
-
-### 3.2 What Already Works
-
-The current incremental system (`pipeline.py:620-647`) already skips unchanged files via
-the three-level manifest check (mtime → size → hash). Files that are changed or new are
-always re-ingested. This handles the "new files added to roots" case perfectly.
-
-The gap is: a file that has *not* changed on disk but whose *vector representation or
-metadata is now stale* by the codebase's definition. The manifest's hash-equality check
-returns "skip" — but the file should be re-ingested.
-
-### 3.3 Completion Modes to Research
-
-| Mode | Trigger | Scope | Cost |
-|------|---------|-------|------|
-| **Extension completion** | New `extensions` added to config | Only files with new extensions | Low — only new file types |
-| **Metadata enrichment** | New metadata field (tags, language) available | All files, no re-embedding | Medium — re-parse + metadata update |
-| **Chunk boundary update** | Chunking params changed | All files for that strategy | High — re-chunk + re-embed all |
-| **Embedding upgrade** | Embedding model changed | All files | Very high — full re-embed |
-| **Selective re-ingest** | Manual via CLI flag `--force-file-pattern` | User-specified subset | Variable |
-
-A `completion` command or a `--force-reingest-changed-config` flag could compare the
-manifest's recorded schema against the current config and ingest only files whose chunks
-would differ under the new schema.
-
-### 3.4 Manifest Scaling
-
-The current manifest is a flat JSON dict (`source_path → entry`). At scale:
-
-| Corpus size | Manifest size | Load/save time |
-|-------------|---------------|----------------|
-| 10k files | ~2 MB | Negligible |
-| 100k files | ~20 MB | ~200ms |
-| 500k files | ~100 MB | ~1s+ |
-
-For a personal knowledge base this is unlikely to be a bottleneck, but the manifest
-should be considered for a future SQLite backing (see v0.9.0 TODO: "persist ingest state
-and file hashes to DB"). For v0.8.0, adding a `schema` header block to the manifest
-header is sufficient and does not require a format change that would invalidate existing
-manifests.
-
-**User Response:** Manifest should move to DB backed.
-
-### 3.5 Manifest Schema to Record
-
-A minimal v0.8.0 schema block in `manifest.json`:
-
-```json
-{
-  "_schema": {
-    "manifest_version": 2,
-    "lsm_version": "0.8.0",
-    "embedding_model": "sentence-transformers/all-MiniLM-L6-v2",
-    "embedding_dimension": 384,
-    "chunking_strategy": "structure",
-    "chunk_size": 1800,
-    "chunk_overlap": 200,
-    "created_at": "2026-02-25T10:00:00Z",
-    "last_ingest_at": "2026-02-25T10:00:00Z"
-  },
-  "/path/to/file.md": {
-    "mtime_ns": 1709000000000000000,
-    "size": 12345,
-    "file_hash": "abc123...",
-    "version": 1,
-    "updated_at": "2026-02-25T10:00:00Z"
-  }
-}
-```
-
-This is a backwards-compatible addition (existing code ignores unknown keys). Upgrade
-detection reads `_schema.embedding_model` and compares to config.
-
----
-
-## 4. Architectural Overhaul: Retrieval Pipeline
-
-The full plan lives in `.agents/future_plans/INGEST_FUTURE.md`. It defines three phases.
-This section assesses each sub-feature against the current state and identifies what
-v0.8.0 should target.
-
-### 4.1 Current Retrieval Architecture
-
-```
-user query
-   → embed_text() [retrieval.py:82]        # single-model dense embedding
-   → retrieve_candidates() [retrieval.py:126] # kNN cosine ANN via vector DB
-   → filter_candidates() [retrieval.py:196]   # path/ext post-filters
-   → apply_local_reranking() [rerank.py:255]  # lexical reranking + diversity cap
-   → context assembly                          # top-k chunks as LLM context
-   → LLM synthesis
-```
-
-There are no retrieval profiles, no sparse index, no cross-encoder, no HyDE, no
-evaluation harness. The query config (`QueryConfig`) has `rerank_strategy` ("lexical",
-"hybrid", "llm", "none") but "hybrid" currently means lexical-then-diversity, not
-hybrid dense+sparse.
-
-### 4.2 Feature Assessment: INGEST_FUTURE.md Phase 1
-
-#### 4.2.1 Unified RetrievalPipeline Abstraction
-
-**Current state**: Query pipeline is a linear function chain spread across `api.py`,
-`planning.py`, `context.py`, `retrieval.py`, `rerank.py`. No base abstraction.
-
-**What is needed**: A `RetrievalPipeline` class with a `run(query: Query) → List[Candidate]`
-interface and composable stages (`recall → fuse → rerank → diversify`). Each stage
-receives the output of the previous stage and can add score breakdowns.
-
-INGEST_FUTURE.md specifies four standard objects that must be defined:
-- **`Query`**: Wraps the user's question string plus retrieval parameters (profile, k, filters).
-- **`Candidate`**: Exists already but needs extension — must carry a `ScoreBreakdown`.
-- **`ScoreBreakdown`**: Per-candidate scoring detail, minimally containing:
-  - `dense_score: float` — cosine similarity from vector ANN
-  - `dense_rank: int` — rank position in dense results
-  - `sparse_score: float` — BM25 score from FTS5
-  - `sparse_rank: int` — rank position in sparse results
-  - `fused_score: float` — RRF-combined score
-  - `rerank_score: Optional[float]` — cross-encoder output, if applied
-  - `temporal_boost: Optional[float]` — recency multiplier, if applied
-- **`Citation`**: A resolved reference from a `Candidate`, distinct from the current
-  ad-hoc citation string in `context.py`. Should carry: `chunk_id`, `source_path`,
-  `heading`, `page_number`, `url_or_doi` (for remote sources), `snippet`.
-
-The `retrieval_trace.json` emitted per query (per INGEST_FUTURE.md) requires stage-level
-timing and the full `ScoreBreakdown` for every candidate that entered the pipeline — this
-is only possible with a structured object model, not the current function chain.
-
-**Why it matters**: Without an abstraction, adding hybrid retrieval, HyDE, or
-cross-encoders requires modifying the `api.py` giant function. An abstraction makes
-profiles switchable at runtime.
-
-**Design considerations**:
-- Should pipeline stages be registered by name (like tool registry) to allow config-driven
-  profile construction? **User Response:** What are the concrete benefits of having registered names?
-- Should stages have access to the full `QueryConfig` or only their stage-specific config? **User Response:** Would stages benefit having the extra data?
-- `retrieval_trace.json` output requires stage-level timing and score breakdowns, which
-  are only possible with an object model.
-
-#### 4.2.2 Retrieval Profiles
-
-**INGEST_FUTURE.md proposes**:
-```yaml
-retrieval_profiles:
-  - dense_only
-  - hybrid_rrf
-  - hyde_hybrid
-  - dense_cross_rerank
-```
-
-**Design considerations**:
-- Profiles should be selectable at query time (per-request or config default).
-- `QueryConfig.mode` currently has "grounded" and "insight" (synthesis modes, not
-  retrieval modes). Retrieval profiles are a separate dimension.
-- Profiles may have incompatible dependencies: `hyde_hybrid` requires an LLM at
-  query time; `dense_cross_rerank` requires a cross-encoder model on disk.
-- Should profiles degrade gracefully? E.g., if BM25 index does not exist, should
-  `hybrid_rrf` fall back to `dense_only` with a warning? **User Response:** Yes
-
-#### 4.2.3 Hybrid Retrieval: Dense + Sparse (BM25/FTS5) + RRF
-
-**Current state**: No sparse index. "Hybrid" in `rerank_strategy` is misnaming — it is
-lexical reranking over dense results, not a true dual-recall system.
-
-**Recall pool sizing**: INGEST_FUTURE.md specifies separate limits for each channel:
-- `K_dense`: number of candidates recalled from the vector ANN index
-- `K_sparse`: number of candidates recalled from the BM25/FTS5 index
-These should be independent config params (not the single `k` that currently drives
-everything). Typical values: `K_dense=100, K_sparse=50`. The combined candidate pool
-before RRF fusion can have up to `K_dense + K_sparse` entries, which is subsequently
-fused and truncated to the final `k` result set.
-
-**SQLite FTS5 approach** (most compatible with local-first constraint):
-- SQLite is already an available dependency (used by the memory store).
-- Create a sidecar SQLite DB at `<persist_dir>/bm25.db` with an FTS5 virtual table.
-- Index fields: `chunk_text`, `heading`, `source_name`, metadata text fields.
-- At ingest time: write chunks to both vector DB and FTS5 index (must stay in sync).
-- At query time: run dense ANN (vector DB) and BM25 (FTS5) separately, merge with RRF.
-
-**PostgreSQL FTS approach** (for users running PostgreSQL):
-- PostgreSQL has native `tsvector`/`tsquery` full-text search with `ts_rank`.
-- Add `chunk_tsv tsvector GENERATED ALWAYS AS (to_tsvector('english', chunk_text)) STORED`
-  column to the `lsm_chunks` table.
-- No separate index DB needed; both queries hit the same table.
-
-**RRF formula**: `score(d) = Σ w_i / (k + rank_i(d))` where k=60 is the standard value
-and `w_i` is a per-channel weight. INGEST_FUTURE.md specifically calls for configurable
-per-channel weights — e.g., `w_dense=0.7, w_sparse=0.3` — allowing the user to tune
-how much each retrieval channel contributes. The k parameter is not critically sensitive
-(k=60 is the de-facto default in OpenSearch, Azure AI Search, and Chroma's implementation)
-but the channel weights matter significantly for domain tuning.
-
-**Score breakdown persistence**: Per INGEST_FUTURE.md, each RRF-merged candidate must
-carry its full `ScoreBreakdown` (see §4.2.1) with `dense_rank`, `sparse_rank`, and
-`fused_score`. This breakdown feeds both the `retrieval_trace.json` and the eval harness.
-
-**Key design decisions**:
-- Should the BM25 index be a separate sidecar, or extend the vector DB provider? **User Response:** When using CHROMA use separate SQLite, when using PG for vector use PG.
-- `BaseVectorDBProvider` currently has no `fts_query()` method. Adding one would require
-  all providers to implement it — or a new `HybridVectorDBProvider` subclass.
-- At ingest time, the writer thread (`pipeline.py:325-459`) owns the vector DB; FTS5
-  writes would need to happen in the same writer thread to keep sync.
-- Chunk IDs must be consistent across both indices to enable the RRF join.
-
-**Performance characteristics** (from research):
-- SQLite FTS5 with BM25 handles hundreds of thousands of documents sub-second on
-  commodity hardware when the query is a simple keyword match.
-- `sqlite-vec` (SQLite vector extension) is an alternative to a separate ChromaDB for
-  users who want a single-file database — may be worth researching as a future backend. **User Response:** Do further research on SQLite vector vs Chroma and how easy it is to add. I like removing dependancies.
-
-**Acceptance criteria** (from INGEST_FUTURE.md): Hybrid recall improves Recall@20 vs
-dense-only on the evaluation set. Retrieval trace shows full scoring breakdown per
-candidate.
-
-#### 4.2.4 Cross-Encoder Reranking
-
-**Current state**: Only lexical (BM25-like token overlap) or LLM-based reranking.
-
-**Cross-encoder approach**:
-- A cross-encoder takes a `(query, passage)` pair and outputs a relevance score.
-- Bi-encoders (used for dense recall) embed query and passage independently. Cross-
-  encoders encode them jointly and achieve significantly better ranking at higher cost.
-- Typical pattern: dense recall top-100, cross-encoder rerank to top-20.
-
-**Available models** (all local, no API call):
-| Model | Size | MRR@10 on MS-MARCO | Best For |
-|-------|------|---------------------|----------|
-| `cross-encoder/ms-marco-MiniLM-L-6-v2` | 66M | 39.01 | Fast general-purpose |
-| `cross-encoder/ms-marco-MiniLM-L-12-v2` | 127M | 39.97 | Quality-balanced |
-| `cross-encoder/ms-marco-electra-base` | 109M | 39.96 | Highest quality |
-
-These models come from `sentence-transformers` and use `CrossEncoder` class, which is
-already a dependency via `sentence-transformers`.
-
-**LLM rerank reconciliation**: `QueryConfig` already has `rerank_strategy: "llm"` which
-triggers the existing LLM reranking path. INGEST_FUTURE.md treats LLM reranking as an
-"Optional LLM rerank mode: Disabled by default, Used only for justification or deep
-reasoning profile." This needs to be reconciled with the profile system: the `llm`
-reranking strategy should become a standalone profile (e.g., `llm_rerank`) rather than
-an option inside existing profiles, since it has fundamentally different cost and latency
-characteristics. The existing `rerank_strategy` config key would then become a legacy
-field superseded by `retrieval_profile`.
-
-**Reranker cache**: INGEST_FUTURE.md specifies caching with key
-`(query_hash, chunk_id, model_version)` to avoid repeated scoring. For a personal
-knowledge base with repetitive queries, this cache hit rate could be high.
-
-**Cache invalidation**: INGEST_FUTURE.md explicitly requires cache invalidation "on corpus
-rebuild." The trigger mechanism needs design: the cache key includes `model_version`, so
-changing the cross-encoder model auto-invalidates. But a corpus rebuild (new chunks,
-deleted chunks) also invalidates by changing `chunk_id` values — entries for old chunk
-IDs become stale naturally. A rebuild that keeps the same chunk IDs (e.g., only metadata
-enrichment) does not change IDs, so the cache remains valid in that case. An explicit
-cache wipe command (`lsm cache clear`) should be available for manual invalidation.
-
-**Acceptance criteria** (from INGEST_FUTURE.md): Reranked pipeline improves nDCG@10 vs
-hybrid-only. Latency remains under a configurable threshold.
-
-**Design decisions**:
-- Should the cross-encoder model be downloaded at install time or lazily on first use? **User Response:** Lazily on first use.
-- Should reranker cache be in-memory only (lost between sessions) or persisted (SQLite)? **User Response:** Persisted
-- CPU-only cross-encoder inference on a 100-candidate pool is ~2-10s; is that acceptable? **User Response:** Not if it can be run on CUDA/GPU.
-
-#### 4.2.5 HyDE (Hypothetical Document Embeddings)
-
-**Mechanism**:
-1. LLM generates 1-3 "hypothetical answers" to the user's query (zero-shot, no context).
-2. Each hypothetical answer is embedded using the same bi-encoder model.
-3. Embeddings are averaged (mean pooling).
-4. The averaged embedding is used in place of the direct query embedding for ANN search.
-
-**Why it works**: Direct query embeddings often land in a different vector space region
-than answers. A "What is X?" query embedding is semantically closer to other questions
-than to the answers. A hypothetical answer embedding is closer to real answers.
-
-**Cost**: Requires one LLM call per query (before retrieval), adding latency. Number of
-hypothetical documents (1-3) and temperature (~0.2) are key tuning parameters.
-
-**Aggregation strategy**: INGEST_FUTURE.md allows "mean or max pooling" for combining the
-hypothetical embeddings. Mean pooling (average each dimension across all hypothetical
-embeddings) is the standard and produces a centroid in embedding space. Max pooling
-(take the max value per dimension) is less common but can be more robust when hypothetical
-answers are semantically very different from each other. Both should be supported.
-
-**When HyDE helps most**: Abstract, conceptual, or exploratory queries ("What were my
-notes about consciousness?"). For factual lookups ("page number of chapter 3") HyDE
-may add noise.
-
-**Acceptance criteria** (from INGEST_FUTURE.md): Abstract queries show improved Recall@20.
-HyDE can be toggled per-profile. Generated hypothetical text is logged in the retrieval
-trace.
-
-**Design decisions**:
-- HyDE should be gated by profile (`hyde_hybrid` profile only) and disabled by default.
-- The hypothetical generation prompt needs to be tunable per domain (academic vs
-  personal notes vs code).
-- Should the hypothetical documents be logged in the retrieval trace and/or TUI debug view?
-
-#### 4.2.6 Diversity & De-duplication
-
-**Current state**: Two mechanisms exist in `rerank.py`:
-- `deduplicate()` (line 154): removes exact duplicates using Python's `hash()` on
-  normalized text — effective for identical or near-identical chunks but misses paraphrases.
-- `enforce_diversity()` (line 204): caps results to `max_per_file` chunks per source file.
-
-**What INGEST_FUTURE.md adds beyond current state**:
-
-**Per-section cap (new)**: A cap based on *heading path*, not just file. If a query
-pulls 8 chunks from a single large chapter, a per-section cap (e.g., `max_per_section=2`)
-would limit chunks from `"Chapter 3::Background"` to 2, even if they come from different
-files. This requires the heading path metadata from §5 to be populated at ingest time.
-
-**Near-duplicate detection via SimHash/MinHash (new)**: The current hash-based
-deduplication is exact — two chunks must normalize to identical text to be suppressed.
-Near-duplicates (paraphrased sentences, slight rewording, overlapping overlap windows)
-are missed. SimHash and MinHash are locality-sensitive hashing techniques that detect
-approximate text similarity:
-- **SimHash**: Generates a 64-bit fingerprint; two documents with ≤k differing bits are
-  near-duplicates. Fast to compute; simple Hamming distance comparison.
-- **MinHash**: Estimates Jaccard similarity between shingle sets. More accurate for
-  short overlapping passages but higher compute cost.
-Either can be stored as chunk metadata at ingest time (a `simhash: int` field) and
-compared at query time during deduplication. This is a two-phase approach: compute at
-ingest, compare at retrieval.
-
-**Greedy diversity selection post-rerank (new)**: The current system caps by file count
-after reranking, which is a filter not a selection. Greedy selection (Maximal Marginal
-Relevance, MMR) would iteratively pick the next best candidate that maximizes relevance
-while minimizing similarity to already-selected candidates. This produces diverse results
-without hard per-file caps.
-
-**Design considerations**:
-- Per-section cap requires the heading path metadata feature (§5) to be in place first.
-- SimHash/MinHash compute cost at ingest is negligible; storing a `simhash` int per chunk
-  adds ~8 bytes to metadata.
-- MMR greedy selection requires pairwise similarity computation over the candidate pool —
-  with a pool of ~100 candidates this is trivial, but needs the candidate embeddings
-  available at rerank time (currently not passed through to the reranking functions).
-- The existing `max_per_file` config param becomes a subset of a broader diversity config.
-
-**Acceptance criteria** (from INGEST_FUTURE.md): No more than the configured cap per
-file (already met). Diversity@K metric improves without major drop in precision.
-
-#### 4.2.7 Temporal-Aware Ranking
-
-**Current state**: `mtime_ns` is already stored in chunk metadata (confirmed in
-`pipeline.py:401`). It is never used at query time.
-
-**What INGEST_FUTURE.md proposes**:
-- Boost recent documents (configurable recency weight).
-- Filter by time range ("what was I thinking in 2023?").
-
-**Design considerations**:
-- Recency boost needs a decay function. Common options: linear decay, exponential decay,
-  step function (e.g., 2x boost for files touched in last 30 days).
-- Time-range filtering is a pure metadata filter (already supported via `where_filter`
-  in `retrieve_candidates()`).
-- The mtime represents file modification time, not necessarily content creation time.
-  Documents with stable `mtime` (e.g., PDFs copied from elsewhere) might be incorrectly
-  penalised by recency boost.
-
-#### 4.2.8 Evaluation Harness (lsm.eval.retrieval)
-
-**Current state**: No evaluation infrastructure exists. There are no frozen test queries,
-no golden answer sets, no metrics computation.
-
-**Why this is critical**: INGEST_FUTURE.md states "Evaluation-first development" as a
-long-term principle (see §7). Without an eval harness, it is impossible to know whether
-hybrid retrieval, cross-encoder reranking, or HyDE actually improve results over the
-baseline. Every new retrieval feature introduced in v0.8.0 is unverifiable without it.
-
-**CLI interface** (per INGEST_FUTURE.md):
-```
-lsm eval retrieval --profile hybrid_rrf
-lsm eval retrieval --profile dense_only   # run baseline
-lsm eval retrieval --profile dense_cross_rerank --compare baseline.json
-```
-
-**Regression comparison**: INGEST_FUTURE.md explicitly requires output as a "regression
-comparison vs baseline." This means the harness must:
-1. Save a baseline run result to a file (e.g., `eval_baseline.json`).
-2. On subsequent runs, load the baseline and print a diff table showing Δ per metric.
-3. Flag regressions (metrics that worsen beyond a configurable threshold) as failures.
-This makes the eval harness usable in CI-like workflows when tuning retrieval params.
-
-**Proposed metrics**:
-- **Recall@K**: What fraction of relevant chunks appear in top-K results?
-- **MRR (Mean Reciprocal Rank)**: Reciprocal of the rank of the first relevant chunk.
-- **nDCG@K**: Normalized Discounted Cumulative Gain — accounts for rank position.
-- **Diversity@K**: Fraction of results from distinct source files.
-- **Latency**: End-to-end query time per profile.
-
-**Key challenge**: Building a golden evaluation set requires either manual annotation or
-weak supervision. INGEST_FUTURE.md suggests deriving weak supervision from:
-- Heading-content pairs as positives (query=heading text, positive=section body).
-- Backlinks between files as positives.
-- Near-miss retrieval failures (known-good chunk ranked low) as hard negatives.
-
-A synthetic derivation pipeline would run at ingest time against the user's own corpus,
-requiring no manual labelling — but quality is limited. Manual curation produces higher
-quality but requires user effort.
-
-**Design decisions**:
-- Should eval be a CLI-only tool or also accessible from the TUI? **User Response:** CLI only
-- How large does the evaluation set need to be for statistically meaningful comparisons?  **User Response:** Give the user suggestions.
-- Should the eval harness export to a standard format (BEIR benchmark)?  **User Response:** yes
-- How should the frozen query test set be versioned alongside the corpus?  **User Response:** Yes, but we will need to produce a versioned corpus to do builds on. This will help our testing as a whole, if we have a meaningful size corpus to do test runs on.
-
-### 4.3 Phase 2 and Phase 3 Features (Out of Scope for v0.8.0)
-**User Response:** v0.8.0 is another major version number. This is in the scope and should be researched as part of the whole version implementation.
-
-Based on complexity, the following from INGEST_FUTURE.md should be deferred:
-
-| Feature | Phase | Why Defer |
-|---------|-------|-----------|
-| Cluster-aware retrieval (k-means/HDBSCAN) | 2 | Requires offline clustering job; high ML complexity |
-| Multi-vector representation (file/section summary embeddings) | 2 | Requires new DB schema columns for summary vectors |
-| Graph-augmented retrieval | 3 | Graph store is a new infrastructure dependency |
-| Domain-fine-tuned embeddings | 3 | Requires training pipeline; high research cost |
-| Multi-hop retrieval agents | 3 | Requires integration with the meta-agent system |
-
-These are v0.9.0+ territory. However, v0.8.0 design decisions must not foreclose them.
-
-**Phase 2 forward-compatibility implications for v0.8.0**:
-
-- **Cluster-Aware Retrieval** (Phase 2) will require `cluster_id: int` and
-  `cluster_size: int` metadata fields per chunk, persisted at ingest time by an offline
-  clustering job. The v0.8.0 schema should reserve these field names in documentation
-  even if they are not yet populated. UMAP visualization export for clusters is also
-  planned as a diagnostic.
-
-- **Multi-Vector Representation** (Phase 2) requires file-level and section-level summary
-  embeddings stored alongside chunk embeddings. The current vector DB schema stores one
-  embedding per chunk. Supporting summary embeddings will either require: (a) a new
-  collection per granularity level (file-collection, section-collection, chunk-collection)
-  or (b) a `node_type` metadata field that distinguishes `"chunk"`, `"section_summary"`,
-  `"file_summary"`. The v0.8.0 vectordb schema should be designed to accommodate option
-  (b) without a breaking migration in v0.9.0.
-
-**Phase 3 forward-compatibility implications for v0.8.0**:
-
-- **Domain-Fine-Tuned Embeddings** (Phase 3) requires a model registry that versions
-  embeddings and triggers re-embedding via CLI. This is directly related to the v0.8.0
-  DB versioning work (§2): the embedding model version tracking in the manifest `_schema`
-  block is the foundation the model registry will build on.
-
-- **Multi-Hop Retrieval Agents** (Phase 3) will use the meta-agent system (Phase 6/10
-  work, already complete) as its orchestration layer. The query decomposition strategies
-  (key term expansion, named entity extraction, conceptual prerequisite discovery) have
-  a partial foundation in `lsm/query/decomposition.py` — that module already extracts
-  keywords, author, title, DOI, and date entities from queries. Phase 3 would extend it.
-
-- **Graph-Augmented Retrieval** (Phase 3) proposes a local graph store with nodes
-  (File, Section, Chunk, Entity) and edges (contains, references, same_author,
-  thematic_link), plus heading tree ingestion as graph edges. The heading hierarchy
-  metadata from §5 (heading path as `"H1::H2::H3"`) is the ingest-time artifact that
-  Phase 3 will consume to build section-node edges in the graph.
-
----
-
-## 5. Document Headings Improvement
-
-### 5.1 Current State
-
-The structure chunking system (`structure_chunking.py`) treats all heading levels
-identically as chunk boundaries. A heading at level H1 has the same boundary-forcing
-effect as H6. The heading text is stored in the chunk's `heading` metadata field for
-retrieval context.
-
-Heading detection (`utils/text_processing.py:48-77`) recognizes:
-- Markdown `#`-style headings (levels 1-6)
-- HTML `<h1>`–`<h6>` elements
-- Bold-only lines (`**Heading**`) treated as level 1
-- Plain-text section markers (optional, disabled for structure chunking)
-
-### 5.2 The Two TODO Requirements
-
-#### Requirement 1: Configurable Heading Depth
-
-The user should be able to set `max_heading_depth: int` (e.g., 2) such that headings
-deeper than that level are NOT treated as chunk boundaries — their text flows into the
-body of the parent heading's chunk.
-
-**Behavioral example with `max_heading_depth=2`**:
-```
-# H1 Topic                     ← chunk boundary (depth 1 ≤ 2)
-## H2 Subtopic                 ← chunk boundary (depth 2 ≤ 2)
-### H3 Detail                  ← NOT a boundary (depth 3 > 2); text flows into H2 chunk
-#### H4 Sub-detail             ← NOT a boundary; flows into H2 chunk
-Regular paragraph text
-```
-
-**Effect on chunk size**: Deeper headings that are normally short (headings often have
-little text before the next sub-heading) would merge into their parent's chunk. Chunk
-sizes increase but semantic coherence of the parent heading is better preserved.
-
-**Heading metadata implication**: The `heading` field stored per chunk should reflect
-the most recent *valid* heading (at depth ≤ max_heading_depth), not the deepest heading.
-This affects how heading metadata is used in retrieval and BM25 indexing.
-
-**Config location**: `IngestConfig` is the natural home:
+## 2. Core Architecture: Persistent Harness and Phase Execution
+
+### 2.1 The Problem: Two Divergent Execution Patterns
+
+Looking across all agents, there are two distinct execution patterns:
+
+**Pattern A — Harness-Delegating (correct pattern)**
+
+Agents: `GeneralAgent`, `LibrarianAgent`, `ManuscriptEditorAgent`
+
+These create an `AgentHarness` in `run()` and delegate all LLM calls and tool executions to it.
+The harness handles: LLM resolution, tool selection, sandbox enforcement, state management,
+memory injection, budget tracking, logging, and run summary generation. The agent's role is
+purely configuration: tools, system prompt, LLM tier, and max iterations.
+
+**Pattern B — Manual Execution (problematic)**
+
+Agents: `ResearchAgent`, `SynthesisAgent`, `CuratorAgent`
+
+These manage their own execution loops and make direct calls:
+- `create_provider(self._resolve_llm_config(self.llm_registry))` → direct provider instantiation
+- `provider.synthesize(prompt, context, mode=...)` → direct LLM invocation
+- `self.sandbox.execute(tool, args)` → direct sandbox call
+
+`WritingAgent` is a mixed case: it has both a custom outer phase loop and some harness delegation.
+`AssistantAgent` uses its own pattern as well.
+
+### 2.2 What Manual Execution Bypasses
+
+When a manual agent calls `self.sandbox.execute(tool, args)` directly:
+- ✅ Sandbox permission checks still run
+- ❌ No `_is_tool_allowed()` check against the harness allowlist
+- ❌ No per-run tool usage counts in `run_summary.json`
+- ❌ No artifact auto-tracking via `_track_artifacts_from_sandbox()`
+- ❌ No context compaction (`context_window_strategy`)
+
+When a manual agent calls `provider.synthesize()` directly:
+- ❌ No memory standing context injected before the LLM call
+- ❌ No conversation history management
+- ❌ No LLM server-side caching support
+- ❌ No proper cost tracking (token estimates are manual with a 4-char heuristic)
+- ❌ No structured per-run summary
+- ❌ Agents manage their own `_tokens_used` counter independently
+
+### 2.3 BaseAgent vs AgentHarness: Defined Responsibilities
+
+**BaseAgent** (abstract class, [lsm/agents/base.py](../lsm/agents/base.py)):
+
+`BaseAgent` is the **identity and capability specification** for an agent. It defines:
+
+- What the agent IS: `name`, `description`, `agent_config`
+- What the agent is ALLOWED to do: `tool_allowlist`, `_always_available_tools`
+- Utility methods: `_log()`, `_resolve_llm_config()`, `_get_tool_definitions()`
+- The abstract lifecycle method: `run()` — which subclasses must implement
+- Workspace accessor methods (see §2.7)
+
+`BaseAgent` does NOT execute anything. It has no LLM call logic, no tool dispatch, no execution
+loop. It is the agent's "capability card."
+
+**AgentHarness** (runtime engine, [lsm/agents/harness.py](../lsm/agents/harness.py)):
+
+`AgentHarness` is the **basic LLM + tool execution loop** — the engine that drives the most
+fundamental agent behavior:
+
+1. Call the LLM with the current prompt and conversation history
+2. Parse the LLM's tool requests
+3. Validate each requested tool against the agent's allowlist
+4. Execute permitted tools via the sandbox
+5. Feed tool results back to the LLM
+6. Repeat until the LLM signals completion, budget is exhausted, or stop is requested
+
+Beyond the basic loop, `AgentHarness` also handles: standing memory context injection before each
+LLM call, context compaction when windows fill, budget enforcement, run summary writing, and
+artifact tracking.
+
+`AgentHarness` IS what the user described as "the most basic agent": pass a prompt and tools,
+execute those tools, and feed results back to the LLM.
+
+**The Gap**
+
+`AgentHarness` is designed as an **all-or-nothing executor**: it runs until the entire task is
+complete. It cannot return intermediate results to a Python orchestration loop.
+
+This is fine for simple agents (GeneralAgent): give it a task, it runs to completion, done.
+
+But multi-phase agents (ResearchAgent: decompose → collect per subtopic → synthesize → review)
+need to inspect intermediate results in Python and make decisions between phases. Because
+`AgentHarness` cannot do this, these agents fall back to calling `sandbox.execute()` and
+`provider.synthesize()` directly — bypassing all security and tracking.
+
+### 2.4 Solution: Persistent Harness with _run_phase()
+
+`BaseAgent` owns a single `AgentHarness` for the entire duration of `run()` and exposes
+`_run_phase()` as the only way to invoke execution. Agents never instantiate `AgentHarness`
+directly or call `sandbox`/`provider` directly.
+
+**The key principles**:
+- `BaseAgent` maintains ONE `AgentHarness` per `run()` lifecycle — created on first use, reused
+  for every subsequent phase
+- `BaseAgent._run_phase()` is the ONLY way agents invoke execution — it is the single control point
+- Token counts, cost, and budget are internal to the harness — agents NEVER see raw numbers
+- No agent may call `sandbox.execute()`, `provider.synthesize()`, or instantiate `AgentHarness`
+- Budget checking, budget enforcement, and stop decisions are entirely internal to the harness;
+  no budget-query method exists on `BaseAgent`
+
+**Why a persistent harness (not a fresh harness per phase)**:
+
+Creating a new `AgentHarness` per `_run_phase()` call has two significant problems:
+
+1. **Lost context**: Each new harness starts with an empty conversation history. Later phases
+   cannot build on earlier phases naturally — the LLM has no memory of the decomposition step
+   when it reaches synthesis.
+
+2. **Token leakage to agent code**: If `PhaseResult` carries `tokens_used` and `cost_usd`, agent
+   code can read and act on financial data. Agents should not manage or inspect cost figures —
+   the harness is the correct owner of this data. Keeping it internal prevents agents from
+   making decisions based on cost exposure.
+
+A persistent harness solves both: the conversation thread flows continuously across phases (the
+LLM has full prior context when synthesizing), and all accounting stays inside the harness.
+
+**`_run_phase()` signature**:
+
 ```python
-max_heading_depth: Optional[int] = None  # None = all levels are boundaries
+def _run_phase(
+    self,
+    system_prompt: str,
+    user_message: str,
+    tool_names: Optional[list[str]] = None,  # subset of tool_allowlist; None = use all allowed
+    max_iterations: int = 10,
+    continue_context: bool = True,           # True: extend conversation; False: reset history
+) -> PhaseResult:
+    """
+    Execute one bounded phase of LLM + tool interaction on the shared harness.
+
+    On first call, initializes the shared harness with the given system_prompt.
+    Subsequent calls reuse the same harness, preserving conversation context
+    when continue_context=True. All tool execution, LLM calls, token tracking,
+    and budget enforcement are internal to the harness.
+
+    This is the ONLY method agents may use for LLM and tool activity.
+    """
 ```
 
-#### Requirement 2: Intelligent Heading Depth Selection
+**How simple agents use this** (GeneralAgent pattern):
 
-When `max_heading_depth` is not explicitly set, the chunker should decide automatically
-based on the following criteria from the TODO:
-
-> When a heading is larger than the max chunk size and contains sub-headings, then the
-> section should be chunked along the sub-heading boundaries. The metadata in the chunk
-> should indicate the hierarchy of headings: `heading::sub-heading`. This process should
-> repeat into nested subheadings so long as the current heading level is larger than the
-> target max chunk size.
-
-**Algorithm description**:
-1. For each heading-delimited section, estimate its size (character count of all text
-   below it, before the next sibling or parent heading).
-2. If section size ≤ `chunk_size`: keep the whole section as one chunk; sub-headings
-   within become part of that chunk's text (not boundaries).
-3. If section size > `chunk_size` AND section has sub-headings: recursively split at
-   sub-heading boundaries.
-4. Sub-heading hierarchy is reflected in metadata: `"Introduction::Background::Prior Work"`.
-
-**This is a fundamentally different algorithm** from the current one. Currently: headings
-always split. Proposed: headings split only when the parent section would exceed
-`chunk_size`.
-
-**Key differences from fixed max_heading_depth**:
-
-| Aspect | Fixed depth | Intelligent |
-|--------|------------|-------------|
-| Depth limit | Static per config | Dynamic per section size |
-| Metadata | Shallowest valid heading | Full heading path |
-| Small sub-sections | Always merged at depth>max | Merged when parent fits |
-| Large top-level sections | Always splits at sub-heading | Splits to fit chunk_size |
-
-### 5.3 Design Considerations
-
-**Heading hierarchy in metadata**: The current `heading` field is a flat string. The
-intelligent algorithm requires a path like `"Introduction::Background::Prior Work"`.
-Changing the field format from a string to a path string has no schema migration impact
-(it is still a string), but querying by heading prefix becomes important for retrieval.
-
-**Interaction with fixed chunking**: The `fixed` chunking strategy ignores headings
-entirely. Both heading improvements apply only to the `structure` strategy.
-
-**Interaction with page segments**: PDF/DOCX page tracking (`page_segments`) is already
-propagated through `structure_chunking.py`. The heading depth logic needs to preserve
-page boundary tracking.
-
-**Edge cases**:
-- A document with only H1 headings and huge sections → intelligent mode would recurse
-  to paragraph-level; max recursion depth needs a bound.
-- A document with no headings → both modes fall through to sentence-boundary chunking,
-  unchanged.
-- A document where all content is under H6 headings → with `max_heading_depth=2`, the
-  entire document might be a single chunk if H6 sections are small.
-
-**Testing**: Heading depth changes produce different chunk boundaries and different
-`chunk_id` values (which are derived from source_path + file_hash + chunk_index). Any
-DB corpus built before heading depth changes becomes stale after — this is a DB
-versioning concern (§2).
-
----
-
-## 6. Cross-Cutting Concerns
-
-### 6.1 Config Changes
-
-All new features require config extensions. Key additions anticipated for `v0.8.0`:
-
-**IngestConfig additions**:
 ```python
-max_heading_depth: Optional[int] = None
-intelligent_heading_depth: bool = False
+# In GeneralAgent.run() — replaces current harness creation + harness.run():
+result = self._run_phase(
+    system_prompt=self._build_system_prompt(),
+    user_message=task.objective,
+    max_iterations=self._max_iterations,
+)
+# One phase that runs to completion. Budget handled internally by the harness.
 ```
 
-**New `IngestSchemaConfig` (manifest schema tracking)**:
+Simple agents no longer instantiate `AgentHarness` directly. `BaseAgent._run_phase()` handles it.
+
+**How orchestrating agents use this** (ResearchAgent pattern):
+
+The system prompt is set once for the full run; phase directives arrive as structured user
+messages. The persistent harness accumulates the full conversation, so the LLM has complete
+context in later phases. Agents react to `PhaseResult.stop_reason` to decide loop control;
+they never query budget state directly:
+
 ```python
-embed_model: str  # duplicates global embed_model for schema tracking
-chunking_strategy: str
-chunk_size: int
-chunk_overlap: int
-manifest_version: int
+# In ResearchAgent.run():
+
+# Phase 1: Decompose (initializes the shared harness with the research system prompt)
+result = self._run_phase(
+    system_prompt=RESEARCH_SYSTEM_PROMPT,
+    user_message=f"Phase: DECOMPOSE. Topic: '{self.topic}'. List all subtopics to research.",
+    tool_names=[],
+    max_iterations=1,
+)
+subtopics = self._parse_subtopics(result.final_text)
+self._log_subtopics(subtopics, iteration)
+
+# Phase 2: Collect findings per subtopic
+# The harness retains the decomposition in its conversation history.
+# If budget is exhausted, _run_phase() returns immediately with a non-"done" stop_reason.
+for subtopic in subtopics:
+    self._log(f"Collecting findings for subtopic: {subtopic}")
+    result = self._run_phase(
+        system_prompt=RESEARCH_SYSTEM_PROMPT,  # same prompt; harness extends the conversation
+        user_message=f"Phase: RESEARCH. Subtopic: '{subtopic}'. Use query_knowledge_base.",
+        tool_names=["query_knowledge_base"],
+        max_iterations=3,
+    )
+    if result.stop_reason in ("budget_exhausted", "stop_requested"):
+        break
+
+# Phase 3: Synthesize
+# LLM has full context: decomposition + all per-subtopic findings = higher-quality outline.
+result = self._run_phase(
+    system_prompt=RESEARCH_SYSTEM_PROMPT,
+    user_message="Phase: SYNTHESIZE. Based on all findings above, write the research outline.",
+    tool_names=[],
+    max_iterations=1,
+)
 ```
 
-**QueryConfig additions**:
+### 2.5 AgentHarness: run_bounded() and Budget Enforcement
+
+`AgentHarness` gains a new `run_bounded()` method that `_run_phase()` delegates to:
+
 ```python
-retrieval_profile: str = "dense_only"
-# Options: "dense_only", "hybrid_rrf", "hyde_hybrid", "dense_cross_rerank"
-k_dense: int = 100          # Recall limit for the dense ANN channel
-k_sparse: int = 100         # Recall limit for the sparse BM25/FTS5 channel
-rrf_k: int = 60             # RRF constant k (higher = less aggressive rank fusion)
-rrf_dense_weight: float = 0.7   # Per-channel weight applied before RRF score sum
-rrf_sparse_weight: float = 0.3  # Per-channel weight (should sum to 1.0)
-cross_encoder_model: Optional[str] = None
-# None = use default (ms-marco-MiniLM-L-6-v2); explicit = user-specified model path
-hyde_enabled: bool = False
-hyde_num_samples: int = 2
-hyde_temperature: float = 0.2
-hyde_pooling: str = "mean"  # Options: "mean", "max" — how to aggregate HyDE embeddings
-diversity_strategy: str = "exact"
-# Options: "exact" (current hash dedup), "simhash" (near-dup), "minhash" (near-dup)
-max_per_section: Optional[int] = None
-# None = no per-section cap; int = max chunks from same heading-path prefix
-temporal_boost_enabled: bool = False
-temporal_boost_days: int = 30
-temporal_boost_factor: float = 1.5
+def run_bounded(
+    self,
+    user_message: str,
+    tool_names: Optional[list[str]],
+    max_iterations: int,
+    continue_context: bool,
+) -> PhaseResult:
+    """
+    Drive at most max_iterations of the LLM + tool loop and return.
+
+    Budget is checked at the start of each iteration. If budget is exhausted
+    before the first iteration begins, returns immediately with
+    stop_reason="budget_exhausted" without making any LLM call.
+
+    Token accumulation, cost tracking, budget enforcement, and run summary
+    writing are all internal — nothing leaks out through PhaseResult.
+    """
 ```
 
-**New `EvalConfig`**:
+**Budget enforcement rules** (entirely internal to `run_bounded()`):
+
+1. At the start of each iteration, check if the budget has been exceeded or a stop has been
+   requested
+2. If budget is exhausted, return `PhaseResult(stop_reason="budget_exhausted")` immediately,
+   without making an LLM call
+3. If stop was requested, return `PhaseResult(stop_reason="stop_requested")` immediately
+4. If `max_iterations` is reached, return `PhaseResult(stop_reason="max_iterations")`
+5. If the LLM signals done, return `PhaseResult(stop_reason="done")`
+6. Token totals and cost figures are accumulated internally and NEVER placed in `PhaseResult`
+
+**`run()` backward compatibility**: `AgentHarness.run()` becomes a wrapper that calls
+`run_bounded()` in a loop until `stop_reason == "done"` or a terminal stop condition is met.
+Observable behavior for single-phase agents is unchanged.
+
+### 2.6 PhaseResult: The Phase Execution Contract
+
+`PhaseResult` is the only object returned from `_run_phase()`. It contains operational output —
+what happened during the phase — but no financial or resource data.
+
 ```python
-eval_queries_path: Optional[Path] = None
-eval_output_path: Optional[Path] = None
-metrics: List[str] = ["recall@k", "mrr", "ndcg@k"]
+@dataclass
+class PhaseResult:
+    final_text: str          # last LLM response text
+    tool_calls: list[dict]   # all tool calls made during this phase
+    stop_reason: str         # "done" | "max_iterations" | "budget_exhausted" | "stop_requested"
+    # NOTE: no tokens_used, cost_usd, or any accounting data — these are internal to the harness
 ```
 
-### 6.2 BM25 Index Synchronization
+**Why `stop_reason` does not violate the financial isolation principle**:
 
-The BM25/FTS5 sidecar index introduces a new synchronization problem: the vector DB and
-the BM25 index can drift if one write succeeds and the other fails. Current design
-considerations:
+`stop_reason` is a status code, not a financial figure. It tells the agent *why* execution
+stopped, not *how much* was consumed. An agent seeing `"budget_exhausted"` knows to stop its
+loop — the same decision it would make for any terminal stop signal. It cannot infer token
+counts, remaining budget, or cost from this value. Raw numbers are never exposed.
 
-- The writer thread in `pipeline.py` is the sole owner of the vector DB.
-- To keep sync, BM25 writes should happen in the same writer thread, not a separate one.
-- Rollback semantics: ChromaDB has no transaction rollback; FTS5 does (SQLite transactions).
-  If the vector DB write succeeds but FTS5 fails, the index is stale.
-- A consistency check or repair tool (`lsm db check`) may be needed.
+### 2.7 Workspace and Artifact Management
 
-### 6.3 Provider Abstraction Impact
+`BaseAgent` gains workspace path accessor methods and a filename helper that all agents must use.
+No agent should construct artifact, log, or memory paths by hand, and no agent should format
+timestamps independently.
 
-Adding hybrid retrieval (`hybrid_rrf` profile) challenges the current
-`BaseVectorDBProvider` interface:
+All accessor methods return `pathlib.Path` objects. `Path` is platform-aware by design — it uses
+the correct separator on Windows, macOS, and Linux automatically. Agents must never join path
+strings manually; they must always use these methods and let `Path` handle platform differences.
 
-- `query()` currently returns vector search results only.
-- BM25 query results need to be merged at the retrieval layer, not inside the provider.
-- **Option A**: Keep BM25 as a separate module (`lsm.retrieval.bm25`) that runs
-  parallel to vector DB query; merge with RRF in the new `RetrievalPipeline`.
-- **Option B**: Add `fts_query(text: str, top_k: int) → VectorDBQueryResult` to
-  `BaseVectorDBProvider`; implement it per-provider (SQLite FTS5 for ChromaDB backend;
-  PostgreSQL FTS for PostgreSQL backend).
-
-Option A keeps the provider interface clean but couples the retrieval layer to a specific
-BM25 backend. Option B pushes the concern into providers but makes the retrieval
-pipeline independent of backend. For PostgreSQL, native FTS is significantly more
-powerful than a SQLite sidecar.
-
-### 6.4 Incremental BM25 Index Maintenance
-
-Unlike the vector DB (which supports upsert/delete), the FTS5 index also needs:
-
-- **Insert**: On new chunk, add row to FTS5 table.
-- **Delete**: On file re-ingest, delete all rows with that `source_path`.
-- **Update**: On soft-delete versioning, mark FTS5 rows with `is_current` (FTS5 does not
-  support partial updates — rows must be deleted and re-inserted).
-
-This mirrors exactly what the writer thread already does for the vector DB.
-
-### 6.5 Tests
-
-All new features require tests following the existing patterns:
-
-| Feature | Test Type | Key Coverage |
-|---------|-----------|-------------|
-| Schema version tracking | Unit | Manifest schema read/write, version detection |
-| DB completion | Integration | Changed config → selective re-ingest, skips unchanged files |
-| Migration/upgrade | Integration | Schema mismatch detection, upgrade path execution |
-| BM25 index | Unit + Integration | Ingest→FTS5 sync, query returns results, sync drift detection |
-| RRF fusion | Unit | Score merging, rank preservation, k parameter effect |
-| Cross-encoder reranking | Unit + Integration | Score improvement, latency, cache behaviour |
-| HyDE | Unit + Integration | Hypothetical generation, embedding aggregation, toggle |
-| Heading depth (fixed) | Unit | Depth limit respected, metadata heading path correct |
-| Heading depth (intelligent) | Unit | Section size estimation, recursion, metadata path |
-| Retrieval profiles | Integration | Each profile end-to-end |
-| Eval harness | Integration | Metric computation against known golden set |
-
-Security considerations: The BM25/FTS5 index accepts user-controlled content (chunk
-text). SQLite FTS5 queries should use parameterized queries, not string interpolation.
-Cross-encoder inputs include user query + chunk text — both need sanitisation against
-prompt injection if the model output influences tool execution.
-
----
-
-## 7. Long-Term Design Principles
-
-The following guiding principles are taken directly from the **Long-Term Direction**
-section of `INGEST_FUTURE.md`. They constrain all architectural decisions in v0.8.0 and
-should be treated as non-negotiable design requirements rather than aspirational goals.
-
-### 7.1 Retrieval as Composable Pipeline
-
-The retrieval system should be designed as a sequence of composable, replaceable stages
-rather than a monolithic function. Each stage (ANN retrieval, BM25 retrieval, RRF
-fusion, cross-encoder reranking, diversity filtering, temporal ranking) should be
-independently testable and replaceable. The `RetrievalPipeline` abstraction in §4.2.1
-is the direct implementation of this principle.
-
-**Implication**: Do not design feature flags that bypass pipeline stages inside existing
-functions. Instead, implement each stage as a unit and compose profiles from them.
-
-### 7.2 Evaluation-First Development
-
-No retrieval feature should be merged without a measurable improvement on the eval
-harness. The eval harness (§4.2.8) is therefore a prerequisite for all other retrieval
-features, not an afterthought. Metrics (Recall@K, MRR, nDCG@K, Diversity@K, Latency)
-must be tracked against a saved baseline for every profile change.
-
-**Implication**: Implement the eval harness before implementing hybrid retrieval or
-cross-encoder reranking. The implementation order in the dependency map (§8) reflects
-this.
-
-### 7.3 Retrieval Traces as First-Class Artifacts
-
-Every retrieval result should carry a complete `retrieval_trace.json` artifact recording:
-- Which pipeline stages executed
-- Intermediate candidates at each stage
-- `ScoreBreakdown` for every returned chunk (§4.2.1)
-- HyDE hypothetical documents (if applicable)
-- Timing per stage
-
-This trace is essential for debugging, eval comparison, and future Phase 3 graph-augmented
-retrieval (where hop-wise citation traces are required). The trace should be written to
-the workspace on every agent run that involves retrieval.
-
-### 7.4 Local-First Foundation
-
-All v0.8.0 retrieval features must work without external service calls:
-- BM25/FTS5 is local SQLite — no external search API required.
-- Cross-encoder runs locally via `sentence-transformers` — no hosted model endpoint needed.
-- HyDE uses the configured LLM (which may be local via Ollama/OpenRouter).
-- The eval harness runs entirely offline against a local golden set.
-
-If a feature cannot degrade gracefully when the network is unavailable, it should not
-be made a default or required component.
-
-### 7.5 Graceful Degradation to Dense-Only Mode
-
-Every advanced feature must have a clean fallback:
-- If BM25 index is absent → fall back to `dense_only` retrieval silently (with a log warning).
-- If cross-encoder model is missing → skip reranking, return fused results.
-- If HyDE LLM call fails → fall back to direct query embedding.
-- If temporal boost config is absent → skip boost stage.
-
-This ensures that existing deployments are not broken when v0.8.0 config keys are
-absent (they default to the safe, dense-only behavior).
-
----
-
-## 8. Dependency Map
+`ensure_agent_workspace()` ([lsm/agents/workspace.py](../lsm/agents/workspace.py)) creates:
 
 ```
-DB Versioning (§2)
-  ├── Required by: DB Completion (§3)         ← can't do completion without version tracking
-  ├── Required by: Heading Depth changes (§5) ← heading changes invalidate existing chunks
-  └── Enables: Eval harness comparisons (§4.2.8)
-
-Manifest Schema (§3.5)
-  └── Required by: DB Completion triggers
-
-RetrievalPipeline abstraction (§4.2.1)
-  ├── Required by: Retrieval Profiles (§4.2.2)
-  ├── Required by: Hybrid RRF (§4.2.3)
-  ├── Required by: Cross-encoder (§4.2.4)
-  ├── Required by: HyDE (§4.2.5)
-  ├── Required by: Diversity & De-dup (§4.2.6)
-  └── Required by: Retrieval trace for eval
-
-BM25 Index (§4.2.3)
-  └── Required by: Hybrid RRF
-
-Eval Harness (§4.2.8)
-  └── Needed before: Any retrieval profile can be validated
+<agents_folder>/<agent_name>/
+├── logs/
+├── artifacts/    ← all agent file output goes here
+└── memory/
 ```
 
-**Critical path for v0.8.0**: If retrieval improvements must be validated:
-DB Versioning → Manifest Schema → BM25 Index → RetrievalPipeline → Hybrid RRF → Eval
+**New methods on `BaseAgent`**:
+
+```python
+def _workspace_root(self) -> Path:
+    """Return the agent's workspace root, creating it if needed."""
+    return ensure_agent_workspace(self.name, self.agent_config.agents_folder)
+
+def _artifacts_dir(self) -> Path:
+    """Return the artifacts directory for this agent, creating it if needed."""
+    return self._workspace_root() / "artifacts"
+
+def _logs_dir(self) -> Path:
+    """Return the logs directory for this agent, creating it if needed."""
+    return self._workspace_root() / "logs"
+
+def _memory_dir(self) -> Path:
+    """Return the memory directory for this agent, creating it if needed."""
+    return self._workspace_root() / "memory"
+
+def _artifact_filename(self, name: str, suffix: str = ".md") -> str:
+    """Generate a platform-safe, consistently formatted filename for an artifact.
+
+    Sanitizes the name descriptor and appends a UTC timestamp so all agents
+    produce filenames in the same format regardless of the calling agent.
+
+    Example:
+        self._artifact_filename("neural networks overview")
+        → "neural_networks_overview_20240315_143022.md"
+    """
+    timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+    safe_name = re.sub(r"[^\w\-]", "_", name).strip("_")
+    return f"{safe_name}_{timestamp}{suffix}"
+```
+
+**Migration pattern**:
+
+```python
+# Current (ResearchAgent._save_outline):
+output_path = self.agent_config.agents_folder / f"{self.name}_{safe_topic}_{timestamp}.md"
+output_path.parent.mkdir(parents=True, exist_ok=True)
+
+# Proposed:
+output_path = self._artifacts_dir() / self._artifact_filename(safe_topic)
+```
+
+**Scope** — applied to all agents:
+
+- `ResearchAgent._save_outline()`: use `self._artifacts_dir()`
+- `SynthesisAgent`, `CuratorAgent`: audit all file output calls; replace with `_artifacts_dir()`
+- `WritingAgent`, `AssistantAgent`: same audit and replacement
+- Any agent that constructs log or memory paths manually: replace with `_logs_dir()` / `_memory_dir()`
+
+The `_save_log()` call in `ResearchAgent.run()` uses `save_agent_log()` which already targets
+`<agents_folder>/<agent_name>/logs/` — verify this aligns with `_logs_dir()` and update if not.
+
+Note: `ResearchResult.output_path` will point to the new location — tests asserting specific
+path patterns must be updated.
+
+### 2.8 Design Options Considered
+
+**Option A — Add Protected Methods to `BaseAgent`**: Adds `_safe_execute_tool()` and
+`_safe_call_llm()` to `BaseAgent` directly. Preserves loop structures but duplicates harness
+logic and doesn't fix run summaries or cost tracking.
+
+**Option B — Migrate Academic Agents to Harness-Driven**: Refactors academic agents to
+`GeneralAgent` pattern. Clean long-term but loses explicit programmatic phases; large scope change.
+
+**Option C — Hybrid: Custom Orchestration with Harness Calls**: Retains outer loops but uses
+short-lived `AgentHarness` instances per call. Correct concept but harness state/budget across
+multiple instances is complex.
+
+**Option D — `BaseAgent` Gets Full LLM + Tool Infrastructure**: Adds full infrastructure to
+`BaseAgent`; `AgentHarness` delegates to it. Single source of truth but ownership resolution
+is complex.
+
+**Chosen**: A refinement combining C and D — `BaseAgent` owns a single persistent `AgentHarness`
+per `run()` lifecycle and exposes `_run_phase()` as the only execution entry point. Outer
+orchestration stays in Python; inner execution (including budget enforcement and token tracking)
+always goes through the harness.
+
+### 2.9 Scope of Agent Migrations
+
+All agents are in scope. The following table shows the current state and required action:
+
+| Agent | File | Direct LLM Calls | Direct Sandbox Calls | Action |
+|-------|------|-------------------|----------------------|--------|
+| `ResearchAgent` | [research.py](../lsm/agents/academic/research.py) | Yes | Yes | Refactor to `_run_phase()` |
+| `SynthesisAgent` | [synthesis.py](../lsm/agents/academic/synthesis.py) | Yes | Yes | Refactor to `_run_phase()` |
+| `CuratorAgent` | [curator.py](../lsm/agents/academic/curator.py) | Yes | Yes | Refactor to `_run_phase()` |
+| `WritingAgent` | [writing.py](../lsm/agents/productivity/writing.py) | Yes (partial) | Yes (partial) | Refactor to `_run_phase()` |
+| `AssistantAgent` | [assistant.py](../lsm/agents/assistants/assistant.py) | TBD | TBD | Audit and refactor |
+| `GeneralAgent` | [general.py](../lsm/agents/productivity/general.py) | No (harness) | No (harness) | Replace harness creation with `_run_phase()` |
+| `LibrarianAgent` | [librarian.py](../lsm/agents/librarian/librarian.py) | No (harness) | No (harness) | Replace harness creation with `_run_phase()` |
+| `ManuscriptEditorAgent` | [manuscript_editor.py](../lsm/agents/productivity/manuscript_editor.py) | No (harness) | No (harness) | Replace harness creation with `_run_phase()` |
 
 ---
 
-## 9. Clarification Questions
+## 3. Knowledge Base Access: query_knowledge_base Tool
 
-The following decisions must be made by the user before implementation planning begins.
-They are grouped by topic and ordered by architectural importance.
+### 3.1 Problem: Research Agent Reimplements the Query Pipeline
 
----
+The `ResearchAgent` reimplements a simplified and incomplete version of the query pipeline. The
+TODO states: "From the perspective of the Query API it should not care if an agent calls it or the
+user. The Research Agent needs to call the query pipeline as if it was a user."
 
-### Q-DB: DB Versioning and Migration
+`ResearchAgent._collect_findings()` ([lsm/agents/academic/research.py:187](../lsm/agents/academic/research.py)):
 
-**Q-DB-1**: When the system detects a schema mismatch (e.g., config `embed_model` changed
-vs. manifest `_schema.embedding_model`), what should happen?
-- **(a)** Raise an error and require explicit user action to resolve.
-- **(b)** Log a warning and ingest new files only (proceed with mixed-generation corpus).
-- **(c)** Automatically trigger a full re-ingest.
-- **(d)** Automatically trigger selective re-ingest of only mismatched files.
-**User Response:** Option A
+1. `_select_tools()` — the LLM picks from `{query_embeddings, query_remote, query_remote_chain}`
+2. For each selected tool: `self.sandbox.execute(tool, args)` → raw JSON string
+3. Returns `[{"tool": name, "output": raw_json}, ...]`
 
-**Q-DB-2**: Should there be a `lsm migrate` / `lsm db upgrade` CLI command as the primary
-entry point for schema migrations, or should migration happen automatically at ingest time?
-**User Response:** There should be a migrate/ugrade command for the cli/tui ingest command. 
+`ResearchAgent._summarize_findings()` ([lsm/agents/academic/research.py:264](../lsm/agents/academic/research.py)):
 
-**Q-DB-3**: The current migration tool only moves data from ChromaDB to PostgreSQL. Is
-bidirectional migration (PostgreSQL → ChromaDB) needed, or only one direction?
-**User Response:** Bidirectional is needed.
+1. `_build_sources_block()` — manually parses raw tool output JSON and builds `Sources:\n[S1]...`
+2. `provider.synthesize(prompt, sources_block, mode="grounded")` — direct LLM call
 
-**Q-DB-4**: Should old-version chunks be permanently deleted when a file is re-embedded,
-or retained with `is_current=False` (the soft-delete approach in `enable_versioning=True`)?
-Soft-delete grows the DB but allows "time-travel" queries; hard-delete keeps the DB lean.
-**User Response:** No they should not be permanetly deleted, but instead an intelegent clean up tool should be created to prune soft-deltes.
----
+The `query_embeddings` tool ([lsm/agents/tools/query_embeddings.py](../lsm/agents/tools/query_embeddings.py))
+calls `retrieve_candidates()` directly (raw vector search, no reranking, no prefiltering).
 
-### Q-HYBRID: Hybrid Retrieval Architecture
+### 3.2 What the Query Pipeline Provides
 
-**Q-HYBRID-1**: For the BM25/FTS5 sparse index, which backend do you prefer?
-- **(a)** SQLite FTS5 sidecar (works for both ChromaDB and PostgreSQL users; single
-  additional file in `persist_dir`).
-- **(b)** PostgreSQL native FTS (only for PostgreSQL users; BM25-equivalent via `ts_rank`;
-  requires adding a `tsvector` column to the existing schema).
-- **(c)** Both, selected by the active vectordb provider.
-**User Response:** Option C
+`lsm.query.api.query()` ([lsm/query/api.py](../lsm/query/api.py)) provides:
 
-**Q-HYBRID-2**: Should hybrid retrieval (BM25 + dense + RRF) be the *new default*
-retrieval mode, or should it remain opt-in (`retrieval_profile: "hybrid_rrf"`) while
-`dense_only` stays the default?
-**User Response:** What are the pros and cons of either option?
+- Query prefiltering (path, extension, content-type filters)
+- Candidate retrieval + semantic scoring
+- LLM-based or score-based reranking
+- Remote source integration
+- Result caching (TTL-based)
+- Full `QueryResult`: answer + candidates + sources_display + cost + remote_sources + debug_info
 
-**Q-HYBRID-3**: For the `RetrievalPipeline` abstraction, should retrieval stages be
-registered by name in a registry (like `ToolRegistry`) to allow config-driven composition,
-or are a small number of hard-coded profiles sufficient?
-**User Response:** See answers earlier.
+**What the Research Agent misses** by not using the pipeline:
+- Reranking (each subtopic gets only the top-k raw embedding hits, no quality re-scoring)
+- Prefiltering (path/extension filters from session config are ignored)
+- Remote source chain integration alongside local results
+- Caching (repeated subtopic queries are not cached)
 
----
+### 3.3 The Dependency Gap
 
-### Q-RERANK: Cross-Encoder Reranking
+`lsm.query.api.query()` requires:
 
-**Q-RERANK-1**: Cross-encoder inference adds latency (~2-10s CPU for 100 candidates with
-`ms-marco-MiniLM-L-6-v2`). Is this acceptable for interactive queries in the TUI, or
-should cross-encoding be restricted to a non-interactive "deep search" mode?
-**User Response:** Can this be ran via CUDA/GPU?
+```python
+async def query(
+    question: str,
+    config: LSMConfig,       # full config
+    state: SessionState,     # session state with filters, model selection, etc.
+    embedder,                # embedding model
+    collection,              # vector DB collection
+    progress_callback=None,
+) -> QueryResult:
+```
 
-**Q-RERANK-2**: Should the cross-encoder model be downloaded at install time (add it
-to `pyproject.toml` as a required asset) or downloaded lazily on first use of the
-`dense_cross_rerank` profile?
-**User Response:** Lazily on first use
+The `ResearchAgent` currently receives: `llm_registry`, `tool_registry`, `sandbox`, `agent_config`.
+It does **not** receive `LSMConfig`, `SessionState`, `embedder`, or `collection`. These are
+session-level objects that live above the agent layer.
 
-**Q-RERANK-3**: Should the reranker cache be:
-- **(a)** In-memory only (cleared between sessions).
-- **(b)** Persisted to SQLite in `global_folder`.
-- **(c)** Not implemented in v0.8.0.
-**User Response:** Option B
+However, the `query_embeddings` tool already has `collection` and `embedder` injected at
+registration time via `create_default_tool_registry()`. The gap is `LSMConfig` and `SessionState`.
 
----
+### 3.4 Chosen Design
 
-### Q-HYDE: Hypothetical Document Embeddings
+**New `query_knowledge_base` tool** wrapping `query_sync()`, calling the **full pipeline**
+including LLM synthesis.
 
-**Q-HYDE-1**: HyDE requires an LLM call before retrieval (adds latency + API cost for
-hosted models). Should HyDE be:
-- **(a)** A retrieval profile (`hyde_hybrid`) that users must explicitly opt into.
-- **(b)** An optional flag per query (`--hyde`).
-- **(c)** Out of scope for v0.8.0 (deferred to v0.9.0).
-**User Response:** Option A
+The reasoning:
+- The TODO explicitly states agents should call the query pipeline "as a user would" — the full
+  pipeline IS the user-facing query API
+- Per-subtopic synthesis improves quality: each subtopic gets a grounded summary before the
+  Research Agent synthesizes across all subtopics
+- The Research Agent's `_build_sources_block` and `_extract_sources_from_output` code can be
+  removed since `QueryResult` returns structured `sources_display` and `answer`
 
-**Q-HYDE-2**: Should the hypothetical documents generated by HyDE be logged and visible
-in the TUI debug view or only in `retrieval_trace.json`?
-**User Response:** In `retrieval_trace.json` with the ability to view them in TUI
+**Tool construction**: `query_knowledge_base` is registered in `create_default_tool_registry()`
+with `config`, `embedder`, and `collection` injected at registration time. It constructs a fresh
+minimal `SessionState` per call using config defaults — agents do NOT receive or manage their own
+`SessionState`. This keeps the agent layer clean and avoids mixing agent queries into the user's
+interactive session history.
 
----
+**Agent session state**: Agents do NOT receive `LSMConfig` or `SessionState`. The
+`query_knowledge_base` tool encapsulates both at registration time. This is the same pattern
+`query_embeddings` already uses for `embedder` and `collection`. No changes to agent constructors
+are required.
 
-### Q-EVAL: Evaluation Harness
+**Integration with §2**: The Research Agent's collect phase calls `query_knowledge_base` via
+`_run_phase(tool_names=["query_knowledge_base"])`. The harness enforces the allowlist; the tool
+executes the full query pipeline. The Research Agent's manual `_select_tools()`,
+`_collect_findings()`, `_build_sources_block()`, and `_extract_sources_from_output()` methods
+are removed.
 
-**Q-EVAL-1**: The eval harness requires a golden query set with known-good answers.
-Where should this come from?
-- **(a)** Manually curated by the user on their own corpus.
-- **(b)** Synthetically generated from corpus headings/structure (weak supervision).
-- **(c)** A bundled synthetic dataset for testing purposes only.
-**User Response:** Option C
+### 3.5 query_embeddings Deprecation
 
-**Q-EVAL-2**: Should the eval harness be exposed as a TUI command, a CLI command, or
-both?
-**User Response:** CLI command
+Once `query_knowledge_base` exists, `query_embeddings` is redundant for any meaningful knowledge
+base query. Raw retrieval without synthesis is not a needed capability for current agents.
+`query_embeddings` will be:
 
-**Q-EVAL-3**: Is the BEIR benchmark format (standard IR evaluation format) of interest
-for compatibility with external tooling, or should the harness use a simpler internal
-format?
-**User Response:** BEIR benchmark format
+- Removed from `create_default_tool_registry()`
+- Removed from all agent `tool_allowlist` definitions
+- Deleted from `lsm/agents/tools/`
 
-**Q-EVAL-4**: The eval harness should support regression comparison against a saved
-baseline (e.g., compare `hybrid_rrf` vs. `dense_only` on the same query set). How should
-baselines be stored and selected?
-- **(a)** A single saved baseline file per corpus (overwritten on each `lsm eval save-baseline`).
-- **(b)** Named baselines (e.g., `lsm eval save-baseline --name dense_only_v0.8`) stored
-  as a directory of profiles.
-- **(c)** Automatic — always compare against the last run result.
-**User Response:** What are the pros and cons of each option?
----
+If a future raw-retrieval use case emerges, a dedicated tool can be introduced at that time.
 
-### Q-CHUNK: Heading Depth and Intelligent Chunking
+### 3.6 Design Options Considered
 
-**Q-CHUNK-1**: The TODO describes two heading improvements: (a) *configurable*
-`max_heading_depth` and (b) *intelligent* depth selection based on section size. Should
-both be implemented in v0.8.0, or should only one be prioritized?
-**User Response:** Both
+**Option A — New `query_knowledge_base` Tool ✓ CHOSEN**: Wraps `query_sync()`. Registered in
+`create_default_tool_registry()` with config, embedder, collection injected. Creates minimal
+`SessionState` per call. Reusable by any agent. No changes to agent constructors.
 
-**Q-CHUNK-2**: For the intelligent heading algorithm, what should the hierarchy separator
-be in the `heading` metadata field? E.g., `"::"`  →  `"Introduction::Background::Prior Work"`.
-Or should separate `heading_path: list[str]` metadata be added?
-**User Response:** Separate heading_path metadata
+**Option B — Retrieval-Only Tool**: Calls `build_combined_context_async()` without synthesis.
+No LLM duplication but more complex plumbing; less aligned with "call it as a user would."
 
-**Q-CHUNK-3**: Should `max_heading_depth` be a global config (same for all roots) or
-per-root (different roots might need different depths — e.g., code docs vs. personal
-notes)?
-**User Response:** Set global and allow overrides per-root
+**Option C — Inject Dependencies into Research Agent**: Pass `LSMConfig` + `embedder` +
+`collection` directly into `ResearchAgent`. Direct but tight dependency from agent layer into
+query layer; doesn't create a reusable tool.
 
-**Q-CHUNK-4**: When intelligent heading depth changes the chunk boundaries (changing
-`chunk_id` values), should existing chunks in the DB for that file be treated as stale
-and re-ingested on the next run, or should this only apply after a manual `lsm db
-upgrade` command?
-**User Response:** Treat as stale
+**Option D — Harness-Driven Research Agent with Query Tool**: Migrate `ResearchAgent` to
+`GeneralAgent` pattern. Removes custom loop code but loses explicit deterministic phase control.
 
 ---
 
-### Q-DIVERSITY: Diversity and De-duplication
+## 4. Research Agent Observability
 
-**Q-DIVERSITY-1**: The current de-duplication uses exact hash matching. INGEST_FUTURE.md
-calls for SimHash or MinHash near-duplicate detection. Which approach is preferred?
-- **(a)** SimHash (fast, single-hash similarity; good for short chunks ≤ 512 tokens).
-- **(b)** MinHash + LSH (more accurate; standard for near-duplicate detection at scale).
-- **(c)** Keep exact hash for v0.8.0; add near-dup detection in v0.9.0.
-**User Response:** MinHash
+These logging improvements are absorbed into the §2 agent migration work and applied when the
+`ResearchAgent` orchestration loop is updated to use `_run_phase()`.
 
-**Q-DIVERSITY-2**: The per-section diversity cap uses the chunk's heading path
-(e.g., `"Introduction::Background"`) as the grouping key. `max_per_section` sets the
-maximum chunks returned from any single heading path prefix. What is the right default
-for `max_per_section`?
-- **(a)** None (no per-section cap; backward-compatible default).
-- **(b)** 3 (opinionated default matching `max_per_file`).
-- **(c)** Same as `max_per_file` (unified parameter).
-**User Response:** What is the benefit of adding a `max_per_section` cap.
+**Subtopic iteration logging** — `ResearchAgent.run()` ([lsm/agents/academic/research.py:114](../lsm/agents/academic/research.py)):
 
-**Q-DIVERSITY-3**: The greedy MMR (Maximal Marginal Relevance) diversity selection is an
-alternative to hard per-section caps. It selects the next result that maximizes a blend
-of relevance and dissimilarity from already-selected results. Should MMR be:
-- **(a)** An optional diversity strategy (`diversity_strategy: "mmr"`).
-- **(b)** The default strategy when `diversity_strategy` is not "exact".
-- **(c)** Out of scope for v0.8.0.
-**User Response:** option b
+```python
+# Current:
+self._log(f"Research iteration {iteration} with {len(subtopics)} subtopics.")
 
----
+# Proposed:
+subtopic_lines = "\n".join(f"  [{i}] {st}" for i, st in enumerate(subtopics, 1))
+self._log(f"Research iteration {iteration} — {len(subtopics)} subtopics:\n{subtopic_lines}")
+```
 
-### Q-SCOPE: v0.8.0 Scope Boundaries
+**Review suggestion logging**:
 
-**Q-SCOPE-1**: The INGEST_FUTURE.md has three phases. For v0.8.0, is the target:
-- **(a)** All of Phase 1 (hybrid retrieval, cross-encoder, HyDE, diversity, temporal
-  ranking, eval harness).
-- **(b)** Phase 1 core only: hybrid retrieval + eval harness (cross-encoder and HyDE
-  are v0.9.0).
-- **(c)** DB versioning + heading improvements only (retrieval overhaul is v0.9.0).
-- **(d)** Custom scope — specify which features.
-**User Response:** Everything
+```python
+# Current:
+self._log(f"Refining with {len(subtopics)} review suggestions.")
 
-**Q-SCOPE-2**: Should v0.8.0 also begin the sqlite-backed manifest (replacing the flat
-JSON) as part of the DB versioning work, or defer that to v0.9.0's "persist ingest state
-to DB" TODO item?
-**User Response:** Include in v0.8.0
+# Proposed:
+suggestion_lines = "\n".join(f"  [{i}] {s}" for i, s in enumerate(subtopics, 1))
+self._log(f"Refining with {len(subtopics)} review suggestions:\n{suggestion_lines}")
+```
+
+**Per-subtopic progress log** added inside the collection loop:
+
+```python
+self._log(f"Collecting findings for subtopic: {subtopic}")
+```
+
+If log verbosity becomes a concern with large subtopic lists, this can be gated behind a verbose
+mode via `_log_verbosity()`. For now, listing subtopics inline is the correct default.
 
 ---
 
-*End of research document. Implementation planning begins after Q-DB, Q-SCOPE, and the
-most architecturally-impactful subset of questions above are resolved.*
+## 5. Interaction Channel: Two-Phase Timeout
+
+### 5.1 Problem Statement
+
+When an agent posts a permission or clarification request through the `InteractionChannel`, the
+harness blocks on `post_request()` for at most `timeout_seconds` (default 300 seconds). After
+the timeout the request is auto-denied or auto-approved depending on `timeout_action`.
+
+The problem: the timeout fires even when the user has the interaction panel open in the TUI and
+is actively reading or typing a response. The user experiences the request disappearing mid-reply.
+
+### 5.2 Current Architecture
+
+**`InteractionChannel.post_request()`** ([lsm/agents/interaction.py:122](../lsm/agents/interaction.py)):
+
+```python
+if event.wait(timeout=float(self.timeout_seconds)):
+    # response received
+else:
+    # timeout: apply timeout_action (deny or approve)
+```
+
+There is a single `threading.Event.wait(timeout=...)` call. Once the timeout expires nothing can
+extend it. There is no concept of "user has seen this" in the channel.
+
+**TUI interaction polling** ([lsm/ui/tui/screens/agents.py:1176](../lsm/ui/tui/screens/agents.py)):
+
+The `_refresh_interaction_panel()` method runs on a timer (default every 1 second). When it
+finds a pending interaction it displays the request fields to the user. However it sends no signal
+back to the `InteractionChannel` indicating "this is now visible to the user."
+
+**Config** (`agents.interaction`): One timeout setting (`timeout_seconds = 300`) with no concept
+of a pre-view or post-view state.
+
+### 5.3 Root Cause
+
+There is no feedback path from the UI back to the `InteractionChannel` indicating user engagement.
+The channel only knows two states: "response received" and "timed out." It has no "acknowledged
+by user" state.
+
+### 5.4 Design Options
+
+**Option A — Heartbeat Reset**: TUI sends periodic heartbeats to the channel while a pending
+interaction is displayed. Channel tracks last heartbeat time and resets deadline on each heartbeat.
+Pros: Transparent, works while user is reading. Cons: Requires polling loop; heartbeat could miss
+if TUI timer is slow.
+
+**Option B — Two-Phase Timeout ✓ CHOSEN**: Channel gains `acknowledge_request(request_id)`. When
+UI first displays a pending interaction it calls this method. Channel transitions from
+"pre-acknowledge timeout" to "post-acknowledge timeout" (long or infinite). Config gains
+`acknowledged_timeout_seconds` (default `0` meaning infinite).
+Pros: Clean two-state model; easy to reason about; UI only calls acknowledge once per request.
+Cons: Requires UI to call acknowledge correctly; "acknowledged" means "displayed" not "typing."
+
+**Option C — Focus Detection**: TUI detects when reply input or buttons have keyboard focus and
+calls a `heartbeat()` method. Pros: Most accurate. Cons: Textual focus events are unreliable;
+doesn't cover shell path.
+
+**Option D — Config-Only**: Increase default timeout or document manual setting.
+Pros: Simplest. Cons: Does not address the problem.
+
+### 5.5 Chosen Design
+
+**Option B (Two-Phase Timeout)** is chosen:
+
+- **Acknowledge trigger**: TUI having displayed the request is sufficient — no requirement for
+  the user to have typed or clicked. `_refresh_interaction_panel()` detects and displays the
+  request; this event triggers the acknowledgment signal.
+- **Post-acknowledge timeout**: `acknowledged_timeout_seconds = 0` (infinite). Once the TUI
+  has shown the request to the user, the channel waits indefinitely for a response.
+
+**Required changes:**
+
+- `InteractionChannel` ([lsm/agents/interaction.py](../lsm/agents/interaction.py)):
+  - Add `_acknowledged: bool` state and `_acknowledged_at: Optional[datetime]`
+  - Add `acknowledge_request(request_id: str) -> None` method; validates request_id matches
+    pending request; sets `_acknowledged = True`
+  - Modify `post_request()` to use a polling loop: wait in chunks, check acknowledged state,
+    switch to `acknowledged_timeout_seconds` once acknowledged; a value of `0` means no timeout
+  - Add thread-safety for `_acknowledged` under `_lock`
+
+- `InteractionConfig` dataclass in config models:
+  - Add `acknowledged_timeout_seconds: int = 0` (0 = infinite once acknowledged)
+
+- `AgentRuntimeManager` ([lsm/ui/shell/commands/agents.py](../lsm/ui/shell/commands/agents.py)):
+  - Add `acknowledge_interaction(agent_id: str, request_id: str)` method that forwards to
+    the correct run's `InteractionChannel`
+
+- TUI `_refresh_interaction_panel()` ([lsm/ui/tui/screens/agents.py](../lsm/ui/tui/screens/agents.py)):
+  - When a new pending request is detected and displayed, call
+    `manager.acknowledge_interaction(agent_id, request_id)` once per unique `request_id`
+  - Track `_acknowledged_interaction_ids: set[str]` to avoid duplicate acknowledgments
+
+- Shell interaction commands: When `/agent interact` displays an interaction, call acknowledge.
+
+---
+
+## 6. Implementation Plan
+
+### 6.1 Dependency Map
+
+```
+§2 — Core Architecture: Persistent Harness and Phase Execution
+├── enables → §3 (Research Agent uses query_knowledge_base via _run_phase)
+├── absorbs → §4 (subtopic logging updated as part of research loop refactor)
+└── absorbs → §2.7 (BaseAgent workspace accessors applied during agent migration)
+
+§5 — Interaction Channel: Two-Phase Timeout
+└── Independent of §2–§4; can be developed in parallel
+```
+
+### 6.2 Implementation Order
+
+All items are bundled into a single implementation pass. Recommended order within that pass:
+
+1. **§5** (interaction timeout): Implement first as it is fully independent. Changes are
+   isolated to `InteractionChannel`, `InteractionConfig`, `AgentRuntimeManager`, and TUI.
+
+2. **§2 infrastructure** (`_run_phase()`, `PhaseResult`, `run_bounded()`, workspace accessors):
+   Implement `_run_phase()` on `BaseAgent`, `PhaseResult` dataclass, and `run_bounded()` on
+   `AgentHarness`. Add workspace accessor methods. No agents are migrated yet — this establishes
+   the infrastructure that all subsequent steps depend on.
+
+3. **§3** (`query_knowledge_base` tool): Implement the new tool. Remove `query_embeddings` from
+   `create_default_tool_registry()`. Verify `query_sync()` is callable from tool context.
+
+4. **§2 migration — simple agents** (`GeneralAgent`, `LibrarianAgent`, `ManuscriptEditorAgent`):
+   Replace direct `AgentHarness` instantiation with `self._run_phase()`. Verify behavior is
+   unchanged with existing tests.
+
+5. **§2 migration — academic agents** (`ResearchAgent`, `SynthesisAgent`, `CuratorAgent`):
+   Refactor each to use `_run_phase()`. `ResearchAgent` uses `query_knowledge_base`. Remove all
+   direct `provider.synthesize()` and `sandbox.execute()` calls. Apply §2.7 workspace accessors
+   and §4 logging improvements simultaneously.
+
+6. **§2 migration — remaining agents** (`WritingAgent`, `AssistantAgent`): Audit and refactor.
+   Apply workspace accessor changes.
+
+### 6.3 Testing Strategy
+
+All changes follow the TDD approach: tests are written before implementation. The test suite
+requires updates at multiple layers. Since `AgentHarness` is being reinforced as the sole
+execution control point, tests must verify both the harness internals and the invariant that no
+agent bypasses it.
+
+#### Layer 1: InteractionChannel (§5)
+
+- **Two-phase state machine**:
+  - `post_request()` without acknowledgment times out after `timeout_seconds`
+  - `acknowledge_request()` transitions channel to acknowledged state
+  - After acknowledgment, `post_request()` waits indefinitely (`acknowledged_timeout_seconds=0`)
+  - Acknowledging with a mismatched `request_id` does not acknowledge the pending request
+  - Thread-safety: concurrent acknowledge and timeout polling do not race
+- **TUI acknowledgment signal**:
+  - `_refresh_interaction_panel()` calls `acknowledge_interaction()` exactly once per unique
+    `request_id` regardless of how many timer ticks fire while the request is pending
+  - A second refresh for the same `request_id` does NOT call acknowledge again
+
+#### Layer 2: AgentHarness — run_bounded() (§2 infrastructure)
+
+- **Loop mechanics**:
+  - Returns `PhaseResult(stop_reason="max_iterations")` after exactly `max_iterations`
+  - Returns `PhaseResult(stop_reason="done")` when LLM signals completion before the limit
+  - Returns `PhaseResult(stop_reason="stop_requested")` when a stop is signaled mid-loop
+
+- **Budget enforcement — fully internal**:
+  - If budget is already exhausted on entry: returns `PhaseResult(stop_reason="budget_exhausted")`
+    immediately without making any LLM call or tool call
+  - After budget exhaustion, a subsequent `run_bounded()` call returns immediately the same way
+  - Budget is checked at the start of each iteration, before the LLM call
+  - `PhaseResult` has NO `tokens_used` field and NO `cost_usd` field — assert these attributes
+    do not exist on the `PhaseResult` dataclass (type-level check)
+
+- **Context continuity**:
+  - `continue_context=True`: conversation history from a prior phase is present in the LLM
+    context for the next phase (verify via messages captured in the mock LLM call)
+  - `continue_context=False`: conversation history is reset; LLM receives no prior context
+
+- **Tool allowlist subset enforcement**:
+  - `tool_names=["tool_a"]` causes only `tool_a` to be offered to the LLM
+  - A tool call for `tool_b` (in the agent's allowlist but not in `tool_names`) is rejected
+  - `tool_names=None` allows all tools in the agent's allowlist
+  - `tool_names=[]` allows no tools (LLM still executes but cannot call tools)
+
+- **Run summary and artifact tracking**:
+  - `_track_artifacts_from_sandbox()` is called for each tool execution within a phase
+  - `run_summary.json` is written with cumulative token totals across all phases after `run()`
+    completes — not after each individual `run_bounded()` call
+  - Token totals in `run_summary.json` are the sum over all phases of the run
+
+- **`run()` backward compatibility**:
+  - `AgentHarness.run()` wraps `run_bounded()` and produces identical observable behavior to
+    the pre-refactor implementation for single-phase agents
+
+#### Layer 3: BaseAgent._run_phase() (§2 infrastructure)
+
+- **Harness lifecycle**:
+  - The first `_run_phase()` call creates exactly one `AgentHarness` instance (spy on
+    `AgentHarness.__init__` and assert call count = 1 after multiple `_run_phase()` calls)
+  - A second call to `BaseAgent.run()` creates a new `AgentHarness` instance (fresh per run)
+
+- **Security invariants on BaseAgent**:
+  - `BaseAgent` has NO `_check_budget_and_stop()` method — assert `AttributeError` on access
+  - `BaseAgent` has NO `_tokens_used` attribute — assert `AttributeError` on access
+  - `BaseAgent` imports NO token counting or cost utilities directly
+  - `_run_phase()` returns a `PhaseResult` with no token/cost fields (type check)
+
+#### Layer 4: Workspace and Artifact Management (§2.7)
+
+- `_artifacts_dir()` returns `Path(<agents_folder>/<agent_name>/artifacts/)`
+- `_logs_dir()` returns `Path(<agents_folder>/<agent_name>/logs/)`
+- `_memory_dir()` returns `Path(<agents_folder>/<agent_name>/memory/)`
+- `_workspace_root()` creates the full directory tree when the directories do not yet exist
+- `_artifact_filename("some topic name")` → `"some_topic_name_YYYYMMDD_HHMMSS.md"`
+- `_artifact_filename()` converts spaces, slashes, colons, and other non-word characters to `_`
+- `_artifact_filename()` strips leading and trailing underscores from the sanitized name
+- `_artifact_filename("name", suffix=".json")` respects the `suffix` parameter
+- `ResearchAgent._save_outline()` writes to `self._artifacts_dir() / self._artifact_filename(...)`
+  — existing path-assertion tests must be updated to the new location
+
+#### Layer 5: query_knowledge_base Tool (§3)
+
+- `execute()` calls `query_sync()` with the injected config, embedder, and collection
+- Each call constructs a **fresh** `SessionState` — verify session state is not shared between
+  calls (e.g., history from a prior call does not appear in a subsequent call's state)
+- Output is serialized to JSON containing at minimum: `answer`, `sources_display`, and relevant
+  candidate fields
+- `create_default_tool_registry()` registers `query_knowledge_base` and does NOT register
+  `query_embeddings` — assert `query_embeddings` is absent from the returned registry
+- Input schema: `query` is required; missing or blank `query` raises `ValueError`
+- `lsm/agents/tools/query_embeddings.py` is deleted — assert the file does not exist
+
+#### Layer 6: Agent Migration — Security Invariants and Regression (§2.9)
+
+These tests verify that all agents route execution through the harness and that behavioral
+regressions are caught.
+
+**No-bypass assertions** — applied to every agent module:
+
+  - No agent module directly calls `sandbox.execute()` — enforce via AST inspection test or
+    a monkey-patch test that raises `AssertionError` if sandbox is invoked outside the harness
+  - No agent module directly calls any `provider.*` method — same enforcement approach
+  - No agent module contains a direct `AgentHarness(...)` instantiation — assert via AST or
+    import-time check
+
+**Single harness per run** — for each refactored agent:
+
+  - Spy on `AgentHarness.__init__`; call `agent.run(mock_task)`; assert `__init__` was called
+    exactly once during the run
+
+**Simple agent regression** (`GeneralAgent`, `LibrarianAgent`, `ManuscriptEditorAgent`):
+
+  - Mock at the `_run_phase()` level; capture the `system_prompt`, `user_message`, and
+    `tool_names` arguments; assert they match what was previously passed to `harness.run()`
+  - Assert `PhaseResult.final_text` is correctly consumed by each agent's post-run logic
+
+**ResearchAgent phase flow**:
+
+  - Assert phases execute in order: DECOMPOSE → RESEARCH (per subtopic) → SYNTHESIZE → REVIEW
+  - Assert each per-subtopic log entry contains the subtopic name string
+  - Assert `_run_phase()` is called with `tool_names=["query_knowledge_base"]` for RESEARCH
+    phases and `tool_names=[]` for DECOMPOSE and SYNTHESIZE phases
+  - When `run_bounded()` returns `stop_reason="budget_exhausted"`, assert the subtopic loop
+    terminates early and SYNTHESIZE still executes with whatever findings were collected
+  - Assert output file is written under `self._artifacts_dir()` with a filename matching the
+    `_artifact_filename()` format (`name_YYYYMMDD_HHMMSS.md`)
+
+**Existing test suite updates required**:
+
+  - Tests that monkeypatch `sandbox.execute()` or `provider.synthesize()` on agent instances
+    must be rewritten to mock at the `_run_phase()` or `run_bounded()` level
+  - Tests asserting `ResearchResult.output_path` must be updated to reflect the new
+    `artifacts/` subdirectory location
+  - Tests asserting `_tokens_used` or `_cost` attributes on agent instances must be removed
+  - Tests asserting `AgentHarness` is directly instantiated inside an agent's `run()` method
+    must be inverted — they should now assert it is NOT directly instantiated
+
+### 6.4 Documentation Updates
+
+- `AGENTS.md`: Update interaction section (§5 two-phase timeout); update `BaseAgent` section
+  with `_run_phase()`, `PhaseResult`, and workspace accessors; update Research Agent section
+  with new workflow and `query_knowledge_base`; note artifact layout
+- `lsm.agents.md` package doc: Document new `BaseAgent` methods; document `PhaseResult`;
+  document `AgentHarness.run_bounded()`
+- `CONFIG.md`: Document new `acknowledged_timeout_seconds` config field
+- `CHANGELOG.md`: All changes documented per standard phase checklist
+
+---
+
+## 7. Resolved Decisions
+
+All clarifying questions from the discovery phase have been answered.
+
+**§5 — Interaction Channel**
+
+| # | Question | Decision |
+|---|----------|----------|
+| Q1 | What level of user engagement triggers timeout suspension? | TUI displaying the request to the user (interaction panel has shown it). No requirement for user to have typed or clicked. Option B (two-phase timeout). |
+| Q2 | Post-acknowledge timeout behavior? | No timeout — infinite wait once acknowledged. `acknowledged_timeout_seconds = 0`. |
+
+**§3 — Knowledge Base Access**
+
+| # | Question | Decision |
+|---|----------|----------|
+| Q3 | Full pipeline or retrieval only? | Full pipeline including LLM synthesis. Each subtopic gets a pre-synthesized answer via `query_sync()`. |
+| Q4 | Built-in tool or direct dependency? | New built-in tool (`query_knowledge_base`). Reusable by any agent. |
+| Q5 | Is `query_embeddings` still needed after `query_knowledge_base` exists? | No. Deprecated and removed from default tool registry. Deleted. |
+| Q6 | Should agents receive `LSMConfig` and their own `SessionState`? | No. The `query_knowledge_base` tool encapsulates both at registration time. Agent constructors do not change. |
+
+**§2 — Core Architecture**
+
+| # | Question | Decision |
+|---|----------|----------|
+| Q7 | Which refactoring approach? | Persistent harness: `BaseAgent` gains `_run_phase()` as the single execution control point. All agents call `_run_phase()`; no agent touches `AgentHarness`, sandbox, or provider directly. |
+| Q8 | Which agents are in scope? | All agents — complete consistency pass. |
+| Q9 | Bundle or implement separately? | Everything bundled into a single implementation pass. §4 and §2.7 are absorbed into the §2 migration work. |
+| Q10 | Should workspace paths be platform-formatted? Should filenames be consistent? | Yes. All workspace accessor methods return `pathlib.Path` objects (platform-aware by design). `BaseAgent` gains `_artifact_filename(name, suffix)` to produce consistently timestamped filenames; no agent formats its own timestamps. |
+| Q11 | Should the harness be recreated per `_run_phase()` call or persist for the run? | Persist. `BaseAgent` owns one `AgentHarness` per `run()` lifecycle. Token tracking, cost, and budget stay fully internal to the harness. |
+| Q12 | Does the agent need a budget-check method between phases? | No. Budget checking, enforcement, and stop decisions are entirely internal to the harness. No budget-query API exists on `BaseAgent`. Agents react to `PhaseResult.stop_reason` to control their loops — this conveys status only, not financial data. |

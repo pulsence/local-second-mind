@@ -59,7 +59,9 @@ See [ARCHITECTURE.md](./ARCHITECTURE.md) for detailed package structure and key 
   and answer questions in one place. This research plan should be saved in a file:
   .agents/docs/RESEARCH_PLAN.md. This document will be used by the user to iteratively fleshout
   ideas and design considerations before producings an implementation plan.
-- [v0.7.0 Plan](./past_plans/v_0_7_0_PLAN.md) - Completed v0.7.0 development plan (all phases)
+- You can find past plans and reseach in .agents/docs/past_plans/.
+- When asked to create a release summary or release statement read 
+  [RELEASE_STATEMENT.md](./RELEASE_STATEMENT.md) for a guide on how to go so.
 
 ## Commands
 
