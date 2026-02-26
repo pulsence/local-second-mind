@@ -115,11 +115,11 @@ class BaseAgent(ABC):
         self.risk_posture = (
             str(self.risk_posture or "read_only").strip().lower() or "read_only"
         )
-        self.tool_allowlist = (
-            {str(item).strip() for item in self.tool_allowlist if str(item).strip()}
-            if self.tool_allowlist
-            else None
-        )
+        self.tool_allowlist = {
+            str(item).strip()
+            for item in (self.tool_allowlist or set())
+            if str(item).strip()
+        }
         self.state = AgentState()
         self._stop_requested = False
         self._stop_logged = False
@@ -301,32 +301,25 @@ class BaseAgent(ABC):
     def _get_tool_definitions(
         self,
         tool_registry: "ToolRegistry",
-        tool_allowlist: Optional[set[str]] = None,
     ) -> list[Dict[str, Any]]:
         """
-        Return tool definitions, filtered by the merged allowlist when present.
+        Return tool definitions filtered by the agent's resolved allowlist.
         """
         definitions = tool_registry.list_definitions()
-        allowed: set[str] = set()
-        if self.tool_allowlist:
-            allowed |= {name.strip() for name in self.tool_allowlist if str(name).strip()}
-        if tool_allowlist:
-            allowed |= {name.strip() for name in tool_allowlist if str(name).strip()}
+        allowed = self._resolve_allowed_tool_names(tool_registry)
         if not allowed:
-            return definitions
-        allowed |= set(self._always_available_tools)
+            return []
         return [item for item in definitions if str(item.get("name", "")).strip() in allowed]
 
     def _format_tool_definitions_for_prompt(
         self,
         tool_registry: "ToolRegistry",
-        tool_allowlist: Optional[set[str]] = None,
     ) -> str:
         """
         Build a compact JSON block with tool names, descriptions, and argument schemas.
         """
         compact = []
-        for item in self._get_tool_definitions(tool_registry, tool_allowlist):
+        for item in self._get_tool_definitions(tool_registry):
             compact.append(
                 {
                     "name": item.get("name"),
@@ -335,6 +328,35 @@ class BaseAgent(ABC):
                 }
             )
         return json.dumps(compact, indent=2)
+
+    def _resolve_allowed_tool_names(self, tool_registry: "ToolRegistry") -> set[str]:
+        allowed = {name for name in (self.tool_allowlist or set()) if name}
+        allowed |= set(self._always_available_tools)
+        allowed &= {str(tool.name).strip() for tool in tool_registry.list_tools()}
+        if not allowed:
+            return set()
+
+        sandbox = getattr(self, "sandbox", None)
+        sandbox_config = getattr(sandbox, "config", None)
+        if sandbox_config is None:
+            agent_config = getattr(self, "agent_config", None)
+            sandbox_config = getattr(agent_config, "sandbox", None)
+
+        if sandbox_config is not None:
+            try:
+                from .tools.sandbox import ToolSandbox
+            except Exception:
+                ToolSandbox = None  # type: ignore[assignment]
+
+            if ToolSandbox is not None:
+                if not bool(getattr(sandbox_config, "allow_url_access", False)):
+                    allowed -= set(ToolSandbox._NETWORK_TOOL_NAMES)
+                if not list(getattr(sandbox_config, "allowed_read_paths", []) or []):
+                    allowed -= set(ToolSandbox._READ_TOOL_NAMES)
+                if not list(getattr(sandbox_config, "allowed_write_paths", []) or []):
+                    allowed -= set(ToolSandbox._WRITE_TOOL_NAMES)
+
+        return {name for name in allowed if name}
 
     def _parse_tool_selection(
         self,

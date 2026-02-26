@@ -155,10 +155,7 @@ class SynthesisAgent(BaseAgent):
     def _available_tools(self) -> set[str]:
         return {
             str(item.get("name", "")).strip()
-            for item in self._get_tool_definitions(
-                self.tool_registry,
-                tool_allowlist=self.tool_allowlist,
-            )
+            for item in self._get_tool_definitions(self.tool_registry)
             if str(item.get("name", "")).strip()
         }
 

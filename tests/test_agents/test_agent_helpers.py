@@ -8,6 +8,7 @@ from lsm.agents.tools.base import BaseTool, ToolRegistry
 class HelperAgent(BaseAgent):
     name = "helper"
     description = "Helper test agent."
+    tool_allowlist = {"alpha", "beta"}
 
     def run(self, initial_context: AgentContext) -> AgentState:
         _ = initial_context
@@ -73,7 +74,8 @@ def test_base_agent_helpers_format_and_parse_tool_selection() -> None:
     assert "Beta description." in formatted
     assert '"required": [' in formatted
 
-    filtered = agent._get_tool_definitions(registry, {"beta"})
+    agent.tool_allowlist = {"beta"}
+    filtered = agent._get_tool_definitions(registry)
     assert len(filtered) == 1
     assert filtered[0]["name"] == "beta"
 
