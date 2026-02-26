@@ -13,9 +13,9 @@ from lsm.agents.tools.sandbox import ToolSandbox
 from lsm.config.loader import build_config_from_raw
 
 
-class QueryEmbeddingsStubTool(BaseTool):
-    name = "query_embeddings"
-    description = "Stub local retrieval tool."
+class QueryKnowledgeBaseStubTool(BaseTool):
+    name = "query_knowledge_base"
+    description = "Stub knowledge base query tool."
     input_schema = {
         "type": "object",
         "properties": {
@@ -27,17 +27,23 @@ class QueryEmbeddingsStubTool(BaseTool):
     }
 
     def execute(self, args: dict) -> str:
+        query = args.get("query")
         return json.dumps(
-            [
-                {
-                    "text": f"Local snippet for {args.get('query')}",
-                    "relevance": 0.9,
-                    "metadata": {
-                        "source_path": "docs/source.md",
-                        "title": "Local Source",
-                    },
-                }
-            ]
+            {
+                "answer": f"Answer for {query}",
+                "sources_display": "docs/source.md",
+                "candidates": [
+                    {
+                        "id": "c1",
+                        "text": f"Local snippet for {query}",
+                        "score": 0.9,
+                        "metadata": {
+                            "source_path": "docs/source.md",
+                            "title": "Local Source",
+                        },
+                    }
+                ],
+            }
         )
 
 
@@ -143,7 +149,7 @@ def test_research_agent_runs_and_saves_outline(monkeypatch, tmp_path: Path) -> N
 
     config = build_config_from_raw(_base_raw(tmp_path), tmp_path / "config.json")
     registry = ToolRegistry()
-    registry.register(QueryEmbeddingsStubTool())
+    registry.register(QueryKnowledgeBaseStubTool())
     registry.register(QueryRemoteStubTool())
     sandbox = ToolSandbox(config.agents.sandbox)
     agent = ResearchAgent(config.llm, registry, sandbox, config.agents)
@@ -168,7 +174,7 @@ def test_research_agent_stops_when_budget_exhausted(monkeypatch, tmp_path: Path)
             if "decompose the topic" in lower:
                 return json.dumps(["Large Topic"])
             if "select the best tools" in lower:
-                return json.dumps({"tools": ["query_embeddings"]})
+                return json.dumps({"tools": ["query_knowledge_base"]})
             if "review this research outline" in lower:
                 return json.dumps({"sufficient": False, "suggestions": ["Refine"]})
             return "x" * 5000
@@ -182,7 +188,7 @@ def test_research_agent_stops_when_budget_exhausted(monkeypatch, tmp_path: Path)
     raw["agents"]["max_tokens_budget"] = 200
     config = build_config_from_raw(raw, tmp_path / "config.json")
     registry = ToolRegistry()
-    registry.register(QueryEmbeddingsStubTool())
+    registry.register(QueryKnowledgeBaseStubTool())
     sandbox = ToolSandbox(config.agents.sandbox)
     agent = ResearchAgent(config.llm, registry, sandbox, config.agents)
 
@@ -202,7 +208,7 @@ def test_agent_factory_creates_research_agent(monkeypatch, tmp_path: Path) -> No
             if "decompose the topic" in lower:
                 return json.dumps(["S1"])
             if "select the best tools" in lower:
-                return json.dumps({"tools": ["query_embeddings"]})
+                return json.dumps({"tools": ["query_knowledge_base"]})
             if "review this research outline" in lower:
                 return json.dumps({"sufficient": True, "suggestions": []})
             return "- Summary"
@@ -214,7 +220,7 @@ def test_agent_factory_creates_research_agent(monkeypatch, tmp_path: Path) -> No
 
     config = build_config_from_raw(_base_raw(tmp_path), tmp_path / "config.json")
     registry = ToolRegistry()
-    registry.register(QueryEmbeddingsStubTool())
+    registry.register(QueryKnowledgeBaseStubTool())
     sandbox = ToolSandbox(config.agents.sandbox)
 
     agent = create_agent("research", config.llm, registry, sandbox, config.agents)
@@ -226,7 +232,7 @@ def test_agent_factory_creates_research_agent(monkeypatch, tmp_path: Path) -> No
 def test_agent_registry_rejects_unknown_agent(tmp_path: Path) -> None:
     config = build_config_from_raw(_base_raw(tmp_path), tmp_path / "config.json")
     registry = ToolRegistry()
-    registry.register(QueryEmbeddingsStubTool())
+    registry.register(QueryKnowledgeBaseStubTool())
     sandbox = ToolSandbox(config.agents.sandbox)
     agent_registry = AgentRegistry()
 
@@ -264,7 +270,7 @@ def test_research_agent_filters_unknown_tools(monkeypatch, tmp_path: Path) -> No
 
     config = build_config_from_raw(_base_raw(tmp_path), tmp_path / "config.json")
     registry = ToolRegistry()
-    registry.register(QueryEmbeddingsStubTool())
+    registry.register(QueryKnowledgeBaseStubTool())
     sandbox = ToolSandbox(config.agents.sandbox)
     agent = ResearchAgent(config.llm, registry, sandbox, config.agents)
 
@@ -324,7 +330,7 @@ def test_research_agent_passes_sources_to_llm(monkeypatch, tmp_path: Path) -> No
             if "decompose the topic" in lower:
                 return json.dumps(["Scope"])
             if "select the best tools" in lower:
-                return json.dumps({"tools": ["query_embeddings"]})
+                return json.dumps({"tools": ["query_knowledge_base"]})
             if "review this research outline" in lower:
                 return json.dumps({"sufficient": True, "suggestions": []})
             if "summarize findings for subtopic" in lower:
@@ -339,7 +345,7 @@ def test_research_agent_passes_sources_to_llm(monkeypatch, tmp_path: Path) -> No
 
     config = build_config_from_raw(_base_raw(tmp_path), tmp_path / "config.json")
     registry = ToolRegistry()
-    registry.register(QueryEmbeddingsStubTool())
+    registry.register(QueryKnowledgeBaseStubTool())
     sandbox = ToolSandbox(config.agents.sandbox)
     agent = ResearchAgent(config.llm, registry, sandbox, config.agents)
 

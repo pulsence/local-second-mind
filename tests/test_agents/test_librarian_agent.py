@@ -10,9 +10,9 @@ from lsm.agents.tools.sandbox import ToolSandbox
 from lsm.config.loader import build_config_from_raw
 
 
-class QueryEmbeddingsStubTool(BaseTool):
-    name = "query_embeddings"
-    description = "Stub local retrieval tool."
+class QueryKnowledgeBaseStubTool(BaseTool):
+    name = "query_knowledge_base"
+    description = "Stub knowledge base query tool."
     input_schema = {
         "type": "object",
         "properties": {
@@ -28,17 +28,21 @@ class QueryEmbeddingsStubTool(BaseTool):
 
     def execute(self, args: dict) -> str:
         query = str(args.get("query", ""))
-        payload = []
+        candidates = []
         for idx, source in enumerate(self.sources):
-            payload.append(
+            candidates.append(
                 {
                     "id": f"c{idx}",
                     "text": f"Evidence for {query} from {source.name}",
                     "metadata": {"source_path": str(source)},
-                    "relevance": 0.9 - (idx * 0.1),
+                    "score": 0.9 - (idx * 0.1),
                 }
             )
-        return json.dumps(payload)
+        return json.dumps({
+            "answer": f"Answer for {query}",
+            "sources_display": ", ".join(str(s) for s in self.sources),
+            "candidates": candidates,
+        })
 
 
 class MemoryPutStubTool(BaseTool):
@@ -112,7 +116,7 @@ def test_librarian_agent_builds_idea_graph(tmp_path: Path) -> None:
 
     config = build_config_from_raw(_base_raw(tmp_path), tmp_path / "config.json")
     registry = ToolRegistry()
-    registry.register(QueryEmbeddingsStubTool([doc_a, doc_b]))
+    registry.register(QueryKnowledgeBaseStubTool([doc_a, doc_b]))
     memory_tool = MemoryPutStubTool()
     registry.register(memory_tool)
     sandbox = ToolSandbox(config.agents.sandbox)

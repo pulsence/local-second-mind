@@ -284,7 +284,7 @@ Default tool registry (`create_default_tool_registry`) includes:
 - `find_section` (`risk_level=read_only`)
 - `hash_file` (`risk_level=read_only`)
 - `source_map` (`risk_level=read_only`) (structural outlines by source)
-- `query_embeddings` (`risk_level=read_only`) (registered only when vector DB provider + embedder are available)
+- `query_knowledge_base` (`risk_level=read_only`) (registered only when vector DB provider + embedder are available; wraps the full `query_sync()` pipeline with reranking and LLM synthesis)
 - `extract_snippets` (`risk_level=read_only`) (registered only when vector DB provider + embedder are available)
 - `similarity_search` (`risk_level=read_only`) (registered only when vector DB provider is available)
 - `edit_file` (`risk_level=writes_workspace`)

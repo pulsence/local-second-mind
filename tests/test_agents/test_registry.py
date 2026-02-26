@@ -43,7 +43,7 @@ def test_agent_registry_exposes_core_catalog_metadata() -> None:
     assert librarian_entry is not None
     assert librarian_entry.description == LibrarianAgent.description
     assert librarian_entry.tool_allowlist is not None
-    assert "query_embeddings" in librarian_entry.tool_allowlist
+    assert "query_knowledge_base" in librarian_entry.tool_allowlist
 
     assistant_entry = registry.get_entry("assistant")
     assert assistant_entry is not None

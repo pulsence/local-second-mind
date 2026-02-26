@@ -41,9 +41,9 @@ class ReadFolderStubTool(BaseTool):
         )
 
 
-class QueryEmbeddingsStubTool(BaseTool):
-    name = "query_embeddings"
-    description = "Stub local retrieval tool."
+class QueryKnowledgeBaseStubTool(BaseTool):
+    name = "query_knowledge_base"
+    description = "Stub knowledge base query tool."
     input_schema = {
         "type": "object",
         "properties": {
@@ -57,20 +57,24 @@ class QueryEmbeddingsStubTool(BaseTool):
     def execute(self, args: dict) -> str:
         query = str(args.get("query", ""))
         return json.dumps(
-            [
-                {
-                    "id": "hit-1",
-                    "text": f"Primary evidence for {query}",
-                    "metadata": {"source_path": "notes/a.md"},
-                    "relevance": 0.89,
-                },
-                {
-                    "id": "hit-2",
-                    "text": f"Secondary evidence for {query}",
-                    "metadata": {"source_path": "notes/b.md"},
-                    "relevance": 0.81,
-                },
-            ]
+            {
+                "answer": f"Synthesized answer for {query}",
+                "sources_display": "notes/a.md, notes/b.md",
+                "candidates": [
+                    {
+                        "id": "hit-1",
+                        "text": f"Primary evidence for {query}",
+                        "metadata": {"source_path": "notes/a.md"},
+                        "score": 0.89,
+                    },
+                    {
+                        "id": "hit-2",
+                        "text": f"Secondary evidence for {query}",
+                        "metadata": {"source_path": "notes/b.md"},
+                        "score": 0.81,
+                    },
+                ],
+            }
         )
 
 
@@ -177,7 +181,7 @@ def _base_raw(tmp_path: Path) -> dict:
 
 def _register_tools(registry: ToolRegistry) -> None:
     registry.register(ReadFolderStubTool())
-    registry.register(QueryEmbeddingsStubTool())
+    registry.register(QueryKnowledgeBaseStubTool())
     registry.register(ExtractSnippetsStubTool())
     registry.register(SourceMapStubTool())
     registry.register(ReadFileStubTool())

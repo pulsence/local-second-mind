@@ -11,9 +11,9 @@ from lsm.agents.productivity import WritingAgent
 from lsm.config.loader import build_config_from_raw
 
 
-class QueryEmbeddingsStubTool(BaseTool):
-    name = "query_embeddings"
-    description = "Stub local retrieval tool."
+class QueryKnowledgeBaseStubTool(BaseTool):
+    name = "query_knowledge_base"
+    description = "Stub knowledge base query tool."
     input_schema = {
         "type": "object",
         "properties": {"query": {"type": "string"}, "top_k": {"type": "integer"}},
@@ -23,20 +23,24 @@ class QueryEmbeddingsStubTool(BaseTool):
     def execute(self, args: dict) -> str:
         query = str(args.get("query", ""))
         return json.dumps(
-            [
-                {
-                    "id": "c1",
-                    "text": f"evidence for {query}",
-                    "metadata": {"source_path": "notes/a.md"},
-                    "relevance": 0.88,
-                },
-                {
-                    "id": "c2",
-                    "text": f"secondary evidence for {query}",
-                    "metadata": {"source_path": "notes/b.md"},
-                    "relevance": 0.81,
-                },
-            ]
+            {
+                "answer": f"Answer for {query}",
+                "sources_display": "notes/a.md, notes/b.md",
+                "candidates": [
+                    {
+                        "id": "c1",
+                        "text": f"evidence for {query}",
+                        "metadata": {"source_path": "notes/a.md"},
+                        "score": 0.88,
+                    },
+                    {
+                        "id": "c2",
+                        "text": f"secondary evidence for {query}",
+                        "metadata": {"source_path": "notes/b.md"},
+                        "score": 0.81,
+                    },
+                ],
+            }
         )
 
 
@@ -146,7 +150,7 @@ def test_writing_agent_runs_and_saves_deliverable(monkeypatch, tmp_path: Path) -
 
     config = build_config_from_raw(_base_raw(tmp_path), tmp_path / "config.json")
     registry = ToolRegistry()
-    registry.register(QueryEmbeddingsStubTool())
+    registry.register(QueryKnowledgeBaseStubTool())
     registry.register(ExtractSnippetsStubTool())
     registry.register(SourceMapStubTool())
     sandbox = ToolSandbox(config.agents.sandbox)
@@ -180,7 +184,7 @@ def test_agent_factory_creates_writing_agent(monkeypatch, tmp_path: Path) -> Non
 
     config = build_config_from_raw(_base_raw(tmp_path), tmp_path / "config.json")
     registry = ToolRegistry()
-    registry.register(QueryEmbeddingsStubTool())
+    registry.register(QueryKnowledgeBaseStubTool())
     sandbox = ToolSandbox(config.agents.sandbox)
 
     agent = create_agent("writing", config.llm, registry, sandbox, config.agents)

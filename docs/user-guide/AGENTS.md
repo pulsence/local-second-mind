@@ -134,7 +134,7 @@ Tool availability is determined by the agent's built-in allowlist and sandbox se
 
 | Tool | Description |
 |------|-------------|
-| `query_embeddings` | Semantic search over the ingested knowledge base. Returns ranked chunks with scores. |
+| `query_knowledge_base` | Query the knowledge base using the full pipeline (embedding search + reranking + LLM synthesis). Returns a grounded answer with sources and ranked candidate chunks. |
 | `similarity_search` | Low-level vector similarity search against the active collection. |
 | `extract_snippets` | Extract the most relevant text snippets for a query from the knowledge base. |
 

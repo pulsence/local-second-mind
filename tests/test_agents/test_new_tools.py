@@ -252,7 +252,7 @@ def test_default_tool_registry_registers_new_tools_with_dependency_rules(tmp_pat
     )
     with_vectors_names = {tool.name for tool in with_vectors.list_tools()}
     assert "similarity_search" in with_vectors_names
-    assert "query_embeddings" in with_vectors_names
+    assert "query_knowledge_base" in with_vectors_names
     assert "extract_snippets" in with_vectors_names
     assert "ask_user" in with_vectors_names
     assert "spawn_agent" in with_vectors_names

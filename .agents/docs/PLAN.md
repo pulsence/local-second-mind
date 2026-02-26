@@ -11,7 +11,7 @@
 |-------|-------|------|--------|
 | 1 | Interaction Channel — Two-Phase Timeout | [PHASE_1.md](../plan_phases/PHASE_1.md) | Complete |
 | 2 | AgentHarness and BaseAgent Infrastructure | [PHASE_2.md](../plan_phases/PHASE_2.md) | Complete |
-| 3 | query_knowledge_base Tool | [PHASE_3.md](../plan_phases/PHASE_3.md) | |
+| 3 | query_knowledge_base Tool | [PHASE_3.md](../plan_phases/PHASE_3.md) | Complete |
 | 4 | Simple Agent Migration | [PHASE_4.md](../plan_phases/PHASE_4.md) | |
 | 5 | Academic Agents Migration | [PHASE_5.md](../plan_phases/PHASE_5.md) | |
 | 6 | Remaining Agent Migration | [PHASE_6.md](../plan_phases/PHASE_6.md) | |

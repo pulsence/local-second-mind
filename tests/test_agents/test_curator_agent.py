@@ -121,9 +121,9 @@ class SimilaritySearchStubTool(BaseTool):
         )
 
 
-class QueryEmbeddingsStubTool(BaseTool):
-    name = "query_embeddings"
-    description = "Stub retrieval tool."
+class QueryKnowledgeBaseStubTool(BaseTool):
+    name = "query_knowledge_base"
+    description = "Stub knowledge base query tool."
     input_schema = {
         "type": "object",
         "properties": {"query": {"type": "string"}, "top_k": {"type": "integer"}},
@@ -133,14 +133,18 @@ class QueryEmbeddingsStubTool(BaseTool):
     def execute(self, args: dict) -> str:
         _ = args
         return json.dumps(
-            [
-                {
-                    "id": "q1",
-                    "text": "TODO: expand this draft.",
-                    "relevance": 0.8,
-                    "metadata": {"source_path": "notes/a.md"},
-                }
-            ]
+            {
+                "answer": "TODO: expand this draft.",
+                "sources_display": "notes/a.md",
+                "candidates": [
+                    {
+                        "id": "q1",
+                        "text": "TODO: expand this draft.",
+                        "score": 0.8,
+                        "metadata": {"source_path": "notes/a.md"},
+                    }
+                ],
+            }
         )
 
 
@@ -191,7 +195,7 @@ def _register_tools(registry: ToolRegistry) -> None:
     registry.register(FileMetadataStubTool())
     registry.register(HashFileStubTool())
     registry.register(SimilaritySearchStubTool())
-    registry.register(QueryEmbeddingsStubTool())
+    registry.register(QueryKnowledgeBaseStubTool())
 
 
 def test_curator_agent_runs_and_saves_report(monkeypatch, tmp_path: Path) -> None:

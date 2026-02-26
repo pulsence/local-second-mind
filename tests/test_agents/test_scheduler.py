@@ -122,7 +122,7 @@ def _fake_agent_factory(**kwargs):
             "file_metadata",
             "hash_file",
             "source_map",
-            "query_embeddings",
+            "query_knowledge_base",
             "extract_snippets",
             "write_file",
             "append_file",
