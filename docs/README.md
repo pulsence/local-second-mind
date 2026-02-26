@@ -26,15 +26,17 @@ This project is maintained for personal use first.
 - Developer and agent docs now live in `.agents/docs/`.
 - Use `.agents/docs/INDEX.md` as the entry point.
 
-## What's New in 0.6.0
+## What's New in 0.7.0
 
-- Compact TUI layout with density modes (`auto`, `compact`, `comfortable`) for small terminals
-- Split modular CSS and refactored Settings screen with MVC architecture
-- Interactive agent approvals/replies with multi-agent runtime and real-time log streaming
-- TUI startup under 1 second with lazy background ML initialization
-- Session-completed agent history, unified log formats, and refined agent screen UX
-- Hardened TUI test infrastructure with fast/slow marker split and global state fixtures
+- Agent system overhaul: general, librarian, assistant, and manuscript editor agents
+- Meta-agents with parallel task graph planning and `ThreadPoolExecutor` execution engine
+- File graphing system for code, text, PDF, and HTML with graph-aware read/edit tooling
+- 20+ new remote providers: academic (PubMed, SSRN, PhilArchive), cultural heritage, news, and RSS/Atom
+- OAuth2 infrastructure with Gmail, Microsoft Graph, CalDAV, and communication assistant agents
+- OpenRouter provider, MCP host support (`global.mcp_servers`), and tiered LLM config (`llms.tiers`)
+- Native tool-calling for OpenAI, Anthropic, and Gemini providers with prompt-schema fallback
+- Docker runner improvements, WSL2 runner, and sandbox-enforced bash/powershell execution tools
 
 ## Version
 
-Current release: `0.6.0`
+Current release: `0.7.0`

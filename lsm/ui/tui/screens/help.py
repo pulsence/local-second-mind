@@ -141,11 +141,13 @@ _WHATS_NEW_SECTION_TITLE = f"WHAT'S NEW IN {_WHATS_NEW_VERSION}"
 
 _WHATS_NEW: tuple[str, ...] = (
     f"Version: {_WHATS_NEW_VERSION}",
-    "Compact TUI layout with density modes (auto/compact/comfortable) for small terminals.",
-    "Split modular CSS and refactored settings screen with MVC architecture.",
-    "Interactive agent approvals and replies with multi-agent runtime support.",
-    "Real-time log streaming, schedule controls, and session-completed agent history.",
-    "TUI startup under 1 second with lazy background ML initialization.",
+    "Agent system overhaul: general, librarian, assistant, and manuscript editor agents.",
+    "Meta-agents with parallel task graph planning and ThreadPoolExecutor execution engine.",
+    "File graphing system for code, text, PDF, and HTML with graph-aware tooling.",
+    "20+ new remote providers: academic, cultural heritage, news, and RSS/Atom feeds.",
+    "OAuth2 infrastructure with email, calendar, and communication assistant agents.",
+    "OpenRouter provider, MCP host support, tiered LLM config, and native tool-calling.",
+    "Docker runner improvements, WSL2 runner, and sandboxed bash/powershell tools.",
 )
 
 

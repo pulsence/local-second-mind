@@ -28,49 +28,49 @@ v0.7.0 introduces a comprehensive agent system with multiple specialized agents,
 
 ## Phases
 
-### [Phase 1: Core Infrastructure & Configuration](../plan_phases/PHASE_1.md) (COMPLETED)
+### Phase 1: Core Infrastructure & Configuration (COMPLETED)
 
 Utils module, agent log format conversion, tiered model configuration, and agent/tool test harness.
 
-### [Phase 2: File Graphing System](../plan_phases/PHASE_2.md) (COMPLETED)
+### Phase 2: File Graphing System (COMPLETED)
 
 Graph schema, code file grapher, text document grapher, PDF document grapher, HTML document grapher, tool integration hooks, and fixtures.
 
-### [Phase 3: Agent Framework Overhaul](../plan_phases/PHASE_3.md) (COMPLETED)
+### Phase 3: Agent Framework Overhaul (COMPLETED)
 
 Agent package restructure, workspace defaults, tool API standardization, and universal ask_user.
 
-### [Phase 4: Advanced Tooling](../plan_phases/PHASE_4.md) (COMPLETED)
+### Phase 4: Advanced Tooling (COMPLETED)
 
 Line-hash editing engine, find file/section tools, read/outline enhancements, and benchmark comparisons.
 
-### [Phase 5: Execution Environment](../plan_phases/PHASE_5.md) (COMPLETED)
+### Phase 5: Execution Environment (COMPLETED)
 
 Runner policy updates, Docker runner completion, WSL2 runner, bash/PowerShell tools with security testing.
 
-### [Phase 6: Core Agent Catalog](../plan_phases/PHASE_6.md) (COMPLETED)
+### Phase 6: Core Agent Catalog (COMPLETED)
 
 General, Librarian, Assistant, and Manuscript Editor agents.
 
-### [Phase 7: AI Providers & Protocol Infrastructure](../plan_phases/PHASE_7.md) (COMPLETED)
+### Phase 7: AI Providers & Protocol Infrastructure (COMPLETED)
 
 OpenRouter provider, OAI-protocol consolidation, MCP host support, and generic RSS reader.
 
-### [Phase 8: Remote Source Providers](../plan_phases/PHASE_8.md) (COMPLETED)
+### Phase 8: Remote Source Providers (COMPLETED)
 
 Provider sub-package restructure, structured output validation, scholarly/academic/cultural/news providers, and specialized protocols.
 
-### [Phase 9: Communication Platform](../plan_phases/PHASE_9.md) (COMPLETED)
+### Phase 9: Communication Platform (COMPLETED)
 
 OAuth2 infrastructure, email/calendar providers, and email/calendar/news assistant agents.
 
-### [Phase 10: Meta-Agent Evolution](../plan_phases/PHASE_10.md) (COMPLETED)
+### Phase 10: Meta-Agent Evolution (COMPLETED)
 
 Parallel task graph planning, parallel execution engine, general and assistant meta-agents.
 
-### [Phase 11: Release & Documentation](../plan_phases/PHASE_11.md)
+### Phase 11: Release & Documentation (COMPLETED)
 
-Version bump, documentation audit, config examples update, and TUI WHATS_NEW.
+Version bump to 0.7.0, documentation audit, TUI WHATS_NEW update, and CHANGELOG finalization.
 
 ---
 
