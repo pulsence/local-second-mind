@@ -18,7 +18,7 @@ This guide reflects the v0.5.0 tiered test strategy and runtime configuration.
 
 ## Default Marker Behavior
 
- defaults to excluding ``pytest` nowlive` and `docker` tests via:
+Default configuration excludes `live` and `docker` tests via:
 
 ```text
 -m "not live and not docker"
@@ -53,6 +53,12 @@ Supported variables:
 - `LSM_TEST_POSTGRES_CONNECTION_STRING`
 - `LSM_TEST_EMBED_MODEL` (default: `sentence-transformers/all-MiniLM-L6-v2`)
 - `LSM_TEST_TIER` (`smoke|integration|live`, default: `smoke`)
+
+Live LLM integration flags:
+
+- `LSM_RUN_LIVE_LLM` (set to `1` to enable live LLM agent tests)
+- `LSM_LIVE_LLM_PROVIDER` (`openai|anthropic|gemini|openrouter`)
+- `LSM_LIVE_LLM_MODEL` (model name for the selected provider)
 
 ## Core Infrastructure Fixtures
 
@@ -109,6 +115,15 @@ Validation test:
 # Only live vector DB tests (PostgreSQL + migration)
 .venv\Scripts\python -m pytest tests/ -v -m "live_vectordb"
 ```
+
+## Agent Integration Tests
+
+Agent end-to-end coverage lives in `tests/test_agents/test_agent_end_to_end.py`:
+
+- Stubbed function-calling run (default).
+- Live LLM run guarded by `@pytest.mark.live` + `@pytest.mark.live_llm` and the `LSM_RUN_LIVE_LLM` flags.
+
+Tool exposure enforcement is validated in `tests/test_agents/test_security_agent_tool_exposure.py`.
 
 ## Benchmark Harness
 

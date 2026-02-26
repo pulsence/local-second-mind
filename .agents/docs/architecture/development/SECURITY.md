@@ -32,7 +32,7 @@ Untrusted inputs reach the sandbox through:
 | Repudiation | Structured logs + state persistence, artifact tracking in `AgentState` | `tests/test_agents/test_security_integrity.py`, `tests/test_agents/test_harness.py` |
 | Information Disclosure | Env scrubbing, secret redaction in logs/state/context | `tests/test_agents/test_security_secrets.py` |
 | Denial of Service | Iteration caps, token budgets, tool-output truncation | `tests/test_agents/test_security_resources.py` |
-| Elevation of Privilege | PermissionGate precedence, risk-based policies, global sandbox subset enforcement | `tests/test_agents/test_security_permissions.py`, `tests/test_agents/test_sandbox.py` |
+| Elevation of Privilege | PermissionGate precedence, risk-based policies, global sandbox subset enforcement, tool allowlist enforcement | `tests/test_agents/test_security_permissions.py`, `tests/test_agents/test_sandbox.py`, `tests/test_agents/test_security_agent_tool_exposure.py` |
 
 T1-T8 security suites:
 
@@ -43,6 +43,10 @@ T1-T8 security suites:
 - T6 data integrity: `tests/test_agents/test_security_integrity.py`
 - T7 prompt injection: `tests/test_agents/test_security_injection.py`
 - T8 secret leakage: `tests/test_agents/test_security_secrets.py`
+
+Additional security coverage:
+
+- Tool exposure allowlist enforcement: `tests/test_agents/test_security_agent_tool_exposure.py`
 
 ## Testing Methodology
 

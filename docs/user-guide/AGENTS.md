@@ -65,7 +65,7 @@ Agents are organized into four themes.
 
 | Name | Launch As | Purpose |
 |------|-----------|---------|
-| Research | `research` | Deep-dives a topic using your knowledge base and remote sources. Produces a structured research outline with citations. |
+| Research | `research` | Deep-dives a topic using your knowledge base and remote sources. Produces a structured research outline with citations tied to explicit sources. |
 | Synthesis | `synthesis` | Reads research outputs or raw documents and writes a synthesized, coherent summary in Markdown. |
 | Curator | `curator` | Reviews and filters your knowledge base for a given topic. Flags duplicates, gaps, and outdated material; produces a curation report. |
 
@@ -101,6 +101,13 @@ Meta agents execute independent tasks in parallel (up to `agents.max_concurrent`
 ## Available Tools
 
 Every agent has access to a set of tools governed by its sandbox configuration. The tools below are registered in the default registry.
+
+Tool availability is determined by the agent's built-in allowlist and sandbox settings:
+
+- Not every agent can access every tool listed below.
+- `ask_user` is always included when registered.
+- Network tools require `allow_url_access=true`.
+- Read/write tools require configured allowed paths.
 
 ### File Navigation
 
@@ -155,7 +162,7 @@ Every agent has access to a set of tools governed by its sandbox configuration. 
 | `spawn_agent` | Spawn a sub-agent run (used by the `meta` agent). |
 | `await_agent` | Wait for a spawned sub-agent to complete and retrieve its result. |
 | `collect_artifacts` | Collect artifact files written by a completed sub-agent run. |
-| `ask_user` | Request clarification or approval from the user at runtime. Always available to every agent regardless of sandbox configuration. |
+| `ask_user` | Request clarification or approval from the user at runtime. Always included in agent tool exposure when registered. |
 
 ### Execution
 

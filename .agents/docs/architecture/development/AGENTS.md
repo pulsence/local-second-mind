@@ -62,6 +62,20 @@ Tooling:
 - `lsm/agents/tools/*.py`: built-in tool implementations
 - Tool metadata includes `risk_level`, `preferred_runner`, and `needs_network`
 
+## Tool Exposure
+
+Tool definitions surfaced to the LLM are computed by `BaseAgent`:
+
+- Each agent class defines `tool_allowlist` during initialization (no per-call overrides).
+- `_always_available_tools` (currently `ask_user`) are merged into the allowlist.
+- Tool names are intersected with the active `ToolRegistry`.
+- Sandbox config further filters tool names.
+- `allow_url_access=false` removes network tools.
+- Empty `allowed_read_paths` removes read tools.
+- Empty `allowed_write_paths` removes write tools.
+
+The resulting set is the only tool list used for tool-selection prompts and validation.
+
 ## Agent Config
 
 Agents are configured in top-level `agents`:
@@ -332,6 +346,12 @@ Each run also emits a summary artifact:
 The `research` agent decomposes a topic, queries available sources/tools, iteratively synthesizes findings, and writes structured output.
 
 Use when you need multi-step retrieval + synthesis rather than a single query turn.
+
+Research grounding behavior:
+
+- Builds a `Sources:` block with `[S#]` ids from gathered evidence.
+- Prompts the LLM to cite sources in the response.
+- If no sources are available, returns a "No sources available" response without calling the LLM.
 
 ## Writing Agent
 
