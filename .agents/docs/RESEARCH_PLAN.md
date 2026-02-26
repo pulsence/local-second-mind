@@ -53,6 +53,7 @@ The codebase has a partial versioning foundation:
   integer per source file path across ingest runs.
 - **Chunk-level soft-delete** (`pipeline.py:370-386`): When `enable_versioning=True`,
   old chunks are marked `is_current=False` instead of deleted.
+  **User Response:** Enable versioning should not be a flag but versioning should just be how the system works. And then the VectorDB should have a clean method that cleans up old versions based upon some criteria.
 - **Query-time version filter** (`planning.py:189`): Filters to `is_current=True` when
   versioning is enabled, hiding historical chunks.
 - **DB-to-DB migration** (`migrations/chromadb_to_postgres.py`): Copies all vectors
@@ -96,6 +97,8 @@ the data even if the manifest file is lost.
 `pipeline.py:349`). The vector DB holds a secondary copy as collection metadata for
 self-describing data.
 
+**User Response:** The schema version should live in SQLite if using Chroma and PG if using PG for vector store.
+
 ### 2.4 Migration / Upgrade Path
 
 When the system detects a schema mismatch (e.g., user changes `embed_model` in config
@@ -115,12 +118,13 @@ multi-collection query support in `BaseVectorDBProvider`.
 ### 2.5 Key Open Questions Before Design
 
 - How should schema mismatch be surfaced to the user (warning, error, or auto-migration)?
+**User Response:** By an error with instruction on how to auto-migrate. Maintaining extra code to handle warnings adds too much code complexity.
 - Is a `lsm migrate` CLI command the intended entry point, or should migration happen
-  automatically at ingest time?
+  automatically at ingest time? **User Response:** Migrate should be a CLI command for ingest and handled by the Ingest screen in the TUI.
 - Should the PostgreSQL provider expose collection metadata APIs to store schema info, or
-  is the manifest sufficient?
+  is the manifest sufficient? **User Response:** This data should be stored in DB.
 - What is the expected corpus size? (Under 100k files: manifest can scale; over 500k:
-  SQLite or DB-backed manifest becomes necessary — see §3.4.)
+  SQLite or DB-backed manifest becomes necessary — see §3.4.) **User Response:** Expect the corpus of chunks to be 100k+. DB backed manifest is necessary.
 
 ---
 
@@ -186,6 +190,8 @@ should be considered for a future SQLite backing (see v0.9.0 TODO: "persist inge
 and file hashes to DB"). For v0.8.0, adding a `schema` header block to the manifest
 header is sufficient and does not require a format change that would invalidate existing
 manifests.
+
+**User Response:** Manifest should move to DB backed.
 
 ### 3.5 Manifest Schema to Record
 
@@ -278,8 +284,8 @@ profiles switchable at runtime.
 
 **Design considerations**:
 - Should pipeline stages be registered by name (like tool registry) to allow config-driven
-  profile construction?
-- Should stages have access to the full `QueryConfig` or only their stage-specific config?
+  profile construction? **User Response:** What are the concrete benefits of having registered names?
+- Should stages have access to the full `QueryConfig` or only their stage-specific config? **User Response:** Would stages benefit having the extra data?
 - `retrieval_trace.json` output requires stage-level timing and score breakdowns, which
   are only possible with an object model.
 
@@ -301,7 +307,7 @@ retrieval_profiles:
 - Profiles may have incompatible dependencies: `hyde_hybrid` requires an LLM at
   query time; `dense_cross_rerank` requires a cross-encoder model on disk.
 - Should profiles degrade gracefully? E.g., if BM25 index does not exist, should
-  `hybrid_rrf` fall back to `dense_only` with a warning?
+  `hybrid_rrf` fall back to `dense_only` with a warning? **User Response:** Yes
 
 #### 4.2.3 Hybrid Retrieval: Dense + Sparse (BM25/FTS5) + RRF
 
@@ -341,7 +347,7 @@ carry its full `ScoreBreakdown` (see §4.2.1) with `dense_rank`, `sparse_rank`, 
 `fused_score`. This breakdown feeds both the `retrieval_trace.json` and the eval harness.
 
 **Key design decisions**:
-- Should the BM25 index be a separate sidecar, or extend the vector DB provider?
+- Should the BM25 index be a separate sidecar, or extend the vector DB provider? **User Response:** When using CHROMA use separate SQLite, when using PG for vector use PG.
 - `BaseVectorDBProvider` currently has no `fts_query()` method. Adding one would require
   all providers to implement it — or a new `HybridVectorDBProvider` subclass.
 - At ingest time, the writer thread (`pipeline.py:325-459`) owns the vector DB; FTS5
@@ -352,7 +358,7 @@ carry its full `ScoreBreakdown` (see §4.2.1) with `dense_rank`, `sparse_rank`, 
 - SQLite FTS5 with BM25 handles hundreds of thousands of documents sub-second on
   commodity hardware when the query is a simple keyword match.
 - `sqlite-vec` (SQLite vector extension) is an alternative to a separate ChromaDB for
-  users who want a single-file database — may be worth researching as a future backend.
+  users who want a single-file database — may be worth researching as a future backend. **User Response:** Do further research on SQLite vector vs Chroma and how easy it is to add. I like removing dependancies.
 
 **Acceptance criteria** (from INGEST_FUTURE.md): Hybrid recall improves Recall@20 vs
 dense-only on the evaluation set. Retrieval trace shows full scoring breakdown per
@@ -403,9 +409,9 @@ cache wipe command (`lsm cache clear`) should be available for manual invalidati
 hybrid-only. Latency remains under a configurable threshold.
 
 **Design decisions**:
-- Should the cross-encoder model be downloaded at install time or lazily on first use?
-- Should reranker cache be in-memory only (lost between sessions) or persisted (SQLite)?
-- CPU-only cross-encoder inference on a 100-candidate pool is ~2-10s; is that acceptable?
+- Should the cross-encoder model be downloaded at install time or lazily on first use? **User Response:** Lazily on first use.
+- Should reranker cache be in-memory only (lost between sessions) or persisted (SQLite)? **User Response:** Persisted
+- CPU-only cross-encoder inference on a 100-candidate pool is ~2-10s; is that acceptable? **User Response:** Not if it can be run on CUDA/GPU.
 
 #### 4.2.5 HyDE (Hypothetical Document Embeddings)
 
@@ -547,12 +553,13 @@ requiring no manual labelling — but quality is limited. Manual curation produc
 quality but requires user effort.
 
 **Design decisions**:
-- Should eval be a CLI-only tool or also accessible from the TUI?
-- How large does the evaluation set need to be for statistically meaningful comparisons?
-- Should the eval harness export to a standard format (BEIR benchmark)?
-- How should the frozen query test set be versioned alongside the corpus?
+- Should eval be a CLI-only tool or also accessible from the TUI? **User Response:** CLI only
+- How large does the evaluation set need to be for statistically meaningful comparisons?  **User Response:** Give the user suggestions.
+- Should the eval harness export to a standard format (BEIR benchmark)?  **User Response:** yes
+- How should the frozen query test set be versioned alongside the corpus?  **User Response:** Yes, but we will need to produce a versioned corpus to do builds on. This will help our testing as a whole, if we have a meaningful size corpus to do test runs on.
 
 ### 4.3 Phase 2 and Phase 3 Features (Out of Scope for v0.8.0)
+**User Response:** v0.8.0 is another major version number. This is in the scope and should be researched as part of the whole version implementation.
 
 Based on complexity, the following from INGEST_FUTURE.md should be deferred:
 
@@ -939,17 +946,20 @@ vs. manifest `_schema.embedding_model`), what should happen?
 - **(b)** Log a warning and ingest new files only (proceed with mixed-generation corpus).
 - **(c)** Automatically trigger a full re-ingest.
 - **(d)** Automatically trigger selective re-ingest of only mismatched files.
+**User Response:** Option A
 
 **Q-DB-2**: Should there be a `lsm migrate` / `lsm db upgrade` CLI command as the primary
 entry point for schema migrations, or should migration happen automatically at ingest time?
+**User Response:** There should be a migrate/ugrade command for the cli/tui ingest command. 
 
 **Q-DB-3**: The current migration tool only moves data from ChromaDB to PostgreSQL. Is
 bidirectional migration (PostgreSQL → ChromaDB) needed, or only one direction?
+**User Response:** Bidirectional is needed.
 
 **Q-DB-4**: Should old-version chunks be permanently deleted when a file is re-embedded,
 or retained with `is_current=False` (the soft-delete approach in `enable_versioning=True`)?
 Soft-delete grows the DB but allows "time-travel" queries; hard-delete keeps the DB lean.
-
+**User Response:** No they should not be permanetly deleted, but instead an intelegent clean up tool should be created to prune soft-deltes.
 ---
 
 ### Q-HYBRID: Hybrid Retrieval Architecture
@@ -960,14 +970,17 @@ Soft-delete grows the DB but allows "time-travel" queries; hard-delete keeps the
 - **(b)** PostgreSQL native FTS (only for PostgreSQL users; BM25-equivalent via `ts_rank`;
   requires adding a `tsvector` column to the existing schema).
 - **(c)** Both, selected by the active vectordb provider.
+**User Response:** Option C
 
 **Q-HYBRID-2**: Should hybrid retrieval (BM25 + dense + RRF) be the *new default*
 retrieval mode, or should it remain opt-in (`retrieval_profile: "hybrid_rrf"`) while
 `dense_only` stays the default?
+**User Response:** What are the pros and cons of either option?
 
 **Q-HYBRID-3**: For the `RetrievalPipeline` abstraction, should retrieval stages be
 registered by name in a registry (like `ToolRegistry`) to allow config-driven composition,
 or are a small number of hard-coded profiles sufficient?
+**User Response:** See answers earlier.
 
 ---
 
@@ -976,15 +989,18 @@ or are a small number of hard-coded profiles sufficient?
 **Q-RERANK-1**: Cross-encoder inference adds latency (~2-10s CPU for 100 candidates with
 `ms-marco-MiniLM-L-6-v2`). Is this acceptable for interactive queries in the TUI, or
 should cross-encoding be restricted to a non-interactive "deep search" mode?
+**User Response:** Can this be ran via CUDA/GPU?
 
 **Q-RERANK-2**: Should the cross-encoder model be downloaded at install time (add it
 to `pyproject.toml` as a required asset) or downloaded lazily on first use of the
 `dense_cross_rerank` profile?
+**User Response:** Lazily on first use
 
 **Q-RERANK-3**: Should the reranker cache be:
 - **(a)** In-memory only (cleared between sessions).
 - **(b)** Persisted to SQLite in `global_folder`.
 - **(c)** Not implemented in v0.8.0.
+**User Response:** Option B
 
 ---
 
@@ -995,9 +1011,11 @@ hosted models). Should HyDE be:
 - **(a)** A retrieval profile (`hyde_hybrid`) that users must explicitly opt into.
 - **(b)** An optional flag per query (`--hyde`).
 - **(c)** Out of scope for v0.8.0 (deferred to v0.9.0).
+**User Response:** Option A
 
 **Q-HYDE-2**: Should the hypothetical documents generated by HyDE be logged and visible
 in the TUI debug view or only in `retrieval_trace.json`?
+**User Response:** In `retrieval_trace.json` with the ability to view them in TUI
 
 ---
 
@@ -1008,13 +1026,16 @@ Where should this come from?
 - **(a)** Manually curated by the user on their own corpus.
 - **(b)** Synthetically generated from corpus headings/structure (weak supervision).
 - **(c)** A bundled synthetic dataset for testing purposes only.
+**User Response:** Option C
 
 **Q-EVAL-2**: Should the eval harness be exposed as a TUI command, a CLI command, or
 both?
+**User Response:** CLI command
 
 **Q-EVAL-3**: Is the BEIR benchmark format (standard IR evaluation format) of interest
 for compatibility with external tooling, or should the harness use a simpler internal
 format?
+**User Response:** BEIR benchmark format
 
 **Q-EVAL-4**: The eval harness should support regression comparison against a saved
 baseline (e.g., compare `hybrid_rrf` vs. `dense_only` on the same query set). How should
@@ -1023,7 +1044,7 @@ baselines be stored and selected?
 - **(b)** Named baselines (e.g., `lsm eval save-baseline --name dense_only_v0.8`) stored
   as a directory of profiles.
 - **(c)** Automatic — always compare against the last run result.
-
+**User Response:** What are the pros and cons of each option?
 ---
 
 ### Q-CHUNK: Heading Depth and Intelligent Chunking
@@ -1031,19 +1052,23 @@ baselines be stored and selected?
 **Q-CHUNK-1**: The TODO describes two heading improvements: (a) *configurable*
 `max_heading_depth` and (b) *intelligent* depth selection based on section size. Should
 both be implemented in v0.8.0, or should only one be prioritized?
+**User Response:** Both
 
 **Q-CHUNK-2**: For the intelligent heading algorithm, what should the hierarchy separator
 be in the `heading` metadata field? E.g., `"::"`  →  `"Introduction::Background::Prior Work"`.
 Or should separate `heading_path: list[str]` metadata be added?
+**User Response:** Separate heading_path metadata
 
 **Q-CHUNK-3**: Should `max_heading_depth` be a global config (same for all roots) or
 per-root (different roots might need different depths — e.g., code docs vs. personal
 notes)?
+**User Response:** Set global and allow overrides per-root
 
 **Q-CHUNK-4**: When intelligent heading depth changes the chunk boundaries (changing
 `chunk_id` values), should existing chunks in the DB for that file be treated as stale
 and re-ingested on the next run, or should this only apply after a manual `lsm db
 upgrade` command?
+**User Response:** Treat as stale
 
 ---
 
@@ -1054,6 +1079,7 @@ calls for SimHash or MinHash near-duplicate detection. Which approach is preferr
 - **(a)** SimHash (fast, single-hash similarity; good for short chunks ≤ 512 tokens).
 - **(b)** MinHash + LSH (more accurate; standard for near-duplicate detection at scale).
 - **(c)** Keep exact hash for v0.8.0; add near-dup detection in v0.9.0.
+**User Response:** MinHash
 
 **Q-DIVERSITY-2**: The per-section diversity cap uses the chunk's heading path
 (e.g., `"Introduction::Background"`) as the grouping key. `max_per_section` sets the
@@ -1062,6 +1088,7 @@ for `max_per_section`?
 - **(a)** None (no per-section cap; backward-compatible default).
 - **(b)** 3 (opinionated default matching `max_per_file`).
 - **(c)** Same as `max_per_file` (unified parameter).
+**User Response:** What is the benefit of adding a `max_per_section` cap.
 
 **Q-DIVERSITY-3**: The greedy MMR (Maximal Marginal Relevance) diversity selection is an
 alternative to hard per-section caps. It selects the next result that maximizes a blend
@@ -1069,6 +1096,7 @@ of relevance and dissimilarity from already-selected results. Should MMR be:
 - **(a)** An optional diversity strategy (`diversity_strategy: "mmr"`).
 - **(b)** The default strategy when `diversity_strategy` is not "exact".
 - **(c)** Out of scope for v0.8.0.
+**User Response:** option b
 
 ---
 
@@ -1081,10 +1109,12 @@ of relevance and dissimilarity from already-selected results. Should MMR be:
   are v0.9.0).
 - **(c)** DB versioning + heading improvements only (retrieval overhaul is v0.9.0).
 - **(d)** Custom scope — specify which features.
+**User Response:** Everything
 
 **Q-SCOPE-2**: Should v0.8.0 also begin the sqlite-backed manifest (replacing the flat
 JSON) as part of the DB versioning work, or defer that to v0.9.0's "persist ingest state
 to DB" TODO item?
+**User Response:** Include in v0.8.0
 
 ---
 
