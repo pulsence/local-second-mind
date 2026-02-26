@@ -2,6 +2,7 @@
 
 **Plan**: [PLAN.md](../docs/PLAN.md)
 **Version**: 0.7.1
+**Status**: Complete
 
 Adds an acknowledgment-based two-phase timeout to the agent interaction channel. An interaction
 that has been displayed to the user in the TUI is acknowledged automatically; once acknowledged,
