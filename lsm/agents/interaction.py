@@ -103,13 +103,21 @@ class InteractionChannel:
     - Reply with `post_response(...)`.
     """
 
-    def __init__(self, timeout_seconds: float = 300, timeout_action: str = "deny") -> None:
+    def __init__(
+        self,
+        timeout_seconds: float = 300,
+        timeout_action: str = "deny",
+        acknowledged_timeout_seconds: float = 0,
+    ) -> None:
         self.timeout_seconds = float(timeout_seconds)
         self.timeout_action = str(timeout_action or "deny").strip().lower()
+        self.acknowledged_timeout_seconds = float(acknowledged_timeout_seconds)
         if self.timeout_seconds <= 0:
             raise ValueError("timeout_seconds must be > 0")
         if self.timeout_action not in _VALID_TIMEOUT_ACTIONS:
             raise ValueError("timeout_action must be one of: deny, approve")
+        if self.acknowledged_timeout_seconds < 0:
+            raise ValueError("acknowledged_timeout_seconds must be >= 0")
 
         self._lock = threading.Lock()
         self._pending_request: Optional[InteractionRequest] = None
@@ -118,10 +126,16 @@ class InteractionChannel:
         self._session_approvals: set[str] = set()
         self._shutdown = False
         self._shutdown_reason = ""
+        self._acknowledged = False
+        self._acknowledged_at: Optional[datetime] = None
 
     def post_request(self, request: InteractionRequest) -> InteractionResponse:
         """
         Post a request and block until a response arrives or timeout expires.
+
+        Uses a two-phase timeout:
+        - Phase 1: Wait up to timeout_seconds for acknowledgment or response
+        - Phase 2: Once acknowledged, wait up to acknowledged_timeout_seconds (0 = infinite)
 
         Args:
             request: Request to send to UI.
@@ -133,6 +147,10 @@ class InteractionChannel:
             PermissionError: If timeout action is deny.
             RuntimeError: If the channel is shut down or request state is invalid.
         """
+        import time
+
+        POLL_INTERVAL = 0.5
+
         with self._lock:
             if self._shutdown:
                 reason = self._shutdown_reason or "interaction channel is shut down"
@@ -156,31 +174,81 @@ class InteractionChannel:
             self._pending_request = request
             self._pending_response = None
             self._pending_event = event
+            self._acknowledged = False
+            self._acknowledged_at = None
 
-        if event.wait(timeout=float(self.timeout_seconds)):
-            response = self._consume_response(event)
-            if response is None:
-                raise RuntimeError("Interaction channel signaled without a response")
-            return response
+        start_time = time.monotonic()
 
-        with self._lock:
-            response = self._pending_response if self._pending_event is event else None
-            if response is not None:
-                self._clear_pending_locked()
+        while True:
+            if event.wait(timeout=POLL_INTERVAL):
+                response = self._consume_response(event)
+                if response is None:
+                    raise RuntimeError("Interaction channel signaled without a response")
                 return response
-            if self._pending_event is event:
-                self._clear_pending_locked()
 
-        if self.timeout_action == "approve":
-            return InteractionResponse(
-                request_id=request.request_id,
-                decision="approve",
-                user_message="Auto-approved because interaction request timed out.",
-            )
-        raise PermissionError(
-            f"Interaction request '{request.request_id}' timed out after "
-            f"{self.timeout_seconds} seconds"
-        )
+            elapsed = time.monotonic() - start_time
+
+            with self._lock:
+                acknowledged = self._acknowledged
+                acknowledged_at = self._acknowledged_at
+                if self._pending_event is not event:
+                    response = self._pending_response
+                    if response is not None:
+                        return response
+
+            if not acknowledged:
+                if elapsed >= self.timeout_seconds:
+                    with self._lock:
+                        if self._pending_event is event:
+                            self._clear_pending_locked()
+
+                    if self.timeout_action == "approve":
+                        return InteractionResponse(
+                            request_id=request.request_id,
+                            decision="approve",
+                            user_message="Auto-approved because interaction request timed out.",
+                        )
+                    raise PermissionError(
+                        f"Interaction request '{request.request_id}' timed out after "
+                        f"{self.timeout_seconds} seconds"
+                    )
+            else:
+                if self.acknowledged_timeout_seconds > 0 and acknowledged_at is not None:
+                    acknowledged_elapsed = (datetime.now(timezone.utc) - acknowledged_at).total_seconds()
+                    if acknowledged_elapsed >= self.acknowledged_timeout_seconds:
+                        with self._lock:
+                            if self._pending_event is event:
+                                self._clear_pending_locked()
+
+                        if self.timeout_action == "approve":
+                            return InteractionResponse(
+                                request_id=request.request_id,
+                                decision="approve",
+                                user_message="Auto-approved because acknowledged interaction timed out.",
+                            )
+                        raise PermissionError(
+                            f"Acknowledged interaction request '{request.request_id}' timed out after "
+                            f"{self.acknowledged_timeout_seconds} seconds"
+                        )
+
+    def acknowledge_request(self, request_id: str) -> None:
+        """
+        Mark the current pending request as acknowledged.
+
+        Once acknowledged, the request uses acknowledged_timeout_seconds instead of
+        timeout_seconds. If acknowledged_timeout_seconds is 0, the request waits
+        indefinitely.
+
+        Args:
+            request_id: The ID of the request to acknowledge.
+
+        Note:
+            If request_id does not match the pending request, this is a no-op.
+        """
+        with self._lock:
+            if self._pending_request is not None and self._pending_request.request_id == request_id:
+                self._acknowledged = True
+                self._acknowledged_at = datetime.now(timezone.utc)
 
     def get_pending_request(self) -> Optional[InteractionRequest]:
         """

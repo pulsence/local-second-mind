@@ -184,3 +184,197 @@ def test_channel_rejects_second_pending_request() -> None:
 
     channel.cancel_pending("done")
     thread.join(timeout=1.0)
+
+
+def test_channel_acknowledged_request_no_timeout() -> None:
+    channel = InteractionChannel(
+        timeout_seconds=0.2,
+        timeout_action="deny",
+        acknowledged_timeout_seconds=0,
+    )
+    request = _permission_request("req-ack-no-timeout")
+    holder: dict[str, InteractionResponse] = {}
+
+    def _worker() -> None:
+        holder["response"] = channel.post_request(request)
+
+    thread = threading.Thread(target=_worker, daemon=True)
+    thread.start()
+    assert _wait_until(channel.has_pending)
+
+    channel.acknowledge_request("req-ack-no-timeout")
+
+    time.sleep(0.4)
+
+    assert channel.has_pending()
+
+    channel.post_response(
+        InteractionResponse(
+            request_id="req-ack-no-timeout",
+            decision="approve",
+            user_message="Approved after delay",
+        )
+    )
+    thread.join(timeout=1.0)
+
+    assert "response" in holder
+    assert holder["response"].decision == "approve"
+
+
+def test_channel_acknowledge_wrong_request_id_is_noop() -> None:
+    channel = InteractionChannel(
+        timeout_seconds=0.15,
+        timeout_action="deny",
+        acknowledged_timeout_seconds=0,
+    )
+    request = _permission_request("req-correct")
+    errors: list[Exception] = []
+
+    def _worker() -> None:
+        try:
+            channel.post_request(request)
+        except Exception as e:
+            errors.append(e)
+
+    thread = threading.Thread(target=_worker, daemon=True)
+    thread.start()
+    assert _wait_until(channel.has_pending)
+
+    channel.acknowledge_request("wrong-request-id")
+
+    assert _wait_until(lambda: len(errors) > 0 or not channel.has_pending(), timeout_s=0.5)
+
+    thread.join(timeout=0.5)
+
+    assert len(errors) == 1
+    assert isinstance(errors[0], PermissionError)
+    assert "timed out" in str(errors[0]).lower()
+    assert not channel.has_pending()
+
+
+def test_channel_acknowledged_timeout_seconds_enforced() -> None:
+    channel = InteractionChannel(
+        timeout_seconds=5,
+        timeout_action="deny",
+        acknowledged_timeout_seconds=0.2,
+    )
+    request = _permission_request("req-ack-timeout")
+    holder: dict[str, InteractionResponse | Exception] = {}
+
+    def _worker() -> None:
+        try:
+            holder["response"] = channel.post_request(request)
+        except Exception as e:
+            holder["error"] = e
+
+    thread = threading.Thread(target=_worker, daemon=True)
+    thread.start()
+    assert _wait_until(channel.has_pending)
+
+    channel.acknowledge_request("req-ack-timeout")
+
+    time.sleep(0.4)
+
+    thread.join(timeout=1.0)
+
+    assert "error" in holder
+    assert isinstance(holder["error"], PermissionError)
+    assert "acknowledged" in str(holder["error"]).lower()
+
+
+def test_channel_acknowledged_resets_between_requests() -> None:
+    channel = InteractionChannel(
+        timeout_seconds=1,
+        timeout_action="deny",
+        acknowledged_timeout_seconds=0,
+    )
+
+    first_request = _permission_request("req-first-reset")
+    holder: dict[str, InteractionResponse] = {}
+
+    def _worker1() -> None:
+        holder["response"] = channel.post_request(first_request)
+
+    thread = threading.Thread(target=_worker1, daemon=True)
+    thread.start()
+    assert _wait_until(channel.has_pending)
+
+    channel.acknowledge_request("req-first-reset")
+    channel.post_response(
+        InteractionResponse(request_id="req-first-reset", decision="approve")
+    )
+    thread.join(timeout=1.0)
+    assert holder["response"].decision == "approve"
+
+    channel = InteractionChannel(
+        timeout_seconds=0.1,
+        timeout_action="deny",
+        acknowledged_timeout_seconds=0,
+    )
+
+    with pytest.raises(PermissionError, match="timed out"):
+        channel.post_request(_permission_request("req-second-reset"))
+
+
+def test_channel_concurrent_acknowledge_and_polling() -> None:
+    channel = InteractionChannel(
+        timeout_seconds=0.3,
+        timeout_action="deny",
+        acknowledged_timeout_seconds=0,
+    )
+    request = _permission_request("req-concurrent")
+    holder: dict[str, InteractionResponse] = {}
+    errors: list[Exception] = []
+
+    def _worker() -> None:
+        try:
+            holder["response"] = channel.post_request(request)
+        except Exception as e:
+            errors.append(e)
+
+    thread = threading.Thread(target=_worker, daemon=True)
+    thread.start()
+    assert _wait_until(channel.has_pending)
+
+    for _ in range(10):
+        channel.acknowledge_request("req-concurrent")
+        time.sleep(0.01)
+
+    time.sleep(0.2)
+
+    assert channel.has_pending()
+
+    channel.post_response(
+        InteractionResponse(request_id="req-concurrent", decision="approve")
+    )
+    thread.join(timeout=1.0)
+
+    assert len(errors) == 0
+    assert holder["response"].decision == "approve"
+
+
+def test_channel_acknowledged_timeout_auto_approve() -> None:
+    channel = InteractionChannel(
+        timeout_seconds=5,
+        timeout_action="approve",
+        acknowledged_timeout_seconds=0.15,
+    )
+    request = _permission_request("req-ack-auto-approve")
+    holder: dict[str, InteractionResponse] = {}
+
+    def _worker() -> None:
+        holder["response"] = channel.post_request(request)
+
+    thread = threading.Thread(target=_worker, daemon=True)
+    thread.start()
+    assert _wait_until(channel.has_pending)
+
+    channel.acknowledge_request("req-ack-auto-approve")
+
+    time.sleep(0.3)
+
+    thread.join(timeout=1.0)
+
+    assert "response" in holder
+    assert holder["response"].decision == "approve"
+    assert "acknowledged" in holder["response"].user_message.lower()
