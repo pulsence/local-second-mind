@@ -6,7 +6,7 @@ LSM ingests local documents, builds embeddings, retrieves relevant context, and 
 
 ## Version
 
-`0.6.0`
+`0.7.0`
 
 ## Caveat Emptor
 
@@ -17,14 +17,16 @@ This project is maintained for personal use first.
 - Until `v1.0.0`, breaking changes can happen between releases, especially in configuration schema and interfaces.
 - Pin versions and review `docs/CHANGELOG.md` before upgrading.
 
-## What Is New in 0.6.0
+## What Is New in 0.7.0
 
-- Compact TUI layout with density modes (`auto`, `compact`, `comfortable`) for small terminals (80x24)
-- Split modular CSS and refactored Settings screen with MVC architecture and ViewModel state
-- Interactive agent approvals/replies with multi-agent runtime support and real-time log streaming
-- TUI startup under 1 second with lazy background ML initialization
-- Session-completed agent history, unified log formats, and refined agent screen UX
-- Hardened TUI test infrastructure with fast/slow marker split and global state reset fixtures
+- Agent system overhaul: general, librarian, assistant, and manuscript editor agents
+- Meta-agents with parallel task graph planning and `ThreadPoolExecutor` execution engine
+- File graphing system for code, text, PDF, and HTML with graph-aware read/edit tooling
+- 20+ new remote providers: academic (PubMed, SSRN, PhilArchive), cultural heritage, news, and RSS/Atom
+- OAuth2 infrastructure with Gmail, Microsoft Graph, CalDAV, and communication assistant agents
+- OpenRouter provider, MCP host support (`global.mcp_servers`), and tiered LLM config (`llms.tiers`)
+- Native tool-calling for OpenAI, Anthropic, and Gemini providers with prompt-schema fallback
+- Docker runner improvements, WSL2 runner, and sandbox-enforced bash/powershell execution tools
 
 ## Install
 
