@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import inspect
 import json
 from pathlib import Path
+
+import pytest
 
 from lsm.agents.assistants.assistant import AssistantAgent
 from lsm.agents.models import AgentContext
@@ -128,3 +131,53 @@ def test_assistant_agent_summarizes_runs(tmp_path: Path) -> None:
     )
     assert summary_payload["run_count"] == 2
     assert memory_tool.calls
+
+
+def test_assistant_agent_output_in_artifacts_dir(tmp_path: Path) -> None:
+    config = build_config_from_raw(_base_raw(tmp_path), tmp_path / "config.json")
+    registry = ToolRegistry()
+    sandbox = ToolSandbox(config.agents.sandbox)
+    agent = AssistantAgent(config.llm, registry, sandbox, config.agents)
+
+    state = agent.run(AgentContext(messages=[{"role": "user", "content": "Summary"}]))
+    assert state.status.value == "completed"
+    assert agent.last_result is not None
+    assert agent.last_result.summary_path.parent.name == "artifacts"
+    assert agent.last_result.summary_json_path.parent.name == "artifacts"
+
+
+def test_assistant_agent_has_no_tokens_used_attribute(tmp_path: Path) -> None:
+    config = build_config_from_raw(_base_raw(tmp_path), tmp_path / "config.json")
+    registry = ToolRegistry()
+    sandbox = ToolSandbox(config.agents.sandbox)
+    agent = AssistantAgent(config.llm, registry, sandbox, config.agents)
+    agent.run(AgentContext(messages=[{"role": "user", "content": "Summary"}]))
+
+    with pytest.raises(AttributeError):
+        _ = agent._tokens_used  # noqa: SLF001
+
+
+# ---------------------------------------------------------------------------
+# Source-inspection tests
+# ---------------------------------------------------------------------------
+
+def test_assistant_agent_has_no_direct_provider_call() -> None:
+    import lsm.agents.assistants.assistant as assistant_module
+
+    source = inspect.getsource(assistant_module)
+    assert "provider.synthesize(" not in source
+    assert "provider.complete(" not in source
+
+
+def test_assistant_agent_has_no_direct_sandbox_execute_call() -> None:
+    import lsm.agents.assistants.assistant as assistant_module
+
+    source = inspect.getsource(assistant_module)
+    assert "sandbox.execute(" not in source
+
+
+def test_assistant_agent_does_not_directly_instantiate_agent_harness() -> None:
+    import lsm.agents.assistants.assistant as assistant_module
+
+    source = inspect.getsource(assistant_module)
+    assert "AgentHarness(" not in source

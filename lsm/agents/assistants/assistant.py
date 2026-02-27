@@ -73,7 +73,7 @@ class AssistantAgent(BaseAgent):
         """
         Summarize run summaries and propose memory updates.
         """
-        self._tokens_used = 0
+        self._reset_harness()
         self._stop_logged = False
         self.state.set_status(AgentStatus.RUNNING)
         ensure_agent_workspace(
@@ -86,7 +86,7 @@ class AssistantAgent(BaseAgent):
 
         run_summaries = self._load_run_summaries()
         summary_payload = self._build_summary_payload(run_summaries)
-        run_dir = self._resolve_output_dir(topic, initial_context)
+        run_dir = self._artifacts_dir()
         run_dir.mkdir(parents=True, exist_ok=True)
 
         summary_json_path = run_dir / "assistant_summary.json"
@@ -120,18 +120,6 @@ class AssistantAgent(BaseAgent):
                 if topic:
                     return topic
         return "Agent Activity Summary"
-
-    def _resolve_output_dir(self, topic: str, initial_context: AgentContext) -> Path:
-        workspace = str(initial_context.run_workspace or "").strip()
-        if workspace:
-            return Path(workspace)
-
-        safe_topic = "".join(
-            ch if ch.isalnum() or ch in ("-", "_") else "_" for ch in topic.strip()
-        )
-        safe_topic = safe_topic[:80] or "assistant"
-        timestamp = datetime.utcnow().strftime("%Y%m%d-%H%M%S")
-        return self.agent_config.agents_folder / f"{self.name}_{safe_topic}_{timestamp}"
 
     def _load_run_summaries(self) -> list[dict[str, Any]]:
         run_summaries: list[dict[str, Any]] = []
@@ -266,7 +254,12 @@ class AssistantAgent(BaseAgent):
 
     def _propose_memory(self, payload: dict[str, Any]) -> list[dict[str, Any]]:
         payloads: list[dict[str, Any]] = []
-        if "memory_put" not in self._available_tools():
+        available = {
+            str(item.get("name", "")).strip()
+            for item in self._get_tool_definitions(self.tool_registry)
+            if str(item.get("name", "")).strip()
+        }
+        if "memory_put" not in available:
             return payloads
 
         candidates = [
@@ -291,40 +284,15 @@ class AssistantAgent(BaseAgent):
                 "tags": ["assistant", "summary"],
                 "rationale": candidate["rationale"],
             }
-            output = self._run_tool("memory_put", args)
-            parsed = self._parse_json(output)
-            if isinstance(parsed, dict):
-                payloads.append(parsed)
-        return payloads
-
-    def _available_tools(self) -> set[str]:
-        return {
-            str(item.get("name", "")).strip()
-            for item in self._get_tool_definitions(self.tool_registry)
-            if str(item.get("name", "")).strip()
-        }
-
-    def _run_tool(self, tool_name: str, args: Dict[str, Any]) -> str:
-        if self._handle_stop_request():
-            return ""
-        try:
-            tool = self.tool_registry.lookup(tool_name)
-        except KeyError:
-            self._log(f"Skipping unknown tool '{tool_name}'.")
-            return ""
-        try:
-            output = self.sandbox.execute(tool, args)
-            self._consume_tokens(output)
-            self._log(
-                output,
-                actor="tool",
-                action=tool_name,
-                action_arguments=args,
+            result = self._run_phase(
+                direct_tool_calls=[{"name": "memory_put", "arguments": args}]
             )
-            return output
-        except Exception as exc:
-            self._log(f"Tool '{tool_name}' failed: {exc}")
-            return ""
+            for call in result.tool_calls:
+                if call.get("name") == "memory_put" and "result" in call:
+                    parsed = self._parse_json(call["result"])
+                    if isinstance(parsed, dict):
+                        payloads.append(parsed)
+        return payloads
 
     @staticmethod
     def _top_counts(items: list[str], limit: int = 5) -> list[tuple[str, int]]:
