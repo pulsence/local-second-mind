@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import Any
 
 from lsm.agents.harness import AgentHarness
 from lsm.agents.models import AgentContext
@@ -193,3 +194,116 @@ def test_harness_creates_workspace_and_persists_context_path(monkeypatch, tmp_pa
     assert state_path.parent == workspace.parent
     persisted = json.loads(state_path.read_text(encoding="utf-8"))
     assert persisted["context"]["run_workspace"] == str(workspace)
+
+
+# ---------------------------------------------------------------------------
+# remote_source_allowlist filtering tests
+# ---------------------------------------------------------------------------
+
+
+class _QuerySourceA(BaseTool):
+    name = "query_source_a"
+    description = "Source A."
+    input_schema = {"type": "object", "properties": {}, "required": []}
+
+    def execute(self, args: dict) -> str:
+        return "result_a"
+
+
+class _QuerySourceB(BaseTool):
+    name = "query_source_b"
+    description = "Source B."
+    input_schema = {"type": "object", "properties": {}, "required": []}
+
+    def execute(self, args: dict) -> str:
+        return "result_b"
+
+
+def _base_raw_with_url_access(tmp_path: Path) -> dict:
+    raw = _base_raw(tmp_path)
+    raw["agents"]["sandbox"]["allow_url_access"] = True
+    return raw
+
+
+def test_remote_source_allowlist_restricts_to_allowed_source(
+    monkeypatch: Any,
+    tmp_path: Path,
+) -> None:
+    """remote_source_allowlist={"source_a"} excludes query_source_b from LLM tool context."""
+
+    class FakeProvider:
+        name = "fake"
+        model = "fake-model"
+
+        def __init__(self) -> None:
+            self.last_system_prompt = ""
+
+        def _send_message(self, system: str, user: str, temperature: Any, max_tokens: Any, **kwargs: Any) -> str:
+            _ = user, temperature, max_tokens, kwargs
+            self.last_system_prompt = str(system)
+            return json.dumps({"response": "Done", "action": "DONE", "action_arguments": {}})
+
+    provider = FakeProvider()
+    monkeypatch.setattr("lsm.agents.harness.create_provider", lambda cfg: provider)
+
+    config = build_config_from_raw(_base_raw_with_url_access(tmp_path), tmp_path / "config.json")
+    registry = ToolRegistry()
+    registry.register(_QuerySourceA())
+    registry.register(_QuerySourceB())
+
+    harness = AgentHarness(
+        config.agents,
+        registry,
+        config.llm,
+        ToolSandbox(config.agents.sandbox),
+        agent_name="allowlist_remote_restrict",
+        remote_source_allowlist={"source_a"},
+    )
+    harness.run(AgentContext(messages=[{"role": "user", "content": "do work"}]))
+
+    context_payload = _extract_tools_payload(provider.last_system_prompt)
+    tool_names = {item["name"] for item in context_payload}
+    assert "query_source_a" in tool_names, "query_source_a should be available"
+    assert "query_source_b" not in tool_names, "query_source_b should be excluded by allowlist"
+
+
+def test_remote_source_allowlist_none_exposes_all_sources(
+    monkeypatch: Any,
+    tmp_path: Path,
+) -> None:
+    """remote_source_allowlist=None causes all query_<source> tools to be available."""
+
+    class FakeProvider:
+        name = "fake"
+        model = "fake-model"
+
+        def __init__(self) -> None:
+            self.last_system_prompt = ""
+
+        def _send_message(self, system: str, user: str, temperature: Any, max_tokens: Any, **kwargs: Any) -> str:
+            _ = user, temperature, max_tokens, kwargs
+            self.last_system_prompt = str(system)
+            return json.dumps({"response": "Done", "action": "DONE", "action_arguments": {}})
+
+    provider = FakeProvider()
+    monkeypatch.setattr("lsm.agents.harness.create_provider", lambda cfg: provider)
+
+    config = build_config_from_raw(_base_raw_with_url_access(tmp_path), tmp_path / "config.json")
+    registry = ToolRegistry()
+    registry.register(_QuerySourceA())
+    registry.register(_QuerySourceB())
+
+    harness = AgentHarness(
+        config.agents,
+        registry,
+        config.llm,
+        ToolSandbox(config.agents.sandbox),
+        agent_name="allowlist_remote_none",
+        remote_source_allowlist=None,
+    )
+    harness.run(AgentContext(messages=[{"role": "user", "content": "do work"}]))
+
+    context_payload = _extract_tools_payload(provider.last_system_prompt)
+    tool_names = {item["name"] for item in context_payload}
+    assert "query_source_a" in tool_names, "query_source_a should be available when allowlist is None"
+    assert "query_source_b" in tool_names, "query_source_b should be available when allowlist is None"

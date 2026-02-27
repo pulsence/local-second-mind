@@ -85,3 +85,32 @@ def test_query_embeddings_file_does_not_exist() -> None:
     assert not (tools_dir / "query_embeddings.py").exists(), (
         "query_embeddings.py must be deleted — it is no longer a supported tool"
     )
+
+
+def test_registry_contains_per_source_query_tools(tmp_path: Path) -> None:
+    """Each configured remote source gets its own query_<name> tool in the registry."""
+    raw = _base_raw(tmp_path)
+    raw["remote_providers"] = [
+        {"name": "test_source", "type": "web_search", "api_key": "test-key", "max_results": 5},
+        {"name": "other_source", "type": "wikipedia", "max_results": 5},
+    ]
+    config = build_config_from_raw(raw, tmp_path / "config.json")
+    registry = create_default_tool_registry(config)
+    tool_names = {tool.name for tool in registry.list_tools()}
+    assert "query_test_source" in tool_names, "Expected query_test_source in registry"
+    assert "query_other_source" in tool_names, "Expected query_other_source in registry"
+
+
+def test_registry_does_not_contain_generic_query_remote(tmp_path: Path) -> None:
+    """The single generic 'query_remote' tool must not exist — only per-source tools."""
+    raw = _base_raw(tmp_path)
+    raw["remote_providers"] = [
+        {"name": "test_source", "type": "web_search", "api_key": "test-key", "max_results": 5},
+    ]
+    config = build_config_from_raw(raw, tmp_path / "config.json")
+    registry = create_default_tool_registry(config)
+    tool_names = {tool.name for tool in registry.list_tools()}
+    assert "query_remote" not in tool_names, (
+        "query_remote must not exist as a generic single tool; "
+        "use per-source query_<name> tools instead"
+    )

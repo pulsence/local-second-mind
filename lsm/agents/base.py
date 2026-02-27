@@ -122,17 +122,13 @@ class BaseAgent(ABC):
         self.risk_posture = (
             str(self.risk_posture or "read_only").strip().lower() or "read_only"
         )
-        if self.tool_allowlist is None:
-            self.tool_allowlist = None
-        else:
+        if self.tool_allowlist is not None:
             self.tool_allowlist = {
                 str(item).strip()
                 for item in (self.tool_allowlist or set())
                 if str(item).strip()
             }
-        if self.remote_source_allowlist is None:
-            self.remote_source_allowlist = None
-        else:
+        if self.remote_source_allowlist is not None:
             self.remote_source_allowlist = {
                 str(item).strip()
                 for item in (self.remote_source_allowlist or set())

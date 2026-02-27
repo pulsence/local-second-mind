@@ -326,3 +326,32 @@ def test_email_assistant_has_no_direct_sandbox_execute_call() -> None:
 
     source = inspect.getsource(email_module)
     assert "sandbox.execute(" not in source
+
+
+def test_email_assistant_bind_interaction_tools_wires_ask_user(tmp_path: Path) -> None:
+    """_bind_interaction_tools() binds ask_user to the interaction channel via _Harness stub."""
+    from lsm.agents.tools.ask_user import AskUserTool
+
+    config = build_config_from_raw(_base_raw(tmp_path), tmp_path / "config.json")
+    assert config.agents is not None
+
+    ask_user_tool = AskUserTool()
+    registry = ToolRegistry()
+    registry.register(ask_user_tool)
+    sandbox = ToolSandbox(config.agents.sandbox)
+
+    agent = EmailAssistantAgent(
+        config.llm,
+        registry,
+        sandbox,
+        config.agents,
+        lsm_config=config,
+    )
+    _ = agent  # construction triggers _bind_interaction_tools()
+
+    # After construction, the ask_user tool should have been bound to a _Harness stub
+    assert ask_user_tool._harness is not None, (
+        "_bind_interaction_tools() must bind ask_user to a harness stub"
+    )
+    assert ask_user_tool._harness.agent_config is config.agents
+    assert ask_user_tool._harness.interaction_channel is sandbox.interaction_channel
