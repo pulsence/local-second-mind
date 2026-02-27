@@ -69,7 +69,7 @@ class CalendarAssistantAgent(BaseAgent):
         self._bind_interaction_tools()
 
     def run(self, initial_context: AgentContext) -> Any:
-        self._tokens_used = 0
+        self._reset_harness()
         self._stop_logged = False
         self.state.set_status(AgentStatus.RUNNING)
         ensure_agent_workspace(
@@ -83,7 +83,7 @@ class CalendarAssistantAgent(BaseAgent):
         request = self._parse_request(initial_context)
         provider = self._resolve_provider(request)
 
-        run_dir = self._resolve_output_dir(topic, initial_context)
+        run_dir = self._artifacts_dir()
         run_dir.mkdir(parents=True, exist_ok=True)
 
         action = request.get("action", "summary")
@@ -123,17 +123,6 @@ class CalendarAssistantAgent(BaseAgent):
                 if topic:
                     return topic
         return "Calendar Summary"
-
-    def _resolve_output_dir(self, topic: str, initial_context: AgentContext) -> Path:
-        workspace = str(initial_context.run_workspace or "").strip()
-        if workspace:
-            return Path(workspace)
-        safe_topic = "".join(
-            ch if ch.isalnum() or ch in ("-", "_") else "_" for ch in topic.strip()
-        )
-        safe_topic = safe_topic[:80] or "calendar_assistant"
-        timestamp = datetime.utcnow().strftime("%Y%m%d-%H%M%S")
-        return self.agent_config.agents_folder / f"{self.name}_{safe_topic}_{timestamp}"
 
     def _parse_request(self, context: AgentContext) -> Dict[str, Any]:
         payload = self._extract_payload(context)
@@ -538,11 +527,17 @@ class CalendarAssistantAgent(BaseAgent):
 
     def _request_approval(self, prompt: str, context: str) -> bool:
         try:
-            output = self._run_tool("ask_user", {"prompt": prompt, "context": context})
+            result = self._run_phase(
+                direct_tool_calls=[
+                    {"name": "ask_user", "arguments": {"prompt": prompt, "context": context}}
+                ]
+            )
+            for call in result.tool_calls:
+                if call.get("name") == "ask_user" and "result" in call:
+                    return self._is_affirmative(call["result"])
         except Exception as exc:
             self._log(f"Approval request failed: {exc}")
-            return False
-        return self._is_affirmative(output)
+        return False
 
     @staticmethod
     def _is_affirmative(response: str) -> bool:
@@ -622,24 +617,3 @@ class CalendarAssistantAgent(BaseAgent):
         except Exception:
             return None
 
-    def _run_tool(self, tool_name: str, args: Dict[str, Any]) -> str:
-        if self._handle_stop_request():
-            return ""
-        try:
-            tool = self.tool_registry.lookup(tool_name)
-        except KeyError:
-            self._log(f"Skipping unknown tool '{tool_name}'.")
-            return ""
-        try:
-            output = self.sandbox.execute(tool, args)
-            self._consume_tokens(output)
-            self._log(
-                output,
-                actor="tool",
-                action=tool_name,
-                action_arguments=args,
-            )
-            return output
-        except Exception as exc:
-            self._log(f"Tool '{tool_name}' failed: {exc}")
-            return ""

@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+import inspect
 import json
 from dataclasses import dataclass
 from datetime import datetime, timedelta, time
 from pathlib import Path
 from typing import Any, Dict, List, Optional
+
+import pytest
 
 from lsm.agents.assistants.calendar_assistant import CalendarAssistantAgent
 from lsm.agents.models import AgentContext
@@ -221,3 +224,51 @@ def test_calendar_assistant_requires_approval_for_mutation(tmp_path: Path) -> No
     )
     agent.run(AgentContext(messages=[{"role": "user", "content": json.dumps(payload)}]))
     assert provider.created
+
+
+def test_calendar_assistant_output_in_artifacts_dir(tmp_path: Path) -> None:
+    config = build_config_from_raw(_base_raw(tmp_path), tmp_path / "config.json")
+    registry = ToolRegistry()
+    sandbox = ToolSandbox(config.agents.sandbox)
+    provider = StubCalendarProvider(events=[])
+    agent = CalendarAssistantAgent(
+        config.llm, registry, sandbox, config.agents,
+        agent_overrides={"provider_instance": provider},
+    )
+    agent.run(AgentContext(messages=[{"role": "user", "content": "Calendar summary"}]))
+    assert agent.last_result is not None
+    assert agent.last_result.summary_path.parent.name == "artifacts"
+    assert agent.last_result.summary_json_path.parent.name == "artifacts"
+
+
+def test_calendar_assistant_has_no_tokens_used_attribute(tmp_path: Path) -> None:
+    config = build_config_from_raw(_base_raw(tmp_path), tmp_path / "config.json")
+    registry = ToolRegistry()
+    sandbox = ToolSandbox(config.agents.sandbox)
+    provider = StubCalendarProvider(events=[])
+    agent = CalendarAssistantAgent(
+        config.llm, registry, sandbox, config.agents,
+        agent_overrides={"provider_instance": provider},
+    )
+    agent.run(AgentContext(messages=[{"role": "user", "content": "Calendar summary"}]))
+
+    with pytest.raises(AttributeError):
+        _ = agent._tokens_used  # noqa: SLF001
+
+
+# ---------------------------------------------------------------------------
+# Source-inspection tests
+# ---------------------------------------------------------------------------
+
+def test_calendar_assistant_does_not_directly_instantiate_agent_harness() -> None:
+    import lsm.agents.assistants.calendar_assistant as cal_module
+
+    source = inspect.getsource(cal_module)
+    assert "AgentHarness(" not in source
+
+
+def test_calendar_assistant_has_no_direct_sandbox_execute_call() -> None:
+    import lsm.agents.assistants.calendar_assistant as cal_module
+
+    source = inspect.getsource(cal_module)
+    assert "sandbox.execute(" not in source
