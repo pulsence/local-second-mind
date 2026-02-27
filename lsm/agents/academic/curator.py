@@ -12,13 +12,19 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from lsm.config.models import AgentConfig, LLMRegistryConfig
-from lsm.providers.factory import create_provider
 
 from ..base import AgentStatus, BaseAgent
 from ..models import AgentContext
 from ..tools.base import ToolRegistry
 from ..tools.sandbox import ToolSandbox
 from ..workspace import ensure_agent_workspace
+
+CURATOR_SYSTEM_PROMPT = (
+    "You are a corpus curation agent. You help identify quality issues "
+    "(stale files, exact/near duplicates, placeholder content) and "
+    "produce actionable recommendations. "
+    "Follow the instructions in each message carefully."
+)
 
 
 @dataclass
@@ -87,7 +93,7 @@ class CuratorAgent(BaseAgent):
         Returns:
             Agent state after execution.
         """
-        self._tokens_used = 0
+        self._reset_harness()
         self._stop_logged = False
         self.state.set_status(AgentStatus.RUNNING)
         ensure_agent_workspace(
@@ -105,8 +111,7 @@ class CuratorAgent(BaseAgent):
             return self.state
 
         self.state.current_task = f"Curating: {topic}"
-        provider = create_provider(self._resolve_llm_config(self.llm_registry))
-        scope = self._select_scope(provider, topic)
+        scope = self._select_scope(topic)
         inventory = self._inventory_files(scope)
         metadata: List[Dict[str, Any]] = []
         exact_duplicates: List[Dict[str, Any]] = []
@@ -131,7 +136,6 @@ class CuratorAgent(BaseAgent):
             heuristics = self._apply_heuristics(metadata, quality_signals, scope)
         if not self._is_stop_requested():
             recommendations = self._generate_recommendations(
-                provider,
                 topic=topic,
                 scope=scope,
                 inventory=inventory,
@@ -436,14 +440,7 @@ class CuratorAgent(BaseAgent):
         slug = slug.strip("_")
         return (slug or "item")[:60]
 
-    def _available_tools(self) -> set[str]:
-        return {
-            str(item.get("name", "")).strip()
-            for item in self._get_tool_definitions(self.tool_registry)
-            if str(item.get("name", "")).strip()
-        }
-
-    def _select_scope(self, provider: Any, topic: str) -> Dict[str, Any]:
+    def _select_scope(self, topic: str) -> Dict[str, Any]:
         if self._is_stop_requested():
             return {
                 "scope_path": self._default_scope_path(),
@@ -462,15 +459,19 @@ class CuratorAgent(BaseAgent):
             self.agent_overrides.get("top_near_duplicates", 25)
         )
 
-        prompt = (
-            "Select corpus curation scope. "
-            "Return strict JSON with keys: "
-            '{"scope_path":"...", "stale_days": 365, '
-            '"near_duplicate_threshold": 0.9, "top_near_duplicates": 25}.'
+        result = self._run_phase(
+            system_prompt=CURATOR_SYSTEM_PROMPT,
+            user_message=(
+                "Select corpus curation scope. "
+                "Return strict JSON with keys: "
+                '{"scope_path":"...", "stale_days": 365, '
+                '"near_duplicate_threshold": 0.9, "top_near_duplicates": 25}. '
+                f"Topic:\n{topic}"
+            ),
+            tool_names=[],
+            max_iterations=1,
         )
-        response = provider.synthesize(prompt, f"Topic:\n{topic}", mode="insight")
-        self._consume_tokens(response)
-        parsed = self._parse_json(response)
+        parsed = self._parse_json(result.final_text or "")
 
         scope_path = default_scope_path
         stale_days = default_stale_days
@@ -520,8 +521,6 @@ class CuratorAgent(BaseAgent):
     def _inventory_files(self, scope: Dict[str, Any]) -> List[str]:
         if self._is_stop_requested():
             return []
-        if "read_folder" not in self._available_tools():
-            return []
         output = self._run_tool(
             "read_folder",
             {"path": str(scope.get("scope_path", ".")), "recursive": True},
@@ -555,7 +554,7 @@ class CuratorAgent(BaseAgent):
     def _collect_metadata(self, paths: List[str]) -> List[Dict[str, Any]]:
         if self._is_stop_requested():
             return []
-        if "file_metadata" not in self._available_tools() or not paths:
+        if not paths:
             return []
 
         results: list[Dict[str, Any]] = []
@@ -575,7 +574,7 @@ class CuratorAgent(BaseAgent):
     def _detect_exact_duplicates(self, paths: List[str]) -> List[Dict[str, Any]]:
         if self._is_stop_requested():
             return []
-        if "hash_file" not in self._available_tools() or not paths:
+        if not paths:
             return []
 
         by_hash: Dict[str, List[str]] = {}
@@ -612,7 +611,7 @@ class CuratorAgent(BaseAgent):
     ) -> List[Dict[str, Any]]:
         if self._is_stop_requested():
             return []
-        if "similarity_search" not in self._available_tools() or not paths:
+        if not paths:
             return []
 
         candidate_paths = paths[:120]
@@ -649,8 +648,6 @@ class CuratorAgent(BaseAgent):
 
     def _collect_quality_signals(self, topic: str) -> List[Dict[str, Any]]:
         if self._is_stop_requested():
-            return []
-        if "query_knowledge_base" not in self._available_tools():
             return []
         query = str(
             self.agent_overrides.get(
@@ -745,7 +742,6 @@ class CuratorAgent(BaseAgent):
 
     def _generate_recommendations(
         self,
-        provider: Any,
         topic: str,
         scope: Dict[str, Any],
         inventory: List[str],
@@ -761,11 +757,7 @@ class CuratorAgent(BaseAgent):
             near_duplicates,
             heuristics,
         )
-        prompt = (
-            "Produce concise actionable corpus curation recommendations. "
-            "Return JSON array of strings."
-        )
-        context = json.dumps(
+        context_json = json.dumps(
             {
                 "topic": topic,
                 "scope": scope,
@@ -778,9 +770,16 @@ class CuratorAgent(BaseAgent):
             },
             indent=2,
         )
-        response = provider.synthesize(prompt, context, mode="insight")
-        self._consume_tokens(response)
-        parsed = self._parse_json(response)
+        result = self._run_phase(
+            user_message=(
+                "Produce concise actionable corpus curation recommendations. "
+                "Return JSON array of strings.\n\n"
+                + context_json
+            ),
+            tool_names=[],
+            max_iterations=1,
+        )
+        parsed = self._parse_json(result.final_text or "")
         if isinstance(parsed, list):
             normalized = [str(item).strip() for item in parsed if str(item).strip()]
             if normalized:
@@ -920,36 +919,20 @@ class CuratorAgent(BaseAgent):
         workspace = str(initial_context.run_workspace or "").strip()
         if workspace:
             return Path(workspace)
-
-        safe_topic = "".join(
-            ch if ch.isalnum() or ch in ("-", "_") else "_"
-            for ch in topic.strip()
-        )
-        safe_topic = safe_topic[:80] or "curator"
-        timestamp = datetime.utcnow().strftime("%Y%m%d-%H%M%S")
-        return self.agent_config.agents_folder / f"{self.name}_{safe_topic}_{timestamp}"
+        return self._artifacts_dir()
 
     def _run_tool(self, tool_name: str, args: Dict[str, Any]) -> str:
         if self._handle_stop_request():
             return ""
-        try:
-            tool = self.tool_registry.lookup(tool_name)
-        except KeyError:
-            self._log(f"Skipping unknown tool '{tool_name}'.")
-            return ""
-        try:
-            output = self.sandbox.execute(tool, args)
-            self._consume_tokens(output)
-            self._log(
-                output,
-                actor="tool",
-                action=tool_name,
-                action_arguments=args,
-            )
-            return output
-        except Exception as exc:
-            self._log(f"Tool '{tool_name}' failed: {exc}")
-            return ""
+        result = self._run_phase(direct_tool_calls=[{"name": tool_name, "arguments": args}])
+        for call in result.tool_calls:
+            if call.get("name") == tool_name:
+                if "result" in call:
+                    return call["result"]
+                if "error" in call:
+                    self._log(f"Tool '{tool_name}' failed: {call['error']}")
+                    return ""
+        return ""
 
     def _dedupe_dicts(self, rows: List[Dict[str, Any]], key: str) -> List[Dict[str, Any]]:
         seen: set[str] = set()

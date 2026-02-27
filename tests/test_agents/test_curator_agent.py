@@ -1,11 +1,15 @@
 from __future__ import annotations
 
+import inspect
 import json
 from pathlib import Path
+from unittest.mock import patch
 
 from lsm.agents.academic import CuratorAgent
+from lsm.agents.base import BaseAgent
 from lsm.agents.factory import create_agent
 from lsm.agents.models import AgentContext
+from lsm.agents.phase import PhaseResult
 from lsm.agents.tools.base import BaseTool, ToolRegistry
 from lsm.agents.tools.sandbox import ToolSandbox
 from lsm.config.loader import build_config_from_raw
@@ -198,46 +202,83 @@ def _register_tools(registry: ToolRegistry) -> None:
     registry.register(QueryKnowledgeBaseStubTool())
 
 
-def test_curator_agent_runs_and_saves_report(monkeypatch, tmp_path: Path) -> None:
-    class FakeProvider:
-        name = "fake"
-        model = "fake-model"
+def _make_fake_run_phase(tmp_path: Path):
+    """
+    Build a side_effect function for BaseAgent._run_phase.
 
-        def synthesize(self, question, context, mode="insight", **kwargs):
-            _ = context, mode, kwargs
-            lower = str(question).lower()
-            if "select corpus curation scope" in lower:
-                return json.dumps(
+    LLM phases (no direct_tool_calls) return pre-canned JSON responses.
+    direct_tool_calls phases delegate to the real stub tools.
+    """
+    stub_tools = {
+        "read_folder": ReadFolderStubTool(),
+        "file_metadata": FileMetadataStubTool(),
+        "hash_file": HashFileStubTool(),
+        "similarity_search": SimilaritySearchStubTool(),
+        "query_knowledge_base": QueryKnowledgeBaseStubTool(),
+    }
+
+    def fake_run_phase(**kwargs):
+        direct = kwargs.get("direct_tool_calls")
+        if direct:
+            tool_name = direct[0]["name"]
+            args = direct[0].get("arguments", {})
+            stub = stub_tools.get(tool_name)
+            if stub:
+                result = stub.execute(args)
+                return PhaseResult(
+                    final_text="",
+                    tool_calls=[{"name": tool_name, "result": result}],
+                    stop_reason="done",
+                )
+            return PhaseResult(
+                final_text="",
+                tool_calls=[{"name": tool_name, "error": "not found"}],
+                stop_reason="done",
+            )
+
+        # LLM phase — dispatch on user_message content
+        user_message = kwargs.get("user_message", "").lower()
+        if "select corpus curation scope" in user_message:
+            return PhaseResult(
+                final_text=json.dumps(
                     {
                         "scope_path": str(tmp_path),
                         "stale_days": 365,
                         "near_duplicate_threshold": 0.9,
                         "top_near_duplicates": 10,
                     }
-                )
-            if "produce concise actionable corpus curation recommendations" in lower:
-                return json.dumps(
+                ),
+                tool_calls=[],
+                stop_reason="stop",
+            )
+        if "produce concise actionable corpus curation recommendations" in user_message:
+            return PhaseResult(
+                final_text=json.dumps(
                     [
                         "Consolidate exact duplicates.",
                         "Review near-duplicate pairs for merges.",
                     ]
-                )
-            return "[]"
+                ),
+                tool_calls=[],
+                stop_reason="stop",
+            )
+        return PhaseResult(final_text="[]", tool_calls=[], stop_reason="stop")
 
-    monkeypatch.setattr(
-        "lsm.agents.academic.curator.create_provider",
-        lambda cfg: FakeProvider(),
-    )
+    return fake_run_phase
 
+
+def test_curator_agent_runs_and_saves_report(tmp_path: Path) -> None:
     config = build_config_from_raw(_base_raw(tmp_path), tmp_path / "config.json")
     registry = ToolRegistry()
     _register_tools(registry)
     sandbox = ToolSandbox(config.agents.sandbox)
     agent = CuratorAgent(config.llm, registry, sandbox, config.agents)
 
-    state = agent.run(
-        AgentContext(messages=[{"role": "user", "content": "Curate theology notes"}])
-    )
+    with patch.object(BaseAgent, "_run_phase", side_effect=_make_fake_run_phase(tmp_path)):
+        state = agent.run(
+            AgentContext(messages=[{"role": "user", "content": "Curate theology notes"}])
+        )
+
     assert state.status.value == "completed"
     assert agent.last_result is not None
     assert agent.last_result.output_path.exists()
@@ -255,32 +296,21 @@ def test_curator_agent_runs_and_saves_report(monkeypatch, tmp_path: Path) -> Non
     assert saved_log.strip()
 
 
-def test_agent_factory_creates_curator_agent(monkeypatch, tmp_path: Path) -> None:
-    class FakeProvider:
-        name = "fake"
-        model = "fake-model"
+def test_curator_agent_output_in_artifacts_dir(tmp_path: Path) -> None:
+    config = build_config_from_raw(_base_raw(tmp_path), tmp_path / "config.json")
+    registry = ToolRegistry()
+    _register_tools(registry)
+    sandbox = ToolSandbox(config.agents.sandbox)
+    agent = CuratorAgent(config.llm, registry, sandbox, config.agents)
 
-        def synthesize(self, question, context, mode="insight", **kwargs):
-            _ = context, mode, kwargs
-            lower = str(question).lower()
-            if "select corpus curation scope" in lower:
-                return json.dumps(
-                    {
-                        "scope_path": str(tmp_path),
-                        "stale_days": 365,
-                        "near_duplicate_threshold": 0.9,
-                        "top_near_duplicates": 8,
-                    }
-                )
-            if "produce concise actionable corpus curation recommendations" in lower:
-                return json.dumps(["No urgent quality issues detected."])
-            return "[]"
+    with patch.object(BaseAgent, "_run_phase", side_effect=_make_fake_run_phase(tmp_path)):
+        agent.run(AgentContext(messages=[{"role": "user", "content": "Topic"}]))
 
-    monkeypatch.setattr(
-        "lsm.agents.academic.curator.create_provider",
-        lambda cfg: FakeProvider(),
-    )
+    assert agent.last_result is not None
+    assert agent.last_result.output_path.parent.name == "artifacts"
 
+
+def test_agent_factory_creates_curator_agent(tmp_path: Path) -> None:
     config = build_config_from_raw(_base_raw(tmp_path), tmp_path / "config.json")
     registry = ToolRegistry()
     _register_tools(registry)
@@ -288,7 +318,36 @@ def test_agent_factory_creates_curator_agent(monkeypatch, tmp_path: Path) -> Non
 
     agent = create_agent("curator", config.llm, registry, sandbox, config.agents)
     assert isinstance(agent, CuratorAgent)
-    state = agent.run(
-        AgentContext(messages=[{"role": "user", "content": "Factory curator topic"}])
-    )
+
+    with patch.object(BaseAgent, "_run_phase", side_effect=_make_fake_run_phase(tmp_path)):
+        state = agent.run(
+            AgentContext(messages=[{"role": "user", "content": "Factory curator topic"}])
+        )
+
     assert state.status.value == "completed"
+
+
+# ---------------------------------------------------------------------------
+# Source-inspection tests
+# ---------------------------------------------------------------------------
+
+def test_curator_agent_does_not_directly_instantiate_agent_harness() -> None:
+    import lsm.agents.academic.curator as curator_module
+
+    source = inspect.getsource(curator_module)
+    assert "AgentHarness(" not in source
+
+
+def test_curator_agent_has_no_direct_provider_call() -> None:
+    import lsm.agents.academic.curator as curator_module
+
+    source = inspect.getsource(curator_module)
+    assert "provider.synthesize(" not in source
+    assert "provider.complete(" not in source
+
+
+def test_curator_agent_has_no_direct_sandbox_execute_call() -> None:
+    import lsm.agents.academic.curator as curator_module
+
+    source = inspect.getsource(curator_module)
+    assert "sandbox.execute(" not in source
