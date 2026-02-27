@@ -16,7 +16,7 @@
 | 5 | Academic Agents Migration | [PHASE_5.md](../plan_phases/PHASE_5.md) | Complete |
 | 6 | Remaining Agent Migration | [PHASE_6.md](../plan_phases/PHASE_6.md) | Complete |
 | 7 | query_remote Tool Redesign | [PHASE_7.md](../plan_phases/PHASE_7.md) | Complete |
-| 8 | Final Code Review and Release | [PHASE_8.md](../plan_phases/PHASE_8.md) | |
+| 8 | Final Code Review and Release | [PHASE_8.md](../plan_phases/PHASE_8.md) | Complete |
 
 ---
 

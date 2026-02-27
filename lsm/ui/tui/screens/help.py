@@ -141,13 +141,13 @@ _WHATS_NEW_SECTION_TITLE = f"WHAT'S NEW IN {_WHATS_NEW_VERSION}"
 
 _WHATS_NEW: tuple[str, ...] = (
     f"Version: {_WHATS_NEW_VERSION}",
-    "Agent system overhaul: general, librarian, assistant, and manuscript editor agents.",
-    "Meta-agents with parallel task graph planning and ThreadPoolExecutor execution engine.",
-    "File graphing system for code, text, PDF, and HTML with graph-aware tooling.",
-    "20+ new remote providers: academic, cultural heritage, news, and RSS/Atom feeds.",
-    "OAuth2 infrastructure with email, calendar, and communication assistant agents.",
-    "OpenRouter provider, MCP host support, tiered LLM config, and native tool-calling.",
-    "Docker runner improvements, WSL2 runner, and sandboxed bash/powershell tools.",
+    "Agent foundation overhaul: all agents use _run_phase() for bounded LLM execution.",
+    "AgentHarness.run_bounded() with multi-context support via context_label.",
+    "Two-phase interaction timeout: acknowledged requests wait indefinitely.",
+    "query_knowledge_base tool replaces query_embeddings with full query pipeline.",
+    "Per-source remote tools: each provider gets its own query_<name> tool instance.",
+    "BaseAgent.remote_source_allowlist for fine-grained per-source tool filtering.",
+    "Manual token tracking and direct provider.synthesize() calls removed from all agents.",
 )
 
 

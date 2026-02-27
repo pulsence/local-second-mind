@@ -2,7 +2,7 @@
 
 All notable changes to Local Second Mind are documented here.
 
-## 0.7.1 (unreleased)
+## 0.7.1 - 2026-02-27
 
 ### Added
 
@@ -10,12 +10,14 @@ All notable changes to Local Second Mind are documented here.
 - `AgentHarness.run_bounded()` method with multi-context support via `context_label`, `continue_context`, and tool-only mode via `direct_tool_calls`.
 - `BaseAgent._run_phase()` method for bounded phase execution with context management.
 - `BaseAgent._reset_harness()` helper to reset harness between run() calls.
-- BaseAgent workspace accessor methods: `_workspace_root()`, `_artifacts_dir()`, `_logs_dir()`, `_memory_dir()`, `_artifact_filename()`.
+- `BaseAgent` workspace accessor methods: `_workspace_root()`, `_artifacts_dir()`, `_logs_dir()`, `_memory_dir()`, `_artifact_filename()`.
 - `acknowledged_timeout_seconds` config option in `agents.interaction` for two-phase interaction timeout behavior (default `0` = infinite wait once acknowledged).
 - Two-phase timeout in `InteractionChannel`: unacknowledged requests time out after `timeout_seconds`; acknowledged requests wait indefinitely (or for `acknowledged_timeout_seconds` if configured).
 - `acknowledge_interaction(agent_id, request_id)` method in `AgentRuntimeManager` to forward acknowledgment signals to interaction channels.
 - Automatic acknowledgment from TUI when pending interactions are rendered in the Agents screen.
 - Automatic acknowledgment from shell `/agent interact` command before displaying interaction prompts.
+- `BaseAgent.remote_source_allowlist` class attribute: optional set of remote source names; when set, restricts which per-source `query_<name>` tools are visible to the agent.
+- `BaseAgent._BUILTIN_QUERY_TOOL_NAMES` frozenset: protects `query_knowledge_base`, `query_llm`, and `query_remote_chain` from remote-source filtering.
 
 ### Changed
 
@@ -33,25 +35,15 @@ All notable changes to Local Second Mind are documented here.
 - `CalendarAssistantAgent` workspace accessors updated: `_tokens_used` removed; `ask_user` approval dispatch uses `_run_phase(direct_tool_calls=[...])` instead of direct `sandbox.execute()`; output uses `_artifacts_dir()`.
 - `EmailAssistantAgent` workspace accessors updated: `_tokens_used` removed; `ask_user` approval dispatch uses `_run_phase(direct_tool_calls=[...])` instead of direct `sandbox.execute()`; output uses `_artifacts_dir()`.
 - `MetaAgent` final synthesis migrated to `_run_phase()`: `create_provider` import removed; `provider.synthesize()` in `_synthesize_final_result()` replaced with `_run_phase(tool_names=[], max_iterations=1)`; `_tokens_used` removed.
-
-### Removed
-
-- `QueryEmbeddingsTool` from `lsm.agents.tools` - replaced by `QueryKnowledgeBaseTool`.
-- Generic `QueryRemoteTool(config)` single-tool pattern removed; replaced by per-source factory pattern (see Changed).
-
-## Phase 7 changes (query_remote Tool Redesign)
-
-### Added
-
-- `BaseAgent.remote_source_allowlist` class attribute: optional set of remote source names; when set, restricts which per-source `query_<name>` tools are visible to the agent.
-- `BaseAgent._BUILTIN_QUERY_TOOL_NAMES` frozenset: protects `query_knowledge_base`, `query_llm`, and `query_remote_chain` from remote-source filtering.
-
-### Changed
-
 - `QueryRemoteTool` redesigned as a per-source factory: each configured `RemoteProviderConfig` in `lsm.config` produces a distinct tool instance named `query_<provider_name>`. The old single `QueryRemoteTool(config)` constructor that took the full `LSMConfig` is removed.
 - `create_default_tool_registry()` now registers one `QueryRemoteTool(provider_cfg=..., config=...)` per entry in `config.remote_providers` instead of a single generic tool.
 - `BaseAgent._resolve_allowed_tool_names()` now filters per-source `query_*` tools via `remote_source_allowlist` (when set).
 - `NewsAssistantAgent._resolve_lsm_config()`, `CalendarAssistantAgent._resolve_lsm_config()`, and `EmailAssistantAgent._resolve_lsm_config()` updated: no longer look up the defunct `"query_remote"` tool by name; instead iterate the tool registry for any tool whose `.config` has a `remote_providers` attribute.
+
+### Removed
+
+- `QueryEmbeddingsTool` from `lsm.agents.tools` - replaced by `QueryKnowledgeBaseTool`.
+- Generic `QueryRemoteTool(config)` single-tool pattern removed; each remote provider now registers its own `query_<name>` tool instance.
 
 ## 0.7.0 - 2026-02-25
 
