@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import inspect
 import json
 from pathlib import Path
 
@@ -142,3 +143,12 @@ def test_librarian_agent_builds_idea_graph(tmp_path: Path) -> None:
     assert len(graph_payload["sources"]) == 2
     assert memory_tool.calls
     assert memory_tool.calls[0]["key"].startswith("idea_graph:")
+
+
+def test_librarian_agent_does_not_directly_instantiate_agent_harness() -> None:
+    import lsm.agents.productivity.librarian as librarian_module
+
+    source = inspect.getsource(librarian_module)
+    assert "AgentHarness(" not in source, (
+        "LibrarianAgent must not directly instantiate AgentHarness; use _run_phase() instead"
+    )

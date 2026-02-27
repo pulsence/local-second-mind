@@ -78,7 +78,7 @@ class LibrarianAgent(BaseAgent):
         """
         Run the librarian workflow to generate idea graphs and summaries.
         """
-        self._tokens_used = 0
+        self._reset_harness()
         self._stop_logged = False
         self.state.set_status(AgentStatus.RUNNING)
         ensure_agent_workspace(
@@ -149,13 +149,19 @@ class LibrarianAgent(BaseAgent):
         if "query_knowledge_base" not in self._available_tools():
             self._log("query_knowledge_base tool is not available; skipping retrieval.")
             return []
-        output = self._run_tool(
-            "query_knowledge_base",
-            {"query": topic, "top_k": 8, "max_chars": 500},
+        result = self._run_phase(
+            direct_tool_calls=[
+                {
+                    "name": "query_knowledge_base",
+                    "arguments": {"query": topic, "top_k": 8, "max_chars": 500},
+                }
+            ]
         )
-        parsed = self._parse_json(output)
-        if isinstance(parsed, dict):
-            return parsed.get("candidates", [])
+        for tc in result.tool_calls:
+            if tc.get("name") == "query_knowledge_base" and "result" in tc:
+                parsed = self._parse_json(tc["result"])
+                if isinstance(parsed, dict):
+                    return parsed.get("candidates", [])
         return []
 
     def _extract_source_paths(self, candidates: list[dict[str, Any]]) -> list[str]:
@@ -215,7 +221,7 @@ class LibrarianAgent(BaseAgent):
         )
         safe_topic = safe_topic[:80] or "librarian"
         timestamp = datetime.utcnow().strftime("%Y%m%d-%H%M%S")
-        return self.agent_config.agents_folder / f"{self.name}_{safe_topic}_{timestamp}"
+        return self._artifacts_dir() / f"{safe_topic}_{timestamp}"
 
     def _format_idea_graph_markdown(
         self,
@@ -281,32 +287,14 @@ class LibrarianAgent(BaseAgent):
             "rationale": f"Idea graph summary for {topic}.",
         }
         try:
-            output = self._run_tool("memory_put", args)
-            parsed = self._parse_json(output)
-            if isinstance(parsed, dict):
-                payloads.append(parsed)
+            result = self._run_phase(
+                direct_tool_calls=[{"name": "memory_put", "arguments": args}]
+            )
+            for tc in result.tool_calls:
+                if tc.get("name") == "memory_put" and "result" in tc:
+                    parsed = self._parse_json(tc["result"])
+                    if isinstance(parsed, dict):
+                        payloads.append(parsed)
         except Exception as exc:
             self._log(f"memory_put failed: {exc}")
         return payloads
-
-    def _run_tool(self, tool_name: str, args: Dict[str, Any]) -> str:
-        if self._handle_stop_request():
-            return ""
-        try:
-            tool = self.tool_registry.lookup(tool_name)
-        except KeyError:
-            self._log(f"Skipping unknown tool '{tool_name}'.")
-            return ""
-        try:
-            output = self.sandbox.execute(tool, args)
-            self._consume_tokens(output)
-            self._log(
-                output,
-                actor="tool",
-                action=tool_name,
-                action_arguments=args,
-            )
-            return output
-        except Exception as exc:
-            self._log(f"Tool '{tool_name}' failed: {exc}")
-            return ""
