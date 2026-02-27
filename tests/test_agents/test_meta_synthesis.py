@@ -6,6 +6,7 @@ from pathlib import Path
 from lsm.agents.base import AgentStatus, BaseAgent
 from lsm.agents.meta import MetaAgent
 from lsm.agents.models import AgentContext
+from lsm.agents.phase import PhaseResult
 from lsm.agents.tools.base import ToolRegistry
 from lsm.agents.tools.sandbox import ToolSandbox
 from lsm.config.loader import build_config_from_raw
@@ -74,19 +75,16 @@ def _patch_child_factory(monkeypatch) -> None:
 
 
 def test_meta_agent_writes_synthesized_final_result(monkeypatch, tmp_path: Path) -> None:
-    class FakeProvider:
-        name = "fake"
-        model = "fake-model"
-
-        def synthesize(self, question, context, mode="insight", **kwargs):
-            _ = question, context, mode, kwargs
-            return "# Final Synthesis\n\nConsolidated cross-agent output.\n"
+    def _fake_run_phase(self, *args, **kwargs):
+        _ = args, kwargs
+        return PhaseResult(
+            final_text="# Final Synthesis\n\nConsolidated cross-agent output.\n",
+            tool_calls=[],
+            stop_reason="end_turn",
+        )
 
     _patch_child_factory(monkeypatch)
-    monkeypatch.setattr(
-        "lsm.agents.meta.meta.create_provider",
-        lambda cfg: FakeProvider(),
-    )
+    monkeypatch.setattr(MetaAgent, "_run_phase", _fake_run_phase)
 
     config = build_config_from_raw(_base_raw(tmp_path), tmp_path / "config.json")
     agent = MetaAgent(
@@ -134,10 +132,10 @@ def test_meta_agent_writes_synthesized_final_result(monkeypatch, tmp_path: Path)
 def test_meta_agent_falls_back_when_synthesis_provider_fails(monkeypatch, tmp_path: Path) -> None:
     _patch_child_factory(monkeypatch)
 
-    def _raise_provider(_cfg):
+    def _raise_run_phase(self, *args, **kwargs):
         raise RuntimeError("provider unavailable")
 
-    monkeypatch.setattr("lsm.agents.meta.meta.create_provider", _raise_provider)
+    monkeypatch.setattr(MetaAgent, "_run_phase", _raise_run_phase)
 
     config = build_config_from_raw(_base_raw(tmp_path), tmp_path / "config.json")
     agent = MetaAgent(

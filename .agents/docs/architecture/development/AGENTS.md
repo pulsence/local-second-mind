@@ -447,9 +447,19 @@ Observability:
 
 ## Writing Agent
 
-The `writing` agent gathers grounding evidence from local tools, builds an outline, drafts prose, self-reviews, and writes a final markdown deliverable.
+The `writing` agent gathers grounding evidence from the local knowledge base, builds an outline, drafts prose, and self-reviews before writing a final markdown deliverable.
 
 Use when you need a polished grounded write-up from your local knowledge base.
+
+Workflow phases (all via `_run_phase()`):
+
+1. **OUTLINE** — LLM uses `query_knowledge_base` to gather evidence and produce a structured outline. `max_iterations=3`, `context_label="outline"`.
+2. **DRAFT** — LLM writes the full deliverable using the outline. `tool_names=[]`, `max_iterations=1`, `context_label="draft"`, `continue_context=False`.
+3. **REVIEW** — LLM revises the draft for clarity and factual grounding. `tool_names=[]`, `max_iterations=1`, `context_label="draft"`, `continue_context=True`.
+
+Phases 2 and 3 are skipped if `stop_reason` is `"budget_exhausted"` or `"stop_requested"` after Phase 1.
+
+Output goes to `_artifacts_dir()` with a timestamped `_artifact_filename()` path.
 
 ## Synthesis Agent
 
@@ -513,7 +523,7 @@ Shared workspace + synthesis (Phase 6.3):
   - `<agents_folder>/meta_<timestamp>/final_result.md`
   - `<agents_folder>/meta_<timestamp>/meta_log.md`
 - sub-agents can read the shared `workspace/` and write only to their own `sub_agents/<agent_name>_<NNN>/` directory
-- final synthesis attempts an LLM-generated consolidated result and falls back to a deterministic markdown summary when synthesis is unavailable
+- final synthesis uses `self._run_phase(tool_names=[], max_iterations=1)` to generate a consolidated LLM result; falls back to a deterministic markdown summary when synthesis fails or `enable_final_synthesis=False`
 
 ## TUI Usage
 

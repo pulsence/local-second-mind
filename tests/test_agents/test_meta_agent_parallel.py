@@ -8,6 +8,7 @@ from pathlib import Path
 from lsm.agents.base import AgentStatus, BaseAgent
 from lsm.agents.meta import MetaAgent
 from lsm.agents.models import AgentContext
+from lsm.agents.phase import PhaseResult
 from lsm.agents.tools.base import ToolRegistry
 from lsm.agents.tools.sandbox import ToolSandbox
 from lsm.config.loader import build_config_from_raw
@@ -51,13 +52,11 @@ def _base_raw(tmp_path: Path) -> dict:
 
 
 def _patch_meta_dependencies(monkeypatch, concurrency_state, sleep_s: float = 0.05) -> None:
-    class FakeProvider:
-        name = "fake"
-        model = "fake-model"
+    def _fake_run_phase(self, *args, **kwargs):
+        _ = args, kwargs
+        return PhaseResult(final_text="# Final Result\n\nConsolidated sub-agent output.\n", tool_calls=[], stop_reason="end_turn")
 
-        def synthesize(self, question, context, mode="insight", **kwargs):
-            _ = question, context, mode, kwargs
-            return "# Final Result\n\nConsolidated sub-agent output.\n"
+    monkeypatch.setattr(MetaAgent, "_run_phase", _fake_run_phase)
 
     class FakeChildAgent(BaseAgent):
         def __init__(self, name: str, agent_config) -> None:
@@ -86,7 +85,6 @@ def _patch_meta_dependencies(monkeypatch, concurrency_state, sleep_s: float = 0.
         _ = llm_registry, tool_registry, sandbox
         return FakeChildAgent(str(name), agent_config)
 
-    monkeypatch.setattr("lsm.agents.meta.meta.create_provider", lambda cfg: FakeProvider())
     monkeypatch.setattr("lsm.agents.factory.create_agent", _fake_create_agent)
 
 

@@ -27,6 +27,12 @@ All notable changes to Local Second Mind are documented here.
 - `ResearchAgent` migrated to `_run_phase()`: per-subtopic `context_label` usage, `query_knowledge_base` integration in the RESEARCH phase, improved subtopic and suggestion logging (names appear in logs, not just counts), and artifact output via `_artifacts_dir()`.
 - `SynthesisAgent` migrated to `_run_phase()`: three-phase workflow (PLAN → EVIDENCE → SYNTHESIZE) via `_run_phase()`, file output via `_artifacts_dir()`.
 - `CuratorAgent` migrated to `_run_phase()`: scope selection and recommendation generation use `_run_phase()` instead of direct `provider.synthesize()` calls; `CURATOR_SYSTEM_PROMPT` constant added; manual token tracking removed.
+- `WritingAgent` migrated to `_run_phase()`: three-phase workflow (OUTLINE → DRAFT → REVIEW) implemented via `_run_phase()` calls; `WRITING_SYSTEM_PROMPT` constant added; OUTLINE phase uses `query_knowledge_base` tool; `query_embeddings` removed from `tool_allowlist`; file output uses `_artifacts_dir()` workspace accessor; manual token tracking and all direct `provider.synthesize()` / `sandbox.execute()` calls removed.
+- `AssistantAgent` workspace accessors updated: `_tokens_used` removed; `memory_put` dispatch uses `_run_phase(direct_tool_calls=[...])` instead of direct `sandbox.execute()`; output uses `_artifacts_dir()`.
+- `NewsAssistantAgent` workspace accessors updated: `_tokens_used` removed; output uses `_artifacts_dir()`.
+- `CalendarAssistantAgent` workspace accessors updated: `_tokens_used` removed; `ask_user` approval dispatch uses `_run_phase(direct_tool_calls=[...])` instead of direct `sandbox.execute()`; output uses `_artifacts_dir()`.
+- `EmailAssistantAgent` workspace accessors updated: `_tokens_used` removed; `ask_user` approval dispatch uses `_run_phase(direct_tool_calls=[...])` instead of direct `sandbox.execute()`; output uses `_artifacts_dir()`.
+- `MetaAgent` final synthesis migrated to `_run_phase()`: `create_provider` import removed; `provider.synthesize()` in `_synthesize_final_result()` replaced with `_run_phase(tool_names=[], max_iterations=1)`; `_tokens_used` removed.
 
 ### Removed
 
