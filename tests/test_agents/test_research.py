@@ -135,7 +135,7 @@ def test_research_agent_runs_and_saves_outline(monkeypatch, tmp_path: Path) -> N
             if "decompose the topic" in lower:
                 return json.dumps(["Scope", "Methods"])
             if "select the best tools" in lower:
-                return json.dumps({"tools": ["query_embeddings", "query_remote"]})
+                return json.dumps({"tools": ["query_knowledge_base", "query_remote"]})
             if "review this research outline" in lower:
                 return json.dumps({"sufficient": True, "suggestions": []})
             if "summarize findings for subtopic" in lower:

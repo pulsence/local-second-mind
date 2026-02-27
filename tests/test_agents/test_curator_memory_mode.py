@@ -54,21 +54,21 @@ def test_curator_memory_mode_generates_candidates_from_run_summaries(
     agents_folder.mkdir(parents=True, exist_ok=True)
 
     summary_a = {
-        "tools_used": {"query_embeddings": 2, "read_file": 1},
+        "tools_used": {"query_knowledge_base": 2, "read_file": 1},
         "constraints": ["avoid speculation", "must include citations"],
         "approvals_denials": {
             "by_tool": {
-                "query_embeddings": {"approvals": 3, "denials": 0},
+                "query_knowledge_base": {"approvals": 3, "denials": 0},
                 "write_file": {"approvals": 0, "denials": 2},
             }
         },
     }
     summary_b = {
-        "tools_used": {"query_embeddings": 2, "read_file": 2},
+        "tools_used": {"query_knowledge_base": 2, "read_file": 2},
         "constraints": ["avoid speculation"],
         "approvals_denials": {
             "by_tool": {
-                "query_embeddings": {"approvals": 2, "denials": 0},
+                "query_knowledge_base": {"approvals": 2, "denials": 0},
                 "write_file": {"approvals": 0, "denials": 1},
             }
         },
@@ -108,11 +108,11 @@ def test_curator_memory_mode_generates_candidates_from_run_summaries(
     assert isinstance(candidates, list)
 
     keys = {item["key"] for item in candidates}
-    assert "preferred_tool_query_embeddings" in keys
+    assert "preferred_tool_query_knowledge_base" in keys
     assert "preferred_tool_read_file" in keys
     assert "constraint_avoid_speculation" in keys
     assert "permission_guardrail_write_file" in keys
-    assert "trusted_tool_query_embeddings" in keys
+    assert "trusted_tool_query_knowledge_base" in keys
 
     markdown = agent.last_result.output_path.read_text(encoding="utf-8")
     assert "# Memory Candidates: distill recurring patterns" in markdown
