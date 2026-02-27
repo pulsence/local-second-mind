@@ -1,94 +1,19 @@
 from __future__ import annotations
 
-import json
+import inspect
 from pathlib import Path
+from unittest.mock import patch
 
+import pytest
+
+from lsm.agents.base import BaseAgent
 from lsm.agents.factory import create_agent
 from lsm.agents.models import AgentContext
-from lsm.agents.tools.base import BaseTool, ToolRegistry
-from lsm.agents.tools.sandbox import ToolSandbox
+from lsm.agents.phase import PhaseResult
 from lsm.agents.productivity import WritingAgent
+from lsm.agents.tools.base import ToolRegistry
+from lsm.agents.tools.sandbox import ToolSandbox
 from lsm.config.loader import build_config_from_raw
-
-
-class QueryKnowledgeBaseStubTool(BaseTool):
-    name = "query_knowledge_base"
-    description = "Stub knowledge base query tool."
-    input_schema = {
-        "type": "object",
-        "properties": {"query": {"type": "string"}, "top_k": {"type": "integer"}},
-        "required": ["query"],
-    }
-
-    def execute(self, args: dict) -> str:
-        query = str(args.get("query", ""))
-        return json.dumps(
-            {
-                "answer": f"Answer for {query}",
-                "sources_display": "notes/a.md, notes/b.md",
-                "candidates": [
-                    {
-                        "id": "c1",
-                        "text": f"evidence for {query}",
-                        "metadata": {"source_path": "notes/a.md"},
-                        "score": 0.88,
-                    },
-                    {
-                        "id": "c2",
-                        "text": f"secondary evidence for {query}",
-                        "metadata": {"source_path": "notes/b.md"},
-                        "score": 0.81,
-                    },
-                ],
-            }
-        )
-
-
-class ExtractSnippetsStubTool(BaseTool):
-    name = "extract_snippets"
-    description = "Stub snippet extraction tool."
-    input_schema = {
-        "type": "object",
-        "properties": {
-            "query": {"type": "string"},
-            "paths": {"type": "array"},
-            "max_snippets": {"type": "integer"},
-        },
-        "required": ["query", "paths"],
-    }
-
-    def execute(self, args: dict) -> str:
-        query = str(args.get("query", ""))
-        paths = args.get("paths") or []
-        snippets = []
-        for path in paths:
-            snippets.append(
-                {
-                    "source_path": str(path),
-                    "snippet": f"snippet for {query} from {path}",
-                    "score": 0.77,
-                }
-            )
-        return json.dumps(snippets)
-
-
-class SourceMapStubTool(BaseTool):
-    name = "source_map"
-    description = "Stub source map aggregator."
-    input_schema = {
-        "type": "object",
-        "properties": {"evidence": {"type": "array"}},
-        "required": ["evidence"],
-    }
-
-    def execute(self, args: dict) -> str:
-        evidence = args.get("evidence") or []
-        output: dict[str, dict[str, object]] = {}
-        for item in evidence:
-            path = str(item.get("source_path", "unknown"))
-            output.setdefault(path, {"count": 0, "outline": []})
-            output[path]["count"] = int(output[path]["count"]) + 1
-        return json.dumps(output)
 
 
 def _base_raw(tmp_path: Path) -> dict:
@@ -127,36 +52,41 @@ def _base_raw(tmp_path: Path) -> dict:
     }
 
 
-def test_writing_agent_runs_and_saves_deliverable(monkeypatch, tmp_path: Path) -> None:
-    class FakeProvider:
-        name = "fake"
-        model = "fake-model"
-
-        def synthesize(self, question, context, mode="insight", **kwargs):
-            _ = context, mode, kwargs
-            lower = str(question).lower()
-            if "concise markdown outline" in lower:
-                return "# Outline\n\n## Intro\n\n## Argument\n\n## Conclusion\n"
-            if "draft a polished markdown deliverable" in lower:
-                return "# Draft Deliverable\n\nInitial grounded draft.\n"
-            if "revise the draft for clarity" in lower:
-                return "# Final Deliverable\n\nRevised grounded draft.\n"
-            return "# Final Deliverable\n\nFallback.\n"
-
-    monkeypatch.setattr(
-        "lsm.agents.productivity.writing.create_provider",
-        lambda cfg: FakeProvider(),
+def _make_result(
+    final_text: str,
+    stop_reason: str = "stop",
+    tool_calls: list | None = None,
+) -> PhaseResult:
+    return PhaseResult(
+        final_text=final_text,
+        tool_calls=tool_calls or [],
+        stop_reason=stop_reason,
     )
 
+
+def _build_agent(tmp_path: Path) -> WritingAgent:
     config = build_config_from_raw(_base_raw(tmp_path), tmp_path / "config.json")
     registry = ToolRegistry()
-    registry.register(QueryKnowledgeBaseStubTool())
-    registry.register(ExtractSnippetsStubTool())
-    registry.register(SourceMapStubTool())
     sandbox = ToolSandbox(config.agents.sandbox)
-    agent = WritingAgent(config.llm, registry, sandbox, config.agents)
+    return WritingAgent(config.llm, registry, sandbox, config.agents)
 
-    state = agent.run(AgentContext(messages=[{"role": "user", "content": "Write on sacramental realism"}]))
+
+# ---------------------------------------------------------------------------
+# Happy-path tests
+# ---------------------------------------------------------------------------
+
+def test_writing_agent_runs_and_saves_deliverable(tmp_path: Path) -> None:
+    agent = _build_agent(tmp_path)
+
+    with patch.object(BaseAgent, "_run_phase", side_effect=[
+        _make_result("# Outline\n\n## Intro\n\n## Body\n"),  # OUTLINE
+        _make_result("# Draft Deliverable\n\nInitial grounded draft.\n"),  # DRAFT
+        _make_result("# Final Deliverable\n\nRevised grounded draft.\n"),  # REVIEW
+    ]):
+        state = agent.run(
+            AgentContext(messages=[{"role": "user", "content": "Write on sacramental realism"}])
+        )
+
     assert state.status.value == "completed"
     assert agent.last_result is not None
     assert agent.last_result.output_path.exists()
@@ -168,26 +98,140 @@ def test_writing_agent_runs_and_saves_deliverable(monkeypatch, tmp_path: Path) -
     assert saved_log.strip()
 
 
-def test_agent_factory_creates_writing_agent(monkeypatch, tmp_path: Path) -> None:
-    class FakeProvider:
-        name = "fake"
-        model = "fake-model"
+def test_writing_agent_phases_execute_in_order(tmp_path: Path) -> None:
+    agent = _build_agent(tmp_path)
+    phase_messages: list[str] = []
 
-        def synthesize(self, question, context, mode="insight", **kwargs):
-            _ = question, context, mode, kwargs
-            return "# deliverable"
+    def capture(**kwargs):
+        phase_messages.append(kwargs.get("user_message", ""))
+        return _make_result("ok")
 
-    monkeypatch.setattr(
-        "lsm.agents.productivity.writing.create_provider",
-        lambda cfg: FakeProvider(),
-    )
+    with patch.object(BaseAgent, "_run_phase", side_effect=capture):
+        agent.run(AgentContext(messages=[{"role": "user", "content": "Topic"}]))
 
+    assert len(phase_messages) == 3
+    assert "OUTLINE" in phase_messages[0]
+    assert "DRAFT" in phase_messages[1]
+    assert "REVIEW" in phase_messages[2]
+
+
+def test_writing_agent_outline_phase_uses_query_knowledge_base(tmp_path: Path) -> None:
+    agent = _build_agent(tmp_path)
+
+    with patch.object(BaseAgent, "_run_phase", side_effect=[
+        _make_result("# Outline"),
+        _make_result("# Draft"),
+        _make_result("# Review"),
+    ]) as mock_phase:
+        agent.run(AgentContext(messages=[{"role": "user", "content": "Topic"}]))
+
+    calls = mock_phase.call_args_list
+    assert calls[0].kwargs.get("tool_names") == ["query_knowledge_base"]
+
+
+def test_writing_agent_draft_and_review_use_no_tools(tmp_path: Path) -> None:
+    agent = _build_agent(tmp_path)
+
+    with patch.object(BaseAgent, "_run_phase", side_effect=[
+        _make_result("# Outline"),
+        _make_result("# Draft"),
+        _make_result("# Review"),
+    ]) as mock_phase:
+        agent.run(AgentContext(messages=[{"role": "user", "content": "Topic"}]))
+
+    calls = mock_phase.call_args_list
+    assert calls[1].kwargs.get("tool_names") == []
+    assert calls[2].kwargs.get("tool_names") == []
+
+
+def test_writing_agent_output_in_artifacts_dir(tmp_path: Path) -> None:
+    agent = _build_agent(tmp_path)
+
+    with patch.object(BaseAgent, "_run_phase", side_effect=[
+        _make_result("# Outline"),
+        _make_result("# Draft"),
+        _make_result("# Final\n\nContent.\n"),
+    ]):
+        agent.run(AgentContext(messages=[{"role": "user", "content": "Topic"}]))
+
+    assert agent.last_result is not None
+    assert agent.last_result.output_path.parent.name == "artifacts"
+    assert agent.last_result.output_path.suffix == ".md"
+
+
+def test_writing_agent_skips_draft_review_on_budget_exhausted(tmp_path: Path) -> None:
+    agent = _build_agent(tmp_path)
+
+    with patch.object(BaseAgent, "_run_phase", side_effect=[
+        _make_result("# Outline", stop_reason="budget_exhausted"),  # OUTLINE exhausts budget
+        # DRAFT and REVIEW must NOT be called
+    ]) as mock_phase:
+        state = agent.run(AgentContext(messages=[{"role": "user", "content": "Topic"}]))
+
+    assert state.status.value == "completed"
+    assert agent.last_result is not None
+    assert mock_phase.call_count == 1
+
+
+def test_writing_agent_has_no_tokens_used_attribute(tmp_path: Path) -> None:
+    agent = _build_agent(tmp_path)
+
+    with patch.object(BaseAgent, "_run_phase", side_effect=[
+        _make_result("# Outline"),
+        _make_result("# Draft"),
+        _make_result("# Review"),
+    ]):
+        agent.run(AgentContext(messages=[{"role": "user", "content": "Topic"}]))
+
+    with pytest.raises(AttributeError):
+        _ = agent._tokens_used  # noqa: SLF001
+
+
+# ---------------------------------------------------------------------------
+# Factory test
+# ---------------------------------------------------------------------------
+
+def test_agent_factory_creates_writing_agent(tmp_path: Path) -> None:
     config = build_config_from_raw(_base_raw(tmp_path), tmp_path / "config.json")
     registry = ToolRegistry()
-    registry.register(QueryKnowledgeBaseStubTool())
     sandbox = ToolSandbox(config.agents.sandbox)
 
     agent = create_agent("writing", config.llm, registry, sandbox, config.agents)
     assert isinstance(agent, WritingAgent)
-    state = agent.run(AgentContext(messages=[{"role": "user", "content": "Factory writing topic"}]))
+
+    with patch.object(BaseAgent, "_run_phase", side_effect=[
+        _make_result("# Outline"),
+        _make_result("# Draft"),
+        _make_result("# Final deliverable\n"),
+    ]):
+        state = agent.run(
+            AgentContext(messages=[{"role": "user", "content": "Factory writing topic"}])
+        )
+
     assert state.status.value == "completed"
+
+
+# ---------------------------------------------------------------------------
+# Source-inspection tests
+# ---------------------------------------------------------------------------
+
+def test_writing_agent_does_not_directly_instantiate_agent_harness() -> None:
+    import lsm.agents.productivity.writing as writing_module
+
+    source = inspect.getsource(writing_module)
+    assert "AgentHarness(" not in source
+
+
+def test_writing_agent_has_no_direct_provider_call() -> None:
+    import lsm.agents.productivity.writing as writing_module
+
+    source = inspect.getsource(writing_module)
+    assert "provider.synthesize(" not in source
+    assert "provider.complete(" not in source
+
+
+def test_writing_agent_has_no_direct_sandbox_execute_call() -> None:
+    import lsm.agents.productivity.writing as writing_module
+
+    source = inspect.getsource(writing_module)
+    assert "sandbox.execute(" not in source

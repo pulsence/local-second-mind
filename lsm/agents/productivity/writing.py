@@ -4,20 +4,25 @@ Writing agent implementation.
 
 from __future__ import annotations
 
-import json
 from dataclasses import dataclass
-from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Optional
 
 from lsm.config.models import AgentConfig, LLMRegistryConfig
-from lsm.providers.factory import create_provider
 
 from ..base import AgentStatus, BaseAgent
 from ..models import AgentContext
 from ..tools.base import ToolRegistry
 from ..tools.sandbox import ToolSandbox
 from ..workspace import ensure_agent_workspace
+
+WRITING_SYSTEM_PROMPT = (
+    "You are a writing agent. Your workflow has three phases: "
+    "OUTLINE (use query_knowledge_base to gather evidence and produce a grounded outline), "
+    "DRAFT (use the outline to write the full grounded deliverable in markdown), and "
+    "REVIEW (revise the draft for clarity and factual grounding, return final markdown only). "
+    "Follow phase instructions carefully and respond in the format requested."
+)
 
 
 @dataclass
@@ -86,7 +91,7 @@ class WritingAgent(BaseAgent):
         Returns:
             Agent state after execution.
         """
-        self._tokens_used = 0
+        self._reset_harness()
         self._stop_logged = False
         self.state.set_status(AgentStatus.RUNNING)
         ensure_agent_workspace(
@@ -97,27 +102,57 @@ class WritingAgent(BaseAgent):
         topic = self._extract_topic(initial_context)
         self.state.current_task = f"Writing: {topic}"
 
-        provider = create_provider(self._resolve_llm_config(self.llm_registry))
-        grounding = self._collect_grounding(topic)
-        outline = ""
-        draft = ""
-        revised = ""
-        if not self._is_stop_requested():
-            outline = self._build_outline(provider, topic, grounding)
-        if not self._is_stop_requested():
-            draft = self._draft_deliverable(provider, topic, outline, grounding)
-        if not self._is_stop_requested():
-            revised = self._review_deliverable(provider, topic, draft, grounding)
-        if self._handle_stop_request():
-            revised = revised or draft or (
-                f"# Deliverable: {topic}\n\nRun stopped before full completion.\n"
+        # Phase 1 — OUTLINE: gather evidence and produce a grounded outline
+        outline_result = self._run_phase(
+            system_prompt=WRITING_SYSTEM_PROMPT,
+            user_message=(
+                f"Phase: OUTLINE. Topic: '{topic}'. "
+                "Use query_knowledge_base to gather evidence and produce a grounded outline."
+            ),
+            tool_names=["query_knowledge_base"],
+            max_iterations=3,
+            context_label="outline",
+        )
+        deliverable_markdown = ""
+        if outline_result.stop_reason not in ("budget_exhausted", "stop_requested"):
+            # Phase 2 — DRAFT: write the full deliverable from the outline
+            draft_result = self._run_phase(
+                user_message=(
+                    f"Phase: DRAFT. Topic: '{topic}'. "
+                    "Using the outline produced above, write the full grounded deliverable in markdown."
+                ),
+                tool_names=[],
+                max_iterations=1,
+                context_label="draft",
+                continue_context=False,
             )
+            if draft_result.stop_reason not in ("budget_exhausted", "stop_requested"):
+                # Phase 3 — REVIEW: revise for clarity and grounding
+                review_result = self._run_phase(
+                    user_message=(
+                        "Phase: REVIEW. "
+                        "Revise the draft for clarity and factual grounding. "
+                        "Return final markdown only."
+                    ),
+                    tool_names=[],
+                    max_iterations=1,
+                    context_label="draft",
+                    continue_context=True,
+                )
+                deliverable_markdown = review_result.final_text or draft_result.final_text or ""
+            else:
+                deliverable_markdown = draft_result.final_text or ""
+        else:
+            deliverable_markdown = outline_result.final_text or ""
 
-        output_path = self._save_deliverable(topic, revised)
+        if not deliverable_markdown:
+            deliverable_markdown = f"# Deliverable: {topic}\n\nNo content generated.\n"
+
+        output_path = self._save_deliverable(topic, deliverable_markdown)
         log_path = self._save_log()
         self.last_result = WritingResult(
             topic=topic,
-            deliverable_markdown=revised,
+            deliverable_markdown=deliverable_markdown,
             output_path=output_path,
             log_path=log_path,
         )
@@ -132,177 +167,12 @@ class WritingAgent(BaseAgent):
                     return topic
         return "Untitled Writing Task"
 
-    def _collect_grounding(self, topic: str) -> Dict[str, Any]:
-        grounding: Dict[str, Any] = {
-            "candidates": [],
-            "snippets": [],
-            "source_map": {},
-        }
-        if self._is_stop_requested():
-            return grounding
-        available = {
-            str(item.get("name", "")).strip()
-            for item in self._get_tool_definitions(self.tool_registry)
-            if str(item.get("name", "")).strip()
-        }
-
-        if "query_knowledge_base" in available:
-            query_args = {"query": topic, "top_k": 8, "max_chars": 700}
-            output = self._run_tool("query_knowledge_base", query_args)
-            parsed = self._parse_json(output)
-            if isinstance(parsed, dict):
-                grounding["candidates"] = parsed.get("candidates", [])
-
-        if self._is_stop_requested():
-            return grounding
-        source_paths = self._extract_source_paths(grounding["candidates"])
-        if "extract_snippets" in available and source_paths:
-            snippet_args = {
-                "query": topic,
-                "paths": source_paths[:6],
-                "max_snippets": 8,
-                "max_chars_per_snippet": 450,
-            }
-            output = self._run_tool("extract_snippets", snippet_args)
-            parsed = self._parse_json(output)
-            if isinstance(parsed, list):
-                grounding["snippets"] = parsed
-
-        if self._is_stop_requested():
-            return grounding
-        if "source_map" in available and grounding["snippets"]:
-            source_map_args = {
-                "evidence": grounding["snippets"],
-                "max_depth": 2,
-            }
-            output = self._run_tool("source_map", source_map_args)
-            parsed = self._parse_json(output)
-            if isinstance(parsed, dict):
-                grounding["source_map"] = parsed
-
-        return grounding
-
-    def _extract_source_paths(self, candidates: List[Dict[str, Any]]) -> List[str]:
-        paths: list[str] = []
-        for item in candidates:
-            if not isinstance(item, dict):
-                continue
-            metadata = item.get("metadata")
-            source_path = item.get("source_path")
-            if isinstance(metadata, dict):
-                source_path = metadata.get("source_path", source_path)
-            normalized = str(source_path or "").strip()
-            if normalized and normalized not in paths:
-                paths.append(normalized)
-        return paths
-
-    def _run_tool(self, tool_name: str, args: Dict[str, Any]) -> str:
-        if self._handle_stop_request():
-            return ""
-        try:
-            tool = self.tool_registry.lookup(tool_name)
-        except KeyError:
-            self._log(f"Skipping unknown tool '{tool_name}'.")
-            return ""
-        try:
-            output = self.sandbox.execute(tool, args)
-            self._consume_tokens(output)
-            self._log(
-                output,
-                actor="tool",
-                action=tool_name,
-                action_arguments=args,
-            )
-            return output
-        except Exception as exc:
-            self._log(f"Tool '{tool_name}' failed: {exc}")
-            return ""
-
-    def _build_outline(
-        self,
-        provider: Any,
-        topic: str,
-        grounding: Dict[str, Any],
-    ) -> str:
-        if self._is_stop_requested():
-            return f"# Outline: {topic}\n\nRun stopped before outline generation.\n"
-        prompt = (
-            "Create a concise markdown outline for a grounded deliverable. "
-            "Use headings and a logical flow."
-        )
-        context = json.dumps({"topic": topic, "grounding": grounding}, indent=2)
-        response = provider.synthesize(prompt, context, mode="grounded")
-        self._consume_tokens(response)
-        text = str(response).strip()
-        if text:
-            return text
-        return (
-            f"# Outline: {topic}\n\n"
-            "## Introduction\n\n"
-            "## Core Arguments\n\n"
-            "## Synthesis and Conclusion\n"
-        )
-
-    def _draft_deliverable(
-        self,
-        provider: Any,
-        topic: str,
-        outline: str,
-        grounding: Dict[str, Any],
-    ) -> str:
-        if self._is_stop_requested():
-            return f"# Deliverable: {topic}\n\nRun stopped before drafting.\n"
-        prompt = (
-            "Draft a polished markdown deliverable using the outline and evidence. "
-            "Be precise and grounded in provided sources."
-        )
-        context = json.dumps(
-            {
-                "topic": topic,
-                "outline": outline,
-                "grounding": grounding,
-            },
-            indent=2,
-        )
-        response = provider.synthesize(prompt, context, mode="grounded")
-        self._consume_tokens(response)
-        text = str(response).strip()
-        if text:
-            return text
-        return f"# Deliverable: {topic}\n\n_No grounded draft could be generated._\n"
-
-    def _review_deliverable(
-        self,
-        provider: Any,
-        topic: str,
-        draft: str,
-        grounding: Dict[str, Any],
-    ) -> str:
-        if self._is_stop_requested():
-            return draft or f"# Deliverable: {topic}\n\nRun stopped before review.\n"
-        prompt = (
-            "Revise the draft for clarity, factual grounding, and concise style. "
-            "Return final markdown only."
-        )
-        context = json.dumps(
-            {
-                "topic": topic,
-                "draft": draft,
-                "grounding": grounding,
-            },
-            indent=2,
-        )
-        response = provider.synthesize(prompt, context, mode="grounded")
-        self._consume_tokens(response)
-        revised = str(response).strip()
-        return revised or draft
-
     def _save_deliverable(self, topic: str, content: str) -> Path:
         safe_topic = "".join(ch if ch.isalnum() or ch in ("-", "_") else "_" for ch in topic.strip())
         safe_topic = safe_topic[:80] or "writing"
-        timestamp = datetime.utcnow().strftime("%Y%m%d-%H%M%S")
-        output_path = self.agent_config.agents_folder / f"{self.name}_{safe_topic}_{timestamp}.md"
+        output_path = self._artifacts_dir() / self._artifact_filename(safe_topic)
         output_path.parent.mkdir(parents=True, exist_ok=True)
         output_path.write_text(content, encoding="utf-8")
+        self.state.add_artifact(str(output_path))
         self._log(f"Saved writing deliverable to {output_path}")
         return output_path
