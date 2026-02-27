@@ -10,7 +10,7 @@ import json
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence
 
-from lsm.config.models import AgentConfig, LLMRegistryConfig, RemoteProviderConfig
+from lsm.config.models import AgentConfig, LLMRegistryConfig, LSMConfig, RemoteProviderConfig
 from lsm.logging import get_logger
 from lsm.remote.factory import create_remote_provider
 from lsm.remote.providers.communication.models import CalendarEvent
@@ -19,7 +19,6 @@ from ..base import AgentStatus, BaseAgent
 from ..models import AgentContext
 from ..tools.base import ToolRegistry
 from ..tools.sandbox import ToolSandbox
-from ..workspace import ensure_agent_workspace
 
 logger = get_logger(__name__)
 
@@ -59,6 +58,7 @@ class CalendarAssistantAgent(BaseAgent):
         sandbox: ToolSandbox,
         agent_config: AgentConfig,
         agent_overrides: Optional[Dict[str, Any]] = None,
+        lsm_config: Optional[LSMConfig] = None,
     ) -> None:
         super().__init__(name=self.name, description=self.description)
         self.llm_registry = llm_registry
@@ -66,17 +66,14 @@ class CalendarAssistantAgent(BaseAgent):
         self.sandbox = sandbox
         self.agent_config = agent_config
         self.agent_overrides = agent_overrides or {}
+        self.lsm_config = lsm_config
         self._bind_interaction_tools()
 
     def run(self, initial_context: AgentContext) -> Any:
         self._reset_harness()
         self._stop_logged = False
         self.state.set_status(AgentStatus.RUNNING)
-        ensure_agent_workspace(
-            self.name,
-            self.agent_config.agents_folder,
-            sandbox=self.sandbox,
-        )
+        self._workspace_root()
         topic = self._extract_topic(initial_context)
         self.state.current_task = f"Calendar Assistant: {topic}"
 
@@ -485,12 +482,8 @@ class CalendarAssistantAgent(BaseAgent):
 
         raise ValueError("Calendar provider configuration not available")
 
-    def _resolve_lsm_config(self) -> Optional[Any]:
-        for tool in self.tool_registry.list_tools():
-            cfg = getattr(tool, "config", None)
-            if cfg is not None and hasattr(cfg, "remote_providers"):
-                return cfg
-        return None
+    def _resolve_lsm_config(self) -> Optional[LSMConfig]:
+        return self.lsm_config
 
     def _build_provider_from_config(
         self,
@@ -616,4 +609,3 @@ class CalendarAssistantAgent(BaseAgent):
             return time(int(parts[0]), int(parts[1]))
         except Exception:
             return None
-

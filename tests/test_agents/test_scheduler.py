@@ -326,7 +326,7 @@ def test_scheduler_defaults_to_read_only_and_no_network(tmp_path: Path) -> None:
         assert "write_file" not in allowlist
         assert "create_folder" not in allowlist
         assert "load_url" not in allowlist
-        assert "query_remote" not in allowlist
+        assert "query_arxiv" not in allowlist
         assert "query_llm" not in allowlist
         assert init["sandbox_allow_url_access"] is False
         assert init["sandbox_allowed_write_paths"] == []

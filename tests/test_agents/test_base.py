@@ -377,7 +377,7 @@ def test_base_agent_has_no_check_budget_and_stop() -> None:
 def test_base_agent_has_no_tokens_used() -> None:
     agent = DummyAgent()
     with pytest.raises(AttributeError):
-        _ = agent._tokens_used  # type: ignore[attr-defined]
+        getattr(agent, "_tokens_used")
 
 
 class _RecordingProvider:

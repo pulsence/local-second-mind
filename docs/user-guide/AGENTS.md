@@ -143,7 +143,7 @@ Tool availability is determined by the agent's built-in allowlist and sandbox se
 | Tool | Description |
 |------|-------------|
 | `query_llm` | Call the configured LLM directly and return the response text. |
-| `query_remote` | Query a configured remote provider (Brave Search, arXiv, Semantic Scholar, etc.) and return structured results. |
+| `query_<source>` | Query a configured remote provider (for example `query_arxiv`, `query_brave_search`, `query_semantic_scholar`) and return structured results. |
 | `query_remote_chain` | Run a remote provider query and pass the results through the LLM for synthesis. |
 | `load_url` | Fetch the text content of a URL. |
 

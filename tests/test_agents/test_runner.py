@@ -54,7 +54,7 @@ class WriteTool(BaseTool):
 
 
 class NetworkTool(BaseTool):
-    name = "query_remote"
+    name = "query_arxiv"
     description = "Network tool."
     risk_level = "network"
     needs_network = True

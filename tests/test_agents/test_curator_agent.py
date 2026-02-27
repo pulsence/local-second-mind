@@ -269,10 +269,17 @@ def _make_fake_run_phase(tmp_path: Path):
 
 def test_curator_agent_runs_and_saves_report(tmp_path: Path) -> None:
     config = build_config_from_raw(_base_raw(tmp_path), tmp_path / "config.json")
+    assert config.agents is not None
     registry = ToolRegistry()
     _register_tools(registry)
     sandbox = ToolSandbox(config.agents.sandbox)
-    agent = CuratorAgent(config.llm, registry, sandbox, config.agents)
+    agent = CuratorAgent(
+        config.llm,
+        registry,
+        sandbox,
+        config.agents,
+        lsm_config=config,
+    )
 
     with patch.object(BaseAgent, "_run_phase", side_effect=_make_fake_run_phase(tmp_path)):
         state = agent.run(
@@ -298,10 +305,17 @@ def test_curator_agent_runs_and_saves_report(tmp_path: Path) -> None:
 
 def test_curator_agent_output_in_artifacts_dir(tmp_path: Path) -> None:
     config = build_config_from_raw(_base_raw(tmp_path), tmp_path / "config.json")
+    assert config.agents is not None
     registry = ToolRegistry()
     _register_tools(registry)
     sandbox = ToolSandbox(config.agents.sandbox)
-    agent = CuratorAgent(config.llm, registry, sandbox, config.agents)
+    agent = CuratorAgent(
+        config.llm,
+        registry,
+        sandbox,
+        config.agents,
+        lsm_config=config,
+    )
 
     with patch.object(BaseAgent, "_run_phase", side_effect=_make_fake_run_phase(tmp_path)):
         agent.run(AgentContext(messages=[{"role": "user", "content": "Topic"}]))
@@ -312,11 +326,19 @@ def test_curator_agent_output_in_artifacts_dir(tmp_path: Path) -> None:
 
 def test_agent_factory_creates_curator_agent(tmp_path: Path) -> None:
     config = build_config_from_raw(_base_raw(tmp_path), tmp_path / "config.json")
+    assert config.agents is not None
     registry = ToolRegistry()
     _register_tools(registry)
     sandbox = ToolSandbox(config.agents.sandbox)
 
-    agent = create_agent("curator", config.llm, registry, sandbox, config.agents)
+    agent = create_agent(
+        "curator",
+        config.llm,
+        registry,
+        sandbox,
+        config.agents,
+        lsm_config=config,
+    )
     assert isinstance(agent, CuratorAgent)
 
     with patch.object(BaseAgent, "_run_phase", side_effect=_make_fake_run_phase(tmp_path)):

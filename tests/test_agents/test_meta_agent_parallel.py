@@ -81,8 +81,15 @@ def _patch_meta_dependencies(monkeypatch, concurrency_state, sleep_s: float = 0.
             self.state.set_status(AgentStatus.COMPLETED)
             return self.state
 
-    def _fake_create_agent(name, llm_registry, tool_registry, sandbox, agent_config):
-        _ = llm_registry, tool_registry, sandbox
+    def _fake_create_agent(
+        name,
+        llm_registry,
+        tool_registry,
+        sandbox,
+        agent_config,
+        lsm_config=None,
+    ):
+        _ = llm_registry, tool_registry, sandbox, lsm_config
         return FakeChildAgent(str(name), agent_config)
 
     monkeypatch.setattr("lsm.agents.factory.create_agent", _fake_create_agent)
@@ -93,9 +100,16 @@ def test_meta_agent_runs_parallel_groups_concurrently(monkeypatch, tmp_path: Pat
     _patch_meta_dependencies(monkeypatch, concurrency_state, sleep_s=0.1)
 
     config = build_config_from_raw(_base_raw(tmp_path), tmp_path / "config.json")
+    assert config.agents is not None
     registry = ToolRegistry()
     sandbox = ToolSandbox(config.agents.sandbox)
-    agent = MetaAgent(config.llm, registry, sandbox, config.agents)
+    agent = MetaAgent(
+        config.llm,
+        registry,
+        sandbox,
+        config.agents,
+        lsm_config=config,
+    )
 
     structured_goal = json.dumps(
         {
@@ -122,13 +136,20 @@ def test_meta_agent_respects_max_concurrent(monkeypatch, tmp_path: Path) -> None
     raw = _base_raw(tmp_path)
     raw["agents"]["max_concurrent"] = 1
     config = build_config_from_raw(raw, tmp_path / "config.json")
+    assert config.agents is not None
 
     concurrency_state = {"current": 0, "max": 0, "lock": threading.Lock()}
     _patch_meta_dependencies(monkeypatch, concurrency_state, sleep_s=0.05)
 
     registry = ToolRegistry()
     sandbox = ToolSandbox(config.agents.sandbox)
-    agent = MetaAgent(config.llm, registry, sandbox, config.agents)
+    agent = MetaAgent(
+        config.llm,
+        registry,
+        sandbox,
+        config.agents,
+        lsm_config=config,
+    )
 
     structured_goal = json.dumps(
         {
@@ -147,9 +168,16 @@ def test_meta_agent_enforces_sandbox_monotonicity(tmp_path: Path) -> None:
     raw = _base_raw(tmp_path)
     raw["agents"]["sandbox"]["allowed_write_paths"] = [str(tmp_path / "allowed")]
     config = build_config_from_raw(raw, tmp_path / "config.json")
+    assert config.agents is not None
     registry = ToolRegistry()
     sandbox = ToolSandbox(config.agents.sandbox)
-    agent = MetaAgent(config.llm, registry, sandbox, config.agents)
+    agent = MetaAgent(
+        config.llm,
+        registry,
+        sandbox,
+        config.agents,
+        lsm_config=config,
+    )
 
     run_root = tmp_path / "outside"
     shared_workspace = tmp_path / "outside" / "workspace"
@@ -170,9 +198,16 @@ def test_meta_agent_merges_artifacts_deterministically(monkeypatch, tmp_path: Pa
     _patch_meta_dependencies(monkeypatch, concurrency_state, sleep_s=0.01)
 
     config = build_config_from_raw(_base_raw(tmp_path), tmp_path / "config.json")
+    assert config.agents is not None
     registry = ToolRegistry()
     sandbox = ToolSandbox(config.agents.sandbox)
-    agent = MetaAgent(config.llm, registry, sandbox, config.agents)
+    agent = MetaAgent(
+        config.llm,
+        registry,
+        sandbox,
+        config.agents,
+        lsm_config=config,
+    )
 
     structured_goal = json.dumps(
         {

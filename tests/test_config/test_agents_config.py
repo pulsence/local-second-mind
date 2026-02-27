@@ -111,7 +111,7 @@ def test_build_config_reads_agents_section(tmp_path: Path) -> None:
             "wsl2": {"enabled": True, "distro": "Ubuntu"},
             "command_allowlist": ["ls", "git"],
             "command_denylist": ["rm"],
-            "tool_llm_assignments": {"query_remote": "decomposition"},
+            "tool_llm_assignments": {"query_arxiv": "decomposition"},
         },
         "memory": {
             "enabled": True,
@@ -154,7 +154,7 @@ def test_build_config_reads_agents_section(tmp_path: Path) -> None:
     assert config.agents.sandbox.wsl2["distro"] == "Ubuntu"
     assert config.agents.sandbox.command_allowlist == ["ls", "git"]
     assert config.agents.sandbox.command_denylist == ["rm"]
-    assert config.agents.sandbox.tool_llm_assignments["query_remote"] == "decomposition"
+    assert config.agents.sandbox.tool_llm_assignments["query_arxiv"] == "decomposition"
     assert config.agents.memory.enabled is True
     assert config.agents.memory.storage_backend == "sqlite"
     assert config.agents.memory.sqlite_path == (

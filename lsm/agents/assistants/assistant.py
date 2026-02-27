@@ -10,13 +10,12 @@ import json
 from pathlib import Path
 from typing import Any, Dict, Optional
 
-from lsm.config.models import AgentConfig, LLMRegistryConfig
+from lsm.config.models import AgentConfig, LLMRegistryConfig, LSMConfig
 
 from ..base import AgentStatus, BaseAgent
 from ..models import AgentContext
 from ..tools.base import ToolRegistry
 from ..tools.sandbox import ToolSandbox
-from ..workspace import ensure_agent_workspace
 
 
 @dataclass
@@ -52,6 +51,7 @@ class AssistantAgent(BaseAgent):
         sandbox: ToolSandbox,
         agent_config: AgentConfig,
         agent_overrides: Optional[Dict[str, Any]] = None,
+        lsm_config: Optional[LSMConfig] = None,
     ) -> None:
         super().__init__(name=self.name, description=self.description)
         self.llm_registry = llm_registry
@@ -59,6 +59,7 @@ class AssistantAgent(BaseAgent):
         self.sandbox = sandbox
         self.agent_config = agent_config
         self.agent_overrides = agent_overrides or {}
+        self.lsm_config = lsm_config
         self.max_iterations = int(
             self.agent_overrides.get("max_iterations", self.agent_config.max_iterations)
         )
@@ -76,11 +77,7 @@ class AssistantAgent(BaseAgent):
         self._reset_harness()
         self._stop_logged = False
         self.state.set_status(AgentStatus.RUNNING)
-        ensure_agent_workspace(
-            self.name,
-            self.agent_config.agents_folder,
-            sandbox=self.sandbox,
-        )
+        self._workspace_root()
         topic = self._extract_topic(initial_context)
         self.state.current_task = f"Assistant: {topic}"
 
@@ -145,7 +142,8 @@ class AssistantAgent(BaseAgent):
         artifacts: list[str] = []
         denials = 0
         exec_tools = {"bash", "powershell"}
-        network_tools = {"query_remote", "query_remote_chain", "query_llm", "load_url"}
+        network_tools = {"query_remote_chain", "query_llm", "load_url"}
+        builtin_query_tools = {"query_knowledge_base", "query_llm", "query_remote_chain"}
         flagged_tools: set[str] = set()
 
         for summary in run_summaries:
@@ -163,7 +161,14 @@ class AssistantAgent(BaseAgent):
                 for tool_name, count in tools_used.items():
                     count_value = int(count) if isinstance(count, (int, float)) else 0
                     tool_counts[tool_name] = tool_counts.get(tool_name, 0) + count_value
-                    if tool_name in exec_tools or tool_name in network_tools:
+                    if (
+                        tool_name in exec_tools
+                        or tool_name in network_tools
+                        or (
+                            tool_name.startswith("query_")
+                            and tool_name not in builtin_query_tools
+                        )
+                    ):
                         flagged_tools.add(tool_name)
             approvals = summary.get("approvals_denials") or {}
             denials += int(approvals.get("denials", 0) or 0)

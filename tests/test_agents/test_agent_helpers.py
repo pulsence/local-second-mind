@@ -10,10 +10,6 @@ class HelperAgent(BaseAgent):
     description = "Helper test agent."
     tool_allowlist = {"alpha", "beta"}
 
-    def __init__(self) -> None:
-        super().__init__()
-        self._tokens_used = 0  # legacy budget tracking; pre-migration agents own this attribute
-
     def run(self, initial_context: AgentContext) -> AgentState:
         _ = initial_context
         return self.state
@@ -45,21 +41,12 @@ class BetaTool(BaseTool):
         return str(args.get("path", ""))
 
 
-def test_base_agent_helpers_track_budget_parse_json_and_log() -> None:
+def test_base_agent_helpers_parse_json_and_log() -> None:
     agent = HelperAgent()
-    agent.max_tokens_budget = 10
 
     parsed = agent._parse_json('{"ok": true}')
     assert parsed == {"ok": True}
     assert agent._parse_json("not-json") is None
-
-    used_1 = agent._consume_tokens("x" * 20)
-    assert used_1 == 5
-    assert agent._budget_exhausted() is False
-
-    used_2 = agent._consume_tokens("y" * 24)
-    assert used_2 == 6
-    assert agent._budget_exhausted() is True
 
     agent._log("hello", actor="agent")
     assert len(agent.state.log_entries) == 1

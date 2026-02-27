@@ -8,13 +8,12 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from lsm.config.models import AgentConfig, LLMRegistryConfig
+from lsm.config.models import AgentConfig, LLMRegistryConfig, LSMConfig
 
 from ..base import AgentStatus, BaseAgent
 from ..models import AgentContext
 from ..tools.base import ToolRegistry
 from ..tools.sandbox import ToolSandbox
-from ..workspace import ensure_agent_workspace
 
 RESEARCH_SYSTEM_PROMPT = (
     "You are a research agent. Your workflow has four phases: "
@@ -51,7 +50,6 @@ class ResearchAgent(BaseAgent):
     )
     tool_allowlist = {
         "query_knowledge_base",
-        "query_remote",
         "query_remote_chain",
     }
     risk_posture = "network"
@@ -63,6 +61,7 @@ class ResearchAgent(BaseAgent):
         sandbox: ToolSandbox,
         agent_config: AgentConfig,
         agent_overrides: Optional[Dict[str, Any]] = None,
+        lsm_config: Optional[LSMConfig] = None,
     ) -> None:
         super().__init__(name=self.name, description=self.description)
         self.llm_registry = llm_registry
@@ -70,6 +69,7 @@ class ResearchAgent(BaseAgent):
         self.sandbox = sandbox
         self.agent_config = agent_config
         self.agent_overrides = agent_overrides or {}
+        self.lsm_config = lsm_config
 
         self.max_iterations = int(
             self.agent_overrides.get("max_iterations", self.agent_config.max_iterations)
@@ -95,11 +95,7 @@ class ResearchAgent(BaseAgent):
         self._reset_harness()
         self._stop_logged = False
         self.state.set_status(AgentStatus.RUNNING)
-        ensure_agent_workspace(
-            self.name,
-            self.agent_config.agents_folder,
-            sandbox=self.sandbox,
-        )
+        self._workspace_root()
         topic = self._extract_topic(initial_context)
         self.state.current_task = f"Researching: {topic}"
 

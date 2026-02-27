@@ -154,7 +154,7 @@ def test_assistant_agent_has_no_tokens_used_attribute(tmp_path: Path) -> None:
     agent.run(AgentContext(messages=[{"role": "user", "content": "Summary"}]))
 
     with pytest.raises(AttributeError):
-        _ = agent._tokens_used  # noqa: SLF001
+        getattr(agent, "_tokens_used")
 
 
 # ---------------------------------------------------------------------------

@@ -452,7 +452,7 @@ user. The Research Agent needs to call the query pipeline as if it was a user."
 
 `ResearchAgent._collect_findings()` ([lsm/agents/academic/research.py:187](../lsm/agents/academic/research.py)):
 
-1. `_select_tools()` — the LLM picks from `{query_embeddings, query_remote, query_remote_chain}`
+1. `_select_tools()` — the LLM picks from `{query_embeddings, query_<provider>, query_remote_chain}`
 2. For each selected tool: `self.sandbox.execute(tool, args)` → raw JSON string
 3. Returns `[{"tool": name, "output": raw_json}, ...]`
 

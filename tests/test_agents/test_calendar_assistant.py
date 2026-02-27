@@ -128,6 +128,10 @@ def test_calendar_assistant_summarizes_events(tmp_path: Path) -> None:
     ]
     provider = StubCalendarProvider(events=events)
     config = build_config_from_raw(_base_raw(tmp_path), tmp_path / "config.json")
+    assert config.agents is not None
+    assert config.agents is not None
+    assert config.agents is not None
+    assert config.agents is not None
     registry = ToolRegistry()
     registry.register(AskUserStub())
     sandbox = ToolSandbox(config.agents.sandbox)
@@ -136,6 +140,7 @@ def test_calendar_assistant_summarizes_events(tmp_path: Path) -> None:
         registry,
         sandbox,
         config.agents,
+        lsm_config=config,
         agent_overrides={"provider_instance": provider, "now": base.isoformat()},
     )
 
@@ -159,6 +164,7 @@ def test_calendar_assistant_suggests_slots(tmp_path: Path) -> None:
     ]
     provider = StubCalendarProvider(events=events)
     config = build_config_from_raw(_base_raw(tmp_path), tmp_path / "config.json")
+    assert config.agents is not None
     registry = ToolRegistry()
     registry.register(AskUserStub())
     sandbox = ToolSandbox(config.agents.sandbox)
@@ -167,6 +173,7 @@ def test_calendar_assistant_suggests_slots(tmp_path: Path) -> None:
         registry,
         sandbox,
         config.agents,
+        lsm_config=config,
         agent_overrides={"provider_instance": provider},
     )
 
@@ -189,6 +196,7 @@ def test_calendar_assistant_suggests_slots(tmp_path: Path) -> None:
 def test_calendar_assistant_requires_approval_for_mutation(tmp_path: Path) -> None:
     provider = StubCalendarProvider(events=[])
     config = build_config_from_raw(_base_raw(tmp_path), tmp_path / "config.json")
+    assert config.agents is not None
 
     registry = ToolRegistry()
     registry.register(AskUserStub(response="no"))
@@ -198,6 +206,7 @@ def test_calendar_assistant_requires_approval_for_mutation(tmp_path: Path) -> No
         registry,
         sandbox,
         config.agents,
+        lsm_config=config,
         agent_overrides={"provider_instance": provider},
     )
     payload = {
@@ -220,6 +229,7 @@ def test_calendar_assistant_requires_approval_for_mutation(tmp_path: Path) -> No
         registry,
         sandbox,
         config.agents,
+        lsm_config=config,
         agent_overrides={"provider_instance": provider},
     )
     agent.run(AgentContext(messages=[{"role": "user", "content": json.dumps(payload)}]))
@@ -228,11 +238,13 @@ def test_calendar_assistant_requires_approval_for_mutation(tmp_path: Path) -> No
 
 def test_calendar_assistant_output_in_artifacts_dir(tmp_path: Path) -> None:
     config = build_config_from_raw(_base_raw(tmp_path), tmp_path / "config.json")
+    assert config.agents is not None
     registry = ToolRegistry()
     sandbox = ToolSandbox(config.agents.sandbox)
     provider = StubCalendarProvider(events=[])
     agent = CalendarAssistantAgent(
         config.llm, registry, sandbox, config.agents,
+        lsm_config=config,
         agent_overrides={"provider_instance": provider},
     )
     agent.run(AgentContext(messages=[{"role": "user", "content": "Calendar summary"}]))
@@ -243,17 +255,19 @@ def test_calendar_assistant_output_in_artifacts_dir(tmp_path: Path) -> None:
 
 def test_calendar_assistant_has_no_tokens_used_attribute(tmp_path: Path) -> None:
     config = build_config_from_raw(_base_raw(tmp_path), tmp_path / "config.json")
+    assert config.agents is not None
     registry = ToolRegistry()
     sandbox = ToolSandbox(config.agents.sandbox)
     provider = StubCalendarProvider(events=[])
     agent = CalendarAssistantAgent(
         config.llm, registry, sandbox, config.agents,
+        lsm_config=config,
         agent_overrides={"provider_instance": provider},
     )
     agent.run(AgentContext(messages=[{"role": "user", "content": "Calendar summary"}]))
 
     with pytest.raises(AttributeError):
-        _ = agent._tokens_used  # noqa: SLF001
+        getattr(agent, "_tokens_used")
 
 
 # ---------------------------------------------------------------------------

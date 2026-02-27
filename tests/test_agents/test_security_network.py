@@ -21,8 +21,8 @@ class LoadURLToolStub(BaseTool):
         return "ok"
 
 
-class QueryRemoteToolStub(BaseTool):
-    name = "query_remote"
+class QueryArxivToolStub(BaseTool):
+    name = "query_arxiv"
     description = "network remote"
     risk_level = "network"
     needs_network = True
@@ -66,10 +66,10 @@ def test_security_network_load_url_blocked_when_disabled() -> None:
         sandbox.execute(LoadURLToolStub(), {"url": "https://example.com"})
 
 
-def test_security_network_query_remote_blocked_when_disabled() -> None:
+def test_security_network_query_arxiv_blocked_when_disabled() -> None:
     sandbox = ToolSandbox(SandboxConfig(allow_url_access=False))
     with pytest.raises(PermissionError, match="Network access is disabled"):
-        sandbox.execute(QueryRemoteToolStub(), {"input": {}})
+        sandbox.execute(QueryArxivToolStub(), {"input": {}})
 
 
 def test_security_network_query_remote_chain_blocked_when_disabled() -> None:
@@ -81,7 +81,7 @@ def test_security_network_query_remote_chain_blocked_when_disabled() -> None:
 def test_security_network_tools_allowed_when_enabled() -> None:
     sandbox = ToolSandbox(SandboxConfig(allow_url_access=True))
     assert sandbox.execute(LoadURLToolStub(), {"url": "https://example.com"}) == "ok"
-    assert sandbox.execute(QueryRemoteToolStub(), {"input": {}}) == "ok"
+    assert sandbox.execute(QueryArxivToolStub(), {"input": {}}) == "ok"
     assert sandbox.execute(QueryRemoteChainToolStub(), {"input": {}}) == "ok"
 
 

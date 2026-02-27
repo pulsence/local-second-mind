@@ -7,7 +7,7 @@ from __future__ import annotations
 from dataclasses import dataclass, replace
 from typing import Any, Callable, Dict, Optional, Sequence
 
-from lsm.config.models import AgentConfig, LLMRegistryConfig
+from lsm.config.models import AgentConfig, LLMRegistryConfig, LSMConfig
 
 from .base import BaseAgent
 from .academic import AGENT_SPECS as ACADEMIC_SPECS
@@ -19,7 +19,14 @@ from .tools.sandbox import ToolSandbox
 
 
 AgentBuilder = Callable[
-    [LLMRegistryConfig, ToolRegistry, ToolSandbox, AgentConfig, Optional[dict]],
+    [
+        LLMRegistryConfig,
+        ToolRegistry,
+        ToolSandbox,
+        AgentConfig,
+        Optional[dict],
+        Optional[LSMConfig],
+    ],
     BaseAgent,
 ]
 
@@ -137,6 +144,7 @@ class AgentRegistry:
             sandbox: ToolSandbox,
             agent_config: AgentConfig,
             overrides: Optional[dict],
+            lsm_config: Optional[LSMConfig] = None,
             _agent_cls=agent_cls,
             _name=name,
         ) -> BaseAgent:
@@ -153,6 +161,7 @@ class AgentRegistry:
                 sandbox=sandbox,
                 agent_config=agent_config,
                 agent_overrides=overrides,
+                lsm_config=lsm_config,
             )
 
         self.register(
@@ -196,6 +205,7 @@ class AgentRegistry:
         tool_registry: ToolRegistry,
         sandbox: ToolSandbox,
         agent_config: AgentConfig,
+        lsm_config: Optional[LSMConfig] = None,
     ) -> BaseAgent:
         normalized = str(name).strip().lower()
         if normalized not in self._entries:
@@ -211,6 +221,7 @@ class AgentRegistry:
             sandbox,
             agent_config,
             overrides,
+            lsm_config,
         )
 
 
@@ -223,6 +234,7 @@ def create_agent(
     tool_registry: ToolRegistry,
     sandbox: ToolSandbox,
     agent_config: AgentConfig,
+    lsm_config: Optional[LSMConfig] = None,
 ) -> BaseAgent:
     """
     Create an agent instance by name.
@@ -233,4 +245,5 @@ def create_agent(
         tool_registry=tool_registry,
         sandbox=sandbox,
         agent_config=agent_config,
+        lsm_config=lsm_config,
     )

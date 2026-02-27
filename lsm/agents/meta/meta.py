@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-from lsm.config.models import AgentConfig, LLMRegistryConfig
+from lsm.config.models import AgentConfig, LLMRegistryConfig, LSMConfig
 from lsm.config.models.agents import SandboxConfig
 from lsm.agents.assistants.assistant import (
     scan_assistant_findings,
@@ -23,7 +23,6 @@ from ..models import AgentContext
 from .task_graph import AgentTask, TaskGraph
 from ..tools.base import ToolRegistry
 from ..tools.sandbox import ToolSandbox
-from ..workspace import ensure_agent_workspace
 
 _SUPPORTED_SUB_AGENTS = {
     "assistant",
@@ -155,6 +154,7 @@ class MetaAgent(BaseAgent):
         sandbox: ToolSandbox,
         agent_config: AgentConfig,
         agent_overrides: Optional[Dict[str, Any]] = None,
+        lsm_config: Optional[LSMConfig] = None,
     ) -> None:
         super().__init__(name=self.name, description=self.description)
         self.llm_registry = llm_registry
@@ -162,6 +162,7 @@ class MetaAgent(BaseAgent):
         self.sandbox = sandbox
         self.agent_config = agent_config
         self.agent_overrides = dict(agent_overrides or {})
+        self.lsm_config = lsm_config
         self.max_iterations = int(
             self.agent_overrides.get("max_iterations", self.agent_config.max_iterations)
         )
@@ -187,11 +188,7 @@ class MetaAgent(BaseAgent):
         """
         self._reset_harness()
         self.state.set_status(AgentStatus.RUNNING)
-        ensure_agent_workspace(
-            self.name,
-            self.agent_config.agents_folder,
-            sandbox=self.sandbox,
-        )
+        self._workspace_root()
         goal = self._extract_goal(initial_context)
         self.state.current_task = f"Orchestrating goal: {goal}"
 
@@ -339,11 +336,7 @@ class MetaAgent(BaseAgent):
             run_root = shared_workspace.parent
         else:
             timestamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
-            agent_root = ensure_agent_workspace(
-                self.name,
-                self.agent_config.agents_folder,
-                sandbox=self.sandbox,
-            )
+            agent_root = self._workspace_root()
             run_root = (agent_root / "logs" / f"{self.name}_{timestamp}").resolve(strict=False)
             shared_workspace = run_root / "workspace"
 
@@ -466,6 +459,7 @@ class MetaAgent(BaseAgent):
                 tool_registry=child_registry,
                 sandbox=child_sandbox,
                 agent_config=child_agent_config,
+                lsm_config=self.lsm_config,
             )
             effective_agent_config = getattr(child_agent, "agent_config", child_agent_config)
             topic = self._build_sub_agent_topic(task, goal, shared_workspace)

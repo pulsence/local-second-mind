@@ -86,8 +86,15 @@ def _patch_meta_execution(monkeypatch) -> None:
             self.state.set_status(AgentStatus.COMPLETED)
             return self.state
 
-    def _fake_create_agent(name, llm_registry, tool_registry, sandbox, agent_config):
-        _ = llm_registry, tool_registry, sandbox
+    def _fake_create_agent(
+        name,
+        llm_registry,
+        tool_registry,
+        sandbox,
+        agent_config,
+        lsm_config=None,
+    ):
+        _ = llm_registry, tool_registry, sandbox, lsm_config
         return FakeChildAgent(str(name), agent_config)
 
     monkeypatch.setattr("lsm.agents.factory.create_agent", _fake_create_agent)
@@ -96,9 +103,16 @@ def _patch_meta_execution(monkeypatch) -> None:
 def test_meta_agent_builds_default_dependency_order(monkeypatch, tmp_path: Path) -> None:
     _patch_meta_execution(monkeypatch)
     config = build_config_from_raw(_base_raw(tmp_path), tmp_path / "config.json")
+    assert config.agents is not None
     registry = ToolRegistry()
     sandbox = ToolSandbox(config.agents.sandbox)
-    agent = MetaAgent(config.llm, registry, sandbox, config.agents)
+    agent = MetaAgent(
+        config.llm,
+        registry,
+        sandbox,
+        config.agents,
+        lsm_config=config,
+    )
 
     state = agent.run(
         AgentContext(
@@ -125,9 +139,16 @@ def test_meta_agent_builds_default_dependency_order(monkeypatch, tmp_path: Path)
 def test_meta_agent_accepts_structured_goal_json(monkeypatch, tmp_path: Path) -> None:
     _patch_meta_execution(monkeypatch)
     config = build_config_from_raw(_base_raw(tmp_path), tmp_path / "config.json")
+    assert config.agents is not None
     registry = ToolRegistry()
     sandbox = ToolSandbox(config.agents.sandbox)
-    agent = MetaAgent(config.llm, registry, sandbox, config.agents)
+    agent = MetaAgent(
+        config.llm,
+        registry,
+        sandbox,
+        config.agents,
+        lsm_config=config,
+    )
 
     structured_goal = json.dumps(
         {
@@ -164,9 +185,16 @@ def test_meta_agent_accepts_structured_goal_json(monkeypatch, tmp_path: Path) ->
 def test_meta_agent_uses_curator_pipeline_for_curation_goals(monkeypatch, tmp_path: Path) -> None:
     _patch_meta_execution(monkeypatch)
     config = build_config_from_raw(_base_raw(tmp_path), tmp_path / "config.json")
+    assert config.agents is not None
     registry = ToolRegistry()
     sandbox = ToolSandbox(config.agents.sandbox)
-    agent = MetaAgent(config.llm, registry, sandbox, config.agents)
+    agent = MetaAgent(
+        config.llm,
+        registry,
+        sandbox,
+        config.agents,
+        lsm_config=config,
+    )
 
     state = agent.run(
         AgentContext(messages=[{"role": "user", "content": "Curate and deduplicate notes"}])
@@ -181,10 +209,18 @@ def test_meta_agent_uses_curator_pipeline_for_curation_goals(monkeypatch, tmp_pa
 
 def test_agent_factory_registers_meta_agent(tmp_path: Path) -> None:
     config = build_config_from_raw(_base_raw(tmp_path), tmp_path / "config.json")
+    assert config.agents is not None
     registry = ToolRegistry()
     sandbox = ToolSandbox(config.agents.sandbox)
 
-    built = create_agent("meta", config.llm, registry, sandbox, config.agents)
+    built = create_agent(
+        "meta",
+        config.llm,
+        registry,
+        sandbox,
+        config.agents,
+        lsm_config=config,
+    )
     assert isinstance(built, MetaAgent)
     assert "meta" in AgentRegistry().list_agents()
 
@@ -192,9 +228,16 @@ def test_agent_factory_registers_meta_agent(tmp_path: Path) -> None:
 def test_meta_agent_has_no_tokens_used_attribute(monkeypatch, tmp_path: Path) -> None:
     _patch_meta_execution(monkeypatch)
     config = build_config_from_raw(_base_raw(tmp_path), tmp_path / "config.json")
+    assert config.agents is not None
     registry = ToolRegistry()
     sandbox = ToolSandbox(config.agents.sandbox)
-    agent = MetaAgent(config.llm, registry, sandbox, config.agents)
+    agent = MetaAgent(
+        config.llm,
+        registry,
+        sandbox,
+        config.agents,
+        lsm_config=config,
+    )
 
     agent.run(
         AgentContext(
@@ -203,7 +246,7 @@ def test_meta_agent_has_no_tokens_used_attribute(monkeypatch, tmp_path: Path) ->
     )
 
     with pytest.raises(AttributeError):
-        _ = agent._tokens_used  # noqa: SLF001
+        getattr(agent, "_tokens_used")
 
 
 # ---------------------------------------------------------------------------

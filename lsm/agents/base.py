@@ -122,16 +122,28 @@ class BaseAgent(ABC):
         self.risk_posture = (
             str(self.risk_posture or "read_only").strip().lower() or "read_only"
         )
-        self.tool_allowlist = {
-            str(item).strip()
-            for item in (self.tool_allowlist or set())
-            if str(item).strip()
-        }
+        if self.tool_allowlist is None:
+            self.tool_allowlist = None
+        else:
+            self.tool_allowlist = {
+                str(item).strip()
+                for item in (self.tool_allowlist or set())
+                if str(item).strip()
+            }
+        if self.remote_source_allowlist is None:
+            self.remote_source_allowlist = None
+        else:
+            self.remote_source_allowlist = {
+                str(item).strip()
+                for item in (self.remote_source_allowlist or set())
+                if str(item).strip()
+            }
         self.state = AgentState()
         self._stop_requested = False
         self._stop_logged = False
         self.max_tokens_budget: Optional[int] = None
         self._harness: Any = None
+        self.lsm_config: Any = None
 
     @abstractmethod
     def run(self, initial_context: AgentContext) -> AgentState:
@@ -213,20 +225,6 @@ class BaseAgent(ABC):
             return json.loads(text)
         except Exception:
             return None
-
-    def _consume_tokens(self, text: str) -> int:
-        """Track approximate token usage using a 4-char heuristic."""
-        estimated = max(1, len(str(text)) // 4)
-        self._tokens_used += estimated
-        return estimated
-
-    def _budget_exhausted(self) -> bool:
-        """Return True when the current token budget has been exhausted."""
-        if self._stop_requested:
-            return True
-        if self.max_tokens_budget is None:
-            return False
-        return self._tokens_used >= int(self.max_tokens_budget)
 
     def _log_verbosity(self) -> str:
         """Return configured log verbosity from agent overrides."""
@@ -337,9 +335,17 @@ class BaseAgent(ABC):
         return json.dumps(compact, indent=2)
 
     def _resolve_allowed_tool_names(self, tool_registry: "ToolRegistry") -> set[str]:
-        allowed = {name for name in (self.tool_allowlist or set()) if name}
-        allowed |= set(self._always_available_tools)
-        allowed &= {str(tool.name).strip() for tool in tool_registry.list_tools()}
+        registry_names = {
+            str(tool.name).strip()
+            for tool in tool_registry.list_tools()
+            if str(tool.name).strip()
+        }
+        if self.tool_allowlist is None:
+            allowed = set(registry_names)
+        else:
+            allowed = {name for name in (self.tool_allowlist or set()) if name}
+            allowed |= set(self._always_available_tools)
+            allowed &= registry_names
         if not allowed:
             return set()
 
@@ -365,7 +371,14 @@ class BaseAgent(ABC):
 
             if ToolSandbox is not None:
                 if not bool(getattr(sandbox_config, "allow_url_access", False)):
-                    allowed -= set(ToolSandbox._NETWORK_TOOL_NAMES)
+                    network_tools = set(ToolSandbox._NETWORK_TOOL_NAMES)
+                    network_tools |= {
+                        name
+                        for name in allowed
+                        if name.startswith("query_")
+                        and name not in self._BUILTIN_QUERY_TOOL_NAMES
+                    }
+                    allowed -= network_tools
                 if not list(getattr(sandbox_config, "allowed_read_paths", []) or []):
                     allowed -= set(ToolSandbox._READ_TOOL_NAMES)
                 if not list(getattr(sandbox_config, "allowed_write_paths", []) or []):
@@ -399,7 +412,12 @@ class BaseAgent(ABC):
         agent_config = getattr(self, "agent_config", None)
         if agent_config is None:
             raise RuntimeError("agent_config is required to access workspace")
-        return ensure_agent_workspace(self.name, agent_config.agents_folder)
+        sandbox = getattr(self, "sandbox", None)
+        return ensure_agent_workspace(
+            self.name,
+            agent_config.agents_folder,
+            sandbox=sandbox,
+        )
 
     def _artifacts_dir(self) -> Path:
         artifacts = self._workspace_root() / "artifacts"
@@ -440,6 +458,7 @@ class BaseAgent(ABC):
             tool_registry = getattr(self, "tool_registry", None)
             sandbox = getattr(self, "sandbox", None)
             agent_config = getattr(self, "agent_config", None)
+            lsm_config = getattr(self, "lsm_config", None)
 
             if llm_registry is None or tool_registry is None or sandbox is None or agent_config is None:
                 raise RuntimeError(
@@ -456,6 +475,8 @@ class BaseAgent(ABC):
                 sandbox=sandbox,
                 agent_name=self.name,
                 tool_allowlist=self.tool_allowlist,
+                remote_source_allowlist=self.remote_source_allowlist,
+                lsm_config=lsm_config,
                 system_prompt=system_prompt,
             )
         else:

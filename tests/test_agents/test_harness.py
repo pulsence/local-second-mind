@@ -307,16 +307,16 @@ def test_log_formatter_save_load_and_format(tmp_path: Path) -> None:
             provider_name="openai",
             model_name="gpt-5.2",
             content="Planning step",
-            action="query_remote",
+            action="query_arxiv",
             action_arguments={"provider": "arxiv"},
         )
     ]
     output = format_agent_log(entries)
-    assert "action=query_remote" in output
+    assert "action=query_arxiv" in output
     path = save_agent_log(entries, tmp_path / "log.log")
     loaded = load_agent_log(path)
     assert len(loaded) == 1
-    assert loaded[0].action == "query_remote"
+    assert loaded[0].action == "query_arxiv"
 
 
 # ---------------------------------------------------------------------------

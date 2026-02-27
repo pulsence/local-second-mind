@@ -530,12 +530,15 @@ class AgentScheduler:
             tool_registry=tool_registry,
             sandbox=sandbox,
             agent_config=self.agent_config,
+            lsm_config=self.config,
         )
-        llm_selection = {}
+        llm_selection: dict[str, Any] = {}
         selection_resolver = getattr(agent, "_get_llm_selection", None)
         if callable(selection_resolver):
             try:
-                llm_selection = dict(selection_resolver())
+                selection = selection_resolver()
+                if isinstance(selection, dict):
+                    llm_selection = {str(key): value for key, value in selection.items()}
             except Exception:
                 llm_selection = {}
         if not llm_selection:
@@ -553,6 +556,8 @@ class AgentScheduler:
         harness_kwargs = {
             "agent_name": schedule.agent_name,
             "tool_allowlist": allowlist,
+            "remote_source_allowlist": getattr(agent, "remote_source_allowlist", None),
+            "lsm_config": self.config,
             "llm_service": llm_selection.get("service"),
             "llm_tier": llm_selection.get("tier"),
             "llm_provider": llm_selection.get("provider"),

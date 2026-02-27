@@ -98,10 +98,17 @@ def _make_result(final_text: str, stop_reason: str = "stop", tool_calls: list | 
 
 def _build_agent(tmp_path: Path) -> ResearchAgent:
     config = build_config_from_raw(_base_raw(tmp_path), tmp_path / "config.json")
+    assert config.agents is not None
     registry = ToolRegistry()
     registry.register(QueryKnowledgeBaseStubTool())
     sandbox = ToolSandbox(config.agents.sandbox)
-    return ResearchAgent(config.llm, registry, sandbox, config.agents)
+    return ResearchAgent(
+        config.llm,
+        registry,
+        sandbox,
+        config.agents,
+        lsm_config=config,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -276,11 +283,19 @@ def test_research_agent_output_in_artifacts_dir(tmp_path: Path) -> None:
 
 def test_agent_factory_creates_research_agent(tmp_path: Path) -> None:
     config = build_config_from_raw(_base_raw(tmp_path), tmp_path / "config.json")
+    assert config.agents is not None
     registry = ToolRegistry()
     registry.register(QueryKnowledgeBaseStubTool())
     sandbox = ToolSandbox(config.agents.sandbox)
 
-    agent = create_agent("research", config.llm, registry, sandbox, config.agents)
+    agent = create_agent(
+        "research",
+        config.llm,
+        registry,
+        sandbox,
+        config.agents,
+        lsm_config=config,
+    )
     assert isinstance(agent, ResearchAgent)
 
     with patch.object(BaseAgent, "_run_phase", side_effect=[
@@ -296,6 +311,7 @@ def test_agent_factory_creates_research_agent(tmp_path: Path) -> None:
 
 def test_agent_registry_rejects_unknown_agent(tmp_path: Path) -> None:
     config = build_config_from_raw(_base_raw(tmp_path), tmp_path / "config.json")
+    assert config.agents is not None
     registry = ToolRegistry()
     registry.register(QueryKnowledgeBaseStubTool())
     sandbox = ToolSandbox(config.agents.sandbox)
@@ -308,6 +324,7 @@ def test_agent_registry_rejects_unknown_agent(tmp_path: Path) -> None:
             tool_registry=registry,
             sandbox=sandbox,
             agent_config=config.agents,
+            lsm_config=config,
         )
 
 

@@ -70,8 +70,15 @@ def _patch_assistant_meta_execution(monkeypatch, payload: str) -> None:
             self.state.set_status(AgentStatus.COMPLETED)
             return self.state
 
-    def _fake_create_agent(name, llm_registry, tool_registry, sandbox, agent_config):
-        _ = llm_registry, tool_registry, sandbox
+    def _fake_create_agent(
+        name,
+        llm_registry,
+        tool_registry,
+        sandbox,
+        agent_config,
+        lsm_config=None,
+    ):
+        _ = llm_registry, tool_registry, sandbox, lsm_config
         return FakeChildAgent(str(name), agent_config)
 
     monkeypatch.setattr("lsm.agents.factory.create_agent", _fake_create_agent)
@@ -80,9 +87,16 @@ def _patch_assistant_meta_execution(monkeypatch, payload: str) -> None:
 def test_assistant_meta_agent_summary_and_findings(monkeypatch, tmp_path: Path) -> None:
     _patch_assistant_meta_execution(monkeypatch, "TODO: follow up\nError: failed step\n")
     config = build_config_from_raw(_base_raw(tmp_path), tmp_path / "config.json")
+    assert config.agents is not None
     registry = ToolRegistry()
     sandbox = ToolSandbox(config.agents.sandbox)
-    agent = AssistantMetaAgent(config.llm, registry, sandbox, config.agents)
+    agent = AssistantMetaAgent(
+        config.llm,
+        registry,
+        sandbox,
+        config.agents,
+        lsm_config=config,
+    )
 
     state = agent.run(
         AgentContext(

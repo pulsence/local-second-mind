@@ -70,8 +70,15 @@ def _patch_meta_execution(monkeypatch) -> None:
             self.state.set_status(AgentStatus.COMPLETED)
             return self.state
 
-    def _fake_create_agent(name, llm_registry, tool_registry, sandbox, agent_config):
-        _ = llm_registry, tool_registry, sandbox
+    def _fake_create_agent(
+        name,
+        llm_registry,
+        tool_registry,
+        sandbox,
+        agent_config,
+        lsm_config=None,
+    ):
+        _ = llm_registry, tool_registry, sandbox, lsm_config
         return FakeChildAgent(str(name), agent_config)
 
     monkeypatch.setattr("lsm.agents.factory.create_agent", _fake_create_agent)
@@ -80,9 +87,16 @@ def _patch_meta_execution(monkeypatch) -> None:
 def test_general_meta_agent_selects_assistant_tasks(monkeypatch, tmp_path: Path) -> None:
     _patch_meta_execution(monkeypatch)
     config = build_config_from_raw(_base_raw(tmp_path), tmp_path / "config.json")
+    assert config.agents is not None
     registry = ToolRegistry()
     sandbox = ToolSandbox(config.agents.sandbox)
-    agent = MetaAgent(config.llm, registry, sandbox, config.agents)
+    agent = MetaAgent(
+        config.llm,
+        registry,
+        sandbox,
+        config.agents,
+        lsm_config=config,
+    )
 
     state = agent.run(
         AgentContext(

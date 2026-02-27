@@ -94,6 +94,7 @@ def test_news_assistant_filters_by_topic_and_time_window(tmp_path: Path) -> None
         ],
     )
     config = build_config_from_raw(_base_raw(tmp_path), tmp_path / "config.json")
+    assert config.agents is not None
     registry = ToolRegistry()
     sandbox = ToolSandbox(config.agents.sandbox)
     agent = NewsAssistantAgent(
@@ -101,6 +102,7 @@ def test_news_assistant_filters_by_topic_and_time_window(tmp_path: Path) -> None
         registry,
         sandbox,
         config.agents,
+        lsm_config=config,
         agent_overrides={
             "provider_instances": [provider, provider_b],
             "now": now.isoformat(),
@@ -139,6 +141,7 @@ def test_news_assistant_aggregates_sources(tmp_path: Path) -> None:
         ],
     )
     config = build_config_from_raw(_base_raw(tmp_path), tmp_path / "config.json")
+    assert config.agents is not None
     registry = ToolRegistry()
     sandbox = ToolSandbox(config.agents.sandbox)
     agent = NewsAssistantAgent(
@@ -146,6 +149,7 @@ def test_news_assistant_aggregates_sources(tmp_path: Path) -> None:
         registry,
         sandbox,
         config.agents,
+        lsm_config=config,
         agent_overrides={
             "provider_instances": [provider_a, provider_b],
             "now": now.isoformat(),
@@ -166,10 +170,12 @@ def test_news_assistant_output_in_artifacts_dir(tmp_path: Path) -> None:
     now = datetime(2024, 3, 2, 12, 0, 0)
     provider = StubNewsProvider(name="news", results=[])
     config = build_config_from_raw(_base_raw(tmp_path), tmp_path / "config.json")
+    assert config.agents is not None
     registry = ToolRegistry()
     sandbox = ToolSandbox(config.agents.sandbox)
     agent = NewsAssistantAgent(
         config.llm, registry, sandbox, config.agents,
+        lsm_config=config,
         agent_overrides={"provider_instances": [provider], "now": now.isoformat()},
     )
     agent.run(AgentContext(messages=[{"role": "user", "content": "News summary"}]))
@@ -182,16 +188,18 @@ def test_news_assistant_has_no_tokens_used_attribute(tmp_path: Path) -> None:
     now = datetime(2024, 3, 2, 12, 0, 0)
     provider = StubNewsProvider(name="news", results=[])
     config = build_config_from_raw(_base_raw(tmp_path), tmp_path / "config.json")
+    assert config.agents is not None
     registry = ToolRegistry()
     sandbox = ToolSandbox(config.agents.sandbox)
     agent = NewsAssistantAgent(
         config.llm, registry, sandbox, config.agents,
+        lsm_config=config,
         agent_overrides={"provider_instances": [provider], "now": now.isoformat()},
     )
     agent.run(AgentContext(messages=[{"role": "user", "content": "News summary"}]))
 
     with pytest.raises(AttributeError):
-        _ = agent._tokens_used  # noqa: SLF001
+        getattr(agent, "_tokens_used")
 
 
 # ---------------------------------------------------------------------------

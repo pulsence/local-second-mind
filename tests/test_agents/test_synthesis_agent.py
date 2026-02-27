@@ -65,9 +65,16 @@ def _make_result(
 
 def _build_agent(tmp_path: Path) -> SynthesisAgent:
     config = build_config_from_raw(_base_raw(tmp_path), tmp_path / "config.json")
+    assert config.agents is not None
     registry = ToolRegistry()
     sandbox = ToolSandbox(config.agents.sandbox)
-    return SynthesisAgent(config.llm, registry, sandbox, config.agents)
+    return SynthesisAgent(
+        config.llm,
+        registry,
+        sandbox,
+        config.agents,
+        lsm_config=config,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -166,10 +173,18 @@ def test_synthesis_agent_phases_run_in_correct_order(tmp_path: Path) -> None:
 
 def test_agent_factory_creates_synthesis_agent(tmp_path: Path) -> None:
     config = build_config_from_raw(_base_raw(tmp_path), tmp_path / "config.json")
+    assert config.agents is not None
     registry = ToolRegistry()
     sandbox = ToolSandbox(config.agents.sandbox)
 
-    agent = create_agent("synthesis", config.llm, registry, sandbox, config.agents)
+    agent = create_agent(
+        "synthesis",
+        config.llm,
+        registry,
+        sandbox,
+        config.agents,
+        lsm_config=config,
+    )
     assert isinstance(agent, SynthesisAgent)
 
     with patch.object(BaseAgent, "_run_phase", side_effect=[

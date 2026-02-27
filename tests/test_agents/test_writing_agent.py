@@ -66,9 +66,16 @@ def _make_result(
 
 def _build_agent(tmp_path: Path) -> WritingAgent:
     config = build_config_from_raw(_base_raw(tmp_path), tmp_path / "config.json")
+    assert config.agents is not None
     registry = ToolRegistry()
     sandbox = ToolSandbox(config.agents.sandbox)
-    return WritingAgent(config.llm, registry, sandbox, config.agents)
+    return WritingAgent(
+        config.llm,
+        registry,
+        sandbox,
+        config.agents,
+        lsm_config=config,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -184,7 +191,7 @@ def test_writing_agent_has_no_tokens_used_attribute(tmp_path: Path) -> None:
         agent.run(AgentContext(messages=[{"role": "user", "content": "Topic"}]))
 
     with pytest.raises(AttributeError):
-        _ = agent._tokens_used  # noqa: SLF001
+        getattr(agent, "_tokens_used")
 
 
 # ---------------------------------------------------------------------------
@@ -193,10 +200,18 @@ def test_writing_agent_has_no_tokens_used_attribute(tmp_path: Path) -> None:
 
 def test_agent_factory_creates_writing_agent(tmp_path: Path) -> None:
     config = build_config_from_raw(_base_raw(tmp_path), tmp_path / "config.json")
+    assert config.agents is not None
     registry = ToolRegistry()
     sandbox = ToolSandbox(config.agents.sandbox)
 
-    agent = create_agent("writing", config.llm, registry, sandbox, config.agents)
+    agent = create_agent(
+        "writing",
+        config.llm,
+        registry,
+        sandbox,
+        config.agents,
+        lsm_config=config,
+    )
     assert isinstance(agent, WritingAgent)
 
     with patch.object(BaseAgent, "_run_phase", side_effect=[

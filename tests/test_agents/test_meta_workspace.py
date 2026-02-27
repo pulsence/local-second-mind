@@ -77,8 +77,15 @@ def _patch_meta_execution(monkeypatch) -> list[ToolSandbox]:
             self.state.set_status(AgentStatus.COMPLETED)
             return self.state
 
-    def _fake_create_agent(name, llm_registry, tool_registry, sandbox, agent_config):
-        _ = llm_registry, tool_registry
+    def _fake_create_agent(
+        name,
+        llm_registry,
+        tool_registry,
+        sandbox,
+        agent_config,
+        lsm_config=None,
+    ):
+        _ = llm_registry, tool_registry, lsm_config
         captured_sandboxes.append(sandbox)
         return FakeChildAgent(str(name), agent_config)
 
@@ -90,11 +97,13 @@ def test_meta_agent_creates_shared_workspace_layout(monkeypatch, tmp_path: Path)
     captured_sandboxes = _patch_meta_execution(monkeypatch)
 
     config = build_config_from_raw(_base_raw(tmp_path), tmp_path / "config.json")
+    assert config.agents is not None
     agent = MetaAgent(
         config.llm,
         ToolRegistry(),
         ToolSandbox(config.agents.sandbox),
         config.agents,
+        lsm_config=config,
     )
 
     state = agent.run(

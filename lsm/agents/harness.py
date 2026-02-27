@@ -14,7 +14,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable, Dict, Optional, Set
 
-from lsm.config.models import AgentConfig, LLMRegistryConfig, VectorDBConfig
+from lsm.config.models import AgentConfig, LLMRegistryConfig, LSMConfig, VectorDBConfig
 from lsm.config.models.agents import SandboxConfig
 from lsm.logging import get_logger
 from lsm.providers.factory import create_provider
@@ -57,6 +57,9 @@ class AgentHarness:
     """
 
     _ALWAYS_AVAILABLE_TOOLS = {"ask_user"}
+    _BUILTIN_QUERY_TOOL_NAMES = frozenset(
+        {"query_knowledge_base", "query_llm", "query_remote_chain"}
+    )
 
     def __init__(
         self,
@@ -66,6 +69,8 @@ class AgentHarness:
         sandbox: ToolSandbox,
         agent_name: str = "agent",
         tool_allowlist: Optional[Set[str]] = None,
+        remote_source_allowlist: Optional[Set[str]] = None,
+        lsm_config: Optional[LSMConfig] = None,
         llm_service: Optional[str] = None,
         llm_tier: Optional[str] = "normal",
         llm_provider: Optional[str] = None,
@@ -85,6 +90,8 @@ class AgentHarness:
         self.sandbox = sandbox
         self.agent_name = agent_name
         self.tool_allowlist = self._normalize_allowlist(tool_allowlist)
+        self.remote_source_allowlist = self._normalize_remote_sources(remote_source_allowlist)
+        self.lsm_config = lsm_config
         self.llm_service = str(llm_service).strip() if llm_service else None
         self.llm_tier = str(llm_tier or "normal").strip().lower() if llm_tier else None
         self.llm_provider = str(llm_provider).strip() if llm_provider else None
@@ -138,7 +145,7 @@ class AgentHarness:
             self._tool_usage_counts = {}
             self._tool_sequence = []
             self._permission_events = []
-            self._context_histories = {}
+            self._context_histories = {None: list(initial_context.messages)}
             self.context.tool_definitions = self._list_tool_definitions()
             if not self.context.budget_tracking:
                 self.context.budget_tracking = {}
@@ -156,9 +163,8 @@ class AgentHarness:
             self.save_state()
 
         try:
-            llm_config = self._resolve_llm_config()
-            llm_provider = create_provider(llm_config)
-            for _ in range(self.agent_config.max_iterations):
+            remaining = max(1, int(self.agent_config.max_iterations))
+            while remaining > 0:
                 if self._stop_event.is_set():
                     self.state.set_status(AgentStatus.COMPLETED)
                     break
@@ -170,103 +176,26 @@ class AgentHarness:
                     self.state.set_status(AgentStatus.COMPLETED)
                     break
 
-                self.context.budget_tracking["iterations"] += 1
-                standing_context_block = self._build_standing_context_block()
-                messages_for_llm = self._prepare_messages(self.context)
-                raw_response, system_prompt, user_prompt = self._call_llm(
-                    llm_provider,
-                    messages_for_llm=messages_for_llm,
-                    standing_context_block=standing_context_block,
+                chunk = remaining
+                result = self.run_bounded(
+                    user_message="",
+                    tool_names=None,
+                    max_iterations=chunk,
+                    continue_context=True,
+                    context_label=None,
                 )
-                prompt = f"{system_prompt}\n\n{user_prompt}".strip()
-                self._consume_tokens(raw_response)
-                tool_response = self._parse_tool_response(raw_response)
-                self._append_log(
-                    AgentLogEntry(
-                        timestamp=datetime.utcnow(),
-                        actor="llm",
-                        provider_name=llm_provider.name,
-                        model_name=llm_provider.model,
-                        content=tool_response.response,
-                        action=tool_response.action,
-                        action_arguments=tool_response.action_arguments,
-                        prompt=prompt,
-                        raw_response=str(raw_response),
-                    )
+                error_call = next(
+                    (call for call in result.tool_calls if call.get("error")),
+                    None,
                 )
-                self.context.messages.append(
-                    {"role": "assistant", "content": tool_response.response}
-                )
+                if error_call is not None:
+                    raise PermissionError(str(error_call.get("error")))
 
-                action = (tool_response.action or "").strip()
-                if not action or action.upper() == "DONE":
-                    self.state.set_status(AgentStatus.COMPLETED)
+                if result.stop_reason in ("done", "budget_exhausted", "stop_requested"):
                     break
-
-                if not self._is_tool_allowed(action):
-                    denial_reason = f"Tool '{action}' is not allowed for this harness run"
-                    self._record_permission_decision(action, allowed=False, reason=denial_reason)
-                    raise PermissionError(denial_reason)
-
-                tool = self.tool_registry.lookup(action)
-                try:
-                    tool_output = self.sandbox.execute(tool, tool_response.action_arguments)
-                except PermissionError as exc:
-                    self._record_permission_decision(
-                        action,
-                        allowed=False,
-                        reason=str(exc),
-                    )
-                    if self._stop_event.is_set():
-                        self.state.set_status(AgentStatus.COMPLETED)
-                        self._append_log(
-                            AgentLogEntry(
-                                timestamp=datetime.utcnow(),
-                                actor="agent",
-                                content=f"Execution stopped: {exc}",
-                            )
-                        )
-                        break
-                    raise
-
-                self._record_permission_decision(
-                    action,
-                    allowed=True,
-                    reason="Tool execution allowed",
-                )
-                self._record_tool_execution(action)
-                self._track_artifacts_from_sandbox()
-                self._consume_tokens(tool_output)
-                redacted_tool_output = redact_secrets(tool_output)
-                self._append_log(
-                    AgentLogEntry(
-                        timestamp=datetime.utcnow(),
-                        actor="tool",
-                        content=redacted_tool_output,
-                        action=action,
-                        action_arguments=tool_response.action_arguments,
-                    )
-                )
-                self.context.messages.append(
-                    {
-                        "role": "tool",
-                        "name": action,
-                        "content": redacted_tool_output,
-                    }
-                )
-
-                if self._budget_exhausted():
-                    self.state.set_status(AgentStatus.COMPLETED)
-                    self._append_log(
-                        AgentLogEntry(
-                            timestamp=datetime.utcnow(),
-                            actor="agent",
-                            content="Stopping due to token budget exhaustion.",
-                        )
-                    )
+                if result.stop_reason != "max_iterations":
                     break
-
-                self.save_state()
+                remaining -= chunk
 
             if self.state.status not in {AgentStatus.COMPLETED, AgentStatus.FAILED}:
                 self.state.set_status(AgentStatus.COMPLETED)
@@ -287,6 +216,25 @@ class AgentHarness:
         finally:
             self._write_agent_log()
             self._write_run_summary(started_at)
+
+    def _ensure_context(self) -> AgentContext:
+        if self.context is None:
+            self.context = AgentContext(
+                messages=[],
+                tool_definitions=self._list_tool_definitions(),
+                budget_tracking={},
+            )
+        if not self.context.tool_definitions:
+            self.context.tool_definitions = self._list_tool_definitions()
+        if not self.context.budget_tracking:
+            self.context.budget_tracking = {}
+        self.context.budget_tracking.setdefault(
+            "max_tokens_budget",
+            self.agent_config.max_tokens_budget,
+        )
+        self.context.budget_tracking.setdefault("tokens_used", 0)
+        self.context.budget_tracking.setdefault("iterations", 0)
+        return self.context
 
     def run_bounded(
         self,
@@ -332,7 +280,7 @@ class AgentHarness:
                 continue
 
             tool = self.tool_registry.lookup(tool_name)
-            arguments = call.get("arguments") or call.get("args") or {}
+            arguments = call.get("arguments") or {}
             if isinstance(arguments, str):
                 try:
                     arguments = json.loads(arguments)
@@ -361,6 +309,7 @@ class AgentHarness:
         continue_context: bool,
         context_label: Optional[str],
     ) -> PhaseResult:
+        context = self._ensure_context()
         if not continue_context or context_label not in self._context_histories:
             self._context_histories[context_label] = []
 
@@ -368,14 +317,20 @@ class AgentHarness:
 
         if user_message:
             history.append({"role": "user", "content": user_message})
+            context.messages.append({"role": "user", "content": user_message})
 
         llm_config = self._resolve_llm_config()
         llm_provider = create_provider(llm_config)
         tool_calls_accumulated: list[dict] = []
         final_text = ""
         stop_reason = "done"
+        tool_names_restricted = set(tool_names) if tool_names is not None else None
+        tool_definitions = self._list_tool_definitions(tool_names=tool_names_restricted)
 
         for iteration in range(max_iterations):
+            context.budget_tracking["iterations"] = int(
+                context.budget_tracking.get("iterations", 0)
+            ) + 1
             if self._budget_exhausted():
                 stop_reason = "budget_exhausted"
                 break
@@ -390,6 +345,7 @@ class AgentHarness:
                 llm_provider,
                 messages_for_llm=messages_for_llm,
                 standing_context_block=standing_context_block,
+                tool_definitions=tool_definitions,
             )
             self._consume_tokens(raw_response)
             tool_response = self._parse_tool_response(raw_response)
@@ -408,15 +364,12 @@ class AgentHarness:
             )
 
             history.append({"role": "assistant", "content": tool_response.response})
+            context.messages.append({"role": "assistant", "content": tool_response.response})
 
             action = (tool_response.action or "").strip()
             if not action or action.upper() == "DONE":
                 final_text = tool_response.response
                 break
-
-            tool_names_restricted = tool_names
-            if tool_names is not None:
-                tool_names_restricted = set(tool_names)
 
             if not self._is_tool_allowed(action):
                 denial_reason = f"Tool '{action}' is not allowed for this harness run"
@@ -425,7 +378,8 @@ class AgentHarness:
                     "name": action,
                     "error": denial_reason,
                 })
-                continue
+                stop_reason = "done"
+                break
 
             if tool_names_restricted is not None and action not in tool_names_restricted:
                 denial_reason = f"Tool '{action}' is not in the requested tool_names list"
@@ -434,7 +388,8 @@ class AgentHarness:
                     "name": action,
                     "error": denial_reason,
                 })
-                continue
+                stop_reason = "done"
+                break
 
             tool = self.tool_registry.lookup(action)
             try:
@@ -452,7 +407,8 @@ class AgentHarness:
                 if self._stop_event.is_set():
                     stop_reason = "stop_requested"
                     break
-                continue
+                stop_reason = "done"
+                break
 
             self._record_permission_decision(
                 action,
@@ -484,6 +440,11 @@ class AgentHarness:
                 "name": action,
                 "content": redacted_tool_output,
             })
+            context.messages.append({
+                "role": "tool",
+                "name": action,
+                "content": redacted_tool_output,
+            })
 
         else:
             stop_reason = "max_iterations"
@@ -499,7 +460,19 @@ class AgentHarness:
         )
 
     def _prepare_messages_from_history(self, history: list[Dict[str, Any]]) -> list[Dict[str, Any]]:
-        return list(history)
+        messages = list(history)
+        if self.agent_config.context_window_strategy == "fresh":
+            if len(messages) <= 6:
+                return messages
+            return messages[-6:]
+
+        if len(messages) <= 12:
+            return messages
+
+        older = messages[:-8]
+        recent = messages[-8:]
+        summary = f"Compacted {len(older)} earlier messages."
+        return [{"role": "system", "content": summary}] + recent
 
     def start_background(self, initial_context: AgentContext) -> threading.Thread:
         """
@@ -596,12 +569,17 @@ class AgentHarness:
             tool_registry=child_registry,
             sandbox=child_sandbox,
             agent_config=child_agent_config,
+            lsm_config=self.lsm_config,
         )
         child_selection: Dict[str, Any] = {}
         selection_resolver = getattr(child_agent, "_get_llm_selection", None)
         if callable(selection_resolver):
             try:
-                child_selection = dict(selection_resolver())
+                selection = selection_resolver()
+                if isinstance(selection, dict):
+                    child_selection = {
+                        str(key): value for key, value in selection.items()
+                    }
             except Exception:
                 child_selection = {}
         if not child_selection:
@@ -623,6 +601,7 @@ class AgentHarness:
             child_sandbox,
             agent_name=normalized_name,
             tool_allowlist=child_allowlist,
+            lsm_config=self.lsm_config,
             llm_service=child_selection.get("service"),
             llm_tier=child_selection.get("tier"),
             llm_provider=child_selection.get("provider"),
@@ -967,12 +946,14 @@ class AgentHarness:
         *,
         messages_for_llm: list[Dict[str, Any]],
         standing_context_block: str,
+        tool_definitions: Optional[list[Dict[str, Any]]] = None,
     ) -> tuple[str, str, str]:
-        tool_definitions = (
-            self.context.tool_definitions
-            if self.context is not None
-            else self._list_tool_definitions()
-        )
+        if tool_definitions is None:
+            tool_definitions = (
+                self.context.tool_definitions
+                if self.context is not None
+                else self._list_tool_definitions()
+            )
         supports_function_calling = bool(
             getattr(llm_provider, "supports_function_calling", False)
         )
@@ -996,6 +977,14 @@ class AgentHarness:
         if max_tokens is None:
             max_tokens = int(self.agent_config.max_tokens_budget)
 
+        max_tokens_value = int(self.agent_config.max_tokens_budget)
+        if isinstance(max_tokens, int) and not isinstance(max_tokens, bool):
+            max_tokens_value = max(1, max_tokens)
+        elif isinstance(max_tokens, str):
+            stripped = max_tokens.strip()
+            if stripped.isdigit():
+                max_tokens_value = max(1, int(stripped))
+
         llm_kwargs: dict[str, Any] = {}
         if supports_function_calling and tool_definitions:
             llm_kwargs["tools"] = tool_definitions
@@ -1005,7 +994,7 @@ class AgentHarness:
             system=system_prompt,
             user=user_prompt,
             temperature=temperature,
-            max_tokens=int(max_tokens),
+            max_tokens=max_tokens_value,
             **llm_kwargs,
         )
         return str(raw_response), system_prompt, user_prompt
@@ -1245,6 +1234,16 @@ class AgentHarness:
             }
             allowlist &= normalized
 
+        remote_sources = getattr(child_agent, "remote_source_allowlist", None)
+        if remote_sources is not None:
+            allowed_remote = {f"query_{src}" for src in remote_sources}
+            remote_tools = {
+                name
+                for name in allowlist
+                if name.startswith("query_") and name not in self._BUILTIN_QUERY_TOOL_NAMES
+            }
+            allowlist -= (remote_tools - allowed_remote)
+
         explicit_allowlist = params.get("tool_allowlist")
         if isinstance(explicit_allowlist, list):
             requested = {
@@ -1338,33 +1337,92 @@ class AgentHarness:
 
     @staticmethod
     def _normalize_allowlist(tool_allowlist: Optional[Set[str]]) -> Optional[Set[str]]:
-        if not tool_allowlist:
+        if tool_allowlist is None:
             return None
         normalized = {str(name).strip() for name in tool_allowlist if str(name).strip()}
         normalized.add("ask_user")
-        return normalized or None
+        return normalized
 
-    def _list_tool_definitions(self) -> list[Dict[str, Any]]:
-        definitions = self.tool_registry.list_definitions()
+    @staticmethod
+    def _normalize_remote_sources(
+        remote_source_allowlist: Optional[Set[str]],
+    ) -> Optional[Set[str]]:
+        if remote_source_allowlist is None:
+            return None
+        return {
+            str(name).strip()
+            for name in remote_source_allowlist
+            if str(name).strip()
+        }
+
+    def _resolve_allowed_tool_names(
+        self,
+        *,
+        tool_names: Optional[set[str]] = None,
+    ) -> set[str]:
+        registered = {
+            str(tool.name).strip()
+            for tool in self.tool_registry.list_tools()
+            if str(tool.name).strip()
+        }
         if self.tool_allowlist is None:
-            return definitions
+            allowed = set(registered)
+        else:
+            allowed = {name for name in (self.tool_allowlist or set()) if name}
+            allowed |= set(self._ALWAYS_AVAILABLE_TOOLS)
+            allowed &= registered
+        if tool_names is not None:
+            allowed &= {str(name).strip() for name in tool_names if str(name).strip()}
+
+        if self.remote_source_allowlist is not None:
+            allowed_remote = {f"query_{src}" for src in self.remote_source_allowlist}
+            remote_tools = {
+                name for name in allowed
+                if name.startswith("query_") and name not in self._BUILTIN_QUERY_TOOL_NAMES
+            }
+            allowed -= (remote_tools - allowed_remote)
+
+        sandbox_config = getattr(self.sandbox, "config", None)
+        if sandbox_config is None:
+            sandbox_config = getattr(self.agent_config, "sandbox", None)
+        if sandbox_config is not None:
+            allow_url_access = bool(getattr(sandbox_config, "allow_url_access", False))
+            if not allow_url_access:
+                network_tools = set(ToolSandbox._NETWORK_TOOL_NAMES)
+                network_tools |= {
+                    name
+                    for name in allowed
+                    if name.startswith("query_")
+                    and name not in self._BUILTIN_QUERY_TOOL_NAMES
+                }
+                allowed -= network_tools
+            if not list(getattr(sandbox_config, "allowed_read_paths", []) or []):
+                allowed -= set(ToolSandbox._READ_TOOL_NAMES)
+            if not list(getattr(sandbox_config, "allowed_write_paths", []) or []):
+                allowed -= set(ToolSandbox._WRITE_TOOL_NAMES)
+
+        return {name for name in allowed if name}
+
+    def _list_tool_definitions(
+        self,
+        *,
+        tool_names: Optional[set[str]] = None,
+    ) -> list[Dict[str, Any]]:
+        definitions = self.tool_registry.list_definitions()
+        allowed = self._resolve_allowed_tool_names(tool_names=tool_names)
+        if not allowed:
+            return []
         return [
             definition
             for definition in definitions
-            if (
-                str(definition.get("name", "")).strip() in self.tool_allowlist
-                or str(definition.get("name", "")).strip()
-                in self._ALWAYS_AVAILABLE_TOOLS
-            )
+            if str(definition.get("name", "")).strip() in allowed
         ]
 
     def _is_tool_allowed(self, tool_name: str) -> bool:
         normalized = str(tool_name).strip()
-        if normalized in self._ALWAYS_AVAILABLE_TOOLS:
-            return True
-        if self.tool_allowlist is None:
-            return True
-        return normalized in self.tool_allowlist
+        if not normalized:
+            return False
+        return normalized in self._resolve_allowed_tool_names()
 
     def request_interaction(self, request: InteractionRequest) -> InteractionResponse:
         """

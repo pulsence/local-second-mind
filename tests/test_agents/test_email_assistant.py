@@ -140,6 +140,7 @@ def _base_raw(tmp_path: Path) -> dict:
 def test_email_assistant_applies_time_window_and_filters(tmp_path: Path) -> None:
     provider = StubEmailProvider(messages=[])
     config = build_config_from_raw(_base_raw(tmp_path), tmp_path / "config.json")
+    assert config.agents is not None
     registry = ToolRegistry()
     registry.register(AskUserStub())
     sandbox = ToolSandbox(config.agents.sandbox)
@@ -148,6 +149,7 @@ def test_email_assistant_applies_time_window_and_filters(tmp_path: Path) -> None
         registry,
         sandbox,
         config.agents,
+        lsm_config=config,
         agent_overrides={
             "provider_instance": provider,
             "now": "2024-01-01T12:00:00",
@@ -203,6 +205,7 @@ def test_email_assistant_generates_summary_and_tasks(tmp_path: Path) -> None:
     provider = StubEmailProvider(messages=messages)
 
     config = build_config_from_raw(_base_raw(tmp_path), tmp_path / "config.json")
+    assert config.agents is not None
     registry = ToolRegistry()
     registry.register(AskUserStub())
     sandbox = ToolSandbox(config.agents.sandbox)
@@ -211,6 +214,7 @@ def test_email_assistant_generates_summary_and_tasks(tmp_path: Path) -> None:
         registry,
         sandbox,
         config.agents,
+        lsm_config=config,
         agent_overrides={"provider_instance": provider, "now": now.isoformat()},
     )
 
@@ -230,6 +234,7 @@ def test_email_assistant_requires_approval_before_send(tmp_path: Path) -> None:
     provider = StubEmailProvider(messages=[])
 
     config = build_config_from_raw(_base_raw(tmp_path), tmp_path / "config.json")
+    assert config.agents is not None
     registry = ToolRegistry()
     registry.register(AskUserStub(responses=["no"]))
     sandbox = ToolSandbox(config.agents.sandbox)
@@ -238,6 +243,7 @@ def test_email_assistant_requires_approval_before_send(tmp_path: Path) -> None:
         registry,
         sandbox,
         config.agents,
+        lsm_config=config,
         agent_overrides={"provider_instance": provider},
     )
 
@@ -263,6 +269,7 @@ def test_email_assistant_requires_approval_before_send(tmp_path: Path) -> None:
         registry,
         sandbox,
         config.agents,
+        lsm_config=config,
         agent_overrides={"provider_instance": provider},
     )
     agent.run(AgentContext(messages=[{"role": "user", "content": json.dumps(payload)}]))
@@ -271,11 +278,13 @@ def test_email_assistant_requires_approval_before_send(tmp_path: Path) -> None:
 
 def test_email_assistant_output_in_artifacts_dir(tmp_path: Path) -> None:
     config = build_config_from_raw(_base_raw(tmp_path), tmp_path / "config.json")
+    assert config.agents is not None
     registry = ToolRegistry()
     sandbox = ToolSandbox(config.agents.sandbox)
     provider = StubEmailProvider(messages=[])
     agent = EmailAssistantAgent(
         config.llm, registry, sandbox, config.agents,
+        lsm_config=config,
         agent_overrides={"provider_instance": provider},
     )
     agent.run(AgentContext(messages=[{"role": "user", "content": "Email summary"}]))
@@ -286,17 +295,19 @@ def test_email_assistant_output_in_artifacts_dir(tmp_path: Path) -> None:
 
 def test_email_assistant_has_no_tokens_used_attribute(tmp_path: Path) -> None:
     config = build_config_from_raw(_base_raw(tmp_path), tmp_path / "config.json")
+    assert config.agents is not None
     registry = ToolRegistry()
     sandbox = ToolSandbox(config.agents.sandbox)
     provider = StubEmailProvider(messages=[])
     agent = EmailAssistantAgent(
         config.llm, registry, sandbox, config.agents,
+        lsm_config=config,
         agent_overrides={"provider_instance": provider},
     )
     agent.run(AgentContext(messages=[{"role": "user", "content": "Email summary"}]))
 
     with pytest.raises(AttributeError):
-        _ = agent._tokens_used  # noqa: SLF001
+        getattr(agent, "_tokens_used")
 
 
 # ---------------------------------------------------------------------------

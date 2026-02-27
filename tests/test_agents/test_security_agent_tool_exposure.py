@@ -50,7 +50,7 @@ _TOOL_NAMES = {
     "extract_snippets",
     "similarity_search",
     "query_knowledge_base",
-    "query_remote",
+    "query_arxiv",
     "query_remote_chain",
     "query_llm",
     "load_url",
@@ -95,7 +95,7 @@ _STRIDE_TEST_MODULES = {
     "extract_snippets": {"test_security_resources.py"},
     "similarity_search": {"test_security_resources.py"},
     "query_knowledge_base": {"test_security_resources.py"},
-    "query_remote": {"test_security_network.py"},
+    "query_arxiv": {"test_security_network.py"},
     "query_remote_chain": {"test_security_network.py"},
     "query_llm": {"test_security_network.py"},
     "load_url": {"test_security_network.py"},
@@ -161,7 +161,14 @@ def _expected_tools(agent_cls, registry: ToolRegistry, *, allow_url_access: bool
     registered = {tool.name for tool in registry.list_tools()}
     allowed &= registered
     if not allow_url_access:
-        allowed -= set(ToolSandbox._NETWORK_TOOL_NAMES)
+        builtin_query_tools = {"query_knowledge_base", "query_llm", "query_remote_chain"}
+        network_tools = set(ToolSandbox._NETWORK_TOOL_NAMES)
+        network_tools |= {
+            name
+            for name in allowed
+            if name.startswith("query_") and name not in builtin_query_tools
+        }
+        allowed -= network_tools
     return allowed
 
 
@@ -171,9 +178,17 @@ def test_agent_tool_exposure_respects_allowlist_and_sandbox(
     agent_cls,
 ) -> None:
     config = build_config_from_raw(_base_raw(tmp_path), tmp_path / "config.json")
+    agents = config.agents
+    assert agents is not None
     registry = _build_registry()
-    sandbox = ToolSandbox(config.agents.sandbox)
-    agent = agent_cls(config.llm, registry, sandbox, config.agents)
+    sandbox = ToolSandbox(agents.sandbox)
+    agent = agent_cls(
+        config.llm,
+        registry,
+        sandbox,
+        agents,
+        lsm_config=config,
+    )
 
     exposed = {item.get("name") for item in agent._get_tool_definitions(registry)}
     expected = _expected_tools(agent_cls, registry, allow_url_access=False)

@@ -38,7 +38,7 @@ class WriteTool(BaseTool):
 
 
 class NetworkTool(BaseTool):
-    name = "query_remote"
+    name = "query_arxiv"
     description = "network"
     risk_level = "network"
     needs_network = True
@@ -88,7 +88,7 @@ def test_security_per_tool_override_wins_over_risk_policy(tmp_path: Path) -> Non
     sandbox = ToolSandbox(
         SandboxConfig(
             allow_url_access=True,
-            require_user_permission={"query_remote": False},
+            require_user_permission={"query_arxiv": False},
             require_permission_by_risk={"network": True},
         )
     )
@@ -111,7 +111,7 @@ def test_security_network_tools_blocked_when_url_access_disabled() -> None:
     sandbox = ToolSandbox(
         SandboxConfig(
             allow_url_access=False,
-            require_user_permission={"query_remote": False},
+            require_user_permission={"query_arxiv": False},
         )
     )
     tool = NetworkTool()

@@ -201,6 +201,7 @@ class AgentRuntimeManager:
                 tool_registry=tool_registry,
                 sandbox=sandbox,
                 agent_config=agent_cfg,
+                lsm_config=app.config,
             )
             agent_id = uuid4().hex
             log_queue_limit = self._resolve_log_stream_queue_limit(app)
@@ -1107,11 +1108,14 @@ class AgentRuntimeManager:
         try:
             effective_agent_cfg = getattr(agent, "agent_config", agent_cfg)
             tool_allowlist = getattr(agent, "tool_allowlist", None)
-            llm_selection = {}
+            remote_source_allowlist = getattr(agent, "remote_source_allowlist", None)
+            llm_selection: dict[str, Any] = {}
             selection_resolver = getattr(agent, "_get_llm_selection", None)
             if callable(selection_resolver):
                 try:
-                    llm_selection = dict(selection_resolver())
+                    selection = selection_resolver()
+                    if isinstance(selection, dict):
+                        llm_selection = {str(key): value for key, value in selection.items()}
                 except Exception:
                     llm_selection = {}
             if not llm_selection:
@@ -1121,6 +1125,8 @@ class AgentRuntimeManager:
             harness_kwargs: dict[str, Any] = {
                 "agent_name": agent_name,
                 "tool_allowlist": tool_allowlist,
+                "remote_source_allowlist": remote_source_allowlist,
+                "lsm_config": getattr(app, "config", None),
                 "llm_service": llm_selection.get("service"),
                 "llm_tier": llm_selection.get("tier"),
                 "llm_provider": llm_selection.get("provider"),
@@ -1738,6 +1744,11 @@ class AgentRuntimeManager:
             return
         config_path = getattr(cfg, "config_path", None)
         if config_path in {None, ""}:
+            return
+        if not isinstance(config_path, (str, Path)):
+            return
+        config_path = str(config_path)
+        if not config_path:
             return
         try:
             save_config_to_file(cfg, config_path)

@@ -67,8 +67,15 @@ class _FakeChildAgent(BaseAgent):
 
 
 def _patch_child_factory(monkeypatch) -> None:
-    def _fake_create_agent(name, llm_registry, tool_registry, sandbox, agent_config):
-        _ = llm_registry, tool_registry, sandbox
+    def _fake_create_agent(
+        name,
+        llm_registry,
+        tool_registry,
+        sandbox,
+        agent_config,
+        lsm_config=None,
+    ):
+        _ = llm_registry, tool_registry, sandbox, lsm_config
         return _FakeChildAgent(str(name), agent_config)
 
     monkeypatch.setattr("lsm.agents.factory.create_agent", _fake_create_agent)
@@ -87,11 +94,13 @@ def test_meta_agent_writes_synthesized_final_result(monkeypatch, tmp_path: Path)
     monkeypatch.setattr(MetaAgent, "_run_phase", _fake_run_phase)
 
     config = build_config_from_raw(_base_raw(tmp_path), tmp_path / "config.json")
+    assert config.agents is not None
     agent = MetaAgent(
         config.llm,
         ToolRegistry(),
         ToolSandbox(config.agents.sandbox),
         config.agents,
+        lsm_config=config,
     )
 
     goal = json.dumps(
@@ -138,11 +147,13 @@ def test_meta_agent_falls_back_when_synthesis_provider_fails(monkeypatch, tmp_pa
     monkeypatch.setattr(MetaAgent, "_run_phase", _raise_run_phase)
 
     config = build_config_from_raw(_base_raw(tmp_path), tmp_path / "config.json")
+    assert config.agents is not None
     agent = MetaAgent(
         config.llm,
         ToolRegistry(),
         ToolSandbox(config.agents.sandbox),
         config.agents,
+        lsm_config=config,
     )
 
     state = agent.run(

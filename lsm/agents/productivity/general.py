@@ -10,13 +10,12 @@ import re
 from pathlib import Path
 from typing import Any, Optional
 
-from lsm.config.models import AgentConfig, LLMRegistryConfig
+from lsm.config.models import AgentConfig, LLMRegistryConfig, LSMConfig
 
 from ..base import AgentStatus, BaseAgent
 from ..models import AgentContext
 from ..tools.base import ToolRegistry
 from ..tools.sandbox import ToolSandbox
-from ..workspace import ensure_agent_workspace
 
 
 @dataclass
@@ -62,6 +61,7 @@ class GeneralAgent(BaseAgent):
         sandbox: ToolSandbox,
         agent_config: AgentConfig,
         agent_overrides: Optional[dict[str, Any]] = None,
+        lsm_config: Optional[LSMConfig] = None,
     ) -> None:
         super().__init__(name=self.name, description=self.description)
         self.llm_registry = llm_registry
@@ -69,6 +69,7 @@ class GeneralAgent(BaseAgent):
         self.sandbox = sandbox
         self.agent_config = agent_config
         self.agent_overrides = agent_overrides or {}
+        self.lsm_config = lsm_config
         self.max_iterations = int(
             self.agent_overrides.get("max_iterations", self.agent_config.max_iterations)
         )
@@ -86,11 +87,7 @@ class GeneralAgent(BaseAgent):
         self._reset_harness()
         self._stop_logged = False
         self.state.set_status(AgentStatus.RUNNING)
-        ensure_agent_workspace(
-            self.name,
-            self.agent_config.agents_folder,
-            sandbox=self.sandbox,
-        )
+        self._workspace_root()
 
         topic = self._extract_topic(initial_context)
         self.state.current_task = f"General: {topic}"

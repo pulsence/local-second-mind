@@ -38,7 +38,7 @@ All notable changes to Local Second Mind are documented here.
 - `QueryRemoteTool` redesigned as a per-source factory: each configured `RemoteProviderConfig` in `lsm.config` produces a distinct tool instance named `query_<provider_name>`. The old single `QueryRemoteTool(config)` constructor that took the full `LSMConfig` is removed.
 - `create_default_tool_registry()` now registers one `QueryRemoteTool(provider_cfg=..., config=...)` per entry in `config.remote_providers` instead of a single generic tool.
 - `BaseAgent._resolve_allowed_tool_names()` now filters per-source `query_*` tools via `remote_source_allowlist` (when set).
-- `NewsAssistantAgent._resolve_lsm_config()`, `CalendarAssistantAgent._resolve_lsm_config()`, and `EmailAssistantAgent._resolve_lsm_config()` updated: no longer look up the defunct `"query_remote"` tool by name; instead iterate the tool registry for any tool whose `.config` has a `remote_providers` attribute.
+- `NewsAssistantAgent._resolve_lsm_config()`, `CalendarAssistantAgent._resolve_lsm_config()`, and `EmailAssistantAgent._resolve_lsm_config()` updated: remote provider config is injected directly via `lsm_config` instead of scanning tool registries.
 
 ### Removed
 

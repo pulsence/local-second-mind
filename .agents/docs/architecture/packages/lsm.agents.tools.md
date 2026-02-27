@@ -33,7 +33,7 @@ Folder Path: `lsm/agents/tools/`
 - [memory_search.py](../../lsm/agents/tools/memory_search.py): Memory search tool
 - [load_url.py](../../lsm/agents/tools/load_url.py): URL loading tool
 - [query_llm.py](../../lsm/agents/tools/query_llm.py): LLM query tool
-- [query_remote.py](../../lsm/agents/tools/query_remote.py): Remote source query tool
+- [query_remote.py](../../lsm/agents/tools/query_remote.py): Remote source query tool factory (registers per-source `query_<name>` tools)
 - [query_remote_chain.py](../../lsm/agents/tools/query_remote_chain.py): Remote source chain query tool
 - [query_knowledge_base.py](../../lsm/agents/tools/query_knowledge_base.py): Full pipeline knowledge base query tool (wraps `query_sync()` with reranking and LLM synthesis)
 - [extract_snippets.py](../../lsm/agents/tools/extract_snippets.py): Snippet extraction tool

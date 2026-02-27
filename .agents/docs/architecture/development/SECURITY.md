@@ -86,6 +86,6 @@ Permission precedence in `PermissionGate.check(...)`:
 
 Examples:
 
-- `require_user_permission["query_remote"] = false` allows `query_remote` even if `require_permission_by_risk["network"] = true`.
+- `require_user_permission["query_arxiv"] = false` allows `query_arxiv` even if `require_permission_by_risk["network"] = true`.
 - `require_permission_by_risk["writes_workspace"] = true` blocks write-risk tools unless explicitly overridden.
 - Read-only tools remain allowed by default unless explicitly gated.

@@ -33,7 +33,7 @@ class ToolSandbox:
 
     _READ_TOOL_NAMES = {"read_file", "read_folder"}
     _WRITE_TOOL_NAMES = {"write_file", "create_folder"}
-    _NETWORK_TOOL_NAMES = {"load_url", "query_llm", "query_remote", "query_remote_chain"}
+    _NETWORK_TOOL_NAMES = {"load_url", "query_llm", "query_remote_chain"}
     _DOCKER_ELIGIBLE_RISKS = {"network", "exec"}
     _COMMAND_TOOL_NAMES = {"bash", "powershell"}
     _COMMAND_WRITE_OPS = {"rm", "mv", "cp", "touch", "mkdir", "rmdir", "tee", "truncate", "dd"}

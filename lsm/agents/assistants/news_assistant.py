@@ -11,7 +11,7 @@ import json
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
-from lsm.config.models import AgentConfig, LLMRegistryConfig, RemoteProviderConfig
+from lsm.config.models import AgentConfig, LLMRegistryConfig, LSMConfig, RemoteProviderConfig
 from lsm.logging import get_logger
 from lsm.remote.base import RemoteResult
 from lsm.remote.factory import create_remote_provider
@@ -20,7 +20,6 @@ from ..base import AgentStatus, BaseAgent
 from ..models import AgentContext
 from ..tools.base import ToolRegistry
 from ..tools.sandbox import ToolSandbox
-from ..workspace import ensure_agent_workspace
 
 logger = get_logger(__name__)
 
@@ -62,6 +61,7 @@ class NewsAssistantAgent(BaseAgent):
         sandbox: ToolSandbox,
         agent_config: AgentConfig,
         agent_overrides: Optional[Dict[str, Any]] = None,
+        lsm_config: Optional[LSMConfig] = None,
     ) -> None:
         super().__init__(name=self.name, description=self.description)
         self.llm_registry = llm_registry
@@ -69,16 +69,13 @@ class NewsAssistantAgent(BaseAgent):
         self.sandbox = sandbox
         self.agent_config = agent_config
         self.agent_overrides = agent_overrides or {}
+        self.lsm_config = lsm_config
 
     def run(self, initial_context: AgentContext) -> Any:
         self._reset_harness()
         self._stop_logged = False
         self.state.set_status(AgentStatus.RUNNING)
-        ensure_agent_workspace(
-            self.name,
-            self.agent_config.agents_folder,
-            sandbox=self.sandbox,
-        )
+        self._workspace_root()
         topic = self._extract_topic(initial_context)
         self.state.current_task = f"News Assistant: {topic}"
 
@@ -150,9 +147,16 @@ class NewsAssistantAgent(BaseAgent):
         providers: Sequence[Any],
         request: Dict[str, Any],
     ) -> Dict[str, Any]:
-        topics = request.get("topics") or []
+        topics_raw = request.get("topics") or []
+        topics: list[str] = []
+        if isinstance(topics_raw, list):
+            topics = [str(item).strip() for item in topics_raw if str(item).strip()]
+        elif isinstance(topics_raw, str) and topics_raw.strip():
+            topics = [topics_raw.strip()]
         if not topics and request.get("query"):
-            topics = [request.get("query")]
+            query_value = str(request.get("query") or "").strip()
+            if query_value:
+                topics = [query_value]
         if not topics:
             topics = ["general"]
         max_results = request.get("max_results") or 10
@@ -172,9 +176,10 @@ class NewsAssistantAgent(BaseAgent):
                     self._tag_provider(item, provider)
                     results.append(item)
 
-        filtered = self._filter_results(results, topics, window_start, window_end)
+        topics_list: list[str] = [str(item).strip() for item in topics if str(item).strip()]
+        filtered = self._filter_results(results, topics_list, window_start, window_end)
         deduped = self._dedupe_results(filtered)
-        indexed = self._index_by_topic(deduped, topics)
+        indexed = self._index_by_topic(deduped, topics_list)
 
         return {
             "generated_at": datetime.utcnow().isoformat(),
@@ -186,7 +191,14 @@ class NewsAssistantAgent(BaseAgent):
             "total_stories": len(deduped),
             "stories": [self._story_summary(item) for item in deduped],
             "topics_index": indexed,
-            "sources": sorted({item.get("provider") for item in indexed.values() for item in item})
+            "sources": sorted(
+                {
+                    str(item.get("provider"))
+                    for entries in indexed.values()
+                    for item in entries
+                    if item.get("provider")
+                }
+            )
             if indexed
             else [],
         }
@@ -374,12 +386,8 @@ class NewsAssistantAgent(BaseAgent):
             return selected
         raise ValueError("News providers not configured")
 
-    def _resolve_lsm_config(self) -> Optional[Any]:
-        for tool in self.tool_registry.list_tools():
-            cfg = getattr(tool, "config", None)
-            if cfg is not None and hasattr(cfg, "remote_providers"):
-                return cfg
-        return None
+    def _resolve_lsm_config(self) -> Optional[LSMConfig]:
+        return self.lsm_config
 
     def _build_provider_from_config(
         self,
