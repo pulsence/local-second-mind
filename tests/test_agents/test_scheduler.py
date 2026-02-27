@@ -129,7 +129,6 @@ def _fake_agent_factory(**kwargs):
             "create_folder",
             "load_url",
             "query_llm",
-            "query_remote",
             "query_remote_chain",
             "similarity_search",
         },
@@ -364,7 +363,6 @@ def test_scheduler_requires_opt_in_for_writes_and_network(tmp_path: Path) -> Non
         allowlist = init["tool_allowlist"]
         assert "write_file" in allowlist
         assert "load_url" in allowlist
-        assert "query_remote" in allowlist
         assert init["sandbox_allow_url_access"] is True
         assert len(init["sandbox_allowed_write_paths"]) == 1
         assert init["sandbox_execution_mode"] == "prefer_docker"

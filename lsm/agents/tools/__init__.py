@@ -119,7 +119,8 @@ def create_default_tool_registry(
     registry.register(CreateFolderTool())
     registry.register(LoadURLTool())
     registry.register(QueryLLMTool(config.llm))
-    registry.register(QueryRemoteTool(config))
+    for _provider_cfg in config.remote_providers or []:
+        registry.register(QueryRemoteTool(provider_cfg=_provider_cfg, config=config))
     registry.register(QueryRemoteChainTool(config))
     if collection is not None:
         registry.register(SimilaritySearchTool(collection=collection))

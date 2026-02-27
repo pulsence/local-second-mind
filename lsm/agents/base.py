@@ -109,7 +109,11 @@ class BaseAgent(ABC):
     tier: str = "normal"
     risk_posture: str = "read_only"
     tool_allowlist: Optional[set[str]] = None
+    remote_source_allowlist: Optional[set[str]] = None
     _always_available_tools: set[str] = {"ask_user"}
+    _BUILTIN_QUERY_TOOL_NAMES: frozenset = frozenset(
+        {"query_knowledge_base", "query_llm", "query_remote_chain"}
+    )
 
     def __init__(self, name: Optional[str] = None, description: Optional[str] = None) -> None:
         self.name = name or self.name
@@ -338,6 +342,14 @@ class BaseAgent(ABC):
         allowed &= {str(tool.name).strip() for tool in tool_registry.list_tools()}
         if not allowed:
             return set()
+
+        if self.remote_source_allowlist is not None:
+            allowed_remote = {f"query_{src}" for src in self.remote_source_allowlist}
+            remote_source_tools = {
+                name for name in allowed
+                if name.startswith("query_") and name not in self._BUILTIN_QUERY_TOOL_NAMES
+            }
+            allowed -= (remote_source_tools - allowed_remote)
 
         sandbox = getattr(self, "sandbox", None)
         sandbox_config = getattr(sandbox, "config", None)

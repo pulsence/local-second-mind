@@ -375,11 +375,11 @@ class NewsAssistantAgent(BaseAgent):
         raise ValueError("News providers not configured")
 
     def _resolve_lsm_config(self) -> Optional[Any]:
-        try:
-            tool = self.tool_registry.lookup("query_remote")
-        except KeyError:
-            return None
-        return getattr(tool, "config", None)
+        for tool in self.tool_registry.list_tools():
+            cfg = getattr(tool, "config", None)
+            if cfg is not None and hasattr(cfg, "remote_providers"):
+                return cfg
+        return None
 
     def _build_provider_from_config(
         self,

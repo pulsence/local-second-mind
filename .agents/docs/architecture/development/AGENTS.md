@@ -70,6 +70,7 @@ Tool definitions surfaced to the LLM are computed by `BaseAgent`:
 - Each agent class defines `tool_allowlist` during initialization (no per-call overrides).
 - `_always_available_tools` (currently `ask_user`) are merged into the allowlist.
 - Tool names are intersected with the active `ToolRegistry`.
+- When `remote_source_allowlist` is set on an agent, only `query_<name>` tools for the listed source names are exposed (plus the built-in `query_knowledge_base`, `query_llm`, and `query_remote_chain` tools).
 - Sandbox config further filters tool names.
 - `allow_url_access=false` removes network tools.
 - Empty `allowed_read_paths` removes read tools.
@@ -295,7 +296,7 @@ Default tool registry (`create_default_tool_registry`) includes:
 - `memory_remove` (`risk_level=writes_workspace`, `requires_permission=true`) (registered when memory is enabled and a memory backend is provided to the default registry)
 - `load_url` (`risk_level=network`, `needs_network=true`)
 - `query_llm` (`risk_level=network`, `needs_network=true`)
-- `query_remote` (`risk_level=network`, `needs_network=true`)
+- `query_<provider_name>` (`risk_level=network`, `needs_network=true`) — one instance per configured `RemoteProviderConfig`; registered by `create_default_tool_registry()`
 - `query_remote_chain` (`risk_level=network`, `needs_network=true`)
 - `memory_search` (`risk_level=read_only`) (registered when memory is enabled and a memory backend is provided to the default registry)
 - `ask_user` (`risk_level=read_only`) (always available in harness/base-agent allowlist filtering)

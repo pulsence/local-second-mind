@@ -14,54 +14,50 @@ from .base import BaseTool
 
 
 class QueryRemoteTool(BaseTool):
-    """Query one remote provider with structured input."""
+    """Query one specific remote provider with structured input.
 
-    name = "query_remote"
-    description = "Query a configured remote provider with structured input."
+    Each instance is parameterized by a single ``RemoteProviderConfig``.
+    The tool name is ``query_<provider_name>`` so each source gets its own
+    uniquely-named tool entry in the registry.
+    """
+
     risk_level = "network"
     needs_network = True
-    input_schema = {
-        "type": "object",
-        "properties": {
-            "provider": {"type": "string", "description": "Configured remote provider name."},
-            "input": {"type": "object", "description": "Structured provider input."},
-            "max_results": {"type": "integer", "description": "Result limit override."},
-        },
-        "required": ["provider", "input"],
-    }
 
-    def __init__(self, config: LSMConfig) -> None:
+    def __init__(self, provider_cfg: RemoteProviderConfig, config: LSMConfig) -> None:
+        self._provider_cfg = provider_cfg
         self.config = config
+        self.name = f"query_{provider_cfg.name}"
+        self.description = (
+            f"Query {provider_cfg.name} ({provider_cfg.type}) for structured information."
+        )
+        self.input_schema = {
+            "type": "object",
+            "properties": {
+                "input": {"type": "object", "description": "Structured provider input."},
+                "max_results": {"type": "integer", "description": "Result limit override."},
+            },
+            "required": ["input"],
+        }
 
     def execute(self, args: Dict[str, Any]) -> str:
-        provider_name = str(args.get("provider", "")).strip()
-        if not provider_name:
-            raise ValueError("provider is required")
-
         provider_input = args.get("input", {})
         if not isinstance(provider_input, dict):
             raise ValueError("input must be an object")
 
         max_results = int(args.get("max_results", 5))
-        provider_cfg = self._find_provider(provider_name)
-        provider_config = self._provider_config_to_dict(provider_cfg)
+        provider_config = self._provider_config_to_dict(self._provider_cfg)
         if self.config.global_folder is not None:
             provider_config["global_folder"] = str(self.config.global_folder)
         provider = create_remote_provider(
-            provider_cfg.type,
+            self._provider_cfg.type,
             provider_config,
         )
         results = provider.search_structured(
             provider_input,
-            max_results=provider_cfg.max_results or max_results,
+            max_results=self._provider_cfg.max_results or max_results,
         )
         return json.dumps(results, indent=2)
-
-    def _find_provider(self, provider_name: str) -> RemoteProviderConfig:
-        for provider in self.config.remote_providers or []:
-            if provider.name.lower() == provider_name.lower():
-                return provider
-        raise ValueError(f"Remote provider is not configured: {provider_name}")
 
     @staticmethod
     def _provider_config_to_dict(provider_cfg: RemoteProviderConfig) -> Dict[str, Any]:

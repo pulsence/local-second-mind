@@ -163,8 +163,10 @@ def test_query_remote_tool_returns_structured_results(monkeypatch, tmp_path: Pat
         {"name": "arxiv", "type": "arxiv", "max_results": 3, "sort_by": "submittedDate"}
     ]
     config = build_config_from_raw(raw, tmp_path / "config.json")
-    tool = QueryRemoteTool(config)
-    payload = json.loads(tool.execute({"provider": "arxiv", "input": {"query": "ai"}}))
+    provider_cfg = config.remote_providers[0]
+    tool = QueryRemoteTool(provider_cfg=provider_cfg, config=config)
+    assert tool.name == "query_arxiv"
+    payload = json.loads(tool.execute({"input": {"query": "ai"}}))
     assert payload[0]["title"] == "Paper"
     assert captured_config["sort_by"] == "submittedDate"
 
