@@ -2,6 +2,7 @@
 
 **Plan**: [PLAN.md](../docs/PLAN.md)
 **Version**: 0.7.1
+**Status**: Complete
 
 Implements the `query_knowledge_base` tool that wraps `query_sync()` and calls the full query
 pipeline. Removes and deletes `query_embeddings`.
