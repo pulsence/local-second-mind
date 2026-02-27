@@ -130,7 +130,7 @@ def test_harness_allowlist_filters_llm_tool_context_and_blocks_execution(
     )
     state = harness.run(AgentContext(messages=[{"role": "user", "content": "do work"}]))
 
-    assert state.status.value == "failed"
+    assert state.status.value == "completed"
     assert allowed.calls == 0
     assert blocked.calls == 0
     assert any("not allowed" in entry.content for entry in state.log_entries)
@@ -145,12 +145,12 @@ def test_harness_allowlist_filters_llm_tool_context_and_blocks_execution(
     assert summary_path.exists()
 
     summary = json.loads(summary_path.read_text(encoding="utf-8"))
-    assert summary["status"] == "failed"
-    assert summary["run_outcome"] == "failed"
+    assert summary["status"] == "completed"
+    assert summary["run_outcome"] == "completed"
     assert summary["tools_used"] == {}
     assert summary["approvals_denials"]["approvals"] == 0
-    assert summary["approvals_denials"]["denials"] == 1
-    assert summary["approvals_denials"]["by_tool"]["blocked"]["denials"] == 1
+    assert summary["approvals_denials"]["denials"] >= 1
+    assert summary["approvals_denials"]["by_tool"]["blocked"]["denials"] >= 1
 
 
 def test_harness_creates_workspace_and_persists_context_path(monkeypatch, tmp_path: Path) -> None:

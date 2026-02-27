@@ -253,7 +253,7 @@ def test_harness_fresh_context_strategy(monkeypatch, tmp_path: Path) -> None:
     harness = AgentHarness(config.agents, registry, config.llm, sandbox, agent_name="fresh")
 
     initial_messages = [{"role": "user", "content": f"m{i}"} for i in range(20)]
-    prepared = harness._prepare_messages(AgentContext(messages=initial_messages))
+    prepared = harness._prepare_messages_from_history(initial_messages)
     assert len(prepared) == 6
 
     state = harness.run(AgentContext(messages=initial_messages))

@@ -163,39 +163,19 @@ class AgentHarness:
             self.save_state()
 
         try:
-            remaining = max(1, int(self.agent_config.max_iterations))
-            while remaining > 0:
-                if self._stop_event.is_set():
-                    self.state.set_status(AgentStatus.COMPLETED)
-                    break
+            while self.state.status == AgentStatus.PAUSED and not self._stop_event.is_set():
+                time.sleep(0.05)
 
-                while self.state.status == AgentStatus.PAUSED and not self._stop_event.is_set():
-                    time.sleep(0.05)
-
-                if self._stop_event.is_set():
-                    self.state.set_status(AgentStatus.COMPLETED)
-                    break
-
-                chunk = remaining
-                result = self.run_bounded(
+            if not self._stop_event.is_set():
+                self.run_bounded(
                     user_message="",
                     tool_names=None,
-                    max_iterations=chunk,
+                    max_iterations=max(1, int(self.agent_config.max_iterations)),
                     continue_context=True,
                     context_label=None,
                 )
-                error_call = next(
-                    (call for call in result.tool_calls if call.get("error")),
-                    None,
-                )
-                if error_call is not None:
-                    raise PermissionError(str(error_call.get("error")))
-
-                if result.stop_reason in ("done", "budget_exhausted", "stop_requested"):
-                    break
-                if result.stop_reason != "max_iterations":
-                    break
-                remaining -= chunk
+            else:
+                self.state.set_status(AgentStatus.COMPLETED)
 
             if self.state.status not in {AgentStatus.COMPLETED, AgentStatus.FAILED}:
                 self.state.set_status(AgentStatus.COMPLETED)
@@ -333,6 +313,13 @@ class AgentHarness:
             ) + 1
             if self._budget_exhausted():
                 stop_reason = "budget_exhausted"
+                self._append_log(
+                    AgentLogEntry(
+                        timestamp=datetime.utcnow(),
+                        actor="agent",
+                        content="Stopping due to token budget exhaustion.",
+                    )
+                )
                 break
 
             if self._stop_event.is_set():
@@ -378,8 +365,18 @@ class AgentHarness:
                     "name": action,
                     "error": denial_reason,
                 })
-                stop_reason = "done"
-                break
+                self._append_log(
+                    AgentLogEntry(
+                        timestamp=datetime.utcnow(),
+                        actor="agent",
+                        content=denial_reason,
+                        action=action,
+                    )
+                )
+                feedback = f"Error: {denial_reason}"
+                history.append({"role": "tool", "name": action, "content": feedback})
+                context.messages.append({"role": "tool", "name": action, "content": feedback})
+                continue
 
             if tool_names_restricted is not None and action not in tool_names_restricted:
                 denial_reason = f"Tool '{action}' is not in the requested tool_names list"
@@ -388,8 +385,18 @@ class AgentHarness:
                     "name": action,
                     "error": denial_reason,
                 })
-                stop_reason = "done"
-                break
+                self._append_log(
+                    AgentLogEntry(
+                        timestamp=datetime.utcnow(),
+                        actor="agent",
+                        content=denial_reason,
+                        action=action,
+                    )
+                )
+                feedback = f"Error: {denial_reason}"
+                history.append({"role": "tool", "name": action, "content": feedback})
+                context.messages.append({"role": "tool", "name": action, "content": feedback})
+                continue
 
             tool = self.tool_registry.lookup(action)
             try:
@@ -889,20 +896,6 @@ class AgentHarness:
             )
         return "\n".join(lines)
 
-    def _prepare_messages(self, context: AgentContext) -> list[Dict[str, Any]]:
-        messages = list(context.messages)
-        if self.agent_config.context_window_strategy == "fresh":
-            if len(messages) <= 6:
-                return messages
-            return messages[-6:]
-
-        if len(messages) <= 12:
-            return messages
-
-        older = messages[:-8]
-        recent = messages[-8:]
-        summary = f"Compacted {len(older)} earlier messages."
-        return [{"role": "system", "content": summary}] + recent
 
     @staticmethod
     def _format_tool_definitions_for_prompt(
