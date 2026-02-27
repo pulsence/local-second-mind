@@ -13,7 +13,6 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from lsm.config.models import AgentConfig, LLMRegistryConfig
 from lsm.config.models.agents import SandboxConfig
-from lsm.providers.factory import create_provider
 from lsm.agents.assistants.assistant import (
     scan_assistant_findings,
     build_action_recommendations,
@@ -186,7 +185,7 @@ class MetaAgent(BaseAgent):
         """
         Execute orchestration for the requested goal.
         """
-        self._tokens_used = 0
+        self._reset_harness()
         self.state.set_status(AgentStatus.RUNNING)
         ensure_agent_workspace(
             self.name,
@@ -653,17 +652,19 @@ class MetaAgent(BaseAgent):
             "artifact_excerpts": excerpts,
         }
         context = json.dumps(payload, indent=2, ensure_ascii=True)
-        self._consume_tokens(context)
+        question = (
+            "Synthesize a final markdown result from the executed task graph. "
+            "Include: objective, completed outputs, failed tasks, and next steps."
+        )
 
         try:
-            provider = create_provider(self._resolve_llm_config(self.llm_registry))
-            question = (
-                "Synthesize a final markdown result from the executed task graph. "
-                "Include: objective, completed outputs, failed tasks, and next steps."
+            result = self._run_phase(
+                system_prompt=self.system_prompt,
+                user_message=f"{question}\n\n{context}",
+                tool_names=[],
+                max_iterations=1,
             )
-            response = provider.synthesize(question=question, context=context, mode="grounded")
-            self._consume_tokens(response)
-            text = str(response).strip()
+            text = str(result.final_text or "").strip()
             if text:
                 return text + ("\n" if not text.endswith("\n") else "")
         except Exception as exc:

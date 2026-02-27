@@ -1,12 +1,16 @@
 from __future__ import annotations
 
+import inspect
 import json
 from pathlib import Path
+
+import pytest
 
 from lsm.agents.base import AgentStatus, BaseAgent
 from lsm.agents.factory import AgentRegistry, create_agent
 from lsm.agents.meta import MetaAgent
 from lsm.agents.models import AgentContext
+from lsm.agents.phase import PhaseResult
 from lsm.agents.tools.base import ToolRegistry
 from lsm.agents.tools.sandbox import ToolSandbox
 from lsm.config.loader import build_config_from_raw
@@ -48,14 +52,15 @@ def _base_raw(tmp_path: Path) -> dict:
     }
 
 
-def _patch_meta_execution(monkeypatch) -> None:
-    class FakeProvider:
-        name = "fake"
-        model = "fake-model"
+def _make_fake_run_phase(final_text: str = "# Final Result\n\nConsolidated sub-agent output.\n"):
+    def _fake_run_phase(self, *args, **kwargs):
+        _ = args, kwargs
+        return PhaseResult(final_text=final_text, tool_calls=[], stop_reason="end_turn")
+    return _fake_run_phase
 
-        def synthesize(self, question, context, mode="insight", **kwargs):
-            _ = question, context, mode, kwargs
-            return "# Final Result\n\nConsolidated sub-agent output.\n"
+
+def _patch_meta_execution(monkeypatch) -> None:
+    monkeypatch.setattr(MetaAgent, "_run_phase", _make_fake_run_phase())
 
     class FakeChildAgent(BaseAgent):
         def __init__(self, name: str, agent_config) -> None:
@@ -85,10 +90,6 @@ def _patch_meta_execution(monkeypatch) -> None:
         _ = llm_registry, tool_registry, sandbox
         return FakeChildAgent(str(name), agent_config)
 
-    monkeypatch.setattr(
-        "lsm.agents.meta.meta.create_provider",
-        lambda cfg: FakeProvider(),
-    )
     monkeypatch.setattr("lsm.agents.factory.create_agent", _fake_create_agent)
 
 
@@ -186,3 +187,39 @@ def test_agent_factory_registers_meta_agent(tmp_path: Path) -> None:
     built = create_agent("meta", config.llm, registry, sandbox, config.agents)
     assert isinstance(built, MetaAgent)
     assert "meta" in AgentRegistry().list_agents()
+
+
+def test_meta_agent_has_no_tokens_used_attribute(monkeypatch, tmp_path: Path) -> None:
+    _patch_meta_execution(monkeypatch)
+    config = build_config_from_raw(_base_raw(tmp_path), tmp_path / "config.json")
+    registry = ToolRegistry()
+    sandbox = ToolSandbox(config.agents.sandbox)
+    agent = MetaAgent(config.llm, registry, sandbox, config.agents)
+
+    agent.run(
+        AgentContext(
+            messages=[{"role": "user", "content": "Curate and deduplicate notes"}]
+        )
+    )
+
+    with pytest.raises(AttributeError):
+        _ = agent._tokens_used  # noqa: SLF001
+
+
+# ---------------------------------------------------------------------------
+# Source-inspection tests
+# ---------------------------------------------------------------------------
+
+
+def test_meta_agent_does_not_call_create_provider() -> None:
+    import lsm.agents.meta.meta as meta_module
+
+    source = inspect.getsource(meta_module)
+    assert "create_provider" not in source
+
+
+def test_meta_agent_does_not_directly_instantiate_agent_harness() -> None:
+    import lsm.agents.meta.meta as meta_module
+
+    source = inspect.getsource(meta_module)
+    assert "AgentHarness(" not in source
