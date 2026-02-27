@@ -4,15 +4,11 @@ Research agent implementation.
 
 from __future__ import annotations
 
-import json
 from dataclasses import dataclass
-from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from lsm.config.models import AgentConfig, LLMRegistryConfig
-from lsm.logging import get_logger
-from lsm.providers.factory import create_provider
 
 from ..base import AgentStatus, BaseAgent
 from ..models import AgentContext
@@ -20,7 +16,15 @@ from ..tools.base import ToolRegistry
 from ..tools.sandbox import ToolSandbox
 from ..workspace import ensure_agent_workspace
 
-logger = get_logger(__name__)
+RESEARCH_SYSTEM_PROMPT = (
+    "You are a research agent. Your workflow has four phases: "
+    "DECOMPOSE (return a JSON array of focused research subtopics), "
+    "RESEARCH (use tools to gather findings for a subtopic, then summarise in markdown), "
+    "SYNTHESIZE (produce a structured markdown research outline with heading "
+    "'# Research Outline: <topic>'), and "
+    "REVIEW (assess the outline, return JSON: {\"sufficient\": true/false, \"suggestions\": [\"...\"]}). "
+    "Follow the phase instructions carefully and respond in the format requested."
+)
 
 
 @dataclass
@@ -88,7 +92,7 @@ class ResearchAgent(BaseAgent):
         Returns:
             Agent state after execution.
         """
-        self._tokens_used = 0
+        self._reset_harness()
         self._stop_logged = False
         self.state.set_status(AgentStatus.RUNNING)
         ensure_agent_workspace(
@@ -99,51 +103,85 @@ class ResearchAgent(BaseAgent):
         topic = self._extract_topic(initial_context)
         self.state.current_task = f"Researching: {topic}"
 
-        provider = create_provider(self._resolve_llm_config(self.llm_registry))
-        subtopics = self._decompose_topic(provider, topic)
+        # Phase 1 — DECOMPOSE
+        decompose_result = self._run_phase(
+            system_prompt=RESEARCH_SYSTEM_PROMPT,
+            user_message=(
+                f"Phase: DECOMPOSE. Topic: '{topic}'. "
+                "Return a JSON array of focused research subtopics."
+            ),
+            tool_names=[],
+            max_iterations=1,
+        )
+        subtopics = self._parse_subtopics(decompose_result.final_text)
         if not subtopics:
             subtopics = [topic]
 
-        iteration = 0
-        outline_sections: List[Dict[str, str]] = []
+        iteration = 1
+        subtopic_lines = "\n".join(f"  [{i}] {st}" for i, st in enumerate(subtopics, 1))
+        self._log(
+            f"Research iteration {iteration} — {len(subtopics)} subtopics:\n{subtopic_lines}"
+        )
 
-        while iteration < self.max_iterations and not self._budget_exhausted():
-            if self._handle_stop_request():
-                break
-            iteration += 1
-            self._log(f"Research iteration {iteration} with {len(subtopics)} subtopics.")
-
-            outline_sections = []
-            for subtopic in subtopics:
-                if self._handle_stop_request():
-                    break
-                if self._budget_exhausted():
-                    self._log("Budget exhausted; stopping subtopic processing.")
-                    break
-
-                findings = self._collect_findings(provider, subtopic)
-                if self._handle_stop_request():
-                    break
-                summary = self._summarize_findings(provider, subtopic, findings)
-                outline_sections.append({"subtopic": subtopic, "summary": summary})
-
-            if self._handle_stop_request():
-                break
-            outline = self._build_outline(topic, outline_sections)
-            review = self._review_outline(provider, topic, outline)
-            if review.get("sufficient", False):
-                self._log("Review marked outline as sufficient.")
+        # Phase 2 — RESEARCH per subtopic
+        research_findings: List[Dict[str, str]] = []
+        for subtopic in subtopics:
+            self._log(f"Collecting findings for subtopic: {subtopic}")
+            result = self._run_phase(
+                user_message=(
+                    f"Phase: RESEARCH. Subtopic: '{subtopic}'. "
+                    "Use query_knowledge_base to gather relevant information. "
+                    "Summarise your findings in markdown bullet points."
+                ),
+                tool_names=["query_knowledge_base"],
+                max_iterations=3,
+                context_label=f"subtopic:{subtopic}",
+            )
+            research_findings.append({"subtopic": subtopic, "findings": result.final_text or ""})
+            if result.stop_reason in ("budget_exhausted", "stop_requested"):
                 break
 
-            suggestions = review.get("suggestions") or []
-            normalized = [str(item).strip() for item in suggestions if str(item).strip()]
-            if not normalized:
-                self._log("No suggestions returned; stopping iterations.")
-                break
-            subtopics = normalized
-            self._log(f"Refining with {len(subtopics)} review suggestions.")
+        # Phase 3 — SYNTHESIZE
+        findings_block = "\n\n".join(
+            f"### {item['subtopic']}\n{item['findings']}" for item in research_findings
+        )
+        synthesize_result = self._run_phase(
+            user_message=(
+                f"Phase: SYNTHESIZE. Topic: '{topic}'.\n\n"
+                f"Research findings by subtopic:\n\n{findings_block}\n\n"
+                f"Write a structured markdown research outline based on these findings. "
+                f"Use '# Research Outline: {topic}' as the top-level heading."
+            ),
+            tool_names=[],
+            max_iterations=1,
+            context_label=None,
+        )
+        outline_markdown = synthesize_result.final_text or self._build_outline(
+            topic,
+            [{"subtopic": item["subtopic"], "summary": item["findings"]} for item in research_findings],
+        )
 
-        outline_markdown = self._build_outline(topic, outline_sections)
+        # Phase 4 — REVIEW
+        review_result = self._run_phase(
+            user_message=(
+                "Phase: REVIEW. Review the research outline above. "
+                'Return JSON: {"sufficient": true/false, "suggestions": ["..."]}.'
+            ),
+            tool_names=[],
+            max_iterations=1,
+        )
+        parsed_review = self._parse_json(review_result.final_text or "")
+        if isinstance(parsed_review, dict):
+            suggestions = parsed_review.get("suggestions") or []
+            normalized = [str(s).strip() for s in suggestions if str(s).strip()]
+            if normalized:
+                suggestion_lines = "\n".join(
+                    f"  [{i}] {s}" for i, s in enumerate(normalized, 1)
+                )
+                self._log(
+                    f"Refining with {len(normalized)} review suggestions:\n{suggestion_lines}"
+                )
+
         output_path = self._save_outline(topic, outline_markdown)
         log_path = self._save_log()
         self.last_result = ResearchResult(
@@ -163,223 +201,11 @@ class ResearchAgent(BaseAgent):
                     return topic
         return "Untitled Research Topic"
 
-    def _decompose_topic(self, provider: Any, topic: str) -> List[str]:
-        if self._is_stop_requested():
-            return []
-        prompt = (
-            "Decompose the topic into focused research subtopics. "
-            "Respond as JSON array of strings.\n"
-            f"Topic: {topic}"
-        )
-        response = provider.synthesize(prompt, "", mode="insight")
-        self._consume_tokens(response)
-        self._log(
-            "Generated subtopics from topic decomposition.",
-            actor="llm",
-            provider_name=getattr(provider, "name", None),
-            model_name=getattr(provider, "model", None),
-        )
-        parsed = self._parse_json(response)
+    def _parse_subtopics(self, text: str) -> List[str]:
+        parsed = self._parse_json(text)
         if isinstance(parsed, list):
             return [str(item).strip() for item in parsed if str(item).strip()]
-        return self._fallback_line_list(response)
-
-    def _collect_findings(self, provider: Any, subtopic: str) -> List[Dict[str, Any]]:
-        tool_names = self._select_tools(provider, subtopic)
-        findings: List[Dict[str, Any]] = []
-        for tool_name in tool_names:
-            if self._handle_stop_request():
-                break
-            try:
-                tool = self.tool_registry.lookup(tool_name)
-            except KeyError:
-                self._log(f"Skipping unknown tool '{tool_name}'.")
-                continue
-
-            args = self._build_tool_args(tool_name, subtopic)
-            try:
-                output = self.sandbox.execute(tool, args)
-            except Exception as exc:
-                self._log(f"Tool '{tool_name}' failed: {exc}")
-                continue
-
-            self._consume_tokens(output)
-            findings.append({"tool": tool_name, "output": output})
-            self._log(
-                output,
-                actor="tool",
-                action=tool_name,
-                action_arguments=args,
-            )
-        return findings
-
-    def _select_tools(self, provider: Any, subtopic: str) -> List[str]:
-        if self._is_stop_requested():
-            return []
-        tool_definitions = self._get_tool_definitions(self.tool_registry)
-        available = [str(item.get("name", "")).strip() for item in tool_definitions]
-        available = [name for name in available if name]
-        prompt = (
-            "Select the best tools for this subtopic. "
-            "Return JSON object: {\"tools\":[\"tool_name\", ...]}.\n"
-            f"Subtopic: {subtopic}\n"
-            "Available tools (name, description, args schema):\n"
-            f"{self._format_tool_definitions_for_prompt(self.tool_registry)}"
-        )
-        response = provider.synthesize(prompt, "", mode="insight")
-        self._consume_tokens(response)
-        selected = [
-            name for name in self._parse_tool_selection(response, available) if name in available
-        ]
-        if selected:
-            return selected
-
-        defaults = [name for name in ("query_knowledge_base", "query_remote") if name in available]
-        if defaults:
-            return defaults
-        return available[:1]
-
-    def _build_tool_args(self, tool_name: str, subtopic: str) -> Dict[str, Any]:
-        if tool_name == "query_knowledge_base":
-            return {"query": subtopic, "top_k": 5}
-        if tool_name == "query_remote":
-            provider_name = self._first_remote_provider_name()
-            return {"provider": provider_name, "input": {"query": subtopic}, "max_results": 5}
-        if tool_name == "query_remote_chain":
-            return {"chain": "Research Digest", "input": {"query": subtopic}, "max_results": 5}
-        if tool_name == "ask_user":
-            return {
-                "prompt": f"Need clarification to research: {subtopic}",
-                "context": "Research agent requested clarification.",
-            }
-        return {"text": subtopic}
-
-    def _first_remote_provider_name(self) -> str:
-        # Best effort default used by query_remote args.
-        configured = self.agent_overrides.get("default_remote_provider")
-        if configured:
-            return str(configured)
-        return "arxiv"
-
-    def _summarize_findings(
-        self,
-        provider: Any,
-        subtopic: str,
-        findings: List[Dict[str, Any]],
-    ) -> str:
-        if self._is_stop_requested():
-            return ""
-        sources_block = self._build_sources_block(findings)
-        if not sources_block:
-            return "No sources available for this subtopic."
-        prompt = (
-            f"Summarize findings for subtopic '{subtopic}'. "
-            "Produce concise markdown bullet points and cite sources as [S#]. "
-            "Only use sources provided below; do not invent citations."
-        )
-        response = provider.synthesize(prompt, sources_block, mode="grounded")
-        self._consume_tokens(response)
-        return str(response).strip()
-
-    def _build_sources_block(self, findings: List[Dict[str, Any]]) -> str:
-        sources: list[dict[str, str]] = []
-        for finding in findings:
-            tool_name = str(finding.get("tool", "")).strip()
-            output = str(finding.get("output", "")).strip()
-            if not output:
-                continue
-            sources.extend(self._extract_sources_from_output(tool_name, output))
-
-        if not sources:
-            return ""
-
-        lines = ["Sources:"]
-        for idx, source in enumerate(sources, 1):
-            title = source.get("title", "").strip() or "Untitled"
-            location = source.get("location", "").strip()
-            snippet = source.get("snippet", "").strip()
-            if location:
-                lines.append(f"[S{idx}] {title} ({location})")
-            else:
-                lines.append(f"[S{idx}] {title}")
-            if snippet:
-                lines.append(f"  {snippet}")
-        return "\n".join(lines)
-
-    def _extract_sources_from_output(self, tool_name: str, output: str) -> list[dict[str, str]]:
-        parsed = self._parse_json(output)
-        sources: list[dict[str, str]] = []
-        if tool_name == "query_knowledge_base" and isinstance(parsed, dict):
-            candidates = parsed.get("candidates", [])
-            for item in candidates:
-                if not isinstance(item, dict):
-                    continue
-                text = str(item.get("text", "")).strip()
-                item_id = str(item.get("id", "")).strip()
-                snippet = self._truncate_text(text, 400)
-                sources.append(
-                    {
-                        "title": item_id or "Local source",
-                        "location": item_id,
-                        "snippet": snippet,
-                    }
-                )
-            return sources
-
-        if tool_name in {"query_remote", "query_remote_chain"} and isinstance(parsed, list):
-            for item in parsed:
-                if not isinstance(item, dict):
-                    continue
-                title = str(item.get("title", "")).strip() or str(item.get("name", "")).strip()
-                url = str(item.get("url", "")).strip()
-                snippet = str(item.get("snippet", "")).strip() or str(item.get("summary", "")).strip()
-                if not snippet:
-                    snippet = self._truncate_text(json.dumps(item, ensure_ascii=True), 400)
-                sources.append(
-                    {
-                        "title": title or url or "Remote source",
-                        "location": url,
-                        "snippet": self._truncate_text(snippet, 400),
-                    }
-                )
-            return sources
-
-        sources.append(
-            {
-                "title": tool_name or "Tool output",
-                "location": "",
-                "snippet": self._truncate_text(output, 400),
-            }
-        )
-        return sources
-
-    @staticmethod
-    def _truncate_text(text: str, limit: int) -> str:
-        cleaned = str(text or "").strip()
-        if not cleaned:
-            return ""
-        if len(cleaned) <= limit:
-            return cleaned
-        return cleaned[: limit - 3].rstrip() + "..."
-
-    def _review_outline(self, provider: Any, topic: str, outline: str) -> Dict[str, Any]:
-        if self._is_stop_requested():
-            return {"sufficient": True, "suggestions": []}
-        prompt = (
-            "Review this research outline and decide if it is sufficient. "
-            "Return JSON object: {\"sufficient\": bool, \"suggestions\": [\"...\"]}.\n"
-            f"Topic: {topic}"
-        )
-        response = provider.synthesize(prompt, outline, mode="insight")
-        self._consume_tokens(response)
-        parsed = self._parse_json(response)
-        if isinstance(parsed, dict):
-            sufficient = bool(parsed.get("sufficient", False))
-            suggestions = parsed.get("suggestions") or []
-            if not isinstance(suggestions, list):
-                suggestions = []
-            return {"sufficient": sufficient, "suggestions": suggestions}
-        return {"sufficient": True, "suggestions": []}
+        return self._fallback_line_list(text)
 
     def _build_outline(self, topic: str, sections: List[Dict[str, str]]) -> str:
         lines = [f"# Research Outline: {topic}", ""]
@@ -391,12 +217,13 @@ class ResearchAgent(BaseAgent):
         return "\n".join(lines).strip() + "\n"
 
     def _save_outline(self, topic: str, outline: str) -> Path:
-        safe_topic = "".join(ch if ch.isalnum() or ch in ("-", "_") else "_" for ch in topic.strip())
+        safe_topic = "".join(
+            ch if ch.isalnum() or ch in ("-", "_") else "_" for ch in topic.strip()
+        )
         safe_topic = safe_topic[:80] or "research"
-        timestamp = datetime.utcnow().strftime("%Y%m%d-%H%M%S")
-        output_path = self.agent_config.agents_folder / f"{self.name}_{safe_topic}_{timestamp}.md"
-        output_path.parent.mkdir(parents=True, exist_ok=True)
+        output_path = self._artifacts_dir() / self._artifact_filename(safe_topic)
         output_path.write_text(outline, encoding="utf-8")
+        self.state.add_artifact(str(output_path))
         self._log(f"Saved research outline to {output_path}")
         return output_path
 

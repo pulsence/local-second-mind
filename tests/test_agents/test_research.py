@@ -1,13 +1,17 @@
 from __future__ import annotations
 
+import inspect
 import json
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 
+from lsm.agents.base import BaseAgent
 from lsm.agents.factory import AgentRegistry, create_agent
 from lsm.agents.models import AgentContext
 from lsm.agents.academic import ResearchAgent
+from lsm.agents.phase import PhaseResult
 from lsm.agents.tools.base import BaseTool, ToolRegistry
 from lsm.agents.tools.sandbox import ToolSandbox
 from lsm.config.loader import build_config_from_raw
@@ -47,47 +51,6 @@ class QueryKnowledgeBaseStubTool(BaseTool):
         )
 
 
-class QueryRemoteStubTool(BaseTool):
-    name = "query_remote"
-    description = "Stub remote retrieval tool."
-    input_schema = {
-        "type": "object",
-        "properties": {"provider": {"type": "string"}, "input": {"type": "object"}},
-    }
-
-    def execute(self, args: dict) -> str:
-        return json.dumps(
-            [
-                {
-                    "source": "remote",
-                    "provider": args.get("provider"),
-                    "query": (args.get("input") or {}).get("query"),
-                    "score": 0.8,
-                }
-            ]
-        )
-
-
-class AskUserStubTool(BaseTool):
-    name = "ask_user"
-    description = "Stub ask-user tool."
-    input_schema = {
-        "type": "object",
-        "properties": {
-            "prompt": {"type": "string"},
-            "context": {"type": "string"},
-        },
-        "required": ["prompt"],
-    }
-
-    def __init__(self) -> None:
-        self.calls: list[dict] = []
-
-    def execute(self, args: dict) -> str:
-        self.calls.append(dict(args))
-        return "Stub response"
-
-
 def _base_raw(tmp_path: Path) -> dict:
     return {
         "global": {"global_folder": str(tmp_path / "global")},
@@ -125,99 +88,193 @@ def _base_raw(tmp_path: Path) -> dict:
     }
 
 
-def test_research_agent_runs_and_saves_outline(monkeypatch, tmp_path: Path) -> None:
-    class FakeProvider:
-        name = "fake"
-        model = "fake-model"
-
-        def synthesize(self, question, context, mode="insight", **kwargs):
-            lower = str(question).lower()
-            if "decompose the topic" in lower:
-                return json.dumps(["Scope", "Methods"])
-            if "select the best tools" in lower:
-                return json.dumps({"tools": ["query_knowledge_base", "query_remote"]})
-            if "review this research outline" in lower:
-                return json.dumps({"sufficient": True, "suggestions": []})
-            if "summarize findings for subtopic" in lower:
-                return "- Key finding\n- Supporting source"
-            return json.dumps({"sufficient": True, "suggestions": []})
-
-    monkeypatch.setattr(
-        "lsm.agents.academic.research.create_provider",
-        lambda cfg: FakeProvider(),
+def _make_result(final_text: str, stop_reason: str = "stop", tool_calls: list | None = None) -> PhaseResult:
+    return PhaseResult(
+        final_text=final_text,
+        tool_calls=tool_calls or [],
+        stop_reason=stop_reason,
     )
 
+
+def _build_agent(tmp_path: Path) -> ResearchAgent:
     config = build_config_from_raw(_base_raw(tmp_path), tmp_path / "config.json")
     registry = ToolRegistry()
     registry.register(QueryKnowledgeBaseStubTool())
-    registry.register(QueryRemoteStubTool())
     sandbox = ToolSandbox(config.agents.sandbox)
-    agent = ResearchAgent(config.llm, registry, sandbox, config.agents)
+    return ResearchAgent(config.llm, registry, sandbox, config.agents)
 
-    state = agent.run(AgentContext(messages=[{"role": "user", "content": "AI safety"}]))
+
+# ---------------------------------------------------------------------------
+# Happy-path tests
+# ---------------------------------------------------------------------------
+
+def test_research_agent_runs_and_saves_outline(tmp_path: Path) -> None:
+    agent = _build_agent(tmp_path)
+
+    with patch.object(BaseAgent, "_run_phase", side_effect=[
+        _make_result('["Scope", "Methods"]'),                          # DECOMPOSE
+        _make_result("Scope findings."),                                # RESEARCH:Scope
+        _make_result("Methods findings."),                              # RESEARCH:Methods
+        _make_result("# Research Outline: AI safety\n\n## Scope\n\nDetails.\n"),  # SYNTHESIZE
+        _make_result('{"sufficient": true, "suggestions": []}'),        # REVIEW
+    ]):
+        state = agent.run(AgentContext(messages=[{"role": "user", "content": "AI safety"}]))
+
     assert state.status.value == "completed"
     assert agent.last_result is not None
     assert "# Research Outline: AI safety" in agent.last_result.outline_markdown
     assert agent.last_result.output_path.exists()
+    assert agent.last_result.output_path.parent.name == "artifacts"
     assert agent.last_result.log_path.exists()
     saved_log = agent.last_result.log_path.read_text(encoding="utf-8")
     assert saved_log.strip()
 
 
-def test_research_agent_stops_when_budget_exhausted(monkeypatch, tmp_path: Path) -> None:
-    class VerboseProvider:
-        name = "fake"
-        model = "fake-model"
+def test_research_agent_phases_execute_in_order(tmp_path: Path) -> None:
+    agent = _build_agent(tmp_path)
+    phase_user_messages: list[str] = []
 
-        def synthesize(self, question, context, mode="insight", **kwargs):
-            lower = str(question).lower()
-            if "decompose the topic" in lower:
-                return json.dumps(["Large Topic"])
-            if "select the best tools" in lower:
-                return json.dumps({"tools": ["query_knowledge_base"]})
-            if "review this research outline" in lower:
-                return json.dumps({"sufficient": False, "suggestions": ["Refine"]})
-            return "x" * 5000
+    def capture_phase(**kwargs):
+        phase_user_messages.append(kwargs.get("user_message", ""))
+        if "DECOMPOSE" in kwargs.get("user_message", ""):
+            return _make_result('["Scope"]')
+        if (kwargs.get("context_label") or "").startswith("subtopic:"):
+            return _make_result("Scope findings.")
+        if "SYNTHESIZE" in kwargs.get("user_message", ""):
+            return _make_result("# Research Outline: Topic\n\n")
+        return _make_result('{"sufficient": true, "suggestions": []}')
 
-    monkeypatch.setattr(
-        "lsm.agents.academic.research.create_provider",
-        lambda cfg: VerboseProvider(),
-    )
+    with patch.object(BaseAgent, "_run_phase", side_effect=capture_phase):
+        state = agent.run(AgentContext(messages=[{"role": "user", "content": "Topic"}]))
 
-    raw = _base_raw(tmp_path)
-    raw["agents"]["max_tokens_budget"] = 200
-    config = build_config_from_raw(raw, tmp_path / "config.json")
-    registry = ToolRegistry()
-    registry.register(QueryKnowledgeBaseStubTool())
-    sandbox = ToolSandbox(config.agents.sandbox)
-    agent = ResearchAgent(config.llm, registry, sandbox, config.agents)
+    assert state.status.value == "completed"
+    # Verify order: DECOMPOSE → RESEARCH → SYNTHESIZE → REVIEW
+    assert "DECOMPOSE" in phase_user_messages[0]
+    assert "RESEARCH" in phase_user_messages[1]
+    assert "SYNTHESIZE" in phase_user_messages[2]
+    assert "REVIEW" in phase_user_messages[3]
 
-    state = agent.run(AgentContext(messages=[{"role": "user", "content": "Big topic"}]))
+
+def test_research_agent_uses_context_label_per_subtopic(tmp_path: Path) -> None:
+    agent = _build_agent(tmp_path)
+
+    with patch.object(BaseAgent, "_run_phase", side_effect=[
+        _make_result('["Scope"]'),                   # DECOMPOSE
+        _make_result("Scope findings."),              # RESEARCH:Scope
+        _make_result("# Research Outline\n"),         # SYNTHESIZE
+        _make_result('{"sufficient": true}'),         # REVIEW
+    ]) as mock_phase:
+        agent.run(AgentContext(messages=[{"role": "user", "content": "Topic"}]))
+
+    calls = mock_phase.call_args_list
+    # RESEARCH call (index 1) must have context_label="subtopic:Scope"
+    assert calls[1].kwargs.get("context_label") == "subtopic:Scope"
+    # SYNTHESIZE call (index 2) must have context_label=None
+    synthesize_kwargs = calls[2].kwargs
+    assert "context_label" in synthesize_kwargs
+    assert synthesize_kwargs["context_label"] is None
+
+
+def test_research_agent_subtopic_names_in_logs(tmp_path: Path) -> None:
+    agent = _build_agent(tmp_path)
+
+    with patch.object(BaseAgent, "_run_phase", side_effect=[
+        _make_result('["Scope", "Methods"]'),
+        _make_result("Scope findings."),
+        _make_result("Methods findings."),
+        _make_result("# Research Outline\n"),
+        _make_result('{"sufficient": true}'),
+    ]):
+        state = agent.run(AgentContext(messages=[{"role": "user", "content": "Topic"}]))
+
+    log_messages = [entry.content for entry in state.log_entries]
+    # Iteration log should mention both subtopic names
+    assert any("Scope" in msg and "Methods" in msg for msg in log_messages)
+    # Per-subtopic collecting logs
+    assert any("Collecting findings for subtopic: Scope" in msg for msg in log_messages)
+    assert any("Collecting findings for subtopic: Methods" in msg for msg in log_messages)
+
+
+def test_research_agent_passes_findings_to_synthesize(tmp_path: Path) -> None:
+    agent = _build_agent(tmp_path)
+    captured_synthesize_msg: list[str] = []
+
+    def capture(**kwargs):
+        msg = kwargs.get("user_message", "")
+        if "SYNTHESIZE" in msg:
+            captured_synthesize_msg.append(msg)
+            return _make_result("# Research Outline\n")
+        if "DECOMPOSE" in msg:
+            return _make_result('["Scope"]')
+        if (kwargs.get("context_label") or "").startswith("subtopic:"):
+            return _make_result("Finding: Key insight [S1].")
+        return _make_result('{"sufficient": true}')
+
+    with patch.object(BaseAgent, "_run_phase", side_effect=capture):
+        agent.run(AgentContext(messages=[{"role": "user", "content": "Topic"}]))
+
+    assert captured_synthesize_msg
+    assert "Finding: Key insight [S1]." in captured_synthesize_msg[0]
+
+
+def test_research_agent_stops_when_budget_exhausted(tmp_path: Path) -> None:
+    agent = _build_agent(tmp_path)
+
+    with patch.object(BaseAgent, "_run_phase", side_effect=[
+        _make_result('["Sub1", "Sub2", "Sub3"]'),                        # DECOMPOSE (3 subtopics)
+        _make_result("Sub1 findings.", stop_reason="budget_exhausted"),  # RESEARCH:Sub1 → breaks
+        # Sub2 and Sub3 RESEARCH must NOT be called
+        _make_result("# Outline\n"),                                     # SYNTHESIZE
+        _make_result('{"sufficient": true, "suggestions": []}'),         # REVIEW
+    ]) as mock_phase:
+        state = agent.run(AgentContext(messages=[{"role": "user", "content": "Big topic"}]))
+
     assert state.status.value == "completed"
     assert agent.last_result is not None
     assert agent.last_result.output_path.exists()
+    # Only 4 calls (DECOMPOSE + Sub1 RESEARCH + SYNTHESIZE + REVIEW), not 6
+    assert mock_phase.call_count == 4
 
 
-def test_agent_factory_creates_research_agent(monkeypatch, tmp_path: Path) -> None:
-    class FakeProvider:
-        name = "fake"
-        model = "fake-model"
+def test_research_agent_review_suggestions_logged(tmp_path: Path) -> None:
+    agent = _build_agent(tmp_path)
 
-        def synthesize(self, question, context, mode="insight", **kwargs):
-            lower = str(question).lower()
-            if "decompose the topic" in lower:
-                return json.dumps(["S1"])
-            if "select the best tools" in lower:
-                return json.dumps({"tools": ["query_knowledge_base"]})
-            if "review this research outline" in lower:
-                return json.dumps({"sufficient": True, "suggestions": []})
-            return "- Summary"
+    with patch.object(BaseAgent, "_run_phase", side_effect=[
+        _make_result('["Scope"]'),
+        _make_result("Scope findings."),
+        _make_result("# Research Outline\n"),
+        _make_result('{"sufficient": false, "suggestions": ["Add examples", "Expand coverage"]}'),
+    ]):
+        state = agent.run(AgentContext(messages=[{"role": "user", "content": "Topic"}]))
 
-    monkeypatch.setattr(
-        "lsm.agents.academic.research.create_provider",
-        lambda cfg: FakeProvider(),
-    )
+    log_messages = [entry.content for entry in state.log_entries]
+    assert any("Refining with 2 review suggestions" in msg for msg in log_messages)
+    assert any("Add examples" in msg for msg in log_messages)
 
+
+def test_research_agent_output_in_artifacts_dir(tmp_path: Path) -> None:
+    agent = _build_agent(tmp_path)
+
+    with patch.object(BaseAgent, "_run_phase", side_effect=[
+        _make_result('["Scope"]'),
+        _make_result("Scope findings."),
+        _make_result("# Research Outline: Topic\n"),
+        _make_result('{"sufficient": true}'),
+    ]):
+        agent.run(AgentContext(messages=[{"role": "user", "content": "Topic"}]))
+
+    assert agent.last_result is not None
+    output_path = agent.last_result.output_path
+    assert output_path.exists()
+    assert output_path.parent.name == "artifacts"
+    assert output_path.suffix == ".md"
+
+
+# ---------------------------------------------------------------------------
+# Factory and registry tests
+# ---------------------------------------------------------------------------
+
+def test_agent_factory_creates_research_agent(tmp_path: Path) -> None:
     config = build_config_from_raw(_base_raw(tmp_path), tmp_path / "config.json")
     registry = ToolRegistry()
     registry.register(QueryKnowledgeBaseStubTool())
@@ -225,7 +282,15 @@ def test_agent_factory_creates_research_agent(monkeypatch, tmp_path: Path) -> No
 
     agent = create_agent("research", config.llm, registry, sandbox, config.agents)
     assert isinstance(agent, ResearchAgent)
-    state = agent.run(AgentContext(messages=[{"role": "user", "content": "Factory topic"}]))
+
+    with patch.object(BaseAgent, "_run_phase", side_effect=[
+        _make_result('["S1"]'),
+        _make_result("S1 findings."),
+        _make_result("# Research Outline: Factory topic\n"),
+        _make_result('{"sufficient": true, "suggestions": []}'),
+    ]):
+        state = agent.run(AgentContext(messages=[{"role": "user", "content": "Factory topic"}]))
+
     assert state.status.value == "completed"
 
 
@@ -246,109 +311,32 @@ def test_agent_registry_rejects_unknown_agent(tmp_path: Path) -> None:
         )
 
 
-def test_research_agent_filters_unknown_tools(monkeypatch, tmp_path: Path) -> None:
-    class FakeProvider:
-        name = "fake"
-        model = "fake-model"
+# ---------------------------------------------------------------------------
+# Source-inspection tests (no direct harness/provider/sandbox calls)
+# ---------------------------------------------------------------------------
 
-        def synthesize(self, question, context, mode="insight", **kwargs):
-            lower = str(question).lower()
-            if "decompose the topic" in lower:
-                return json.dumps(["Scope"])
-            if "select the best tools" in lower:
-                return json.dumps({"tools": ["load_url"]})
-            if "review this research outline" in lower:
-                return json.dumps({"sufficient": True, "suggestions": []})
-            if "summarize findings for subtopic" in lower:
-                return "- Summary"
-            return json.dumps({"sufficient": True, "suggestions": []})
+def test_research_agent_does_not_directly_instantiate_agent_harness() -> None:
+    import lsm.agents.academic.research as research_module
 
-    monkeypatch.setattr(
-        "lsm.agents.academic.research.create_provider",
-        lambda cfg: FakeProvider(),
-    )
-
-    config = build_config_from_raw(_base_raw(tmp_path), tmp_path / "config.json")
-    registry = ToolRegistry()
-    registry.register(QueryKnowledgeBaseStubTool())
-    sandbox = ToolSandbox(config.agents.sandbox)
-    agent = ResearchAgent(config.llm, registry, sandbox, config.agents)
-
-    state = agent.run(AgentContext(messages=[{"role": "user", "content": "AI safety"}]))
-    assert state.status.value == "completed"
-    assert not any(
-        entry.action == "load_url" for entry in state.log_entries if entry.actor == "tool"
+    source = inspect.getsource(research_module)
+    assert "AgentHarness(" not in source, (
+        "ResearchAgent must not directly instantiate AgentHarness; use _run_phase() instead"
     )
 
 
-def test_research_agent_builds_ask_user_args(monkeypatch, tmp_path: Path) -> None:
-    class FakeProvider:
-        name = "fake"
-        model = "fake-model"
+def test_research_agent_has_no_direct_provider_synthesize_call() -> None:
+    import lsm.agents.academic.research as research_module
 
-        def synthesize(self, question, context, mode="insight", **kwargs):
-            lower = str(question).lower()
-            if "decompose the topic" in lower:
-                return json.dumps(["Scope"])
-            if "select the best tools" in lower:
-                return json.dumps({"tools": ["ask_user"]})
-            if "review this research outline" in lower:
-                return json.dumps({"sufficient": True, "suggestions": []})
-            if "summarize findings for subtopic" in lower:
-                return "- Summary"
-            return json.dumps({"sufficient": True, "suggestions": []})
-
-    monkeypatch.setattr(
-        "lsm.agents.academic.research.create_provider",
-        lambda cfg: FakeProvider(),
+    source = inspect.getsource(research_module)
+    assert "provider.synthesize(" not in source, (
+        "ResearchAgent must not call provider.synthesize() directly"
     )
 
-    config = build_config_from_raw(_base_raw(tmp_path), tmp_path / "config.json")
-    registry = ToolRegistry()
-    ask_user = AskUserStubTool()
-    registry.register(ask_user)
-    sandbox = ToolSandbox(config.agents.sandbox)
-    agent = ResearchAgent(config.llm, registry, sandbox, config.agents)
 
-    state = agent.run(AgentContext(messages=[{"role": "user", "content": "AI safety"}]))
-    assert state.status.value == "completed"
-    assert ask_user.calls
-    assert ask_user.calls[0].get("prompt")
+def test_research_agent_has_no_direct_sandbox_execute_call() -> None:
+    import lsm.agents.academic.research as research_module
 
-
-def test_research_agent_passes_sources_to_llm(monkeypatch, tmp_path: Path) -> None:
-    class FakeProvider:
-        name = "fake"
-        model = "fake-model"
-
-        def __init__(self) -> None:
-            self.contexts: list[str] = []
-
-        def synthesize(self, question, context, mode="insight", **kwargs):
-            self.contexts.append(str(context))
-            lower = str(question).lower()
-            if "decompose the topic" in lower:
-                return json.dumps(["Scope"])
-            if "select the best tools" in lower:
-                return json.dumps({"tools": ["query_knowledge_base"]})
-            if "review this research outline" in lower:
-                return json.dumps({"sufficient": True, "suggestions": []})
-            if "summarize findings for subtopic" in lower:
-                return "- Summary [S1]"
-            return json.dumps({"sufficient": True, "suggestions": []})
-
-    provider = FakeProvider()
-    monkeypatch.setattr(
-        "lsm.agents.academic.research.create_provider",
-        lambda cfg: provider,
+    source = inspect.getsource(research_module)
+    assert "sandbox.execute(" not in source, (
+        "ResearchAgent must not call sandbox.execute() directly"
     )
-
-    config = build_config_from_raw(_base_raw(tmp_path), tmp_path / "config.json")
-    registry = ToolRegistry()
-    registry.register(QueryKnowledgeBaseStubTool())
-    sandbox = ToolSandbox(config.agents.sandbox)
-    agent = ResearchAgent(config.llm, registry, sandbox, config.agents)
-
-    state = agent.run(AgentContext(messages=[{"role": "user", "content": "AI safety"}]))
-    assert state.status.value == "completed"
-    assert any("[S1]" in ctx for ctx in provider.contexts)
