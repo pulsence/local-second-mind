@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import inspect
 import json
 from pathlib import Path
 
-from lsm.agents.base import AgentState, AgentStatus
+from lsm.agents.base import AgentStatus
 from lsm.agents.models import AgentContext
+from lsm.agents.phase import PhaseResult
 from lsm.agents.productivity.general import GeneralAgent
 from lsm.agents.tools.base import BaseTool, ToolRegistry
 from lsm.agents.tools.sandbox import ToolSandbox
@@ -81,35 +83,56 @@ def test_general_agent_tool_allowlist_defaults() -> None:
     assert "powershell" not in GeneralAgent.tool_allowlist
 
 
+def test_general_agent_does_not_directly_instantiate_agent_harness() -> None:
+    import lsm.agents.productivity.general as general_module
+
+    source = inspect.getsource(general_module)
+    assert "AgentHarness(" not in source, (
+        "GeneralAgent must not directly instantiate AgentHarness; use _run_phase() instead"
+    )
+
+
 def test_general_agent_passes_system_prompt(monkeypatch, tmp_path: Path) -> None:
-    captured = {"prompt": None}
+    captured: dict = {"system_prompt": None}
 
-    class HarnessStub:
-        def __init__(self, *args, **kwargs):
-            captured["prompt"] = kwargs.get("system_prompt")
-            self.state = AgentState()
+    def fake_run_phase(self_agent, system_prompt: str = "", user_message: str = "", **kwargs):
+        captured["system_prompt"] = system_prompt
+        return PhaseResult(final_text="", tool_calls=[], stop_reason="done")
 
-        def run(self, context: AgentContext) -> AgentState:
-            _ = context
-            self.state.set_status(AgentStatus.COMPLETED)
-            return self.state
-
-        def get_state_path(self) -> None:
-            return None
-
-    monkeypatch.setattr("lsm.agents.harness.AgentHarness", HarnessStub)
+    monkeypatch.setattr("lsm.agents.base.BaseAgent._run_phase", fake_run_phase)
 
     config = build_config_from_raw(_base_raw(tmp_path), tmp_path / "config.json")
     registry = ToolRegistry()
     sandbox = ToolSandbox(config.agents.sandbox)
     agent = GeneralAgent(config.llm, registry, sandbox, config.agents)
-    agent.tool_allowlist = set(agent.tool_allowlist or set()) | {"echo"}
+
     agent.run(AgentContext(messages=[{"role": "user", "content": "Summarize"}]))
 
-    assert captured["prompt"] == agent._system_prompt()
+    assert captured["system_prompt"] == agent._system_prompt()
 
 
-def test_general_agent_writes_summary_and_run_summary(monkeypatch, tmp_path: Path) -> None:
+def test_general_agent_run_phase_called_with_topic_as_user_message(
+    monkeypatch, tmp_path: Path
+) -> None:
+    captured: dict = {"user_message": None}
+
+    def fake_run_phase(self_agent, system_prompt: str = "", user_message: str = "", **kwargs):
+        captured["user_message"] = user_message
+        return PhaseResult(final_text="Done", tool_calls=[], stop_reason="done")
+
+    monkeypatch.setattr("lsm.agents.base.BaseAgent._run_phase", fake_run_phase)
+
+    config = build_config_from_raw(_base_raw(tmp_path), tmp_path / "config.json")
+    registry = ToolRegistry()
+    sandbox = ToolSandbox(config.agents.sandbox)
+    agent = GeneralAgent(config.llm, registry, sandbox, config.agents)
+
+    agent.run(AgentContext(messages=[{"role": "user", "content": "Plan my tasks"}]))
+
+    assert captured["user_message"] == "Plan my tasks"
+
+
+def test_general_agent_writes_summary(monkeypatch, tmp_path: Path) -> None:
     class FakeProvider:
         name = "fake"
         model = "fake-model"
@@ -149,62 +172,52 @@ def test_general_agent_writes_summary_and_run_summary(monkeypatch, tmp_path: Pat
     assert state.status.value == "completed"
     assert agent.last_result is not None
     assert agent.last_result.summary_path.exists()
-    assert agent.last_result.run_summary_path is not None
-    assert agent.last_result.run_summary_path.exists()
 
     summary_text = agent.last_result.summary_path.read_text(encoding="utf-8")
     assert "## Artifacts" in summary_text
-    assert str(agent.last_result.run_summary_path) in summary_text
+    assert "## Tools Used" in summary_text
 
 
 def test_general_agent_respects_iteration_guardrail(monkeypatch, tmp_path: Path) -> None:
+    call_count = {"count": 0}
+
     class FakeProvider:
         name = "fake"
         model = "fake-model"
 
-        def __init__(self):
-            self._responses = [
-                json.dumps(
-                    {
-                        "response": "Echo once",
-                        "action": "echo",
-                        "action_arguments": {"text": "iteration"},
-                    }
-                ),
-                json.dumps(
-                    {
-                        "response": "Echo again",
-                        "action": "echo",
-                        "action_arguments": {"text": "extra"},
-                    }
-                ),
-            ]
-
         def _send_message(self, system, user, temperature, max_tokens, **kwargs):
             _ = system, user, temperature, max_tokens, kwargs
-            return self._responses.pop(0)
+            call_count["count"] += 1
+            return json.dumps(
+                {
+                    "response": "Echo once",
+                    "action": "echo",
+                    "action_arguments": {"text": "iteration"},
+                }
+            )
 
     monkeypatch.setattr("lsm.agents.harness.create_provider", lambda config: FakeProvider())
 
     raw = _base_raw(tmp_path)
-    raw["agents"]["agent_configs"] = {"general": {"max_iterations": 1}}
+    raw["agents"]["max_iterations"] = 1  # global limit applied to this agent
     config = build_config_from_raw(raw, tmp_path / "config.json")
     registry = ToolRegistry()
     registry.register(EchoTool())
     sandbox = ToolSandbox(config.agents.sandbox)
     agent = GeneralAgent(config.llm, registry, sandbox, config.agents)
-    agent.tool_allowlist = set(agent.tool_allowlist or set()) | {"restricted"}
+    agent.tool_allowlist = set(agent.tool_allowlist or set()) | {"echo"}
 
     agent.run(AgentContext(messages=[{"role": "user", "content": "Iterate once"}]))
     assert agent.last_result is not None
-    run_summary_path = agent.last_result.run_summary_path
-    assert run_summary_path is not None
-
-    summary = json.loads(run_summary_path.read_text(encoding="utf-8"))
-    assert summary["token_usage"]["iterations"] == 1
+    # max_iterations=1 means only one LLM call before the loop ends
+    assert call_count["count"] == 1
 
 
-def test_general_agent_marks_failure_on_permission_denial(monkeypatch, tmp_path: Path) -> None:
+def test_general_agent_records_permission_denial_and_completes(
+    monkeypatch, tmp_path: Path
+) -> None:
+    """With run_bounded(), permission denial continues the loop; agent completes gracefully."""
+
     class FakeProvider:
         name = "fake"
         model = "fake-model"
@@ -216,6 +229,13 @@ def test_general_agent_marks_failure_on_permission_denial(monkeypatch, tmp_path:
                         "response": "Try restricted tool",
                         "action": "restricted",
                         "action_arguments": {"payload": "secret"},
+                    }
+                ),
+                json.dumps(
+                    {
+                        "response": "Done.",
+                        "action": "DONE",
+                        "action_arguments": {},
                     }
                 ),
             ]
@@ -231,9 +251,10 @@ def test_general_agent_marks_failure_on_permission_denial(monkeypatch, tmp_path:
     registry.register(RestrictedTool())
     sandbox = ToolSandbox(config.agents.sandbox)
     agent = GeneralAgent(config.llm, registry, sandbox, config.agents)
+    # "restricted" is NOT in tool_allowlist, so it will be denied by the harness
 
     state = agent.run(AgentContext(messages=[{"role": "user", "content": "Restricted"}]))
-    assert state.status.value == "failed"
+    assert state.status.value == "completed"
     assert agent.last_result is not None
     summary_text = agent.last_result.summary_path.read_text(encoding="utf-8")
-    assert "Status: failed" in summary_text
+    assert "Status: completed" in summary_text

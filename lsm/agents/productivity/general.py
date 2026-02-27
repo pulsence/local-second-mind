@@ -4,11 +4,11 @@ General agent implementation.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from datetime import datetime
-import json
+import re
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Optional
 
 from lsm.config.models import AgentConfig, LLMRegistryConfig
 
@@ -27,7 +27,6 @@ class GeneralResult:
 
     topic: str
     summary_path: Path
-    run_summary_path: Optional[Path]
     artifacts: list[str]
 
 
@@ -62,7 +61,7 @@ class GeneralAgent(BaseAgent):
         tool_registry: ToolRegistry,
         sandbox: ToolSandbox,
         agent_config: AgentConfig,
-        agent_overrides: Optional[Dict[str, Any]] = None,
+        agent_overrides: Optional[dict[str, Any]] = None,
     ) -> None:
         super().__init__(name=self.name, description=self.description)
         self.llm_registry = llm_registry
@@ -84,7 +83,7 @@ class GeneralAgent(BaseAgent):
         """
         Run the general-purpose tool loop and emit a summary artifact.
         """
-        self._tokens_used = 0
+        self._reset_harness()
         self._stop_logged = False
         self.state.set_status(AgentStatus.RUNNING)
         ensure_agent_workspace(
@@ -96,41 +95,25 @@ class GeneralAgent(BaseAgent):
         topic = self._extract_topic(initial_context)
         self.state.current_task = f"General: {topic}"
 
-        effective_config = replace(
-            self.agent_config,
-            max_iterations=self.max_iterations,
-            max_tokens_budget=self.max_tokens_budget,
-        )
-        llm_selection = self._get_llm_selection()
-        from ..harness import AgentHarness
+        try:
+            self._run_phase(
+                system_prompt=self._system_prompt(),
+                user_message=topic,
+                max_iterations=self.max_iterations,
+            )
+        except Exception as exc:
+            self._log(f"Phase execution failed: {exc}")
+            self.state.set_status(AgentStatus.FAILED)
+        else:
+            if self._harness is not None:
+                self.state = self._harness.state
+            self.state.set_status(AgentStatus.COMPLETED)
 
-        harness = AgentHarness(
-            effective_config,
-            self.tool_registry,
-            self.llm_registry,
-            self.sandbox,
-            agent_name=self.name,
-            tool_allowlist=self.tool_allowlist,
-            llm_service=llm_selection.get("service"),
-            llm_tier=llm_selection.get("tier"),
-            llm_provider=llm_selection.get("provider"),
-            llm_model=llm_selection.get("model"),
-            llm_temperature=llm_selection.get("temperature"),
-            llm_max_tokens=llm_selection.get("max_tokens"),
-            interaction_channel=self.sandbox.interaction_channel,
-            system_prompt=self._system_prompt(),
-        )
-        state = harness.run(initial_context)
-        self.state = state
-
-        run_summary_path = self._resolve_run_summary_path(harness)
-        summary_path = self._write_summary(topic, run_summary_path)
-        artifacts = list(self.state.artifacts)
+        summary_path = self._write_summary(topic)
         self.last_result = GeneralResult(
             topic=topic,
             summary_path=summary_path,
-            run_summary_path=run_summary_path,
-            artifacts=artifacts,
+            artifacts=list(self.state.artifacts),
         )
         return self.state
 
@@ -149,43 +132,22 @@ class GeneralAgent(BaseAgent):
             "the task is complete."
         )
 
-    def _resolve_run_summary_path(self, harness: Any) -> Optional[Path]:
-        state_path = harness.get_state_path()
-        if state_path is None:
-            return None
-        summary_path = state_path.parent / "run_summary.json"
-        if summary_path.exists():
-            return summary_path
-        return None
-
-    def _write_summary(self, topic: str, run_summary_path: Optional[Path]) -> Path:
-        safe_topic = "".join(
-            ch if ch.isalnum() or ch in ("-", "_") else "_" for ch in topic.strip()
-        )
-        safe_topic = safe_topic[:80] or "general"
+    def _write_summary(self, topic: str) -> Path:
+        safe_topic = re.sub(r"[^\w\-]", "_", topic.strip())[:80] or "general"
         timestamp = datetime.utcnow().strftime("%Y%m%d-%H%M%S")
-        summary_path = (
-            self.agent_config.agents_folder
-            / f"{self.name}_{safe_topic}_{timestamp}_summary.md"
-        )
+        summary_path = self._artifacts_dir() / f"general_{safe_topic}_{timestamp}_summary.md"
 
-        summary_payload = self._load_run_summary(run_summary_path)
-        status = summary_payload.get("status", self.state.status.value)
-        tools_used = summary_payload.get("tools_used") or {}
-        artifacts = summary_payload.get("artifacts_created") or list(self.state.artifacts)
-        if run_summary_path is not None:
-            run_summary_str = str(run_summary_path)
-            if run_summary_str not in artifacts:
-                artifacts.append(run_summary_str)
-        token_usage = summary_payload.get("token_usage") or {}
+        status = self.state.status.value
+        tools_used: dict[str, int] = {}
+        if self._harness is not None:
+            tools_used = dict(getattr(self._harness, "_tool_usage_counts", {}))
+        artifacts = list(self.state.artifacts)
 
         lines = [
             "# General Agent Summary",
             "",
             f"- Topic: {topic}",
             f"- Status: {status}",
-            f"- Iterations: {token_usage.get('iterations', 'unknown')}",
-            f"- Tokens Used: {token_usage.get('tokens_used', 'unknown')}",
             "",
             "## Tools Used",
         ]
@@ -208,11 +170,3 @@ class GeneralAgent(BaseAgent):
         self.state.add_artifact(str(summary_path))
         self._log(f"Saved general agent summary to {summary_path}")
         return summary_path
-
-    def _load_run_summary(self, run_summary_path: Optional[Path]) -> dict[str, Any]:
-        if run_summary_path is None:
-            return {}
-        try:
-            return json.loads(run_summary_path.read_text(encoding="utf-8"))
-        except Exception:
-            return {}
