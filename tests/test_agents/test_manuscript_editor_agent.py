@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import inspect
 from pathlib import Path
 
 from lsm.agents.models import AgentContext
@@ -79,3 +80,12 @@ def test_manuscript_editor_revises_sections_and_writes_logs(tmp_path: Path) -> N
     assert output_text != manuscript
     assert any(line.endswith("  ") for line in manuscript.splitlines())
     assert not any(line.endswith("  ") for line in output_text.splitlines())
+
+
+def test_manuscript_editor_does_not_directly_instantiate_agent_harness() -> None:
+    import lsm.agents.productivity.manuscript_editor as editor_module
+
+    source = inspect.getsource(editor_module)
+    assert "AgentHarness(" not in source, (
+        "ManuscriptEditorAgent must not directly instantiate AgentHarness; use _run_phase() instead"
+    )

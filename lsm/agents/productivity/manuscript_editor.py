@@ -78,7 +78,7 @@ class ManuscriptEditorAgent(BaseAgent):
         """
         Run the manuscript editing workflow.
         """
-        self._tokens_used = 0
+        self._reset_harness()
         self._stop_logged = False
         self.state.set_status(AgentStatus.RUNNING)
         ensure_agent_workspace(
@@ -192,13 +192,19 @@ class ManuscriptEditorAgent(BaseAgent):
                 "Revise the following manuscript section for clarity and cohesion. "
                 "Return the revised section text only."
             )
-            output = self._run_tool(
-                "query_llm",
-                {"prompt": prompt, "context": text, "mode": "grounded"},
+            result = self._run_phase(
+                direct_tool_calls=[
+                    {
+                        "name": "query_llm",
+                        "arguments": {"prompt": prompt, "context": text, "mode": "grounded"},
+                    }
+                ]
             )
-            revised = str(output).strip()
-            if revised:
-                return revised
+            for tc in result.tool_calls:
+                if tc.get("name") == "query_llm" and "result" in tc:
+                    revised = str(tc["result"]).strip()
+                    if revised:
+                        return revised
         return "\n".join(line.rstrip() for line in text.splitlines()).strip() + "\n"
 
     def _available_tools(self) -> set[str]:
@@ -207,28 +213,6 @@ class ManuscriptEditorAgent(BaseAgent):
             for item in self._get_tool_definitions(self.tool_registry)
             if str(item.get("name", "")).strip()
         }
-
-    def _run_tool(self, tool_name: str, args: Dict[str, Any]) -> str:
-        if self._handle_stop_request():
-            return ""
-        try:
-            tool = self.tool_registry.lookup(tool_name)
-        except KeyError:
-            self._log(f"Skipping unknown tool '{tool_name}'.")
-            return ""
-        try:
-            output = self.sandbox.execute(tool, args)
-            self._consume_tokens(output)
-            self._log(
-                output,
-                actor="tool",
-                action=tool_name,
-                action_arguments=args,
-            )
-            return output
-        except Exception as exc:
-            self._log(f"Tool '{tool_name}' failed: {exc}")
-            return ""
 
     def _format_revision_log(
         self,
@@ -259,4 +243,4 @@ class ManuscriptEditorAgent(BaseAgent):
         )
         safe_name = safe_name[:80] or "manuscript"
         timestamp = datetime.utcnow().strftime("%Y%m%d-%H%M%S")
-        return self.agent_config.agents_folder / f"{self.name}_{safe_name}_{timestamp}"
+        return self._artifacts_dir() / f"{safe_name}_{timestamp}"
