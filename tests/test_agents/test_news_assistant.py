@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+import inspect
 import json
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import List
+
+import pytest
 
 from lsm.agents.assistants.news_assistant import NewsAssistantAgent
 from lsm.agents.models import AgentContext
@@ -157,3 +160,46 @@ def test_news_assistant_aggregates_sources(tmp_path: Path) -> None:
     markdown = agent.last_result.summary_path.read_text(encoding="utf-8")
     assert "News Briefing" in markdown
     assert "Top Stories" in markdown
+
+
+def test_news_assistant_output_in_artifacts_dir(tmp_path: Path) -> None:
+    now = datetime(2024, 3, 2, 12, 0, 0)
+    provider = StubNewsProvider(name="news", results=[])
+    config = build_config_from_raw(_base_raw(tmp_path), tmp_path / "config.json")
+    registry = ToolRegistry()
+    sandbox = ToolSandbox(config.agents.sandbox)
+    agent = NewsAssistantAgent(
+        config.llm, registry, sandbox, config.agents,
+        agent_overrides={"provider_instances": [provider], "now": now.isoformat()},
+    )
+    agent.run(AgentContext(messages=[{"role": "user", "content": "News summary"}]))
+    assert agent.last_result is not None
+    assert agent.last_result.summary_path.parent.name == "artifacts"
+    assert agent.last_result.summary_json_path.parent.name == "artifacts"
+
+
+def test_news_assistant_has_no_tokens_used_attribute(tmp_path: Path) -> None:
+    now = datetime(2024, 3, 2, 12, 0, 0)
+    provider = StubNewsProvider(name="news", results=[])
+    config = build_config_from_raw(_base_raw(tmp_path), tmp_path / "config.json")
+    registry = ToolRegistry()
+    sandbox = ToolSandbox(config.agents.sandbox)
+    agent = NewsAssistantAgent(
+        config.llm, registry, sandbox, config.agents,
+        agent_overrides={"provider_instances": [provider], "now": now.isoformat()},
+    )
+    agent.run(AgentContext(messages=[{"role": "user", "content": "News summary"}]))
+
+    with pytest.raises(AttributeError):
+        _ = agent._tokens_used  # noqa: SLF001
+
+
+# ---------------------------------------------------------------------------
+# Source-inspection tests
+# ---------------------------------------------------------------------------
+
+def test_news_assistant_does_not_directly_instantiate_agent_harness() -> None:
+    import lsm.agents.assistants.news_assistant as news_module
+
+    source = inspect.getsource(news_module)
+    assert "AgentHarness(" not in source

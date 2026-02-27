@@ -71,7 +71,7 @@ class NewsAssistantAgent(BaseAgent):
         self.agent_overrides = agent_overrides or {}
 
     def run(self, initial_context: AgentContext) -> Any:
-        self._tokens_used = 0
+        self._reset_harness()
         self._stop_logged = False
         self.state.set_status(AgentStatus.RUNNING)
         ensure_agent_workspace(
@@ -86,7 +86,7 @@ class NewsAssistantAgent(BaseAgent):
         providers = self._resolve_providers(request)
         payload = self._build_news_summary(providers, request)
 
-        run_dir = self._resolve_output_dir(topic, initial_context)
+        run_dir = self._artifacts_dir()
         run_dir.mkdir(parents=True, exist_ok=True)
         summary_json_path = run_dir / "news_summary.json"
         summary_json_path.write_text(
@@ -117,17 +117,6 @@ class NewsAssistantAgent(BaseAgent):
                 if topic:
                     return topic
         return "News Summary"
-
-    def _resolve_output_dir(self, topic: str, initial_context: AgentContext) -> Path:
-        workspace = str(initial_context.run_workspace or "").strip()
-        if workspace:
-            return Path(workspace)
-        safe_topic = "".join(
-            ch if ch.isalnum() or ch in ("-", "_") else "_" for ch in topic.strip()
-        )
-        safe_topic = safe_topic[:80] or "news_assistant"
-        timestamp = datetime.utcnow().strftime("%Y%m%d-%H%M%S")
-        return self.agent_config.agents_folder / f"{self.name}_{safe_topic}_{timestamp}"
 
     def _parse_request(self, context: AgentContext) -> Dict[str, Any]:
         payload = self._extract_payload(context)
