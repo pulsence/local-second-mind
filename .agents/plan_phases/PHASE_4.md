@@ -2,6 +2,7 @@
 
 **Plan**: [PLAN.md](../docs/PLAN.md)
 **Version**: 0.7.1
+**Status**: Complete
 
 Migrates `GeneralAgent`, `LibrarianAgent`, and `ManuscriptEditorAgent` from direct
 `AgentHarness` instantiation to `self._run_phase()`. These agents have a single-phase pattern

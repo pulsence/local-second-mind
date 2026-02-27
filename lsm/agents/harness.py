@@ -394,6 +394,19 @@ class AgentHarness:
             self._consume_tokens(raw_response)
             tool_response = self._parse_tool_response(raw_response)
 
+            self._append_log(
+                AgentLogEntry(
+                    timestamp=datetime.utcnow(),
+                    actor="llm",
+                    provider_name=llm_provider.name,
+                    model_name=llm_provider.model,
+                    content=tool_response.response,
+                    action=tool_response.action,
+                    action_arguments=tool_response.action_arguments,
+                    raw_response=str(raw_response),
+                )
+            )
+
             history.append({"role": "assistant", "content": tool_response.response})
 
             action = (tool_response.action or "").strip()
@@ -450,6 +463,16 @@ class AgentHarness:
             self._track_artifacts_from_sandbox()
             self._consume_tokens(tool_output)
             redacted_tool_output = redact_secrets(tool_output)
+
+            self._append_log(
+                AgentLogEntry(
+                    timestamp=datetime.utcnow(),
+                    actor="tool",
+                    content=redacted_tool_output,
+                    action=action,
+                    action_arguments=tool_response.action_arguments,
+                )
+            )
 
             tool_calls_accumulated.append({
                 "name": action,

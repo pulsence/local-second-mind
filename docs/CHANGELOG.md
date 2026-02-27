@@ -22,6 +22,8 @@ All notable changes to Local Second Mind are documented here.
 - `InteractionChannel.post_request()` now uses a polling loop with two-phase timeout logic instead of a single `event.wait()` call.
 - `_acknowledged_interaction_ids` tracking in TUI Agents screen to prevent duplicate acknowledgment signals.
 - Replaced `query_embeddings` tool with `query_knowledge_base` tool that uses the full query pipeline (embedding search + reranking + LLM synthesis).
+- `AgentHarness.run_bounded()` now logs LLM responses and tool executions to `state.log_entries` for consistency with the full `run()` method.
+- `GeneralAgent`, `LibrarianAgent`, and `ManuscriptEditorAgent` migrated from direct `AgentHarness` instantiation to `self._run_phase()`. File output paths updated to use `self._artifacts_dir()` workspace accessor.
 
 ### Removed
 
