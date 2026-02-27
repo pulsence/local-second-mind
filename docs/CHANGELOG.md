@@ -24,6 +24,9 @@ All notable changes to Local Second Mind are documented here.
 - Replaced `query_embeddings` tool with `query_knowledge_base` tool that uses the full query pipeline (embedding search + reranking + LLM synthesis).
 - `AgentHarness.run_bounded()` now logs LLM responses and tool executions to `state.log_entries` for consistency with the full `run()` method.
 - `GeneralAgent`, `LibrarianAgent`, and `ManuscriptEditorAgent` migrated from direct `AgentHarness` instantiation to `self._run_phase()`. File output paths updated to use `self._artifacts_dir()` workspace accessor.
+- `ResearchAgent` migrated to `_run_phase()`: per-subtopic `context_label` usage, `query_knowledge_base` integration in the RESEARCH phase, improved subtopic and suggestion logging (names appear in logs, not just counts), and artifact output via `_artifacts_dir()`.
+- `SynthesisAgent` migrated to `_run_phase()`: three-phase workflow (PLAN → EVIDENCE → SYNTHESIZE) via `_run_phase()`, file output via `_artifacts_dir()`.
+- `CuratorAgent` migrated to `_run_phase()`: scope selection and recommendation generation use `_run_phase()` instead of direct `provider.synthesize()` calls; `CURATOR_SYSTEM_PROMPT` constant added; manual token tracking removed.
 
 ### Removed
 

@@ -13,7 +13,7 @@
 | 2 | AgentHarness and BaseAgent Infrastructure | [PHASE_2.md](../plan_phases/PHASE_2.md) | Complete |
 | 3 | query_knowledge_base Tool | [PHASE_3.md](../plan_phases/PHASE_3.md) | Complete |
 | 4 | Simple Agent Migration | [PHASE_4.md](../plan_phases/PHASE_4.md) | Complete |
-| 5 | Academic Agents Migration | [PHASE_5.md](../plan_phases/PHASE_5.md) | |
+| 5 | Academic Agents Migration | [PHASE_5.md](../plan_phases/PHASE_5.md) | Complete |
 | 6 | Remaining Agent Migration | [PHASE_6.md](../plan_phases/PHASE_6.md) | |
 | 7 | query_remote Tool Redesign | [PHASE_7.md](../plan_phases/PHASE_7.md) | |
 | 8 | Final Code Review and Release | [PHASE_8.md](../plan_phases/PHASE_8.md) | |

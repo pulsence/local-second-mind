@@ -428,15 +428,22 @@ Each run also emits a summary artifact:
 
 ## Research Agent
 
-The `research` agent decomposes a topic, queries available sources/tools, iteratively synthesizes findings, and writes structured output.
+The `research` agent decomposes a topic into subtopics, collects findings from the local knowledge base per subtopic, synthesizes a structured outline, and self-reviews the result.
 
 Use when you need multi-step retrieval + synthesis rather than a single query turn.
 
-Research grounding behavior:
+Workflow phases:
 
-- Builds a `Sources:` block with `[S#]` ids from gathered evidence.
-- Prompts the LLM to cite sources in the response.
-- If no sources are available, returns a "No sources available" response without calling the LLM.
+1. **DECOMPOSE** — LLM returns a JSON array of focused subtopics.
+2. **RESEARCH** (per subtopic) — `query_knowledge_base` is called to gather evidence; each subtopic runs in its own named `context_label` so findings stay isolated.
+3. **SYNTHESIZE** — collected findings are assembled into a structured markdown outline (`# Research Outline: <topic>`); runs in the primary context (`context_label=None`).
+4. **REVIEW** — LLM assesses the outline and returns `{"sufficient": bool, "suggestions": [...]}`.
+
+Observability:
+- Subtopic names (not just counts) appear in iteration log entries.
+- Per-subtopic "Collecting findings for subtopic: …" log entries are emitted.
+- Review suggestions are logged with names when present.
+- Artifact written to `_artifacts_dir()` with timestamped filename.
 
 ## Writing Agent
 
@@ -453,6 +460,14 @@ The `synthesis` agent selects scope, gathers candidate sources, synthesizes comp
 
 Use when you need concise cross-document distillation with explicit source coverage.
 
+Workflow phases (all via `_run_phase()`):
+
+1. **PLAN** — LLM determines scope, evidence-gathering query, target format, and length.
+2. **EVIDENCE** — LLM uses available tools (`read_folder`, `query_knowledge_base`, `extract_snippets`, `source_map`, `read_file`) to gather evidence.
+3. **SYNTHESIZE** — LLM produces the final markdown synthesis, tightens for concision, and verifies coverage.
+
+Output goes to `_artifacts_dir()` (or `run_workspace` from context when set).
+
 ## Curator Agent
 
 The `curator` agent inventories files, collects metadata, detects exact and near-duplicates, applies staleness/quality heuristics, and writes:
@@ -460,6 +475,13 @@ The `curator` agent inventories files, collects metadata, detects exact and near
 - `curation_report.md`
 
 Use when you want actionable maintenance recommendations for corpus quality.
+
+Workflow phases (all via `_run_phase()`):
+
+1. **Scope selection** — LLM returns JSON scope params (`scope_path`, `stale_days`, `near_duplicate_threshold`, `top_near_duplicates`).
+2. **Inventory + metadata** — tool-only phases using `read_folder`, `file_metadata`, `hash_file`, `similarity_search`, `query_knowledge_base`.
+3. **Heuristics** — staleness, tiny/empty file, placeholder-quality signals applied in Python.
+4. **Recommendations** — LLM produces a JSON array of actionable recommendations given the curation context.
 
 Curator also supports memory distillation mode via `--mode memory` in the topic (or `agent_configs.curator.mode=memory`), which scans recent `run_summary.json` files and writes:
 
