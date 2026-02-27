@@ -4,20 +4,28 @@ Synthesis agent implementation.
 
 from __future__ import annotations
 
-import json
 from dataclasses import dataclass
-from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from lsm.config.models import AgentConfig, LLMRegistryConfig
-from lsm.providers.factory import create_provider
 
 from ..base import AgentStatus, BaseAgent
 from ..models import AgentContext
+from ..phase import PhaseResult
 from ..tools.base import ToolRegistry
 from ..tools.sandbox import ToolSandbox
 from ..workspace import ensure_agent_workspace
+
+SYNTHESIS_SYSTEM_PROMPT = (
+    "You are a synthesis agent. Your workflow has three phases: "
+    "PLAN (determine scope: query, format bullets/outline/narrative/qa, and target length), "
+    "EVIDENCE (use tools to gather relevant information: read_folder, query_knowledge_base, "
+    "extract_snippets, source_map, read_file), and "
+    "SYNTHESIZE (produce a concise grounded markdown synthesis, tighten it for concision, "
+    "and verify that it covers the core evidence). "
+    "Follow phase instructions carefully and output in the format requested."
+)
 
 
 @dataclass
@@ -88,7 +96,7 @@ class SynthesisAgent(BaseAgent):
         Returns:
             Agent state after execution.
         """
-        self._tokens_used = 0
+        self._reset_harness()
         self._stop_logged = False
         self.state.set_status(AgentStatus.RUNNING)
         ensure_agent_workspace(
@@ -99,43 +107,60 @@ class SynthesisAgent(BaseAgent):
         topic = self._extract_topic(initial_context)
         self.state.current_task = f"Synthesizing: {topic}"
 
-        provider = create_provider(self._resolve_llm_config(self.llm_registry))
-        scope = self._select_scope(provider, topic)
-        candidate_paths = self._collect_candidate_sources(scope)
-        evidence = self._retrieve_evidence(scope, candidate_paths)
-
-        draft = ""
-        tightened = ""
-        coverage: Dict[str, Any] = {
-            "sufficient": True,
-            "coverage_notes": [],
-            "missing_topics": [],
-        }
-        if not self._is_stop_requested():
-            draft = self._synthesize(provider, topic, scope, evidence)
-        if not self._is_stop_requested():
-            tightened = self._tighten(provider, topic, scope, draft)
-        if not self._is_stop_requested():
-            coverage = self._coverage_check(provider, topic, scope, evidence, tightened)
-        if self._handle_stop_request():
-            tightened = tightened or draft or (
-                f"# Synthesis: {topic}\n\nRun stopped before full completion.\n"
-            )
-        final_markdown = self._apply_coverage_notes(tightened, coverage)
-        source_map_markdown = self._build_source_map_markdown(
-            evidence.get("source_map", {})
+        # Phase 1 — PLAN: LLM determines scope and evidence strategy
+        self._run_phase(
+            system_prompt=SYNTHESIS_SYSTEM_PROMPT,
+            user_message=(
+                f"Phase: PLAN. Topic: '{topic}'. "
+                "Determine the synthesis scope, query, target format "
+                "(bullets/outline/narrative/qa), and target length in words. "
+                "Think through your evidence-gathering approach."
+            ),
+            tool_names=[],
+            max_iterations=1,
         )
+
+        # Phase 2 — EVIDENCE: LLM gathers evidence using available tools
+        evidence_result = self._run_phase(
+            user_message=(
+                f"Phase: EVIDENCE. Topic: '{topic}'. "
+                "Use the available tools (read_folder, query_knowledge_base, "
+                "extract_snippets, source_map, read_file) to gather relevant "
+                "evidence for synthesis."
+            ),
+            tool_names=None,  # use all allowed tools from harness allowlist
+            max_iterations=self.max_iterations,
+        )
+
+        # Phase 3 — SYNTHESIZE + TIGHTEN + COVERAGE CHECK
+        synthesize_result = self._run_phase(
+            user_message=(
+                f"Phase: SYNTHESIZE. Topic: '{topic}'. "
+                "Based on the evidence gathered above, produce a concise grounded "
+                "synthesis in markdown. "
+                "Tighten it for concision while preserving factual grounding. "
+                "Verify that it covers the core evidence and note any gaps. "
+                "Output the final synthesis markdown only."
+            ),
+            tool_names=[],
+            max_iterations=3,
+        )
+
+        synthesis_markdown = synthesize_result.final_text or (
+            f"# Synthesis: {topic}\n\nNo content generated.\n"
+        )
+        source_map_markdown = self._extract_source_map_markdown(evidence_result)
 
         output_path, source_map_path = self._save_outputs(
             topic=topic,
-            synthesis_markdown=final_markdown,
+            synthesis_markdown=synthesis_markdown,
             source_map_markdown=source_map_markdown,
             initial_context=initial_context,
         )
         log_path = self._save_log()
         self.last_result = SynthesisResult(
             topic=topic,
-            synthesis_markdown=final_markdown,
+            synthesis_markdown=synthesis_markdown,
             source_map_markdown=source_map_markdown,
             output_path=output_path,
             source_map_path=source_map_path,
@@ -152,353 +177,14 @@ class SynthesisAgent(BaseAgent):
                     return topic
         return "Untitled Synthesis Topic"
 
-    def _available_tools(self) -> set[str]:
-        return {
-            str(item.get("name", "")).strip()
-            for item in self._get_tool_definitions(self.tool_registry)
-            if str(item.get("name", "")).strip()
-        }
-
-    def _select_scope(self, provider: Any, topic: str) -> Dict[str, Any]:
-        if self._is_stop_requested():
-            return {
-                "query": topic,
-                "target_format": "bullets",
-                "target_length_words": 350,
-                "scope_path": self._default_scope_path(),
-            }
-        default_scope_path = str(
-            self.agent_overrides.get(
-                "scope_path",
-                self._default_scope_path(),
-            )
-        )
-        default_format = str(
-            self.agent_overrides.get("target_format", "bullets")
-        ).strip()
-        default_length = int(self.agent_overrides.get("target_length_words", 350))
-
-        prompt = (
-            "Select synthesis scope and output settings. "
-            "Return strict JSON object with keys: "
-            '{"query":"...","target_format":"bullets|outline|narrative|qa",'
-            '"target_length_words": 200, "scope_hint":"optional path"}'
-        )
-        response = provider.synthesize(prompt, f"Topic:\n{topic}", mode="insight")
-        self._consume_tokens(response)
-        parsed = self._parse_json(response)
-
-        query = topic
-        target_format = default_format
-        target_length_words = default_length
-        scope_path = default_scope_path
-        if isinstance(parsed, dict):
-            parsed_query = str(parsed.get("query", "")).strip()
-            if parsed_query:
-                query = parsed_query
-            parsed_format = str(parsed.get("target_format", "")).strip().lower()
-            if parsed_format:
-                target_format = parsed_format
-            try:
-                parsed_len = int(parsed.get("target_length_words", target_length_words))
-                target_length_words = parsed_len
-            except (TypeError, ValueError):
-                pass
-            scope_hint = str(parsed.get("scope_hint", "")).strip()
-            if scope_hint and "scope_path" not in self.agent_overrides:
-                scope_path = scope_hint
-
-        if target_format not in {"bullets", "outline", "narrative", "qa"}:
-            target_format = "bullets"
-        target_length_words = max(120, min(target_length_words, 1500))
-
-        scope = {
-            "query": query,
-            "target_format": target_format,
-            "target_length_words": target_length_words,
-            "scope_path": scope_path,
-        }
-        self._log(f"Selected synthesis scope: {json.dumps(scope)}")
-        return scope
-
-    def _default_scope_path(self) -> str:
-        if self.sandbox.config.allowed_read_paths:
-            return str(self.sandbox.config.allowed_read_paths[0])
-        return "."
-
-    def _collect_candidate_sources(self, scope: Dict[str, Any]) -> List[str]:
-        if self._is_stop_requested():
-            return []
-        if "read_folder" not in self._available_tools():
-            return []
-        args = {"path": str(scope.get("scope_path", ".")), "recursive": True}
-        output = self._run_tool("read_folder", args)
-        parsed = self._parse_json(output)
-        if not isinstance(parsed, list):
-            return []
-
-        allowed_exts = {".txt", ".md", ".rst", ".pdf", ".docx", ".html", ".htm"}
-        candidates: list[str] = []
-        for item in parsed:
-            if self._is_stop_requested():
-                break
-            if not isinstance(item, dict):
-                continue
-            if bool(item.get("is_dir", False)):
-                continue
-            path = str(item.get("path", "")).strip()
-            if not path:
-                continue
-            ext = Path(path).suffix.lower()
-            if ext and ext not in allowed_exts:
-                continue
-            if path not in candidates:
-                candidates.append(path)
-            if len(candidates) >= 40:
-                break
-
-        self._log(f"Collected {len(candidates)} candidate source paths.")
-        return candidates
-
-    def _retrieve_evidence(
-        self,
-        scope: Dict[str, Any],
-        candidate_paths: List[str],
-    ) -> Dict[str, Any]:
-        if self._is_stop_requested():
-            return {
-                "candidates": [],
-                "snippets": [],
-                "source_map": {},
-            }
-        available = self._available_tools()
-        query = str(scope.get("query", "")).strip()
-        evidence: Dict[str, Any] = {
-            "candidates": [],
-            "snippets": [],
-            "source_map": {},
-        }
-
-        if query and "query_knowledge_base" in available:
-            query_args = {"query": query, "top_k": 10, "max_chars": 700}
-            output = self._run_tool("query_knowledge_base", query_args)
-            parsed = self._parse_json(output)
-            if isinstance(parsed, dict):
-                evidence["candidates"] = parsed.get("candidates", [])
-
-        if self._is_stop_requested():
-            return evidence
-        snippet_paths = list(candidate_paths[:8])
-        if not snippet_paths:
-            snippet_paths = self._extract_source_paths(evidence["candidates"])[:8]
-
-        if query and snippet_paths and "extract_snippets" in available:
-            snippet_args = {
-                "query": query,
-                "paths": snippet_paths,
-                "max_snippets": 10,
-                "max_chars_per_snippet": 500,
-            }
-            output = self._run_tool("extract_snippets", snippet_args)
-            parsed = self._parse_json(output)
-            if isinstance(parsed, list):
-                evidence["snippets"] = parsed
-
-        if not evidence["snippets"] and "read_file" in available:
-            fallback_snippets: list[Dict[str, Any]] = []
-            for path in snippet_paths[:3]:
-                if self._is_stop_requested():
-                    break
-                text = self._run_tool("read_file", {"path": path})
-                if not text:
-                    continue
-                fallback_snippets.append(
-                    {
-                        "source_path": path,
-                        "snippet": text[:500],
-                        "score": 0.0,
-                    }
-                )
-            evidence["snippets"] = fallback_snippets
-
-        if "source_map" in available:
-            source_map_input = evidence["snippets"] or evidence["candidates"]
-            if isinstance(source_map_input, list) and source_map_input:
-                source_map_args = {
-                    "evidence": source_map_input,
-                    "max_depth": 2,
-                }
-                output = self._run_tool("source_map", source_map_args)
-                parsed = self._parse_json(output)
+    def _extract_source_map_markdown(self, evidence_result: PhaseResult) -> str:
+        """Build source_map markdown from the source_map tool call in the evidence phase."""
+        for tool_call in evidence_result.tool_calls:
+            if tool_call.get("name") == "source_map":
+                parsed = self._parse_json(tool_call.get("result", ""))
                 if isinstance(parsed, dict):
-                    evidence["source_map"] = parsed
-
-        return evidence
-
-    def _extract_source_paths(self, candidates: List[Dict[str, Any]]) -> List[str]:
-        paths: list[str] = []
-        for item in candidates:
-            if not isinstance(item, dict):
-                continue
-            metadata = item.get("metadata")
-            source_path = item.get("source_path")
-            if isinstance(metadata, dict):
-                source_path = metadata.get("source_path", source_path)
-            normalized = str(source_path or "").strip()
-            if normalized and normalized not in paths:
-                paths.append(normalized)
-        return paths
-
-    def _run_tool(self, tool_name: str, args: Dict[str, Any]) -> str:
-        if self._handle_stop_request():
-            return ""
-        try:
-            tool = self.tool_registry.lookup(tool_name)
-        except KeyError:
-            self._log(f"Skipping unknown tool '{tool_name}'.")
-            return ""
-        try:
-            output = self.sandbox.execute(tool, args)
-            self._consume_tokens(output)
-            self._log(
-                output,
-                actor="tool",
-                action=tool_name,
-                action_arguments=args,
-            )
-            return output
-        except Exception as exc:
-            self._log(f"Tool '{tool_name}' failed: {exc}")
-            return ""
-
-    def _synthesize(
-        self,
-        provider: Any,
-        topic: str,
-        scope: Dict[str, Any],
-        evidence: Dict[str, Any],
-    ) -> str:
-        if self._is_stop_requested():
-            return f"# Synthesis: {topic}\n\nRun stopped before synthesis.\n"
-        target_format = str(scope.get("target_format", "bullets"))
-        target_length_words = int(scope.get("target_length_words", 350))
-        prompt = (
-            "Synthesize grounded output in markdown. "
-            f"Target format: {target_format}. "
-            f"Target length: about {target_length_words} words. "
-            "Use only evidence provided in context."
-        )
-        context = json.dumps(
-            {
-                "topic": topic,
-                "query": scope.get("query"),
-                "evidence": evidence,
-            },
-            indent=2,
-        )
-        response = provider.synthesize(prompt, context, mode="grounded")
-        self._consume_tokens(response)
-        text = str(response).strip()
-        if text:
-            return text
-        return (
-            f"# Synthesis: {topic}\n\n"
-            "No grounded synthesis could be generated from available evidence.\n"
-        )
-
-    def _tighten(
-        self,
-        provider: Any,
-        topic: str,
-        scope: Dict[str, Any],
-        synthesis: str,
-    ) -> str:
-        if self._is_stop_requested():
-            return synthesis or f"# Synthesis: {topic}\n\nRun stopped before tightening.\n"
-        prompt = (
-            "Tighten the synthesis for concision while preserving factual grounding. "
-            "Return markdown only."
-        )
-        context = json.dumps(
-            {
-                "topic": topic,
-                "target_format": scope.get("target_format"),
-                "target_length_words": scope.get("target_length_words"),
-                "draft": synthesis,
-            },
-            indent=2,
-        )
-        response = provider.synthesize(prompt, context, mode="grounded")
-        self._consume_tokens(response)
-        tightened = str(response).strip()
-        return tightened or synthesis
-
-    def _coverage_check(
-        self,
-        provider: Any,
-        topic: str,
-        scope: Dict[str, Any],
-        evidence: Dict[str, Any],
-        synthesis: str,
-    ) -> Dict[str, Any]:
-        if self._is_stop_requested():
-            return {"sufficient": True, "coverage_notes": [], "missing_topics": []}
-        prompt = (
-            "Assess whether the synthesis covers the core evidence. "
-            "Return JSON object with keys: "
-            '{"sufficient": bool, "coverage_notes": ["..."], "missing_topics": ["..."]}.'
-        )
-        context = json.dumps(
-            {
-                "topic": topic,
-                "query": scope.get("query"),
-                "evidence": evidence,
-                "synthesis": synthesis,
-            },
-            indent=2,
-        )
-        response = provider.synthesize(prompt, context, mode="insight")
-        self._consume_tokens(response)
-        parsed = self._parse_json(response)
-        if isinstance(parsed, dict):
-            sufficient = bool(parsed.get("sufficient", False))
-            coverage_notes = parsed.get("coverage_notes")
-            missing_topics = parsed.get("missing_topics")
-            return {
-                "sufficient": sufficient,
-                "coverage_notes": coverage_notes if isinstance(coverage_notes, list) else [],
-                "missing_topics": missing_topics if isinstance(missing_topics, list) else [],
-            }
-        return {"sufficient": True, "coverage_notes": [], "missing_topics": []}
-
-    def _apply_coverage_notes(self, synthesis: str, coverage: Dict[str, Any]) -> str:
-        if coverage.get("sufficient", False):
-            return synthesis
-        coverage_notes = [
-            str(item).strip()
-            for item in coverage.get("coverage_notes", [])
-            if str(item).strip()
-        ]
-        missing_topics = [
-            str(item).strip()
-            for item in coverage.get("missing_topics", [])
-            if str(item).strip()
-        ]
-        if not coverage_notes and not missing_topics:
-            return synthesis
-
-        lines = [synthesis.rstrip(), "", "## Coverage Notes", ""]
-        if coverage_notes:
-            lines.append("### Notes")
-            lines.append("")
-            lines.extend([f"- {note}" for note in coverage_notes])
-            lines.append("")
-        if missing_topics:
-            lines.append("### Missing Topics")
-            lines.append("")
-            lines.extend([f"- {topic}" for topic in missing_topics])
-            lines.append("")
-        return "\n".join(lines).strip() + "\n"
+                    return self._build_source_map_markdown(parsed)
+        return self._build_source_map_markdown({})
 
     def _build_source_map_markdown(self, source_map: Any) -> str:
         lines = ["# Source Map", ""]
@@ -543,7 +229,7 @@ class SynthesisAgent(BaseAgent):
         source_map_markdown: str,
         initial_context: AgentContext,
     ) -> tuple[Path, Path]:
-        run_dir = self._resolve_output_dir(topic, initial_context)
+        run_dir = self._resolve_output_dir(initial_context)
         run_dir.mkdir(parents=True, exist_ok=True)
 
         synthesis_path = run_dir / "synthesis.md"
@@ -556,15 +242,8 @@ class SynthesisAgent(BaseAgent):
         self._log(f"Saved synthesis outputs to {run_dir}")
         return synthesis_path, source_map_path
 
-    def _resolve_output_dir(self, topic: str, initial_context: AgentContext) -> Path:
+    def _resolve_output_dir(self, initial_context: AgentContext) -> Path:
         workspace = str(initial_context.run_workspace or "").strip()
         if workspace:
             return Path(workspace)
-
-        safe_topic = "".join(
-            ch if ch.isalnum() or ch in ("-", "_") else "_"
-            for ch in topic.strip()
-        )
-        safe_topic = safe_topic[:80] or "synthesis"
-        timestamp = datetime.utcnow().strftime("%Y%m%d-%H%M%S")
-        return self.agent_config.agents_folder / f"{self.name}_{safe_topic}_{timestamp}"
+        return self._artifacts_dir()

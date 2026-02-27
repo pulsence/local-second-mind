@@ -1,146 +1,18 @@
 from __future__ import annotations
 
+import inspect
 import json
 from pathlib import Path
+from unittest.mock import patch
 
+from lsm.agents.base import BaseAgent
 from lsm.agents.factory import create_agent
 from lsm.agents.models import AgentContext
 from lsm.agents.academic import SynthesisAgent
-from lsm.agents.tools.base import BaseTool, ToolRegistry
+from lsm.agents.phase import PhaseResult
+from lsm.agents.tools.base import ToolRegistry
 from lsm.agents.tools.sandbox import ToolSandbox
 from lsm.config.loader import build_config_from_raw
-
-
-class ReadFolderStubTool(BaseTool):
-    name = "read_folder"
-    description = "Stub folder listing tool."
-    input_schema = {
-        "type": "object",
-        "properties": {
-            "path": {"type": "string"},
-            "recursive": {"type": "boolean"},
-        },
-        "required": ["path"],
-    }
-
-    def execute(self, args: dict) -> str:
-        root = Path(str(args.get("path", ".")).strip())
-        return json.dumps(
-            [
-                {
-                    "name": "a.md",
-                    "path": str(root / "notes" / "a.md"),
-                    "is_dir": False,
-                },
-                {
-                    "name": "b.md",
-                    "path": str(root / "notes" / "b.md"),
-                    "is_dir": False,
-                },
-            ]
-        )
-
-
-class QueryKnowledgeBaseStubTool(BaseTool):
-    name = "query_knowledge_base"
-    description = "Stub knowledge base query tool."
-    input_schema = {
-        "type": "object",
-        "properties": {
-            "query": {"type": "string"},
-            "top_k": {"type": "integer"},
-            "max_chars": {"type": "integer"},
-        },
-        "required": ["query"],
-    }
-
-    def execute(self, args: dict) -> str:
-        query = str(args.get("query", ""))
-        return json.dumps(
-            {
-                "answer": f"Synthesized answer for {query}",
-                "sources_display": "notes/a.md, notes/b.md",
-                "candidates": [
-                    {
-                        "id": "hit-1",
-                        "text": f"Primary evidence for {query}",
-                        "metadata": {"source_path": "notes/a.md"},
-                        "score": 0.89,
-                    },
-                    {
-                        "id": "hit-2",
-                        "text": f"Secondary evidence for {query}",
-                        "metadata": {"source_path": "notes/b.md"},
-                        "score": 0.81,
-                    },
-                ],
-            }
-        )
-
-
-class ExtractSnippetsStubTool(BaseTool):
-    name = "extract_snippets"
-    description = "Stub snippet extraction."
-    input_schema = {
-        "type": "object",
-        "properties": {
-            "query": {"type": "string"},
-            "paths": {"type": "array"},
-            "max_snippets": {"type": "integer"},
-            "max_chars_per_snippet": {"type": "integer"},
-        },
-        "required": ["query", "paths"],
-    }
-
-    def execute(self, args: dict) -> str:
-        query = str(args.get("query", ""))
-        paths = args.get("paths") or []
-        payload = []
-        for path in paths:
-            payload.append(
-                {
-                    "source_path": str(path),
-                    "snippet": f"Snippet for {query} from {path}",
-                    "score": 0.75,
-                }
-            )
-        return json.dumps(payload)
-
-
-class SourceMapStubTool(BaseTool):
-    name = "source_map"
-    description = "Stub source map tool."
-    input_schema = {
-        "type": "object",
-        "properties": {
-            "evidence": {"type": "array"},
-            "max_depth": {"type": "integer"},
-        },
-        "required": ["evidence"],
-    }
-
-    def execute(self, args: dict) -> str:
-        evidence = args.get("evidence") or []
-        output: dict[str, dict[str, object]] = {}
-        for item in evidence:
-            path = str(item.get("source_path", "unknown"))
-            output.setdefault(path, {"count": 0, "outline": []})
-            output[path]["count"] = int(output[path]["count"]) + 1
-        return json.dumps(output)
-
-
-class ReadFileStubTool(BaseTool):
-    name = "read_file"
-    description = "Stub read file tool."
-    input_schema = {
-        "type": "object",
-        "properties": {"path": {"type": "string"}},
-        "required": ["path"],
-    }
-
-    def execute(self, args: dict) -> str:
-        _ = args
-        return "fallback file snippet"
 
 
 def _base_raw(tmp_path: Path) -> dict:
@@ -179,65 +51,49 @@ def _base_raw(tmp_path: Path) -> dict:
     }
 
 
-def _register_tools(registry: ToolRegistry) -> None:
-    registry.register(ReadFolderStubTool())
-    registry.register(QueryKnowledgeBaseStubTool())
-    registry.register(ExtractSnippetsStubTool())
-    registry.register(SourceMapStubTool())
-    registry.register(ReadFileStubTool())
-
-
-def test_synthesis_agent_runs_and_saves_outputs(monkeypatch, tmp_path: Path) -> None:
-    class FakeProvider:
-        name = "fake"
-        model = "fake-model"
-
-        def synthesize(self, question, context, mode="insight", **kwargs):
-            _ = context, mode, kwargs
-            lower = str(question).lower()
-            if "select synthesis scope and output settings" in lower:
-                return json.dumps(
-                    {
-                        "query": "Eucharistic causality",
-                        "target_format": "outline",
-                        "target_length_words": 220,
-                    }
-                )
-            if "synthesize grounded output in markdown" in lower:
-                return "# Synthesis Draft\n\n- Point A\n- Point B\n"
-            if "tighten the synthesis" in lower:
-                return "# Synthesis\n\n- Final point A\n- Final point B\n"
-            if "assess whether the synthesis covers the core evidence" in lower:
-                return json.dumps(
-                    {
-                        "sufficient": True,
-                        "coverage_notes": [],
-                        "missing_topics": [],
-                    }
-                )
-            return "# Synthesis\n\nFallback\n"
-
-    monkeypatch.setattr(
-        "lsm.agents.academic.synthesis.create_provider",
-        lambda cfg: FakeProvider(),
+def _make_result(
+    final_text: str,
+    stop_reason: str = "stop",
+    tool_calls: list | None = None,
+) -> PhaseResult:
+    return PhaseResult(
+        final_text=final_text,
+        tool_calls=tool_calls or [],
+        stop_reason=stop_reason,
     )
 
+
+def _build_agent(tmp_path: Path) -> SynthesisAgent:
     config = build_config_from_raw(_base_raw(tmp_path), tmp_path / "config.json")
     registry = ToolRegistry()
-    _register_tools(registry)
     sandbox = ToolSandbox(config.agents.sandbox)
-    agent = SynthesisAgent(config.llm, registry, sandbox, config.agents)
+    return SynthesisAgent(config.llm, registry, sandbox, config.agents)
 
-    state = agent.run(
-        AgentContext(
-            messages=[
-                {
-                    "role": "user",
-                    "content": "Synthesize Aquinas on Eucharistic causality",
-                }
-            ]
+
+# ---------------------------------------------------------------------------
+# Happy-path tests
+# ---------------------------------------------------------------------------
+
+def test_synthesis_agent_runs_and_saves_outputs(tmp_path: Path) -> None:
+    source_map_data = json.dumps({"notes/a.md": {"count": 1, "outline": []}})
+    agent = _build_agent(tmp_path)
+
+    with patch.object(BaseAgent, "_run_phase", side_effect=[
+        _make_result("Planning done."),                            # PLAN
+        _make_result(                                              # EVIDENCE (with source_map)
+            "Evidence gathered.",
+            tool_calls=[{"name": "source_map", "result": source_map_data}],
+        ),
+        _make_result("# Synthesis\n\n- Final point A\n- Final point B\n"),  # SYNTHESIZE
+    ]):
+        state = agent.run(
+            AgentContext(
+                messages=[
+                    {"role": "user", "content": "Synthesize Aquinas on Eucharistic causality"}
+                ]
+            )
         )
-    )
+
     assert state.status.value == "completed"
     assert agent.last_result is not None
     assert agent.last_result.output_path.exists()
@@ -256,39 +112,99 @@ def test_synthesis_agent_runs_and_saves_outputs(monkeypatch, tmp_path: Path) -> 
     assert saved_log.strip()
 
 
-def test_agent_factory_creates_synthesis_agent(monkeypatch, tmp_path: Path) -> None:
-    class FakeProvider:
-        name = "fake"
-        model = "fake-model"
+def test_synthesis_agent_output_in_artifacts_dir(tmp_path: Path) -> None:
+    agent = _build_agent(tmp_path)
 
-        def synthesize(self, question, context, mode="insight", **kwargs):
-            _ = context, mode, kwargs
-            lower = str(question).lower()
-            if "select synthesis scope and output settings" in lower:
-                return json.dumps(
-                    {
-                        "query": "Factory synthesis",
-                        "target_format": "bullets",
-                        "target_length_words": 180,
-                    }
-                )
-            if "assess whether the synthesis covers the core evidence" in lower:
-                return json.dumps({"sufficient": True, "coverage_notes": [], "missing_topics": []})
-            return "# Synthesis\n\nFactory output\n"
+    with patch.object(BaseAgent, "_run_phase", side_effect=[
+        _make_result("Planning done."),
+        _make_result("Evidence gathered."),
+        _make_result("# Synthesis\n\nContent.\n"),
+    ]):
+        agent.run(AgentContext(messages=[{"role": "user", "content": "Topic"}]))
 
-    monkeypatch.setattr(
-        "lsm.agents.academic.synthesis.create_provider",
-        lambda cfg: FakeProvider(),
-    )
+    assert agent.last_result is not None
+    assert agent.last_result.output_path.parent.name == "artifacts"
+    assert agent.last_result.source_map_path.parent.name == "artifacts"
 
+
+def test_synthesis_agent_source_map_empty_when_tool_not_called(tmp_path: Path) -> None:
+    agent = _build_agent(tmp_path)
+
+    with patch.object(BaseAgent, "_run_phase", side_effect=[
+        _make_result("Planning done."),
+        _make_result("Evidence gathered."),  # no source_map tool call
+        _make_result("# Synthesis\n\nContent.\n"),
+    ]):
+        agent.run(AgentContext(messages=[{"role": "user", "content": "Topic"}]))
+
+    assert agent.last_result is not None
+    source_map_text = agent.last_result.source_map_path.read_text(encoding="utf-8")
+    assert "# Source Map" in source_map_text
+    assert "No source evidence was mapped." in source_map_text
+
+
+def test_synthesis_agent_phases_run_in_correct_order(tmp_path: Path) -> None:
+    agent = _build_agent(tmp_path)
+    phase_messages: list[str] = []
+
+    def capture(**kwargs):
+        phase_messages.append(kwargs.get("user_message", ""))
+        return _make_result("ok")
+
+    with patch.object(BaseAgent, "_run_phase", side_effect=capture):
+        agent.run(AgentContext(messages=[{"role": "user", "content": "Topic"}]))
+
+    assert len(phase_messages) == 3
+    assert "PLAN" in phase_messages[0]
+    assert "EVIDENCE" in phase_messages[1]
+    assert "SYNTHESIZE" in phase_messages[2]
+
+
+# ---------------------------------------------------------------------------
+# Factory test
+# ---------------------------------------------------------------------------
+
+def test_agent_factory_creates_synthesis_agent(tmp_path: Path) -> None:
     config = build_config_from_raw(_base_raw(tmp_path), tmp_path / "config.json")
     registry = ToolRegistry()
-    _register_tools(registry)
     sandbox = ToolSandbox(config.agents.sandbox)
 
     agent = create_agent("synthesis", config.llm, registry, sandbox, config.agents)
     assert isinstance(agent, SynthesisAgent)
-    state = agent.run(
-        AgentContext(messages=[{"role": "user", "content": "Factory synthesis topic"}])
-    )
+
+    with patch.object(BaseAgent, "_run_phase", side_effect=[
+        _make_result("Planning done."),
+        _make_result("Evidence gathered."),
+        _make_result("# Synthesis\n\nFactory output\n"),
+    ]):
+        state = agent.run(
+            AgentContext(messages=[{"role": "user", "content": "Factory synthesis topic"}])
+        )
+
     assert state.status.value == "completed"
+
+
+# ---------------------------------------------------------------------------
+# Source-inspection tests
+# ---------------------------------------------------------------------------
+
+def test_synthesis_agent_does_not_directly_instantiate_agent_harness() -> None:
+    import lsm.agents.academic.synthesis as synthesis_module
+
+    source = inspect.getsource(synthesis_module)
+    assert "AgentHarness(" not in source
+
+
+def test_synthesis_agent_has_no_direct_provider_call() -> None:
+    import lsm.agents.academic.synthesis as synthesis_module
+
+    source = inspect.getsource(synthesis_module)
+    assert "provider.synthesize(" not in source
+    assert "provider.complete(" not in source
+
+
+def test_synthesis_agent_has_no_direct_sandbox_execute_call() -> None:
+    import lsm.agents.academic.synthesis as synthesis_module
+
+    source = inspect.getsource(synthesis_module)
+    assert "sandbox.execute(" not in source
