@@ -1700,6 +1700,7 @@ questions for traceability.
 ## User Feedback:
 - We need to also clarify how the starting prompt is handled. This should be a separate field in QueryRequest and synthesize_context uses the session caches to determine what to do with the prompt.
 - Changes in v0.7.1 and v0.7.2 affect this research plan at several points. Reanalysis in depth the current state of the code base and update the research plan in the light of the current state of the code base and what happened in those versions.
+- The current memories.db for agents also needs to be merged into the single DB (SQLite or PG)
 
 ---
 

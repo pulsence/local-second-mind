@@ -1,7 +1,7 @@
 # v0.7.1 Implementation Plan: Agent Foundation Refinement
 
 **Version**: 0.7.1
-**Research Plan**: [RESEARCH_PLAN.md](./RESEARCH_PLAN.md)
+**Research Plan**: [RESEARCH_PLAN.md](./v_0_7_1_RESEARCH_PLAN.md)
 
 ---
 

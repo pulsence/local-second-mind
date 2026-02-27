@@ -3,6 +3,20 @@
 **The curren plan is for version [0.7.1](.agents/docs/PLAN.md).**
 
 ## v0.7.2: Per Agent Refinement
+### "Interactive" Base Agent Extension
+- Update BaseAgent to handle taking commands, matching the command (either
+  deterministically or using the quick LLM tier) to fixed task, and then running
+  specific tasks, showing results to user, and then waiting for another task command.
+
+### Per Agent Settings
+- Agents right now can store memories, but these are mini-"prompts" that are merged
+  together. Agents also need to be able to save settings. The memories are for LLMs
+  settings are for the programatic Agents themselves.
+  - For Example: The user should be able to save particular email address to be used
+    by the Email Agent which are used to create particular summaries. So the user can
+    specify here are five newsletter email addresses, use them when creating the
+    Daily News summary from my emails.
+
 ### User Defined Agents
 - User should be able to configure a "custom" agent which where they specify which
   agent they are adjusting and then defines the name, category, opening prompt, and
@@ -12,6 +26,14 @@
 ### Research Agent
 - Need to add greater exploration in each phase to bring in a diversity of sources.
 - Need to clarify the role of the other Academic agents
+- Synthesis Agent should be merged into Research Agent
+
+### Writing Editor and Writing Agents
+- These need to be merged into one. Both tasks should be handled
+  by one agent.
+
+### Librarian and Curator Agents
+- These need to be merged into one.
 
 ### Document Analysis Agent
 - Given a document does a deep dive analysis following
@@ -27,14 +49,24 @@
   findings
 
 ### Calendar Assistant
-- Should use LLM to create digest of upcoming events
+- Should have a list of tasks that it can do which the user then selects from:
+  - Summarize recent events
+  - Summarize upcoming events
+  - Add event
+  - Update event
+  - Delete event
 
 ### Email Assistant
-- Should use LLM to create summaries digests of recent emails
-- Have the ability to draft responses to particular emails
+- Should have a list of tasks that it can do which the user then selects from:
+  - Summarize use LLM to create summaries digests of recent emails
+  - Have the ability to draft responses to particular emails
 
 ### General Meta Agent
 - Like General Agent, but can spawn General Agents
+
+## v0.7.3: LLM Refinements
+- Look into how bulk Batch APIs might be used
+- Look into WebSockets for OpenAI Responses API: https://developers.openai.com/api/docs/guides/websocket-mode
 
 ## v0.8.0: Embedding Retrevial Improvments
 
@@ -122,6 +154,8 @@
   successfully migrate in both directions SQLite <-> PG, and Chroma <-> PG
 - Expand performance test suite beyond the TUI startup SLA
 - Ensure there are PDf ingest tests and PDF OCR ingest tests
+- Expand benchmarking test framework to include the tool benchmarking
+  from v0.8.0.
 
 ## v0.10.0: Extra Control Paths
 

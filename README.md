@@ -6,7 +6,7 @@ LSM ingests local documents, builds embeddings, retrieves relevant context, and 
 
 ## Version
 
-`0.7.0`
+`0.7.1`
 
 ## Caveat Emptor
 
@@ -17,16 +17,14 @@ This project is maintained for personal use first.
 - Until `v1.0.0`, breaking changes can happen between releases, especially in configuration schema and interfaces.
 - Pin versions and review `docs/CHANGELOG.md` before upgrading.
 
-## What Is New in 0.7.0
+## What Is New in 0.7.1
 
-- Agent system overhaul: general, librarian, assistant, and manuscript editor agents
-- Meta-agents with parallel task graph planning and `ThreadPoolExecutor` execution engine
-- File graphing system for code, text, PDF, and HTML with graph-aware read/edit tooling
-- 20+ new remote providers: academic (PubMed, SSRN, PhilArchive), cultural heritage, news, and RSS/Atom
-- OAuth2 infrastructure with Gmail, Microsoft Graph, CalDAV, and communication assistant agents
-- OpenRouter provider, MCP host support (`global.mcp_servers`), and tiered LLM config (`llms.tiers`)
-- Native tool-calling for OpenAI, Anthropic, and Gemini providers with prompt-schema fallback
-- Docker runner improvements, WSL2 runner, and sandbox-enforced bash/powershell execution tools
+- Bounded phase execution: `_run_phase()` with multi-context support, tool-only mode, and `PhaseResult` returns
+- All 11 built-in agents migrated to unified `_run_phase()` execution model
+- `query_knowledge_base` tool replacing raw `query_embeddings` (full pipeline: embed + rerank + synthesize)
+- Per-source remote tool isolation: each remote provider registers its own `query_<name>` tool
+- Two-phase interaction timeout with automatic TUI/shell acknowledgment
+- Workspace accessor helpers on `BaseAgent` for consistent path management
 
 ## Install
 
