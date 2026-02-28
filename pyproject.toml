@@ -10,6 +10,7 @@ requires-python = ">=3.10"
 
 # Keep deps unpinned here; your existing environment already has these.
 dependencies = [
+  "sqlite-vec",
   "chromadb",
   "pgvector",
   "psycopg2",
