@@ -59,6 +59,30 @@ class Candidate:
         return self.meta.get("ext", "")
 
     @property
+    def heading_path(self) -> List[str]:
+        """Get normalized heading path from metadata."""
+        raw_value = self.meta.get("heading_path")
+        if raw_value is None:
+            return []
+
+        if isinstance(raw_value, list):
+            return [str(item) for item in raw_value if str(item).strip()]
+
+        if isinstance(raw_value, str):
+            text = raw_value.strip()
+            if not text:
+                return []
+            try:
+                parsed = json.loads(text)
+            except Exception:
+                return [text]
+            if isinstance(parsed, list):
+                return [str(item) for item in parsed if str(item).strip()]
+            return [text]
+
+        return []
+
+    @property
     def relevance(self) -> float:
         """
         Convert distance to relevance score.

@@ -175,19 +175,18 @@ def parse_and_chunk_job(
                 else max_heading_depth
             )
             file_graph = None
-            if intelligent_heading_depth:
-                ext = fp.suffix.lower()
-                try:
-                    if ext == ".md":
-                        file_graph = build_markdown_graph(fp, raw_text)
-                    elif ext in {".html", ".htm"}:
-                        file_graph = build_html_graph(fp, raw_text)
-                    elif ext == ".docx":
-                        file_graph = build_docx_graph(fp, raw_text)
-                    elif ext in {".txt", ".rst"}:
-                        file_graph = build_text_graph(fp, raw_text)
-                except Exception:
-                    file_graph = None
+            ext = fp.suffix.lower()
+            try:
+                if ext == ".md":
+                    file_graph = build_markdown_graph(fp, raw_text)
+                elif ext in {".html", ".htm"}:
+                    file_graph = build_html_graph(fp, raw_text)
+                elif ext == ".docx":
+                    file_graph = build_docx_graph(fp, raw_text)
+                elif ext in {".txt", ".rst"}:
+                    file_graph = build_text_graph(fp, raw_text)
+            except Exception:
+                file_graph = None
 
             # Convert overlap from absolute chars to a ratio for structure chunking
             overlap_ratio = chunk_overlap / chunk_size if chunk_size > 0 else 0.0
@@ -575,6 +574,15 @@ def ingest(
                         # Structure chunking metadata
                         if pos.get("heading") is not None:
                             meta["heading"] = pos["heading"]
+                        if pos.get("heading_path") is not None:
+                            heading_path = pos.get("heading_path")
+                            if isinstance(heading_path, list):
+                                meta["heading_path"] = json.dumps(
+                                    heading_path,
+                                    ensure_ascii=True,
+                                )
+                            elif heading_path:
+                                meta["heading_path"] = str(heading_path)
                         if pos.get("paragraph_index") is not None:
                             meta["paragraph_index"] = pos["paragraph_index"]
                         # Page number tracking

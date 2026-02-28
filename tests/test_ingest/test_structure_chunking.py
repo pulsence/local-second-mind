@@ -7,6 +7,7 @@ sentence preservation, page number mapping, and overlap behaviour.
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pytest
@@ -479,6 +480,27 @@ for knowledge management systems."""
         headings = {c.heading for c in chunks if c.heading}
         assert "Child" in headings
 
+    def test_heading_path_captures_full_hierarchy(self):
+        text = (
+            "# Introduction\n\n"
+            "Intro.\n\n"
+            "## Background\n\n"
+            "Background.\n\n"
+            "### Prior Work\n\n"
+            "Details."
+        )
+        graph = build_markdown_graph(Path("doc.md"), text)
+        chunks = structure_chunk_text(
+            text,
+            chunk_size=5000,
+            overlap=0.0,
+            file_graph=graph,
+        )
+
+        target = next(c for c in chunks if "Details." in c.text)
+        assert target.heading == "Prior Work"
+        assert target.heading_path == ["Introduction", "Background", "Prior Work"]
+
 
 # ------------------------------------------------------------------
 # Real corpus scenarios
@@ -555,6 +577,7 @@ class TestStructuredChunksToPositions:
             StructuredChunk(
                 text="Hello world.",
                 heading="Section A",
+                heading_path=["Top", "Section A"],
                 start_char=0,
                 end_char=12,
                 paragraph_index=0,
@@ -571,9 +594,38 @@ class TestStructuredChunksToPositions:
         assert pos["end_char"] == 12
         assert pos["length"] == 12
         assert pos["heading"] == "Section A"
+        assert pos["heading_path"] == ["Top", "Section A"]
         assert pos["paragraph_index"] == 0
         assert pos["page_start"] == 1
         assert pos["page_end"] == 1
+
+    def test_heading_path_is_json_serializable(self):
+        chunks = [
+            StructuredChunk(
+                text="Chunk",
+                heading="Section",
+                heading_path=["Root", "Section"],
+                start_char=0,
+                end_char=5,
+            ),
+        ]
+        _texts, positions = structured_chunks_to_positions(chunks)
+        payload = json.dumps(positions[0]["heading_path"])
+        assert payload == '[\"Root\", \"Section\"]'
+
+    def test_flat_heading_retained_with_heading_path(self):
+        chunks = [
+            StructuredChunk(
+                text="Chunk",
+                heading="Leaf",
+                heading_path=["Top", "Mid", "Leaf"],
+                start_char=0,
+                end_char=5,
+            ),
+        ]
+        _texts, positions = structured_chunks_to_positions(chunks)
+        assert positions[0]["heading"] == "Leaf"
+        assert positions[0]["heading_path"] == ["Top", "Mid", "Leaf"]
 
     def test_no_heading_or_page(self):
         chunks = [
@@ -821,3 +873,37 @@ class TestPipelineIntegration:
         assert "Root" in headings
         assert "Child A" not in headings
         assert "Child B" not in headings
+
+    def test_parse_and_chunk_job_emits_heading_path_metadata(self, tmp_path):
+        """Pipeline includes heading_path metadata alongside flat heading."""
+        from lsm.ingest.pipeline import parse_and_chunk_job
+
+        md_file = tmp_path / "heading_path.md"
+        md_file.write_text(
+            "# Introduction\n\n"
+            "Intro.\n\n"
+            "## Background\n\n"
+            "Background.\n\n"
+            "### Prior Work\n\n"
+            "Details.",
+            encoding="utf-8",
+        )
+
+        result = parse_and_chunk_job(
+            fp=md_file,
+            source_path=str(md_file),
+            mtime_ns=md_file.stat().st_mtime_ns,
+            size=md_file.stat().st_size,
+            fhash="abc123",
+            had_prev=False,
+            chunk_size=5000,
+            chunk_overlap=0,
+            chunking_strategy="structure",
+        )
+
+        assert result.ok
+        target = next(
+            pos for pos in (result.chunk_positions or [])
+            if pos.get("heading") == "Prior Work"
+        )
+        assert target["heading_path"] == ["Introduction", "Background", "Prior Work"]

@@ -122,6 +122,26 @@ class TestCandidate:
 
         assert candidate.ext == ""
 
+    def test_heading_path_from_json_string(self):
+        candidate = Candidate(
+            cid="1",
+            text="Text",
+            meta={"heading_path": '[\"Top\", \"Leaf\"]'},
+        )
+        assert candidate.heading_path == ["Top", "Leaf"]
+
+    def test_heading_path_from_list(self):
+        candidate = Candidate(
+            cid="1",
+            text="Text",
+            meta={"heading_path": ["Top", "Leaf"]},
+        )
+        assert candidate.heading_path == ["Top", "Leaf"]
+
+    def test_heading_path_missing(self):
+        candidate = Candidate(cid="1", text="Text", meta={})
+        assert candidate.heading_path == []
+
     def test_relevance_calculation(self):
         """Test relevance calculation from distance."""
         candidate = Candidate(

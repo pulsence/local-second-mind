@@ -38,6 +38,9 @@ class StructuredChunk:
     heading: Optional[str] = None
     """Most recent heading above this chunk (if any)."""
 
+    heading_path: Optional[List[str]] = None
+    """Full heading hierarchy for this chunk (root-to-leaf)."""
+
     start_char: int = 0
     """Start character offset in the full document text."""
 
@@ -170,6 +173,37 @@ def _select_intelligent_heading_boundaries(
     return selected_starts
 
 
+def _build_heading_path(node_id: str, node_map: Dict[str, Any]) -> List[str]:
+    """Build root-to-leaf heading path for a graph heading node."""
+    current = node_map.get(node_id)
+    visited: Set[str] = set()
+    parts: List[str] = []
+
+    while current is not None and current.id not in visited:
+        visited.add(current.id)
+        if getattr(current, "node_type", "") == "heading":
+            parts.append(str(getattr(current, "name", "") or "").strip())
+        parent_id = getattr(current, "parent_id", None)
+        if not parent_id:
+            break
+        current = node_map.get(parent_id)
+
+    parts = [part for part in parts if part]
+    parts.reverse()
+    return parts
+
+
+def _build_heading_path_map(file_graph: "FileGraph") -> Dict[int, List[str]]:
+    """Map heading start offsets to heading hierarchy paths."""
+    node_map = {node.id: node for node in file_graph.nodes}
+    mapping: Dict[int, List[str]] = {}
+    for node in file_graph.nodes:
+        if getattr(node, "node_type", "") != "heading":
+            continue
+        mapping[int(node.start_char)] = _build_heading_path(node.id, node_map)
+    return mapping
+
+
 # ------------------------------------------------------------------
 # Sentence splitting
 # ------------------------------------------------------------------
@@ -283,6 +317,9 @@ def structure_chunk_text(
         page_spans = _build_page_char_map(page_segments, text)
 
     intelligent_boundaries: Optional[Set[int]] = None
+    heading_paths_by_start: Dict[int, List[str]] = {}
+    if file_graph is not None:
+        heading_paths_by_start = _build_heading_path_map(file_graph)
     if intelligent_heading_depth and file_graph is not None:
         selected = _select_intelligent_heading_boundaries(
             file_graph=file_graph,
@@ -298,7 +335,9 @@ def structure_chunk_text(
     current_sentences: List[str] = []
     current_len = 0
     current_heading: Optional[str] = None
+    current_heading_path: Optional[List[str]] = None
     active_boundary_heading: Optional[str] = None
+    active_boundary_heading_path: Optional[List[str]] = None
     current_para_index: Optional[int] = None
     current_start_char: int = 0
 
@@ -326,6 +365,7 @@ def structure_chunk_text(
         chunks.append(StructuredChunk(
             text=chunk_text_str,
             heading=current_heading,
+            heading_path=list(current_heading_path) if current_heading_path else None,
             start_char=current_start_char,
             end_char=end_char,
             paragraph_index=current_para_index,
@@ -345,18 +385,33 @@ def structure_chunk_text(
         # Heading paragraphs selected as boundaries start a new chunk.
         if is_boundary_heading:
             _flush()
-            active_boundary_heading = para.heading
+            resolved_path = heading_paths_by_start.get(int(para.start_char))
+            if not resolved_path and para.heading:
+                resolved_path = [para.heading]
+            active_boundary_heading_path = list(resolved_path) if resolved_path else None
+            active_boundary_heading = (
+                active_boundary_heading_path[-1]
+                if active_boundary_heading_path
+                else para.heading
+            )
             current_heading = active_boundary_heading
+            current_heading_path = (
+                list(active_boundary_heading_path)
+                if active_boundary_heading_path
+                else None
+            )
             current_start_char = para.start_char
             current_para_index = para.index
             continue
 
         effective_heading = active_boundary_heading
+        effective_heading_path = active_boundary_heading_path
 
         # If heading changed (e.g. paragraph under a new heading), flush.
         if effective_heading != current_heading:
             _flush()
             current_heading = effective_heading
+            current_heading_path = list(effective_heading_path) if effective_heading_path else None
             current_start_char = para.start_char
             current_para_index = para.index
 
@@ -439,6 +494,8 @@ def structured_chunks_to_positions(
         }
         if sc.heading is not None:
             pos["heading"] = sc.heading
+        if sc.heading_path:
+            pos["heading_path"] = list(sc.heading_path)
         if sc.paragraph_index is not None:
             pos["paragraph_index"] = sc.paragraph_index
         if sc.page_start is not None:
