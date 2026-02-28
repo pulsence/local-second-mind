@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import sqlite3
 from datetime import timedelta
 from pathlib import Path
 
@@ -18,8 +19,11 @@ from lsm.config.models.vectordb import VectorDBConfig
 
 
 def _sqlite_store(tmp_path: Path, name: str = "memory.sqlite3") -> SQLiteMemoryStore:
-    config = MemoryConfig(storage_backend="sqlite", sqlite_path=tmp_path / name)
-    return SQLiteMemoryStore(config.sqlite_path, config)
+    config = MemoryConfig(storage_backend="sqlite")
+    db_path = tmp_path / name
+    db_path.parent.mkdir(parents=True, exist_ok=True)
+    conn = sqlite3.connect(str(db_path))
+    return SQLiteMemoryStore(conn, config, owns_connection=True)
 
 
 def test_sqlite_memory_store_crud_promote_and_search(tmp_path: Path) -> None:
@@ -165,18 +169,15 @@ def test_create_memory_store_auto_selects_backend(tmp_path: Path) -> None:
         enabled=True,
         agents_folder=tmp_path / "Agents",
         sandbox=SandboxConfig(),
-        memory=MemoryConfig(
-            storage_backend="auto",
-            sqlite_path=tmp_path / "memory.sqlite3",
-        ),
+        memory=MemoryConfig(storage_backend="auto"),
     )
 
-    chroma_cfg = VectorDBConfig(
-        provider="chromadb",
-        path=tmp_path / ".chroma",
+    sqlite_cfg = VectorDBConfig(
+        provider="sqlite",
+        path=tmp_path / "data",
         collection="local_kb",
     )
-    sqlite_store = create_memory_store(agent_cfg, chroma_cfg)
+    sqlite_store = create_memory_store(agent_cfg, sqlite_cfg)
     assert isinstance(sqlite_store, SQLiteMemoryStore)
     sqlite_store.close()
 

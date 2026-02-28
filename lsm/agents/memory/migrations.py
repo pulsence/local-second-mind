@@ -4,6 +4,7 @@ Migration helpers for memory stores.
 
 from __future__ import annotations
 
+import sqlite3
 from pathlib import Path
 from typing import Dict
 
@@ -78,8 +79,9 @@ def migrate_sqlite_to_postgresql(
     """
     Migrate memories from SQLite to PostgreSQL.
     """
-    source = SQLiteMemoryStore(sqlite_path, memory_config)
+    source_conn = sqlite3.connect(str(sqlite_path))
     target = PostgreSQLMemoryStore(postgres_connection_string, memory_config)
+    source = SQLiteMemoryStore(source_conn, memory_config, owns_connection=True)
     try:
         return migrate_memory_store(source, target)
     finally:
@@ -95,8 +97,9 @@ def migrate_postgresql_to_sqlite(
     """
     Migrate memories from PostgreSQL to SQLite.
     """
+    target_conn = sqlite3.connect(str(sqlite_path))
     source = PostgreSQLMemoryStore(postgres_connection_string, memory_config)
-    target = SQLiteMemoryStore(sqlite_path, memory_config)
+    target = SQLiteMemoryStore(target_conn, memory_config, owns_connection=True)
     try:
         return migrate_memory_store(source, target)
     finally:

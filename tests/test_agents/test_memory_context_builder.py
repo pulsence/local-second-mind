@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import sqlite3
 from datetime import timedelta
 from pathlib import Path
 
@@ -28,8 +29,9 @@ class EchoTool(BaseTool):
 
 
 def _sqlite_store(tmp_path: Path, name: str = "memory_context.sqlite3") -> SQLiteMemoryStore:
-    cfg = MemoryConfig(storage_backend="sqlite", sqlite_path=tmp_path / name)
-    return SQLiteMemoryStore(cfg.sqlite_path, cfg)
+    cfg = MemoryConfig(storage_backend="sqlite")
+    conn = sqlite3.connect(str(tmp_path / name))
+    return SQLiteMemoryStore(conn, cfg, owns_connection=True)
 
 
 def _base_raw(tmp_path: Path) -> dict:
@@ -45,8 +47,8 @@ def _base_raw(tmp_path: Path) -> dict:
             "services": {"default": {"provider": "openai", "model": "gpt-5.2"}},
         },
         "vectordb": {
-            "provider": "chromadb",
-            "path": str(tmp_path / ".chroma"),
+            "provider": "sqlite",
+            "path": str(tmp_path / "data"),
             "collection": "local_kb",
         },
         "query": {"mode": "grounded"},
@@ -66,7 +68,6 @@ def _base_raw(tmp_path: Path) -> dict:
             "memory": {
                 "enabled": True,
                 "storage_backend": "sqlite",
-                "sqlite_path": "memory.sqlite3",
             },
             "agent_configs": {},
         },

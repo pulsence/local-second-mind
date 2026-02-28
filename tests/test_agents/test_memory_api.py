@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import sqlite3
 from datetime import timedelta
 from pathlib import Path
 
@@ -15,8 +16,9 @@ from lsm.config.models.agents import MemoryConfig
 
 
 def _sqlite_store(tmp_path: Path, name: str = "memory_api.sqlite3") -> SQLiteMemoryStore:
-    config = MemoryConfig(storage_backend="sqlite", sqlite_path=tmp_path / name)
-    return SQLiteMemoryStore(config.sqlite_path, config)
+    config = MemoryConfig(storage_backend="sqlite")
+    conn = sqlite3.connect(str(tmp_path / name))
+    return SQLiteMemoryStore(conn, config, owns_connection=True)
 
 
 def test_memory_api_put_promote_and_ranked_search(tmp_path: Path) -> None:

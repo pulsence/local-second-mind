@@ -172,9 +172,6 @@ class MemoryConfig:
     storage_backend: str = "auto"
     """Backend selection: 'auto', 'sqlite', or 'postgresql'."""
 
-    sqlite_path: Path = Path("memory.sqlite3")
-    """SQLite memory database path."""
-
     postgres_connection_string: Optional[str] = None
     """Optional PostgreSQL connection string override."""
 
@@ -192,7 +189,6 @@ class MemoryConfig:
 
     def __post_init__(self) -> None:
         self.storage_backend = str(self.storage_backend or "auto").strip().lower()
-        self.sqlite_path = Path(self.sqlite_path).expanduser()
         self.postgres_connection_string = (
             str(self.postgres_connection_string).strip()
             if self.postgres_connection_string is not None

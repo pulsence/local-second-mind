@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import sqlite3
 from pathlib import Path
 
 from lsm.agents.memory import Memory, SQLiteMemoryStore
@@ -15,8 +16,9 @@ from lsm.config.models.agents import MemoryConfig
 
 
 def _sqlite_store(tmp_path: Path, name: str = "memory_tools.sqlite3") -> SQLiteMemoryStore:
-    cfg = MemoryConfig(storage_backend="sqlite", sqlite_path=tmp_path / name)
-    return SQLiteMemoryStore(cfg.sqlite_path, cfg)
+    cfg = MemoryConfig(storage_backend="sqlite")
+    conn = sqlite3.connect(str(tmp_path / name))
+    return SQLiteMemoryStore(conn, cfg, owns_connection=True)
 
 
 def _base_raw(tmp_path: Path, *, memory_enabled: bool = True) -> dict:
@@ -32,8 +34,8 @@ def _base_raw(tmp_path: Path, *, memory_enabled: bool = True) -> dict:
             "services": {"default": {"provider": "openai", "model": "gpt-5.2"}},
         },
         "vectordb": {
-            "provider": "chromadb",
-            "path": str(tmp_path / ".chroma"),
+            "provider": "sqlite",
+            "path": str(tmp_path / "data"),
             "collection": "local_kb",
         },
         "query": {"mode": "grounded"},
@@ -48,7 +50,6 @@ def _base_raw(tmp_path: Path, *, memory_enabled: bool = True) -> dict:
             "memory": {
                 "enabled": memory_enabled,
                 "storage_backend": "sqlite",
-                "sqlite_path": str(tmp_path / "agent-memory.sqlite3"),
             },
         },
     }

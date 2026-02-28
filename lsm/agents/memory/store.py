@@ -10,12 +10,12 @@ from abc import ABC, abstractmethod
 from contextlib import contextmanager
 from dataclasses import replace
 from datetime import datetime, timedelta, timezone
-from pathlib import Path
-from typing import Any, Dict, List, Optional, Sequence
+from typing import Any, Dict, List, Optional, Sequence, Callable
 from uuid import uuid4
 
 from lsm.config.models.agents import AgentConfig, MemoryConfig
 from lsm.config.models.vectordb import VectorDBConfig
+from lsm.vectordb import BaseVectorDBProvider, create_vectordb_provider
 
 from .models import Memory, MemoryCandidate, now_utc
 
@@ -23,6 +23,10 @@ PSYCOPG2_AVAILABLE = False
 psycopg2 = None
 RealDictCursor = None
 Json = None
+
+
+SQLITE_MEMORIES_TABLE = "lsm_agent_memories"
+SQLITE_CANDIDATES_TABLE = "lsm_agent_memory_candidates"
 
 
 def _ensure_postgres_dependencies() -> None:
@@ -164,19 +168,26 @@ class SQLiteMemoryStore(BaseMemoryStore):
     SQLite memory store implementation.
     """
 
-    def __init__(self, db_path: Path, memory_config: MemoryConfig) -> None:
+    def __init__(
+        self,
+        connection: sqlite3.Connection,
+        memory_config: MemoryConfig,
+        *,
+        owns_connection: bool = False,
+    ) -> None:
         super().__init__(memory_config)
-        self.db_path = Path(db_path).expanduser()
-        self.db_path.parent.mkdir(parents=True, exist_ok=True)
-        self._conn = sqlite3.connect(str(self.db_path))
+        self._conn = connection
+        self._owns_connection = bool(owns_connection)
+        self.memories_table = SQLITE_MEMORIES_TABLE
+        self.candidates_table = SQLITE_CANDIDATES_TABLE
         self._conn.row_factory = sqlite3.Row
         self._conn.execute("PRAGMA foreign_keys = ON")
         self._ensure_schema()
 
     def _ensure_schema(self) -> None:
         self._conn.executescript(
-            """
-            CREATE TABLE IF NOT EXISTS memories (
+            f"""
+            CREATE TABLE IF NOT EXISTS {self.memories_table} (
                 id TEXT PRIMARY KEY,
                 memory_type TEXT NOT NULL,
                 memory_key TEXT NOT NULL,
@@ -190,7 +201,7 @@ class SQLiteMemoryStore(BaseMemoryStore):
                 source_run_id TEXT NOT NULL
             );
 
-            CREATE TABLE IF NOT EXISTS memory_candidates (
+            CREATE TABLE IF NOT EXISTS {self.candidates_table} (
                 id TEXT PRIMARY KEY,
                 memory_id TEXT NOT NULL UNIQUE,
                 provenance TEXT NOT NULL,
@@ -198,15 +209,15 @@ class SQLiteMemoryStore(BaseMemoryStore):
                 status TEXT NOT NULL,
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL,
-                FOREIGN KEY(memory_id) REFERENCES memories(id) ON DELETE CASCADE
+                FOREIGN KEY(memory_id) REFERENCES {self.memories_table}(id) ON DELETE CASCADE
             );
 
-            CREATE INDEX IF NOT EXISTS idx_memory_candidates_status
-            ON memory_candidates(status);
-            CREATE INDEX IF NOT EXISTS idx_memories_scope_type
-            ON memories(scope, memory_type);
-            CREATE INDEX IF NOT EXISTS idx_memories_expires_at
-            ON memories(expires_at);
+            CREATE INDEX IF NOT EXISTS idx_lsm_agent_memory_candidates_status
+            ON {self.candidates_table}(status);
+            CREATE INDEX IF NOT EXISTS idx_lsm_agent_memories_scope_type
+            ON {self.memories_table}(scope, memory_type);
+            CREATE INDEX IF NOT EXISTS idx_lsm_agent_memories_expires_at
+            ON {self.memories_table}(expires_at);
             """
         )
         self._conn.commit()
@@ -219,8 +230,8 @@ class SQLiteMemoryStore(BaseMemoryStore):
 
         try:
             self._conn.execute(
-                """
-                INSERT INTO memories (
+                f"""
+                INSERT INTO {self.memories_table} (
                     id, memory_type, memory_key, value_json, scope, tags_json,
                     confidence, created_at, last_used_at, expires_at, source_run_id
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -240,8 +251,8 @@ class SQLiteMemoryStore(BaseMemoryStore):
                 ),
             )
             self._conn.execute(
-                """
-                INSERT INTO memory_candidates (
+                f"""
+                INSERT INTO {self.candidates_table} (
                     id, memory_id, provenance, rationale, status, created_at, updated_at
                 ) VALUES (?, ?, ?, ?, ?, ?, ?)
                 """,
@@ -262,14 +273,14 @@ class SQLiteMemoryStore(BaseMemoryStore):
 
     def promote(self, candidate_id: str) -> Memory:
         row = self._conn.execute(
-            "SELECT memory_id FROM memory_candidates WHERE id = ?",
+            f"SELECT memory_id FROM {self.candidates_table} WHERE id = ?",
             (candidate_id,),
         ).fetchone()
         if row is None:
             raise KeyError(f"Candidate not found: {candidate_id}")
         now = now_utc().isoformat()
         self._conn.execute(
-            "UPDATE memory_candidates SET status = ?, updated_at = ? WHERE id = ?",
+            f"UPDATE {self.candidates_table} SET status = ?, updated_at = ? WHERE id = ?",
             ("promoted", now, candidate_id),
         )
         self._conn.commit()
@@ -277,14 +288,14 @@ class SQLiteMemoryStore(BaseMemoryStore):
 
     def reject(self, candidate_id: str) -> None:
         row = self._conn.execute(
-            "SELECT id FROM memory_candidates WHERE id = ?",
+            f"SELECT id FROM {self.candidates_table} WHERE id = ?",
             (candidate_id,),
         ).fetchone()
         if row is None:
             raise KeyError(f"Candidate not found: {candidate_id}")
         now = now_utc().isoformat()
         self._conn.execute(
-            "UPDATE memory_candidates SET status = ?, updated_at = ? WHERE id = ?",
+            f"UPDATE {self.candidates_table} SET status = ?, updated_at = ? WHERE id = ?",
             ("rejected", now, candidate_id),
         )
         self._conn.commit()
@@ -292,7 +303,7 @@ class SQLiteMemoryStore(BaseMemoryStore):
     def expire(self) -> int:
         now = now_utc().isoformat()
         cursor = self._conn.execute(
-            "DELETE FROM memories WHERE expires_at IS NOT NULL AND expires_at <= ?",
+            f"DELETE FROM {self.memories_table} WHERE expires_at IS NOT NULL AND expires_at <= ?",
             (now,),
         )
         self._conn.commit()
@@ -300,7 +311,7 @@ class SQLiteMemoryStore(BaseMemoryStore):
 
     def get(self, memory_id: str) -> Memory:
         row = self._conn.execute(
-            "SELECT * FROM memories WHERE id = ?",
+            f"SELECT * FROM {self.memories_table} WHERE id = ?",
             (memory_id,),
         ).fetchone()
         if row is None:
@@ -309,7 +320,7 @@ class SQLiteMemoryStore(BaseMemoryStore):
 
     def delete(self, memory_id: str) -> None:
         cursor = self._conn.execute(
-            "DELETE FROM memories WHERE id = ?",
+            f"DELETE FROM {self.memories_table} WHERE id = ?",
             (memory_id,),
         )
         self._conn.commit()
@@ -339,8 +350,8 @@ class SQLiteMemoryStore(BaseMemoryStore):
         rows = self._conn.execute(
             f"""
             SELECT m.*
-            FROM memories m
-            JOIN memory_candidates c ON c.memory_id = m.id
+            FROM {self.memories_table} m
+            JOIN {self.candidates_table} c ON c.memory_id = m.id
             WHERE {' AND '.join(where_clauses)}
             ORDER BY
                 CASE WHEN m.memory_type = 'pinned' THEN 0 ELSE 1 END ASC,
@@ -385,8 +396,8 @@ class SQLiteMemoryStore(BaseMemoryStore):
                 c.rationale,
                 c.status AS candidate_status,
                 m.*
-            FROM memory_candidates c
-            JOIN memories m ON m.id = c.memory_id
+            FROM {self.candidates_table} c
+            JOIN {self.memories_table} m ON m.id = c.memory_id
             {where_clause}
             ORDER BY c.created_at DESC
             LIMIT ?
@@ -421,7 +432,7 @@ class SQLiteMemoryStore(BaseMemoryStore):
         placeholders = ", ".join(["?"] * len(normalized_ids))
         cursor = self._conn.execute(
             f"""
-            UPDATE memories
+            UPDATE {self.memories_table}
             SET last_used_at = ?
             WHERE id IN ({placeholders})
             """,
@@ -431,7 +442,8 @@ class SQLiteMemoryStore(BaseMemoryStore):
         return int(cursor.rowcount or 0)
 
     def close(self) -> None:
-        self._conn.close()
+        if self._owns_connection:
+            self._conn.close()
 
     @staticmethod
     def _memory_from_row(row: sqlite3.Row) -> Memory:
@@ -462,13 +474,15 @@ class PostgreSQLMemoryStore(BaseMemoryStore):
 
     def __init__(
         self,
-        connection_string: str,
+        connection_string: Optional[str],
         memory_config: MemoryConfig,
         table_prefix: str = "agent_memory",
+        connection_factory: Optional[Callable[[], Any]] = None,
     ) -> None:
         super().__init__(memory_config)
-        self.connection_string = str(connection_string).strip()
-        if not self.connection_string:
+        self.connection_string = str(connection_string or "").strip()
+        self._external_connection_factory = connection_factory
+        if self._external_connection_factory is None and not self.connection_string:
             raise ValueError("PostgreSQL memory store requires connection_string")
         safe_prefix = "".join(
             ch if ch.isalnum() or ch == "_" else "_"
@@ -481,6 +495,16 @@ class PostgreSQLMemoryStore(BaseMemoryStore):
 
     @contextmanager
     def _conn(self):
+        if self._external_connection_factory is not None:
+            with self._external_connection_factory() as conn:
+                try:
+                    yield conn
+                    conn.commit()
+                except Exception:
+                    conn.rollback()
+                    raise
+            return
+
         _ensure_postgres_dependencies()
         assert psycopg2 is not None  # for type checkers
         conn = psycopg2.connect(self.connection_string)
@@ -801,7 +825,7 @@ class PostgreSQLMemoryStore(BaseMemoryStore):
 
 def create_memory_store(
     agent_config: AgentConfig,
-    vectordb_config: VectorDBConfig,
+    vectordb: VectorDBConfig | BaseVectorDBProvider,
 ) -> BaseMemoryStore:
     """
     Create the appropriate memory store backend.
@@ -810,12 +834,27 @@ def create_memory_store(
     backend = (memory_cfg.storage_backend or "auto").strip().lower()
 
     if backend == "auto":
-        provider = str(vectordb_config.provider or "chromadb").strip().lower()
-        backend = "postgresql" if provider == "postgresql" else "sqlite"
+        provider_name = _resolve_vectordb_provider_name(vectordb)
+        backend = "postgresql" if provider_name == "postgresql" else "sqlite"
 
     if backend == "sqlite":
-        return SQLiteMemoryStore(memory_cfg.sqlite_path, memory_cfg)
+        sqlite_conn, owns_connection = _resolve_sqlite_connection(vectordb)
+        return SQLiteMemoryStore(
+            sqlite_conn,
+            memory_cfg,
+            owns_connection=owns_connection,
+        )
     if backend == "postgresql":
+        external_factory = _resolve_postgres_connection_factory(vectordb)
+        if external_factory is not None:
+            return PostgreSQLMemoryStore(
+                None,
+                memory_cfg,
+                memory_cfg.postgres_table_prefix,
+                connection_factory=external_factory,
+            )
+
+        vectordb_config = _resolve_vectordb_config(vectordb)
         conn_string = (
             memory_cfg.postgres_connection_string
             or vectordb_config.connection_string
@@ -829,6 +868,67 @@ def create_memory_store(
         return PostgreSQLMemoryStore(conn_string, memory_cfg, memory_cfg.postgres_table_prefix)
 
     raise ValueError("Unsupported memory backend. Use 'auto', 'sqlite', or 'postgresql'.")
+
+
+def _resolve_vectordb_provider_name(vectordb: VectorDBConfig | BaseVectorDBProvider) -> str:
+    if _is_vectordb_provider_instance(vectordb):
+        return str(getattr(vectordb, "name", "") or "").strip().lower()
+    return str(vectordb.provider or "sqlite").strip().lower()
+
+
+def _resolve_vectordb_config(vectordb: VectorDBConfig | BaseVectorDBProvider) -> VectorDBConfig:
+    if isinstance(vectordb, VectorDBConfig):
+        return vectordb
+    config = getattr(vectordb, "config", None)
+    if isinstance(config, VectorDBConfig):
+        return config
+    raise TypeError("vectordb must be a VectorDBConfig or vector DB provider instance")
+
+
+def _is_vectordb_provider_instance(vectordb: Any) -> bool:
+    if isinstance(vectordb, BaseVectorDBProvider):
+        return True
+    return hasattr(vectordb, "name") and hasattr(vectordb, "config")
+
+
+def _resolve_sqlite_connection(
+    vectordb: VectorDBConfig | BaseVectorDBProvider,
+) -> tuple[sqlite3.Connection, bool]:
+    if _is_vectordb_provider_instance(vectordb):
+        if _resolve_vectordb_provider_name(vectordb) != "sqlite":
+            raise ValueError(
+                "SQLite memory backend requires vectordb provider='sqlite' "
+                "or a SQLite vector provider instance."
+            )
+        connection = getattr(vectordb, "connection", None)
+        if not isinstance(connection, sqlite3.Connection):
+            raise ValueError("SQLite vector provider does not expose a valid SQLite connection.")
+        return connection, False
+
+    if _resolve_vectordb_provider_name(vectordb) != "sqlite":
+        raise ValueError(
+            "SQLite memory backend requires vectordb.provider='sqlite'. "
+            "Set agents.memory.storage_backend='postgresql' for PostgreSQL."
+        )
+
+    provider = create_vectordb_provider(vectordb)
+    connection = getattr(provider, "connection", None)
+    if not isinstance(connection, sqlite3.Connection):
+        raise ValueError("SQLite vector provider did not expose a valid SQLite connection.")
+    return connection, True
+
+
+def _resolve_postgres_connection_factory(
+    vectordb: VectorDBConfig | BaseVectorDBProvider,
+) -> Optional[Callable[[], Any]]:
+    if not _is_vectordb_provider_instance(vectordb):
+        return None
+    if _resolve_vectordb_provider_name(vectordb) != "postgresql":
+        return None
+    get_conn = getattr(vectordb, "_get_conn", None)
+    if callable(get_conn):
+        return get_conn
+    return None
 
 
 def _build_postgres_connection_string(vectordb_config: VectorDBConfig) -> Optional[str]:

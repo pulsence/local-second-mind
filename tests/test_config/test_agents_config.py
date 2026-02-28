@@ -114,7 +114,6 @@ def test_build_config_reads_agents_section(tmp_path: Path) -> None:
         "memory": {
             "enabled": True,
             "storage_backend": "sqlite",
-            "sqlite_path": "memory.sqlite3",
             "ttl_project_fact_days": 120,
             "ttl_task_state_days": 14,
             "ttl_cache_hours": 12,
@@ -155,7 +154,6 @@ def test_build_config_reads_agents_section(tmp_path: Path) -> None:
     assert config.agents.sandbox.tool_llm_assignments["query_arxiv"] == "decomposition"
     assert config.agents.memory.enabled is True
     assert config.agents.memory.storage_backend == "sqlite"
-    assert config.agents.memory.sqlite_path == Path("memory.sqlite3")
     assert config.agents.memory.ttl_project_fact_days == 120
     assert config.agents.memory.ttl_task_state_days == 14
     assert config.agents.memory.ttl_cache_hours == 12
@@ -172,6 +170,20 @@ def test_build_config_resolves_agents_folder_relative_to_global_folder(tmp_path:
     config = build_config_from_raw(raw, tmp_path / "config.json")
     assert config.agents is not None
     assert config.agents.agents_folder == (tmp_path / "lsm-global" / "Agents").resolve()
+
+
+def test_build_config_rejects_legacy_memory_sqlite_path(tmp_path: Path) -> None:
+    raw = _base_raw(tmp_path)
+    raw["agents"] = {
+        "enabled": True,
+        "memory": {
+            "enabled": True,
+            "storage_backend": "sqlite",
+            "sqlite_path": "memory.sqlite3",
+        },
+    }
+    with pytest.raises(ValueError, match="Unsupported legacy memory field 'sqlite_path'"):
+        build_config_from_raw(raw, tmp_path / "config.json")
 
 
 def test_config_to_raw_includes_agents_section(tmp_path: Path) -> None:
@@ -202,7 +214,6 @@ def test_config_to_raw_includes_agents_section(tmp_path: Path) -> None:
         "memory": {
             "enabled": True,
             "storage_backend": "sqlite",
-            "sqlite_path": "memory.sqlite3",
             "postgres_connection_string": None,
             "postgres_table_prefix": "agent_memory",
             "ttl_project_fact_days": 90,
@@ -241,7 +252,6 @@ def test_config_to_raw_includes_agents_section(tmp_path: Path) -> None:
     assert serialized["agents"]["sandbox"]["command_denylist"] == ["powershell.exe"]
     assert serialized["agents"]["memory"]["enabled"] is True
     assert serialized["agents"]["memory"]["storage_backend"] == "sqlite"
-    assert serialized["agents"]["memory"]["sqlite_path"].endswith("memory.sqlite3")
     assert serialized["agents"]["memory"]["ttl_project_fact_days"] == 90
     assert serialized["agents"]["memory"]["ttl_task_state_days"] == 7
     assert serialized["agents"]["memory"]["ttl_cache_hours"] == 24

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import sqlite3
 from datetime import timedelta
 from pathlib import Path
 from uuid import uuid4
@@ -192,11 +193,9 @@ def test_live_memory_migration_postgresql_to_sqlite(
         live_postgres_connection_string,
         table_prefix=table_prefix,
     )
-    target_cfg = MemoryConfig(
-        storage_backend="sqlite",
-        sqlite_path=tmp_path / "memory_target.sqlite3",
-    )
-    target = SQLiteMemoryStore(target_cfg.sqlite_path, target_cfg)
+    target_cfg = MemoryConfig(storage_backend="sqlite")
+    target_conn = sqlite3.connect(str(tmp_path / "memory_target.sqlite3"))
+    target = SQLiteMemoryStore(target_conn, target_cfg, owns_connection=True)
     try:
         promoted_memory = Memory(
             type="project_fact",
@@ -250,11 +249,9 @@ def test_live_memory_migration_sqlite_to_postgresql(
     tmp_path: Path,
     live_postgres_connection_string: str,
 ) -> None:
-    source_cfg = MemoryConfig(
-        storage_backend="sqlite",
-        sqlite_path=tmp_path / "memory_source.sqlite3",
-    )
-    source = SQLiteMemoryStore(source_cfg.sqlite_path, source_cfg)
+    source_cfg = MemoryConfig(storage_backend="sqlite")
+    source_conn = sqlite3.connect(str(tmp_path / "memory_source.sqlite3"))
+    source = SQLiteMemoryStore(source_conn, source_cfg, owns_connection=True)
     table_prefix = f"live_mem_{uuid4().hex[:12]}"
     target = _create_live_postgres_store(
         live_postgres_connection_string,

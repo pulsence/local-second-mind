@@ -619,10 +619,14 @@ def build_memory_config(raw: Dict[str, Any]) -> MemoryConfig:
     """
     if not isinstance(raw, dict):
         raw = {}
+    if "sqlite_path" in raw:
+        raise ValueError(
+            "Unsupported legacy memory field 'sqlite_path'. "
+            "Memory now uses the shared vectordb connection in lsm.db."
+        )
     return MemoryConfig(
         enabled=bool(raw.get("enabled", True)),
         storage_backend=str(raw.get("storage_backend", "auto")),
-        sqlite_path=Path(raw.get("sqlite_path", "memory.sqlite3")),
         postgres_connection_string=raw.get("postgres_connection_string"),
         postgres_table_prefix=str(raw.get("postgres_table_prefix", "agent_memory")),
         ttl_project_fact_days=int(raw.get("ttl_project_fact_days", 90)),
@@ -1308,7 +1312,6 @@ def config_to_raw(config: LSMConfig) -> Dict[str, Any]:
             "memory": {
                 "enabled": config.agents.memory.enabled,
                 "storage_backend": config.agents.memory.storage_backend,
-                "sqlite_path": str(config.agents.memory.sqlite_path),
                 "postgres_connection_string": config.agents.memory.postgres_connection_string,
                 "postgres_table_prefix": config.agents.memory.postgres_table_prefix,
                 "ttl_project_fact_days": config.agents.memory.ttl_project_fact_days,
