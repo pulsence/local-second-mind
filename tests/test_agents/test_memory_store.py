@@ -173,7 +173,7 @@ def test_create_memory_store_auto_selects_backend(tmp_path: Path) -> None:
 
     chroma_cfg = VectorDBConfig(
         provider="chromadb",
-        persist_dir=tmp_path / ".chroma",
+        path=tmp_path / ".chroma",
         collection="local_kb",
     )
     sqlite_store = create_memory_store(agent_cfg, chroma_cfg)

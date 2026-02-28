@@ -77,7 +77,7 @@ def _attach_status_sink(tab, sink: _StatusSink) -> None:
 def _config() -> Any:
     ingest = SimpleNamespace(
         roots=[SimpleNamespace(path=Path("/docs"), tags=None, content_type=None)],
-        persist_dir=Path("/data"),
+        path=Path("/data"),
         collection="kb",
         manifest=Path("/data/manifest.json"),
         chroma_flush_interval=500,
@@ -122,7 +122,7 @@ def _config() -> Any:
     vectordb = SimpleNamespace(
         provider="chromadb",
         collection="kb",
-        persist_dir=Path("/data"),
+        path=Path("/data"),
         chroma_hnsw_space="cosine",
         connection_string=None,
         host=None,

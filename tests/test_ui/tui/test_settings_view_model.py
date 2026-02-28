@@ -16,7 +16,7 @@ def _raw_config(tmp_path: Path) -> dict:
         },
         "ingest": {
             "roots": [str(tmp_path / "docs")],
-            "persist_dir": str(tmp_path / ".chroma"),
+            "path": str(tmp_path / ".chroma"),
             "collection": "test_collection",
             "manifest": str(tmp_path / ".ingest" / "manifest.json"),
             "chunk_size": 800,
@@ -38,7 +38,7 @@ def _raw_config(tmp_path: Path) -> dict:
         },
         "vectordb": {
             "provider": "chromadb",
-            "persist_dir": str(tmp_path / ".chroma"),
+            "path": str(tmp_path / ".chroma"),
             "collection": "test_collection",
         },
         "query": {

@@ -44,7 +44,7 @@ def migrate_chromadb_to_postgres(
 
     chroma_config = VectorDBConfig(
         provider="chromadb",
-        persist_dir=persist_dir,
+        path=persist_dir,
         collection=collection_name,
     )
     source = ChromaDBProvider(chroma_config)

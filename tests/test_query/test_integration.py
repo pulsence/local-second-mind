@@ -74,7 +74,7 @@ def _build_config(tmp_path: Path, *, mode: str = "grounded") -> LSMConfig:
             mode=mode,
         ),
         vectordb=VectorDBConfig(
-            persist_dir=tmp_path / ".chroma",
+            path=tmp_path / ".chroma",
             collection="test_kb",
         ),
         global_settings=GlobalConfig(

@@ -33,7 +33,7 @@ def _make_config(mode: str, modes: dict | None = None, notes: NotesConfig | None
             services={"query": LLMServiceConfig(provider="openai", model="gpt-5.2")},
         ),
         vectordb=VectorDBConfig(
-            persist_dir=Path("/tmp/.chroma"),
+            path=Path("/tmp/.chroma"),
             collection="test",
         ),
         modes=modes,

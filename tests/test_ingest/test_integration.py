@@ -65,7 +65,7 @@ def _build_config(root: Path, tmp_path: Path) -> LSMConfig:
     return LSMConfig(
         ingest=IngestConfig(
             roots=[root],
-            persist_dir=tmp_path / ".chroma",
+            path=tmp_path / ".chroma",
             collection="integration_test_collection",
             manifest=tmp_path / ".ingest" / "manifest.json",
             extensions=[".txt", ".md", ".html"],
@@ -81,7 +81,7 @@ def _build_config(root: Path, tmp_path: Path) -> LSMConfig:
         ),
         vectordb=VectorDBConfig(
             provider="chromadb",
-            persist_dir=tmp_path / ".chroma",
+            path=tmp_path / ".chroma",
             collection="integration_test_collection",
         ),
         global_settings=GlobalConfig(

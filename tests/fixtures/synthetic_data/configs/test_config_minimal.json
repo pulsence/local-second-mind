@@ -6,12 +6,12 @@
                    "roots":  [
                                  "tests/fixtures/synthetic_data/documents"
                              ],
-                   "persist_dir":  "tests/.tmp/chroma_minimal",
+                   "path":  "tests/.tmp/chroma_minimal",
                    "collection":  "synthetic_minimal"
                },
     "vectordb":  {
                      "provider":  "chromadb",
-                     "persist_dir":  "tests/.tmp/chroma_minimal",
+                     "path":  "tests/.tmp/chroma_minimal",
                      "collection":  "synthetic_minimal"
                  },
     "llms":  {

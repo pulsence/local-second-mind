@@ -417,7 +417,7 @@ def real_chromadb_provider(tmp_path: Path):
 
     config = VectorDBConfig(
         provider="chromadb",
-        persist_dir=tmp_path / ".chroma",
+        path=tmp_path / ".chroma",
         collection=f"test_{tmp_path.name}",
     )
     provider = create_vectordb_provider(config)

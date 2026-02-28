@@ -78,7 +78,7 @@ def _build_query_config(tmp_path: Path, remote_enabled: bool) -> LSMConfig:
         ),
         vectordb=VectorDBConfig(
             provider="chromadb",
-            persist_dir=tmp_path / ".chroma",
+            path=tmp_path / ".chroma",
             collection="test_collection",
         ),
         modes={

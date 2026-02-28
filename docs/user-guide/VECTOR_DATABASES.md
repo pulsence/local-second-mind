@@ -2,23 +2,22 @@ Vector Databases
 ================
 
 LSM supports pluggable vector database providers. The default provider is
-ChromaDB, with a PostgreSQL + pgvector provider scaffold in progress.
+SQLite + sqlite-vec, with PostgreSQL + pgvector available for larger deployments.
 
 Configuration Overview
 ----------------------
 
 Vector DB settings live under the `vectordb` section.
 
-Example (ChromaDB)
-------------------
+Example (SQLite + sqlite-vec, default)
+--------------------------------------
 
 ```json
 {
   "vectordb": {
-    "provider": "chromadb",
-    "persist_dir": ".chroma",
-    "collection": "local_kb",
-    "chroma_hnsw_space": "cosine"
+    "provider": "sqlite",
+    "path": "data",
+    "collection": "local_kb"
   }
 }
 ```
@@ -41,27 +40,22 @@ Example (PostgreSQL + pgvector)
 Provider Notes
 --------------
 
-ChromaDB
---------
+SQLite + sqlite-vec
+-------------------
 
-- Default provider and fully supported.
-- Uses `persist_dir` for local storage.
-- Example:
-
-```json
-{
-  "vectordb": {
-    "provider": "chromadb",
-    "persist_dir": ".chroma",
-    "collection": "local_kb",
-    "chroma_hnsw_space": "cosine"
-  }
-}
-```
+- Default provider and fully supported in v0.8.0.
+- Stores vectors, metadata, full-text index, manifest, and agent state in a single `lsm.db`.
+- Uses `vectordb.path` as the directory containing `lsm.db`.
 
 PostgreSQL + pgvector (scaffold)
 --------------------------------
 
 - Provider class is implemented.
-- Dependencies `psycopg2` and `pgvector` will be required.
-- Schema, indexing, and migration tooling are provided.
+- Dependencies `psycopg2` and `pgvector` are required.
+- Useful when operating at larger scale or in shared/server environments.
+
+ChromaDB (migration-only)
+-------------------------
+
+- ChromaDB is no longer a production provider in v0.8.0.
+- Migration tooling remains available for moving legacy ChromaDB data.

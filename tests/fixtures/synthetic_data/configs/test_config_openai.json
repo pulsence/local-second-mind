@@ -8,7 +8,7 @@
                    "roots":  [
                                  "tests/fixtures/synthetic_data/documents"
                              ],
-                   "persist_dir":  "tests/.tmp/chroma",
+                   "path":  "tests/.tmp/chroma",
                    "collection":  "synthetic_openai",
                    "manifest":  "tests/.tmp/manifest_openai.json",
                    "chunk_size":  1400,
@@ -26,7 +26,7 @@
                },
     "vectordb":  {
                      "provider":  "chromadb",
-                     "persist_dir":  "tests/.tmp/chroma",
+                     "path":  "tests/.tmp/chroma",
                      "collection":  "synthetic_openai"
                  },
     "llms":  {

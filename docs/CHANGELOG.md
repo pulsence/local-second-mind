@@ -2,6 +2,21 @@
 
 All notable changes to Local Second Mind are documented here.
 
+## 0.8.0 - 2026-02-28
+
+### Changed
+
+- Switched default vector backend to SQLite + sqlite-vec (`vectordb.provider = "sqlite"`).
+- Updated vector DB config shape from `vectordb.persist_dir` to `vectordb.path`.
+- Removed Chroma-specific ingest/vector config fields (`ingest.manifest`, `ingest.chroma_flush_interval`, `ingest.enable_versioning`, `vectordb.chroma_hnsw_space`).
+- Updated the vector DB factory to reject `chromadb` as a production provider and direct users to migration tooling.
+- Added compatibility cleanup across tests/fixtures to remove legacy `persist_dir` usage and align with the v0.8.0 config schema.
+
+### Added
+
+- New `SQLiteVecProvider` export and default factory registration.
+- Unified `lsm.db` schema setup and sqlite-vec provider test coverage.
+
 ## 0.7.1 - 2026-02-27
 
 ### Added

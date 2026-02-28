@@ -133,13 +133,13 @@ class TestConfigLoaderRoots:
             },
             "ingest": {
                 "roots": [str(tmp_path / "docs")],
-                "persist_dir": str(tmp_path / ".chroma"),
+                "path": str(tmp_path / ".chroma"),
                 "collection": "test_kb",
                 "manifest": str(tmp_path / ".ingest" / "manifest.json"),
             },
             "vectordb": {
                 "provider": "chromadb",
-                "persist_dir": str(tmp_path / ".chroma"),
+                "path": str(tmp_path / ".chroma"),
                 "collection": "test_kb",
             },
             "llms": {
@@ -195,7 +195,7 @@ class TestConfigLoaderRoots:
         return LSMConfig(
             ingest=IngestConfig(
                 roots=roots,
-                persist_dir=tmp_path / ".chroma",
+                path=tmp_path / ".chroma",
                 collection="test_kb",
                 manifest=tmp_path / ".ingest" / "manifest.json",
             ),
@@ -206,7 +206,7 @@ class TestConfigLoaderRoots:
             ),
             vectordb=VectorDBConfig(
                 provider="chromadb",
-                persist_dir=tmp_path / ".chroma",
+                path=tmp_path / ".chroma",
                 collection="test_kb",
             ),
             global_settings=GlobalConfig(),

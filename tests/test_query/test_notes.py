@@ -468,7 +468,7 @@ class TestResolveNotesDir:
             },
             "vectordb": {
                 "provider": "chromadb",
-                "persist_dir": str(tmp_path / ".chroma"),
+                "path": str(tmp_path / ".chroma"),
                 "collection": "test_collection",
             },
             "query": {"mode": "grounded"},

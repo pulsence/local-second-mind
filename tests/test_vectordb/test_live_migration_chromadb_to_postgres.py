@@ -33,7 +33,7 @@ def test_live_migration_chromadb_to_postgres_roundtrip(
     source = ChromaDBProvider(
         VectorDBConfig(
             provider="chromadb",
-            persist_dir=chroma_dir,
+            path=chroma_dir,
             collection=source_collection,
         )
     )
@@ -79,7 +79,7 @@ def test_live_migration_chromadb_to_postgres_roundtrip(
     progress_calls: list[tuple[int, int]] = []
     try:
         result = migrate_chromadb_to_postgres(
-            persist_dir=chroma_dir,
+            path=chroma_dir,
             collection_name=source_collection,
             postgres_config=postgres_config,
             batch_size=2,

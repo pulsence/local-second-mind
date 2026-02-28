@@ -8,7 +8,7 @@
                    "roots":  [
                                  "tests/fixtures/synthetic_data/documents"
                              ],
-                   "persist_dir":  "tests/.tmp/chroma_local",
+                   "path":  "tests/.tmp/chroma_local",
                    "collection":  "synthetic_local",
                    "manifest":  "tests/.tmp/manifest_local.json",
                    "chunk_size":  1200,
@@ -26,7 +26,7 @@
                },
     "vectordb":  {
                      "provider":  "chromadb",
-                     "persist_dir":  "tests/.tmp/chroma_local",
+                     "path":  "tests/.tmp/chroma_local",
                      "collection":  "synthetic_local"
                  },
     "llms":  {

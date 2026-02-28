@@ -104,7 +104,7 @@ def _base_raw_for_base_tests(tmp_path: Path) -> dict:
         "global": {"global_folder": str(tmp_path / "global")},
         "ingest": {
             "roots": [str(tmp_path / "docs")],
-            "persist_dir": str(tmp_path / ".chroma"),
+            "path": str(tmp_path / ".chroma"),
             "collection": "local_kb",
         },
         "llms": {
@@ -113,7 +113,7 @@ def _base_raw_for_base_tests(tmp_path: Path) -> dict:
         },
         "vectordb": {
             "provider": "chromadb",
-            "persist_dir": str(tmp_path / ".chroma"),
+            "path": str(tmp_path / ".chroma"),
             "collection": "local_kb",
         },
         "query": {"mode": "grounded"},

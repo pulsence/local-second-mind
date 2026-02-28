@@ -70,7 +70,7 @@ def _build_pipeline_config(
 
     ingest = IngestConfig(
         roots=[docs_root],
-        persist_dir=tmp_path / ".chroma",
+        path=tmp_path / ".chroma",
         collection=collection_name,
         manifest=tmp_path / ".ingest" / "manifest.json",
         extensions=extensions or [".txt", ".md", ".html"],
@@ -116,7 +116,7 @@ def _build_pipeline_config(
     )
     vectordb = VectorDBConfig(
         provider=vectordb_provider,
-        persist_dir=tmp_path / ".chroma",
+        path=tmp_path / ".chroma",
         collection=collection_name,
         connection_string=vectordb_connection_string,
     )
