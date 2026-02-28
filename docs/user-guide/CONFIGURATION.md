@@ -97,39 +97,96 @@ Ingest settings live under the `"ingest"` key and map to `IngestConfig`.
 | Key | Type | Default | Purpose |
 | --- | --- | --- | --- |
 | `roots` | list[path] | required | Root directories to scan. |
-| `persist_dir` | path | `.chroma` | ChromaDB persistent storage directory. |
-| `collection` | string | `local_kb` | ChromaDB collection name. |
-| `chroma_flush_interval` | int | `2000` | Flush interval for Chroma writes. |
-| `manifest` | path | `.ingest/manifest.json` | Incremental ingest manifest. |
 | `extensions` | list[string] | default set | File extensions to include. |
 | `override_extensions` | bool | `false` | Replace default extensions instead of merging. |
 | `exclude_dirs` | list[string] | default set | Directory names to skip. |
 | `override_excludes` | bool | `false` | Replace default excludes instead of merging. |
 | `chunk_size` | int | `1800` | Characters per chunk. |
 | `chunk_overlap` | int | `200` | Overlap between chunks. |
+| `chunking_strategy` | string | `structure` | Chunking mode: `structure` or `fixed`. |
 | `enable_ocr` | bool | `false` | OCR for image-based PDFs. |
 | `enable_ai_tagging` | bool | `false` | Run LLM tagging during ingest. Tagging model is configured via `llms.services.tagging`. |
 | `tags_per_chunk` | int | `3` | Tags to generate per chunk. |
 | `dry_run` | bool | `false` | Simulate ingest without writing. |
 | `skip_errors` | bool | `true` | Continue if a file/page fails to parse. |
+| `enable_language_detection` | bool | `false` | Detect language for each chunk. |
+| `enable_translation` | bool | `false` | Enable translation for non-target-language chunks. |
+| `translation_target` | string | `en` | Translation target language (ISO-639-1). |
+| `max_files` | int? | `null` | Optional cap on files processed per ingest run. |
+| `max_seconds` | int? | `null` | Optional wall-clock limit for an ingest run. |
 
 Default extensions include: `.txt`, `.md`, `.rst`, `.pdf`, `.docx`, `.html`, `.htm`.
 
 Default excluded directory names include: `.git`, `.hg`, `.svn`, `__pycache__`,
 `.venv`, `venv`, `node_modules`.
 
+Legacy ingest fields removed in v0.8.0 (config load error if present):
+
+- `ingest.persist_dir`
+- `ingest.manifest`
+- `ingest.chroma_flush_interval`
+- `ingest.enable_versioning` (versioning is always enabled)
+
 ## Vector DB Configuration
 
 Vector DB settings live under `vectordb`.
 
+| Key | Type | Default | Purpose |
+| --- | --- | --- | --- |
+| `provider` | string | `sqlite` | Vector DB backend (`sqlite` or `postgresql`). |
+| `path` | path | `.lsm` | Directory containing `lsm.db` for sqlite backend. |
+| `collection` | string | `local_kb` | Logical collection/namespace name. |
+| `connection_string` | string? | `null` | PostgreSQL DSN (preferred for postgres backend). |
+| `host` | string? | `null` | PostgreSQL host (alt to `connection_string`). |
+| `port` | int? | `null` | PostgreSQL port. |
+| `database` | string? | `null` | PostgreSQL database. |
+| `user` | string? | `null` | PostgreSQL user. |
+| `password` | string? | `null` | PostgreSQL password. |
+| `index_type` | string | `hnsw` | pgvector index type (`hnsw` or `ivfflat`). |
+| `pool_size` | int | `5` | PostgreSQL connection pool size. |
+
+Example (SQLite + sqlite-vec, default):
+
 ```json
 "vectordb": {
-  "provider": "chromadb",
-  "persist_dir": ".chroma",
-  "collection": "local_kb",
-  "chroma_hnsw_space": "cosine"
+  "provider": "sqlite",
+  "path": ".lsm",
+  "collection": "local_kb"
 }
 ```
+
+Example (PostgreSQL + pgvector):
+
+```json
+"vectordb": {
+  "provider": "postgresql",
+  "connection_string": "postgresql://user:pass@localhost:5432/lsm",
+  "collection": "local_kb",
+  "index_type": "hnsw",
+  "pool_size": 10
+}
+```
+
+Legacy vectordb fields removed in v0.8.0 (config load error if present):
+
+- `vectordb.persist_dir` (use `vectordb.path`)
+- `vectordb.chroma_hnsw_space`
+
+ChromaDB is migration-only in v0.8.0 and is not accepted as a production
+`vectordb.provider` value.
+
+## Database Maintenance Commands
+
+Phase 3 added DB maintenance CLI commands for versioned ingest state:
+
+- `lsm db prune [--max-versions N] [--older-than-days N]`
+  Deletes non-current chunk versions (`is_current = 0`) that match criteria.
+- `lsm db complete [--force-file-pattern <glob>]`
+  Runs selective completion ingest when config changes require reprocessing.
+- `lsm ingest build --force-reingest-changed-config`
+  Allows schema-aware selective re-ingest when chunking/config changes are detected.
+- `lsm ingest build --force-file-pattern <glob>`
+  Restricts ingest to files matching a specific pattern.
 
 ## LLM Configuration
 

@@ -59,7 +59,9 @@ def _configured_exts(config: Any) -> set[str]:
 
 
 def _configured_excludes(config: Any) -> set[str]:
-    values = _value(config, "exclude_dirs", set())
+    values = _value(config, "exclude_set", None)
+    if values is None:
+        values = _value(config, "exclude_dirs", set())
     return {str(name).strip() for name in values or [] if str(name).strip()}
 
 

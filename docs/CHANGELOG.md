@@ -16,12 +16,19 @@ All notable changes to Local Second Mind are documented here.
 - Migrated ingest manifest persistence from `manifest.json` to `lsm_manifest` (DB-backed version tracking).
 - Migrated runtime sidecar caches from JSON blobs to DB tables (`lsm_stats_cache`, `lsm_remote_cache`) for SQLite-backed runs.
 - Updated query planning to always enforce `is_current = true` filtering for versioned chunks.
+- Ingest now checks active schema compatibility before writes and records schema provenance on each run.
+- Re-ingest versioning is now unconditional for chunk history (`is_current=0` for prior versions; no hard-delete during normal ingest).
+- Added selective completion ingest paths for config drift without forcing a full corpus rebuild.
 
 ### Added
 
 - New `SQLiteVecProvider` export and default factory registration.
 - Unified `lsm.db` schema setup and sqlite-vec provider test coverage.
 - Added unified schema tables/indexes for `lsm_stats_cache` and `lsm_remote_cache`.
+- Added `lsm_schema_versions` tracking and `schema_version_id` manifest linkage for per-run ingest provenance.
+- Added DB maintenance commands: `lsm db prune` and `lsm db complete`.
+- Added ingest CLI controls: `--force-reingest-changed-config` and `--force-file-pattern`.
+- Added transactional selective re-ingest protection so chunk/vector/manifest writes rollback together on failure.
 
 ## 0.7.1 - 2026-02-27
 
