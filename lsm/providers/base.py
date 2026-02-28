@@ -336,19 +336,6 @@ class BaseLLMProvider(ABC):
                 )
                 time.sleep(delay)
 
-    def _fallback_answer(self, question: str, context: str, max_chars: int = 1200) -> str:
-        """Generate a fallback answer when provider requests fail."""
-        snippet = context[:max_chars]
-        if len(context) > max_chars:
-            snippet += "\n...[truncated]..."
-        return (
-            f"[Offline mode: {self.name} unavailable]\n\n"
-            f"Question: {question}\n\n"
-            f"Retrieved context:\n{snippet}\n\n"
-            "Note: Unable to generate synthesized answer. "
-            "Please review the sources above directly."
-        )
-
     def _default_temperature(self) -> Optional[float]:
         config = getattr(self, "config", None)
         return getattr(config, "temperature", None)

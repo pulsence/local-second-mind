@@ -125,12 +125,6 @@ class TestBaseLLMProvider:
         assert provider._is_circuit_open() is True
         assert health["stats"]["circuit_open_until"] is not None
 
-    def test_base_fallback_uses_provider_name(self):
-        provider = ConcreteProvider()
-        fallback = provider._fallback_answer("Q?", "ctx")
-        assert "Offline mode: test" in fallback
-        assert "Question: Q?" in fallback
-
     def test_retry_helper_retries_once_then_succeeds(self):
         provider = ConcreteProvider()
         calls = {"n": 0}
