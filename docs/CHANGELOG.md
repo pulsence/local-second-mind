@@ -6,6 +6,12 @@ All notable changes to Local Second Mind are documented here.
 
 ### Changed
 
+- Introduced `RetrievalPipeline` three-stage API (`build_sources → synthesize_context → execute`) in `lsm/query/pipeline.py`, centralizing retrieval, reranking, context building, and synthesis into a single testable pipeline.
+- Added pipeline data types (`QueryRequest`, `ContextPackage`, `QueryResponse`, `FilterSet`, `ScoreBreakdown`, `Citation`, `RetrievalTrace`, `CostEntry`, `RemoteSource`, `StageTimings`) in `lsm/query/pipeline_types.py`.
+- Rewired `lsm/query/api.py` to delegate to `RetrievalPipeline.run()` — removed inline `_apply_reranking()`, `_synthesize_answer()`, `_update_state()`.
+- Replaced `SessionState.llm_server_cache_ids` dict with scalar `conversation_id` and `prior_response_id` fields for cleaner conversation chaining.
+- Added `last_retrieval_trace` to `SessionState` for post-query diagnostics.
+- Extended `Candidate` with `score_breakdown` and `embedding` fields for hybrid retrieval scoring.
 - Extracted database layer foundation into `lsm.db` — connection management (`create_sqlite_connection`, `resolve_db_path`), application schema ownership (`ensure_application_schema`, `APPLICATION_TABLES`), and savepoint-aware transaction helper (`transaction`).
 - Refactored `SQLiteVecProvider` to delegate connection setup, non-vector schema creation, and transaction management to `lsm.db`, keeping only vector-specific DDL (`vec_chunks`, `chunks_fts`, FTS triggers).
 - Consolidated duplicated connection resolution logic from `memory/store.py` (4 functions) and `scheduler.py` (3 methods) into `lsm.db.connection` (`resolve_sqlite_connection`, `resolve_postgres_connection_factory`, `resolve_vectordb_provider_name`).
