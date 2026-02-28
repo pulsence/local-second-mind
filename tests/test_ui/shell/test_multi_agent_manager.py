@@ -51,6 +51,8 @@ class _DummyHarness:
         memory_context_builder=None,
         interaction_channel=None,
         log_callback=None,
+        remote_source_allowlist=None,
+        **kwargs,
     ) -> None:
         _ = (
             agent_config,
@@ -69,6 +71,8 @@ class _DummyHarness:
             memory_store,
             memory_context_builder,
             log_callback,
+            remote_source_allowlist,
+            kwargs,
         )
         self.interaction_channel = interaction_channel
         self.stopped = False

@@ -11,11 +11,17 @@ All notable changes to Local Second Mind are documented here.
 - Removed Chroma-specific ingest/vector config fields (`ingest.manifest`, `ingest.chroma_flush_interval`, `ingest.enable_versioning`, `vectordb.chroma_hnsw_space`).
 - Updated the vector DB factory to reject `chromadb` as a production provider and direct users to migration tooling.
 - Added compatibility cleanup across tests/fixtures to remove legacy `persist_dir` usage and align with the v0.8.0 config schema.
+- Migrated agent memory to the shared vector DB connection (`lsm_agent_memories`, `lsm_agent_memory_candidates`) and removed `agents.memory.sqlite_path`.
+- Migrated agent scheduler persistence from `schedules.json` to `lsm_agent_schedules` with deterministic schedule IDs.
+- Migrated ingest manifest persistence from `manifest.json` to `lsm_manifest` (DB-backed version tracking).
+- Migrated runtime sidecar caches from JSON blobs to DB tables (`lsm_stats_cache`, `lsm_remote_cache`) for SQLite-backed runs.
+- Updated query planning to always enforce `is_current = true` filtering for versioned chunks.
 
 ### Added
 
 - New `SQLiteVecProvider` export and default factory registration.
 - Unified `lsm.db` schema setup and sqlite-vec provider test coverage.
+- Added unified schema tables/indexes for `lsm_stats_cache` and `lsm_remote_cache`.
 
 ## 0.7.1 - 2026-02-27
 

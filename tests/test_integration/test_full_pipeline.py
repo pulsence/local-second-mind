@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import os
 import shutil
 from pathlib import Path
@@ -26,6 +25,7 @@ from lsm.config.models import (
     VectorDBConfig,
 )
 from lsm.ingest.api import run_ingest
+from lsm.ingest.manifest import load_manifest
 from lsm.query.api import query_sync
 from lsm.query.retrieval import embed_text, retrieve_candidates
 from lsm.query.session import SessionState
@@ -61,7 +61,7 @@ def _build_pipeline_config(
     chunk_overlap: int = 120,
     chunking_strategy: str = "structure",
     extensions: list[str] | None = None,
-    vectordb_provider: str = "chromadb",
+    vectordb_provider: str = "sqlite",
     vectordb_connection_string: str | None = None,
 ) -> LSMConfig:
     """Build an isolated config for full pipeline testing."""
@@ -70,9 +70,6 @@ def _build_pipeline_config(
 
     ingest = IngestConfig(
         roots=[docs_root],
-        path=tmp_path / ".chroma",
-        collection=collection_name,
-        manifest=tmp_path / ".ingest" / "manifest.json",
         extensions=extensions or [".txt", ".md", ".html"],
         override_extensions=True,
         exclude_dirs=[],
@@ -116,7 +113,7 @@ def _build_pipeline_config(
     )
     vectordb = VectorDBConfig(
         provider=vectordb_provider,
-        path=tmp_path / ".chroma",
+        path=tmp_path / "data",
         collection=collection_name,
         connection_string=vectordb_connection_string,
     )
@@ -212,12 +209,11 @@ def test_end_to_end_ingest_and_retrieval_without_network(
     assert ingest_result.errors == []
     assert ingest_result.chunks_added > 0
 
-    manifest_data = json.loads(config.ingest.manifest.read_text(encoding="utf-8"))
-    assert len(manifest_data) == 3
-    assert all(entry.get("file_hash") for entry in manifest_data.values())
-
     collection = create_vectordb_provider(config.vectordb)
     assert collection.count() == ingest_result.chunks_added
+    manifest_data = load_manifest(connection=collection.connection)
+    assert len(manifest_data) == 3
+    assert all(entry.get("file_hash") for entry in manifest_data.values())
 
     query_embedding = embed_text(
         real_embedder,
@@ -326,9 +322,6 @@ def test_full_pipeline_with_postgresql_store(
         assert ingest_result.skipped_files == 0
         assert ingest_result.errors == []
         assert ingest_result.chunks_added > 0
-
-        manifest_data = json.loads(config.ingest.manifest.read_text(encoding="utf-8"))
-        assert len(manifest_data) == 3
 
         assert collection.count() == ingest_result.chunks_added
 

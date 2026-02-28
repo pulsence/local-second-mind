@@ -413,14 +413,14 @@ def real_chromadb_provider(tmp_path: Path):
     """
     Create a real ChromaDB provider against an isolated temp directory.
     """
-    from lsm.vectordb.factory import create_vectordb_provider
+    from lsm.vectordb.chromadb import ChromaDBProvider
 
     config = VectorDBConfig(
         provider="chromadb",
         path=tmp_path / ".chroma",
         collection=f"test_{tmp_path.name}",
     )
-    provider = create_vectordb_provider(config)
+    provider = ChromaDBProvider(config)
     if not provider.is_available():
         pytest.skip("ChromaDB provider is unavailable in this environment")
     return provider

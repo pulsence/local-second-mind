@@ -31,7 +31,7 @@ def _make_config(
     llm_server_cache_enabled: bool = False,
 ) -> LSMConfig:
     return LSMConfig(
-        ingest=IngestConfig(roots=[tmp_path], manifest=tmp_path / ".ingest" / "manifest.json"),
+        ingest=IngestConfig(roots=[tmp_path]),
         llm=LLMRegistryConfig(
             providers=[LLMProviderConfig(provider_name="openai", api_key="test")],
             services={
@@ -47,7 +47,7 @@ def _make_config(
             query_cache_size=10,
             enable_llm_server_cache=llm_server_cache_enabled,
         ),
-        vectordb=VectorDBConfig(path=tmp_path / ".chroma", collection="kb"),
+        vectordb=VectorDBConfig(provider="sqlite", path=tmp_path / "data", collection="kb"),
         global_settings=GlobalConfig(global_folder=tmp_path / "global"),
         config_path=tmp_path / "config.json",
     )

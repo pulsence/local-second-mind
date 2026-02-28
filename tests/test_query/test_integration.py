@@ -56,10 +56,7 @@ class FakeLLMProvider:
 
 def _build_config(tmp_path: Path, *, mode: str = "grounded") -> LSMConfig:
     return LSMConfig(
-        ingest=IngestConfig(
-            roots=[tmp_path],
-            manifest=tmp_path / ".ingest" / "manifest.json",
-        ),
+        ingest=IngestConfig(roots=[tmp_path]),
         llm=LLMRegistryConfig(
             providers=[LLMProviderConfig(provider_name="openai", api_key="test-key")],
             services={
@@ -74,7 +71,8 @@ def _build_config(tmp_path: Path, *, mode: str = "grounded") -> LSMConfig:
             mode=mode,
         ),
         vectordb=VectorDBConfig(
-            path=tmp_path / ".chroma",
+            provider="sqlite",
+            path=tmp_path / "data",
             collection="test_kb",
         ),
         global_settings=GlobalConfig(

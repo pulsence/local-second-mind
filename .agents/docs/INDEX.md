@@ -99,7 +99,7 @@ API keys go in `.env`, never in config files:
 - **Agent memory config:** `agents.memory.storage_backend` controls backend selection (`auto`, `sqlite`, `postgresql`).
 - **Agent harness memory injection:** `AgentHarness` can build standing memory context before each LLM call.
 - **Agent run summaries:** `AgentHarness` emits run summaries with tool usage, approvals/denials, artifacts, outcome, duration, and token usage.
-- **Agent scheduler:** Stores runtime schedule metadata in `<agents_folder>/schedules.json`.
+- **Agent scheduler:** Stores runtime schedule metadata in vectordb table `lsm_agent_schedules`.
 - **Meta-agent orchestration:** Builds deterministic TaskGraph plans, executes sub-agents, writes consolidated artifacts.
 - **Sandbox monotonicity:** Spawned sub-agent sandboxes must remain subsets of the parent sandbox.
 - **Chunking strategy:** `chunking_strategy` selects `"structure"` (default) or `"fixed"` (legacy).

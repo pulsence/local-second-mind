@@ -42,7 +42,7 @@ class ChromaDBProvider(BaseVectorDBProvider):
         )
         self._collection = self._client.get_or_create_collection(
             name=self.config.collection,
-            metadata={"hnsw:space": self.config.chroma_hnsw_space},
+            metadata={"hnsw:space": getattr(self.config, "chroma_hnsw_space", "cosine")},
         )
         return self._collection
 

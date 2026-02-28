@@ -133,13 +133,10 @@ class TestConfigLoaderRoots:
             },
             "ingest": {
                 "roots": [str(tmp_path / "docs")],
-                "path": str(tmp_path / ".chroma"),
-                "collection": "test_kb",
-                "manifest": str(tmp_path / ".ingest" / "manifest.json"),
             },
             "vectordb": {
-                "provider": "chromadb",
-                "path": str(tmp_path / ".chroma"),
+                "provider": "sqlite",
+                "path": str(tmp_path / "data"),
                 "collection": "test_kb",
             },
             "llms": {
@@ -193,20 +190,15 @@ class TestConfigLoaderRoots:
         )
 
         return LSMConfig(
-            ingest=IngestConfig(
-                roots=roots,
-                path=tmp_path / ".chroma",
-                collection="test_kb",
-                manifest=tmp_path / ".ingest" / "manifest.json",
-            ),
+            ingest=IngestConfig(roots=roots),
             query=QueryConfig(),
             llm=LLMRegistryConfig(
                 providers=[LLMProviderConfig(provider_name="local")],
                 services={"default": LLMServiceConfig(provider="local", model="test")},
             ),
             vectordb=VectorDBConfig(
-                provider="chromadb",
-                path=tmp_path / ".chroma",
+                provider="sqlite",
+                path=tmp_path / "data",
                 collection="test_kb",
             ),
             global_settings=GlobalConfig(),

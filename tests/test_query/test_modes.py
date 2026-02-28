@@ -23,17 +23,15 @@ from lsm.config.models import (
 
 def _make_config(mode: str, modes: dict | None = None, notes: NotesConfig | None = None) -> LSMConfig:
     return LSMConfig(
-        ingest=IngestConfig(
-            roots=[Path("/test")],
-            manifest=Path("/tmp/manifest.json"),
-        ),
+        ingest=IngestConfig(roots=[Path("/test")]),
         query=QueryConfig(mode=mode),
         llm=LLMRegistryConfig(
             providers=[LLMProviderConfig(provider_name="openai", api_key="test")],
             services={"query": LLMServiceConfig(provider="openai", model="gpt-5.2")},
         ),
         vectordb=VectorDBConfig(
-            path=Path("/tmp/.chroma"),
+            provider="sqlite",
+            path=Path("/tmp/data"),
             collection="test",
         ),
         modes=modes,

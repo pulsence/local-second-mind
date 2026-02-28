@@ -67,7 +67,7 @@ class FakeRemoteProvider:
 def _build_query_config(tmp_path: Path, remote_enabled: bool) -> LSMConfig:
     mode_name = "integration_mode"
     return LSMConfig(
-        ingest=IngestConfig(roots=[tmp_path], manifest=tmp_path / ".ingest" / "manifest.json"),
+        ingest=IngestConfig(roots=[tmp_path]),
         query=QueryConfig(mode=mode_name, rerank_strategy="llm", no_rerank=False),
         llm=LLMRegistryConfig(
             providers=[LLMProviderConfig(provider_name="openai", api_key="test-key")],
@@ -77,8 +77,8 @@ def _build_query_config(tmp_path: Path, remote_enabled: bool) -> LSMConfig:
             },
         ),
         vectordb=VectorDBConfig(
-            provider="chromadb",
-            path=tmp_path / ".chroma",
+            provider="sqlite",
+            path=tmp_path / "data",
             collection="test_collection",
         ),
         modes={

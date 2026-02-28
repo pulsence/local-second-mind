@@ -1,6 +1,6 @@
 # Phase 1: SQLite-vec Provider and Unified Schema
 
-**Status**: Pending
+**Status**: Completed
 
 Replaces ChromaDB with sqlite-vec as the default vector store. Creates the unified
 `lsm.db` database file containing all LSM state tables. Updates the `VectorDBConfig`

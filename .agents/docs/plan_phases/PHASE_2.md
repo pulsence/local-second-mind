@@ -1,6 +1,6 @@
 # Phase 2: Agent Data, Manifest, and Sidecar Consolidation
 
-**Status**: Pending
+**Status**: Completed
 
 Merges agent memory (`memories.db`), agent schedules (`schedules.json`), the ingest manifest
 (`manifest.json`), and runtime sidecars (`stats_cache.json`, remote cache) into the unified

@@ -102,7 +102,6 @@ Agents are configured in top-level `agents`:
   "memory": {
     "enabled": true,
     "storage_backend": "auto",
-    "sqlite_path": "memory.sqlite3",
     "postgres_connection_string": null,
     "postgres_table_prefix": "agent_memory",
     "ttl_project_fact_days": 90,
@@ -142,6 +141,7 @@ Agents are configured in top-level `agents`:
 - `max_concurrent`: max concurrently running agents (used by multi-agent runtime managers)
 - `log_stream_queue_limit`: max buffered live-log entries per agent before oldest entries are dropped
 - `context_window_strategy`: `compact` or `fresh`
+- Scheduler state is persisted in vectordb-backed table `lsm_agent_schedules` (no `schedules.json` sidecar).
 - `interaction.timeout_seconds`: wait timeout for an interaction response before acknowledgment (default `300`)
 - `interaction.timeout_action`: timeout fallback (`deny` or `approve`, default `deny`)
 - `interaction.acknowledged_timeout_seconds`: wait timeout after acknowledgment (default `0` = infinite)
@@ -241,7 +241,6 @@ Docker runner behavior:
 Memory storage is configured in `agents.memory` and implemented in `lsm/agents/memory/`.
 
 - `storage_backend`: `auto`, `sqlite`, or `postgresql`
-- `sqlite_path`: SQLite DB file path for memory storage
 - `postgres_connection_string`: optional PostgreSQL override for memory storage
 - `postgres_table_prefix`: table prefix used by PostgreSQL memory tables
 - TTL caps: `ttl_project_fact_days`, `ttl_task_state_days`, `ttl_cache_hours`
@@ -249,11 +248,8 @@ Memory storage is configured in `agents.memory` and implemented in `lsm/agents/m
 Backend selection in `auto` mode:
 
 - Uses PostgreSQL memory storage when `vectordb.provider` is `postgresql`
-- Uses SQLite memory storage for `chromadb` (or any non-PostgreSQL vector backend)
-
-Path resolution:
-
-- If `agents.memory.sqlite_path` is relative, it resolves under `agents_folder`
+- Uses SQLite memory storage when `vectordb.provider` is `sqlite`
+- SQLite memory uses the shared vectordb connection and unified tables in `lsm.db` (`lsm_agent_memories`, `lsm_agent_memory_candidates`) rather than a standalone `memories.db` file
 
 Lifecycle model:
 
@@ -582,9 +578,9 @@ Open the **Agents** tab:
 
 ## Scheduler Engine
 
-`AgentScheduler` (`lsm/agents/scheduler.py`) executes configured `agents.schedules` entries on an interval and persists runtime status in:
+`AgentScheduler` (`lsm/agents/scheduler.py`) executes configured `agents.schedules` entries on an interval and persists runtime status in the vectordb-backed table:
 
-- `<agents_folder>/schedules.json`
+- `lsm_agent_schedules`
 
 Tracked fields include `last_run_at`, `next_run_at`, `last_status`, and `last_error`.
 

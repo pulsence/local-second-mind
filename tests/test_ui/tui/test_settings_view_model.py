@@ -16,9 +16,6 @@ def _raw_config(tmp_path: Path) -> dict:
         },
         "ingest": {
             "roots": [str(tmp_path / "docs")],
-            "path": str(tmp_path / ".chroma"),
-            "collection": "test_collection",
-            "manifest": str(tmp_path / ".ingest" / "manifest.json"),
             "chunk_size": 800,
             "chunk_overlap": 100,
         },
@@ -37,8 +34,8 @@ def _raw_config(tmp_path: Path) -> dict:
             },
         },
         "vectordb": {
-            "provider": "chromadb",
-            "path": str(tmp_path / ".chroma"),
+            "provider": "sqlite",
+            "path": str(tmp_path / "data"),
             "collection": "test_collection",
         },
         "query": {

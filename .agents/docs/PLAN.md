@@ -13,8 +13,8 @@
 
 | Phase | Title | Status | Plan |
 |-------|-------|--------|------|
-| 1 | SQLite-vec Provider and Unified Schema | Pending | [PHASE_1.md](./plan_phases/PHASE_1.md) |
-| 2 | Agent Data, Manifest, and Sidecar Consolidation | Pending | [PHASE_2.md](./plan_phases/PHASE_2.md) |
+| 1 | SQLite-vec Provider and Unified Schema | Completed | [PHASE_1.md](./plan_phases/PHASE_1.md) |
+| 2 | Agent Data, Manifest, and Sidecar Consolidation | Completed | [PHASE_2.md](./plan_phases/PHASE_2.md) |
 | 3 | Schema Versioning and DB Completion | Pending | [PHASE_3.md](./plan_phases/PHASE_3.md) |
 | 4 | Migration System | Pending | [PHASE_4.md](./plan_phases/PHASE_4.md) |
 | 5 | LLM Provider Simplification | Pending | [PHASE_5.md](./plan_phases/PHASE_5.md) |
