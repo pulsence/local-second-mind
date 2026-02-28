@@ -101,7 +101,7 @@ class TestTagGeneration:
         """Test basic tag generation using generic provider."""
         # Mock provider
         mock_provider = Mock()
-        mock_provider.generate_tags.return_value = ["python", "programming", "tutorial"]
+        mock_provider.send_message.return_value = '{"tags": ["python", "programming", "tutorial"]}'
         mock_create_provider.return_value = mock_provider
 
         # Create LLM config
@@ -125,13 +125,13 @@ class TestTagGeneration:
 
         # Verify provider was created and called
         mock_create_provider.assert_called_once_with(llm_config)
-        mock_provider.generate_tags.assert_called_once()
+        mock_provider.send_message.assert_called_once()
 
     @patch("lsm.ingest.tagging.create_provider")
     def test_generate_tags_with_existing_context(self, mock_create_provider):
         """Test tag generation with existing tags context."""
         mock_provider = Mock()
-        mock_provider.generate_tags.return_value = ["machine-learning", "python"]
+        mock_provider.send_message.return_value = '{"tags": ["machine-learning", "python"]}'
         mock_create_provider.return_value = mock_provider
 
         llm_config = LLMConfig(
@@ -151,18 +151,19 @@ class TestTagGeneration:
 
         assert len(tags) <= 2
 
-        # Verify existing_tags were passed to provider
-        call_kwargs = mock_provider.generate_tags.call_args[1]
-        assert call_kwargs["existing_tags"] == existing_tags
+        # Verify existing_tags are included in instruction prompt
+        call_kwargs = mock_provider.send_message.call_args.kwargs
+        assert "Existing tags in this knowledge base" in call_kwargs["instruction"]
+        assert "python, data-science, tutorial" in call_kwargs["instruction"]
 
     @patch("lsm.ingest.tagging.create_provider")
     def test_generate_tags_retry_on_empty(self, mock_create_provider):
         """Test retry logic when LLM returns empty results."""
         mock_provider = Mock()
         # First call returns empty, second succeeds
-        mock_provider.generate_tags.side_effect = [
-            [],  # First attempt fails
-            ["python", "tutorial"]  # Second attempt succeeds
+        mock_provider.send_message.side_effect = [
+            '{"tags": []}',  # First attempt fails
+            '{"tags": ["python", "tutorial"]}',  # Second attempt succeeds
         ]
         mock_create_provider.return_value = mock_provider
 
@@ -181,16 +182,16 @@ class TestTagGeneration:
 
         # Should get tags from second attempt
         assert len(tags) == 2
-        assert mock_provider.generate_tags.call_count == 2
+        assert mock_provider.send_message.call_count == 2
 
     @patch("lsm.ingest.tagging.create_provider")
     def test_generate_tags_retry_on_exception(self, mock_create_provider):
         """Test retry logic when LLM raises exception."""
         mock_provider = Mock()
         # First call raises, second succeeds
-        mock_provider.generate_tags.side_effect = [
+        mock_provider.send_message.side_effect = [
             Exception("API error"),
-            ["python"]
+            '{"tags": ["python"]}',
         ]
         mock_create_provider.return_value = mock_provider
 
@@ -207,13 +208,13 @@ class TestTagGeneration:
         )
 
         assert len(tags) == 1
-        assert mock_provider.generate_tags.call_count == 2
+        assert mock_provider.send_message.call_count == 2
 
     @patch("lsm.ingest.tagging.create_provider")
     def test_generate_tags_retry_exhausted(self, mock_create_provider):
         """Test that exception is raised after retries exhausted."""
         mock_provider = Mock()
-        mock_provider.generate_tags.side_effect = Exception("Persistent API error")
+        mock_provider.send_message.side_effect = Exception("Persistent API error")
         mock_create_provider.return_value = mock_provider
 
         llm_config = LLMConfig(
@@ -230,13 +231,13 @@ class TestTagGeneration:
             )
 
         # Should try twice (initial + 1 retry)
-        assert mock_provider.generate_tags.call_count == 2
+        assert mock_provider.send_message.call_count == 2
 
     @patch("lsm.ingest.tagging.create_provider")
     def test_generate_tags_empty_after_retries(self, mock_create_provider):
         """Test that empty list returned when all retries return empty."""
         mock_provider = Mock()
-        mock_provider.generate_tags.return_value = []
+        mock_provider.send_message.return_value = '{"tags": []}'
         mock_create_provider.return_value = mock_provider
 
         llm_config = LLMConfig(
@@ -252,7 +253,7 @@ class TestTagGeneration:
         )
 
         assert tags == []
-        assert mock_provider.generate_tags.call_count == 2
+        assert mock_provider.send_message.call_count == 2
 
 
 class TestUntaggedChunks:

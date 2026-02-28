@@ -49,33 +49,3 @@ def exercise_live_provider_contract(
     )
     assert streamed
 
-    synthesized = provider.synthesize(
-        question="What does this live test verify?",
-        context="[S1] It verifies that the provider can answer and stream.",
-        mode="grounded",
-        temperature=0.1,
-        max_tokens=160,
-    )
-    assert isinstance(synthesized, str)
-    assert synthesized.strip()
-
-    tags = provider.generate_tags(
-        text="Local-first retrieval pipelines require traceable citations and stable embeddings.",
-        num_tags=3,
-        max_tokens=100,
-    )
-    assert isinstance(tags, list)
-    assert len(tags) <= 3
-
-    candidates = [
-        {"text": "Citations improve trust in generated answers.", "metadata": {"idx": 0}},
-        {"text": "Chunk overlap affects retrieval recall and context continuity.", "metadata": {"idx": 1}},
-        {"text": "Weather forecasts describe atmospheric conditions.", "metadata": {"idx": 2}},
-    ]
-    reranked = provider.rerank(
-        question="Why are citations important in grounded synthesis?",
-        candidates=candidates,
-        k=2,
-    )
-    assert len(reranked) == 2
-    assert all("text" in item for item in reranked)

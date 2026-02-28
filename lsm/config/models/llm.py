@@ -101,15 +101,6 @@ class LLMConfig:
     base_url: Optional[str] = None
     """Base URL for local or hosted providers (e.g., Ollama)."""
 
-    endpoint: Optional[str] = None
-    """Provider endpoint URL (e.g., Azure OpenAI resource endpoint)."""
-
-    api_version: Optional[str] = None
-    """Provider API version (e.g., Azure OpenAI)."""
-
-    deployment_name: Optional[str] = None
-    """Provider deployment name (e.g., Azure OpenAI deployment)."""
-
     fallback_models: Optional[List[str]] = None
     """Provider-specific fallback model list (e.g., OpenRouter routing)."""
 
@@ -134,15 +125,6 @@ class LLMConfig:
             else:
                 self.base_url = os.getenv("LLM_BASE_URL")
 
-        if not self.endpoint and self.provider == "azure_openai":
-            self.endpoint = os.getenv("AZURE_OPENAI_ENDPOINT")
-
-        if not self.api_version and self.provider == "azure_openai":
-            self.api_version = os.getenv("AZURE_OPENAI_API_VERSION")
-
-        if not self.deployment_name and self.provider == "azure_openai":
-            self.deployment_name = os.getenv("AZURE_OPENAI_DEPLOYMENT_NAME")
-
     def validate(self) -> None:
         """Validate LLM configuration."""
         if self.provider not in {"local", "ollama"} and not self.api_key:
@@ -155,18 +137,6 @@ class LLMConfig:
                 f"API key required for provider '{self.provider}'. "
                 f"Set {self.provider.upper()}_API_KEY environment variable or provide in config."
             )
-
-        if self.provider == "azure_openai":
-            if not self.endpoint:
-                raise ValueError(
-                    "Azure OpenAI requires 'endpoint'. "
-                    "Set llms[].endpoint or AZURE_OPENAI_ENDPOINT."
-                )
-            if not self.api_version:
-                raise ValueError(
-                    "Azure OpenAI requires 'api_version'. "
-                    "Set llms[].api_version or AZURE_OPENAI_API_VERSION."
-                )
 
         if self.temperature < 0.0 or self.temperature > 2.0:
             raise ValueError(f"Temperature must be between 0.0 and 2.0, got {self.temperature}")
@@ -189,15 +159,6 @@ class LLMProviderConfig:
 
     base_url: Optional[str] = None
     """Base URL for local or hosted providers (e.g., Ollama)."""
-
-    endpoint: Optional[str] = None
-    """Provider endpoint URL (e.g., Azure OpenAI resource endpoint)."""
-
-    api_version: Optional[str] = None
-    """Provider API version (e.g., Azure OpenAI)."""
-
-    deployment_name: Optional[str] = None
-    """Provider deployment name (e.g., Azure OpenAI deployment)."""
 
     fallback_models: Optional[List[str]] = None
     """Optional fallback models for providers that support routing (e.g., OpenRouter)."""
@@ -279,9 +240,6 @@ class LLMRegistryConfig:
                 else DEFAULT_LLM_MAX_TOKENS
             ),
             base_url=provider.base_url,
-            endpoint=provider.endpoint,
-            api_version=provider.api_version,
-            deployment_name=provider.deployment_name,
             fallback_models=provider.fallback_models,
         )
 
@@ -322,9 +280,6 @@ class LLMRegistryConfig:
             temperature=temperature if temperature is not None else DEFAULT_LLM_TEMPERATURE,
             max_tokens=max_tokens if max_tokens is not None else DEFAULT_LLM_MAX_TOKENS,
             base_url=provider.base_url,
-            endpoint=provider.endpoint,
-            api_version=provider.api_version,
-            deployment_name=provider.deployment_name,
             fallback_models=provider.fallback_models,
         )
 
@@ -502,8 +457,5 @@ class LLMRegistryConfig:
             temperature=temperature,
             max_tokens=max_tokens,
             base_url=provider.base_url,
-            endpoint=provider.endpoint,
-            api_version=provider.api_version,
-            deployment_name=provider.deployment_name,
             fallback_models=provider.fallback_models,
         )

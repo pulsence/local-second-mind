@@ -23,7 +23,6 @@ PROVIDER_REGISTRY: Dict[str, str | Type[BaseLLMProvider]] = {
     "claude": "lsm.providers.anthropic:AnthropicProvider",
     "local": "lsm.providers.local:LocalProvider",
     "gemini": "lsm.providers.gemini:GeminiProvider",
-    "azure_openai": "lsm.providers.azure_openai:AzureOpenAIProvider",
 }
 
 

@@ -434,92 +434,6 @@ class TestGeminiPricing:
 
 
 # ===================================================================
-# Azure OpenAI Provider pricing tests
-# ===================================================================
-
-class TestAzureOpenAIPricing:
-    """Tests for Azure OpenAI provider pricing."""
-
-    @pytest.fixture
-    def provider(self):
-        from lsm.providers.azure_openai import AzureOpenAIProvider
-        config = _make_llm_config(
-            provider="azure_openai",
-            model="gpt-4o",
-            endpoint="https://test.openai.azure.com/",
-            api_version="2024-06-01",
-        )
-        with patch("lsm.providers.azure_openai.AzureOpenAI"):
-            return AzureOpenAIProvider(config)
-
-    def test_model_pricing_dict_exists(self, provider):
-        """Azure OpenAI provider should have a MODEL_PRICING dict."""
-        from lsm.providers.azure_openai import AzureOpenAIProvider
-        assert hasattr(AzureOpenAIProvider, "MODEL_PRICING")
-        assert isinstance(AzureOpenAIProvider.MODEL_PRICING, dict)
-        assert len(AzureOpenAIProvider.MODEL_PRICING) > 0
-
-    def test_pricing_mirrors_openai(self, provider):
-        """Azure pricing should mirror standard OpenAI pricing."""
-        from lsm.providers.azure_openai import AzureOpenAIProvider
-        from lsm.providers.openai import OpenAIProvider
-        # Check that shared models have the same pricing
-        for model_name in AzureOpenAIProvider.MODEL_PRICING:
-            if model_name in OpenAIProvider.MODEL_PRICING:
-                assert (
-                    AzureOpenAIProvider.MODEL_PRICING[model_name]
-                    == OpenAIProvider.MODEL_PRICING[model_name]
-                ), f"Azure pricing for {model_name} differs from OpenAI"
-
-    def test_estimate_cost_known_model(self):
-        """estimate_cost should return a float for known models."""
-        from lsm.providers.azure_openai import AzureOpenAIProvider
-        config = _make_llm_config(
-            provider="azure_openai",
-            model="gpt-4o",
-            endpoint="https://test.openai.azure.com/",
-            api_version="2024-06-01",
-        )
-        with patch("lsm.providers.azure_openai.AzureOpenAI"):
-            provider = AzureOpenAIProvider(config)
-        cost = provider.estimate_cost(1_000_000, 1_000_000)
-        assert cost is not None
-        assert isinstance(cost, float)
-        assert cost > 0
-
-    def test_estimate_cost_unknown_model(self):
-        """estimate_cost should return None for unknown models."""
-        from lsm.providers.azure_openai import AzureOpenAIProvider
-        config = _make_llm_config(
-            provider="azure_openai",
-            model="custom-deployment-xyz",
-            endpoint="https://test.openai.azure.com/",
-            api_version="2024-06-01",
-            deployment_name="custom-deployment-xyz",
-        )
-        with patch("lsm.providers.azure_openai.AzureOpenAI"):
-            provider = AzureOpenAIProvider(config)
-        cost = provider.estimate_cost(1000, 500)
-        assert cost is None
-
-    def test_get_model_pricing_known_model(self):
-        """get_model_pricing should return pricing for current model."""
-        from lsm.providers.azure_openai import AzureOpenAIProvider
-        config = _make_llm_config(
-            provider="azure_openai",
-            model="gpt-4o",
-            endpoint="https://test.openai.azure.com/",
-            api_version="2024-06-01",
-        )
-        with patch("lsm.providers.azure_openai.AzureOpenAI"):
-            provider = AzureOpenAIProvider(config)
-        pricing = provider.get_model_pricing()
-        assert pricing is not None
-        assert "input" in pricing
-        assert "output" in pricing
-
-
-# ===================================================================
 # Local Provider pricing tests
 # ===================================================================
 
@@ -567,9 +481,8 @@ class TestPricingConsistency:
         from lsm.providers.openai import OpenAIProvider
         from lsm.providers.anthropic import AnthropicProvider
         from lsm.providers.gemini import GeminiProvider
-        from lsm.providers.azure_openai import AzureOpenAIProvider
 
-        for cls in [OpenAIProvider, AnthropicProvider, GeminiProvider, AzureOpenAIProvider]:
+        for cls in [OpenAIProvider, AnthropicProvider, GeminiProvider]:
             assert hasattr(cls, "MODEL_PRICING"), (
                 f"{cls.__name__} missing MODEL_PRICING"
             )
@@ -579,9 +492,8 @@ class TestPricingConsistency:
         from lsm.providers.openai import OpenAIProvider
         from lsm.providers.anthropic import AnthropicProvider
         from lsm.providers.gemini import GeminiProvider
-        from lsm.providers.azure_openai import AzureOpenAIProvider
 
-        for cls in [OpenAIProvider, AnthropicProvider, GeminiProvider, AzureOpenAIProvider]:
+        for cls in [OpenAIProvider, AnthropicProvider, GeminiProvider]:
             for model_name, pricing in cls.MODEL_PRICING.items():
                 assert 0 <= pricing["input"] <= 200, (
                     f"{cls.__name__} {model_name} input price {pricing['input']} out of range"
@@ -595,9 +507,8 @@ class TestPricingConsistency:
         from lsm.providers.openai import OpenAIProvider
         from lsm.providers.anthropic import AnthropicProvider
         from lsm.providers.gemini import GeminiProvider
-        from lsm.providers.azure_openai import AzureOpenAIProvider
 
-        for cls in [OpenAIProvider, AnthropicProvider, GeminiProvider, AzureOpenAIProvider]:
+        for cls in [OpenAIProvider, AnthropicProvider, GeminiProvider]:
             for model_name, pricing in cls.MODEL_PRICING.items():
                 assert pricing["output"] >= pricing["input"], (
                     f"{cls.__name__} {model_name}: output (${pricing['output']}) "

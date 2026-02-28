@@ -18,7 +18,6 @@ _LAZY_EXPORTS = {
     "AnthropicProvider": ("lsm.providers.anthropic", "AnthropicProvider"),
     "LocalProvider": ("lsm.providers.local", "LocalProvider"),
     "GeminiProvider": ("lsm.providers.gemini", "GeminiProvider"),
-    "AzureOpenAIProvider": ("lsm.providers.azure_openai", "AzureOpenAIProvider"),
 }
 
 
@@ -43,7 +42,6 @@ __all__ = [
     "AnthropicProvider",
     "LocalProvider",
     "GeminiProvider",
-    "AzureOpenAIProvider",
     "create_provider",
     "list_available_providers",
     "register_provider",

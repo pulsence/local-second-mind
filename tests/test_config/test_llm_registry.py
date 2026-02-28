@@ -63,17 +63,23 @@ def test_resolve_tier_basic() -> None:
 def test_resolve_direct_uses_provider_details() -> None:
     registry = LLMRegistryConfig(
         providers=[
-            LLMProviderConfig(provider_name="azure_openai", api_key="azure-key", endpoint="https://example"),
+            LLMProviderConfig(
+                provider_name="openrouter",
+                api_key="router-key",
+                base_url="https://openrouter.ai/api/v1",
+                fallback_models=["openai/gpt-5-mini", "anthropic/claude-sonnet-4.5"],
+            ),
         ],
         services={
-            "default": LLMServiceConfig(provider="azure_openai", model="gpt-4"),
+            "default": LLMServiceConfig(provider="openrouter", model="openai/gpt-5"),
         },
     )
-    config = registry.resolve_direct("azure_openai", "gpt-4o", temperature=0.1, max_tokens=123)
-    assert config.provider == "azure_openai"
-    assert config.model == "gpt-4o"
-    assert config.api_key == "azure-key"
-    assert config.endpoint == "https://example"
+    config = registry.resolve_direct("openrouter", "openai/gpt-5", temperature=0.1, max_tokens=123)
+    assert config.provider == "openrouter"
+    assert config.model == "openai/gpt-5"
+    assert config.api_key == "router-key"
+    assert config.base_url == "https://openrouter.ai/api/v1"
+    assert config.fallback_models == ["openai/gpt-5-mini", "anthropic/claude-sonnet-4.5"]
     assert config.temperature == 0.1
     assert config.max_tokens == 123
 
@@ -183,27 +189,25 @@ def test_set_feature_selection_rejects_unknown_provider():
 
 
 def test_provider_connection_details_merged():
-    """Test that Azure connection details are properly merged into resolved config."""
+    """Test that provider connection details are merged into resolved config."""
     registry = LLMRegistryConfig(
         providers=[
             LLMProviderConfig(
-                provider_name="azure_openai",
-                api_key="azure-key",
-                endpoint="https://myresource.openai.azure.com",
-                api_version="2024-02-15",
-                deployment_name="my-deployment",
+                provider_name="openrouter",
+                api_key="router-key",
+                base_url="https://openrouter.ai/api/v1",
+                fallback_models=["openai/gpt-5-mini"],
             ),
         ],
         services={
-            "query": LLMServiceConfig(provider="azure_openai", model="gpt-4"),
+            "query": LLMServiceConfig(provider="openrouter", model="openai/gpt-5"),
         },
     )
     config = registry.resolve_service("query")
-    assert config.provider == "azure_openai"
-    assert config.api_key == "azure-key"
-    assert config.endpoint == "https://myresource.openai.azure.com"
-    assert config.api_version == "2024-02-15"
-    assert config.deployment_name == "my-deployment"
+    assert config.provider == "openrouter"
+    assert config.api_key == "router-key"
+    assert config.base_url == "https://openrouter.ai/api/v1"
+    assert config.fallback_models == ["openai/gpt-5-mini"]
 
 
 def test_service_temperature_and_max_tokens_defaults():
@@ -419,25 +423,25 @@ def test_resolve_tier_merges_provider_details():
     registry = LLMRegistryConfig(
         providers=[
             LLMProviderConfig(
-                provider_name="azure_openai",
-                api_key="az-key",
-                endpoint="https://myresource.openai.azure.com",
-                api_version="2024-02-15",
+                provider_name="openrouter",
+                api_key="router-key",
+                base_url="https://openrouter.ai/api/v1",
+                fallback_models=["openai/gpt-5-mini"],
             ),
         ],
         services={
-            "default": LLMServiceConfig(provider="azure_openai", model="gpt-4"),
+            "default": LLMServiceConfig(provider="openrouter", model="openai/gpt-5"),
         },
         tiers={
-            "quick": LLMTierConfig(provider="azure_openai", model="gpt-4o-mini"),
+            "quick": LLMTierConfig(provider="openrouter", model="openai/gpt-5-mini"),
         },
     )
     config = registry.resolve_tier("quick")
-    assert config.provider == "azure_openai"
-    assert config.model == "gpt-4o-mini"
-    assert config.api_key == "az-key"
-    assert config.endpoint == "https://myresource.openai.azure.com"
-    assert config.api_version == "2024-02-15"
+    assert config.provider == "openrouter"
+    assert config.model == "openai/gpt-5-mini"
+    assert config.api_key == "router-key"
+    assert config.base_url == "https://openrouter.ai/api/v1"
+    assert config.fallback_models == ["openai/gpt-5-mini"]
 
 
 def test_resolve_tier_uses_tier_temperature_and_max_tokens():

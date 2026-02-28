@@ -1,19 +1,18 @@
-"""
-Tests for Local (Ollama) provider implementation.
-"""
+"""Tests for Local (Ollama) provider implementation."""
+
+from __future__ import annotations
 
 import json
 from unittest.mock import Mock, patch
 
 import pytest
-import requests
 
 from lsm.config.models import LLMConfig
 from lsm.providers.local import LocalProvider
 
 
 @pytest.fixture
-def llm_config():
+def llm_config() -> LLMConfig:
     return LLMConfig(
         provider="local",
         model="llama2",
@@ -30,67 +29,7 @@ def _mock_response(payload: str) -> Mock:
     return response
 
 
-def test_rerank_success(llm_config):
-    candidates = [
-        {"text": "First", "metadata": {}, "distance": 0.1},
-        {"text": "Second", "metadata": {}, "distance": 0.2},
-        {"text": "Third", "metadata": {}, "distance": 0.3},
-    ]
-
-    ranking = json.dumps(
-        {"ranking": [{"index": 1, "reason": "Best"}, {"index": 0, "reason": "Good"}]}
-    )
-
-    with patch("lsm.providers.local.requests.post") as mock_post:
-        mock_post.return_value = _mock_response(ranking)
-
-        provider = LocalProvider(llm_config)
-        result = provider.rerank("Question?", candidates, k=2)
-
-        assert len(result) == 2
-        assert result[0]["text"] == "Second"
-        assert result[1]["text"] == "First"
-
-        health = provider.health_check()
-        assert health["stats"]["success_count"] == 1
-
-
-def test_synthesize_fallback_on_error(llm_config):
-    with patch("lsm.providers.base.time.sleep"), patch("lsm.providers.local.requests.post") as mock_post:
-        mock_post.side_effect = requests.exceptions.RequestException("Connection error")
-
-        provider = LocalProvider(llm_config)
-        answer = provider.synthesize("Question?", "[S1] Context", mode="grounded")
-
-        assert "Offline mode" in answer
-        health = provider.health_check()
-        assert health["stats"]["failure_count"] == 1
-
-
-def test_synthesize_sets_last_response_id_none(llm_config):
-    with patch("lsm.providers.local.requests.post") as mock_post:
-        mock_post.return_value = _mock_response("Answer [S1]")
-
-        provider = LocalProvider(llm_config)
-        answer = provider.synthesize("Question?", "[S1] Context", mode="grounded", enable_server_cache=True)
-
-        assert "Answer" in answer
-        assert provider.last_response_id is None
-
-
-def test_generate_tags_success(llm_config):
-    tags_payload = json.dumps({"tags": ["local", "model"]})
-
-    with patch("lsm.providers.local.requests.post") as mock_post:
-        mock_post.return_value = _mock_response(tags_payload)
-
-        provider = LocalProvider(llm_config)
-        tags = provider.generate_tags("Local model", num_tags=2)
-
-        assert tags == ["local", "model"]
-
-
-def test_send_message_maps_instruction_to_system_role(llm_config):
+def test_send_message_maps_instruction_to_system_role(llm_config: LLMConfig) -> None:
     with patch("lsm.providers.local.requests.post") as mock_post:
         mock_post.return_value = _mock_response("ok")
 
@@ -111,7 +50,7 @@ def test_send_message_maps_instruction_to_system_role(llm_config):
         assert messages[1]["content"] == "prefix\n\nhello"
 
 
-def test_send_message_logs_unsupported_cache_params(llm_config, caplog):
+def test_send_message_logs_unsupported_cache_params(llm_config: LLMConfig, caplog) -> None:
     import lsm.providers.local as local_module
 
     local_module._UNSUPPORTED_PARAM_TRACKER._unsupported.clear()
@@ -132,3 +71,15 @@ def test_send_message_logs_unsupported_cache_params(llm_config, caplog):
     assert "does not support 'previous_response_id'" in caplog.text
     assert "does not support 'prompt_cache_key'" in caplog.text
     assert "does not support 'prompt_cache_retention'" in caplog.text
+
+
+def test_send_message_returns_chat_content(llm_config: LLMConfig) -> None:
+    tags_payload = json.dumps({"tags": ["local", "model"]})
+
+    with patch("lsm.providers.local.requests.post") as mock_post:
+        mock_post.return_value = _mock_response(tags_payload)
+
+        provider = LocalProvider(llm_config)
+        response = provider.send_message("Local model", instruction="tag", max_tokens=64)
+
+        assert response == tags_payload

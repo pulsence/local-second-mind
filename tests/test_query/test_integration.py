@@ -7,6 +7,7 @@ These tests use lightweight fakes plus real query orchestration code.
 from __future__ import annotations
 
 import asyncio
+import json
 from pathlib import Path
 
 import pytest
@@ -40,12 +41,10 @@ class FakeLLMProvider:
         self._rerank_result = rerank_result
         self._fail_synthesize = fail_synthesize
 
-    def rerank(self, _question: str, candidates: list[dict], k: int) -> list[dict]:
-        if self._rerank_result is not None:
-            return self._rerank_result[:k]
-        return candidates[:k]
-
-    def synthesize(self, *_args, **_kwargs) -> str:
+    def send_message(self, input: str, instruction=None, **kwargs) -> str:
+        _ = input, instruction
+        if kwargs.get("json_schema_name") == "rerank_response":
+            return json.dumps({"ranking": [{"index": 0, "reason": "best"}]})
         if self._fail_synthesize:
             raise RuntimeError("llm unavailable")
         return self._answer

@@ -126,20 +126,27 @@ def test_query_knowledge_base_tool_returns_results(monkeypatch) -> None:
 
 
 def test_query_llm_tool_uses_provider_factory(monkeypatch, tmp_path: Path) -> None:
+    captured: dict = {}
+
     class FakeProvider:
-        def synthesize(self, question, context, mode="insight", **kwargs):
-            return f"mode={mode}|{question}|{context}"
+        def send_message(self, **kwargs):
+            captured.update(kwargs)
+            return "provider-result"
 
     def fake_create_provider(config):
         return FakeProvider()
 
     monkeypatch.setattr("lsm.agents.tools.query_llm.create_provider", fake_create_provider)
+    monkeypatch.setattr("lsm.agents.tools.query_llm.format_user_content", lambda prompt, context: f"{prompt}|{context}")
+    monkeypatch.setattr("lsm.agents.tools.query_llm.get_synthesis_instructions", lambda mode: f"instr:{mode}")
 
     raw = _base_raw(tmp_path)
     config = build_config_from_raw(raw, tmp_path / "config.json")
     tool = QueryLLMTool(config.llm)
     result = tool.execute({"prompt": "hi", "context": "ctx", "mode": "grounded"})
-    assert result == "mode=grounded|hi|ctx"
+    assert result == "provider-result"
+    assert captured["input"] == "hi|ctx"
+    assert captured["instruction"] == "instr:grounded"
 
 
 def test_query_remote_tool_returns_structured_results(monkeypatch, tmp_path: Path) -> None:

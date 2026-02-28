@@ -22,7 +22,8 @@ def test_decompose_query_ai_method_falls_back_cleanly() -> None:
 
 def test_extract_fields_ai_uses_provider_json_response(monkeypatch) -> None:
     class _MockProvider:
-        def synthesize(self, question, context, mode="grounded", **kwargs):
+        def send_message(self, input, instruction=None, **kwargs):
+            _ = input, instruction, kwargs
             return (
                 '{"author":"Jane Doe","keywords":["retrieval","embeddings"],'
                 '"title":"Dense Retrieval","date_range":{"start":"2020","end":"2024"},'
@@ -42,7 +43,8 @@ def test_extract_fields_ai_uses_provider_json_response(monkeypatch) -> None:
 
 def test_extract_fields_ai_falls_back_on_invalid_json(monkeypatch) -> None:
     class _MockProvider:
-        def synthesize(self, question, context, mode="grounded", **kwargs):
+        def send_message(self, input, instruction=None, **kwargs):
+            _ = input, instruction, kwargs
             return "not-json"
 
     monkeypatch.setattr("lsm.query.decomposition.create_provider", lambda cfg: _MockProvider())

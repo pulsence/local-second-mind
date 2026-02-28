@@ -56,11 +56,7 @@ def translate_chunk(
 
     for attempt in range(max_retries + 1):
         try:
-            translated = provider.synthesize(
-                question=prompt,
-                context="",
-                mode="grounded",
-            )
+            translated = provider.send_message(input=prompt)
             if translated and translated.strip():
                 if attempt > 0:
                     logger.info("Translation succeeded on retry %d", attempt)

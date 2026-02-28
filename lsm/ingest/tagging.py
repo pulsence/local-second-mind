@@ -15,6 +15,7 @@ from typing import List, Dict, Any, Optional, Tuple
 
 from lsm.config.models import LLMConfig
 from lsm.providers import create_provider
+from lsm.providers.helpers import TAGS_JSON_SCHEMA, get_tag_instructions, parse_json_payload
 from lsm.logging import get_logger
 from lsm.vectordb.base import BaseVectorDBProvider
 
@@ -92,17 +93,30 @@ def generate_tags_for_chunk(
     # Try to generate tags with retries
     for attempt in range(max_retries + 1):
         try:
-            tags = provider.generate_tags(
-                text=text,
-                num_tags=num_tags,
-                existing_tags=existing_tags,
+            instructions = get_tag_instructions(num_tags, existing_tags)
+            raw = provider.send_message(
+                input=f"Text:\n{text[:2000]}",
+                instruction=instructions,
+                temperature=llm_config.temperature,
+                max_tokens=min(llm_config.max_tokens, 200),
+                json_schema=TAGS_JSON_SCHEMA,
+                json_schema_name="tags_response",
+                reasoning_effort="low",
             )
+            parsed = parse_json_payload(raw)
+            tags: List[str] = []
+            if isinstance(parsed, dict) and isinstance(parsed.get("tags"), list):
+                tags = [str(t).lower().strip() for t in parsed["tags"] if str(t).strip()]
+            elif isinstance(parsed, list):
+                tags = [str(t).lower().strip() for t in parsed if str(t).strip()]
+            elif isinstance(raw, str) and "{" not in raw and "[" not in raw:
+                tags = [t.strip().lower() for t in raw.split(",") if t.strip()]
 
             # Success if we got valid tags
             if tags:
                 if attempt > 0:
                     logger.info(f"Successfully generated tags on retry attempt {attempt}")
-                return tags
+                return tags[:num_tags]
             else:
                 # Empty result, try again
                 if attempt < max_retries:

@@ -1,8 +1,7 @@
-"""
-Tests for Gemini provider implementation.
-"""
+"""Tests for Gemini provider implementation."""
 
-import json
+from __future__ import annotations
+
 from unittest.mock import Mock, patch
 
 import pytest
@@ -12,7 +11,7 @@ from lsm.providers.gemini import GeminiProvider
 
 
 @pytest.fixture
-def llm_config():
+def llm_config() -> LLMConfig:
     return LLMConfig(
         provider="gemini",
         model="gemini-1.5-pro",
@@ -32,79 +31,7 @@ def _setup_genai_mock(mock_genai: Mock, payload: str) -> Mock:
     return mock_client
 
 
-def test_rerank_success(llm_config):
-    candidates = [
-        {"text": "First", "metadata": {}, "distance": 0.1},
-        {"text": "Second", "metadata": {}, "distance": 0.2},
-        {"text": "Third", "metadata": {}, "distance": 0.3},
-    ]
-
-    ranking = json.dumps(
-        {"ranking": [{"index": 0, "reason": "Best"}, {"index": 2, "reason": "Good"}]}
-    )
-
-    with patch("lsm.providers.gemini.genai") as mock_genai:
-        _setup_genai_mock(mock_genai, ranking)
-
-        provider = GeminiProvider(llm_config)
-        result = provider.rerank("Question?", candidates, k=2)
-
-        assert len(result) == 2
-        assert result[0]["text"] == "First"
-        assert result[1]["text"] == "Third"
-
-        health = provider.health_check()
-        assert health["stats"]["success_count"] == 1
-
-
-def test_synthesize_fallback_on_error(llm_config):
-    with patch("lsm.providers.gemini.genai") as mock_genai:
-        mock_genai.Client.side_effect = Exception("API error")
-
-        provider = GeminiProvider(llm_config)
-        answer = provider.synthesize("Question?", "[S1] Context", mode="grounded")
-
-        assert "Offline mode" in answer
-        health = provider.health_check()
-        assert health["stats"]["failure_count"] == 1
-
-
-def test_synthesize_tracks_last_response_id(llm_config):
-    with patch("lsm.providers.gemini.genai") as mock_genai:
-        _setup_genai_mock(mock_genai, "Answer [S1]")
-
-        provider = GeminiProvider(llm_config)
-        answer = provider.synthesize("Question?", "[S1] Context", mode="grounded", enable_server_cache=True)
-
-        assert "Answer" in answer
-        assert provider.last_response_id == "gemini_resp_1"
-
-
-def test_generate_tags_success(llm_config):
-    tags_payload = json.dumps({"tags": ["gemini", "provider"]})
-
-    with patch("lsm.providers.gemini.genai") as mock_genai:
-        _setup_genai_mock(mock_genai, tags_payload)
-
-        provider = GeminiProvider(llm_config)
-        tags = provider.generate_tags("Gemini provider", num_tags=2)
-
-        assert tags == ["gemini", "provider"]
-
-
-def test_generate_tags_code_fence(llm_config):
-    tags_payload = "```json\n{\"tags\": [\"one\", \"two\"]}\n```"
-
-    with patch("lsm.providers.gemini.genai") as mock_genai:
-        _setup_genai_mock(mock_genai, tags_payload)
-
-        provider = GeminiProvider(llm_config)
-        tags = provider.generate_tags("One two", num_tags=2)
-
-        assert tags == ["one", "two"]
-
-
-def test_list_models(llm_config):
+def test_list_models(llm_config: LLMConfig) -> None:
     model_items = [Mock(), Mock()]
     model_items[0].name = "models/gemini-1.5-pro"
     model_items[1].name = "gemini-1.5-flash"
@@ -123,14 +50,14 @@ def test_list_models(llm_config):
         assert "gemini-1.5-flash" in models
 
 
-def test_estimate_cost(llm_config):
+def test_estimate_cost(llm_config: LLMConfig) -> None:
     provider = GeminiProvider(llm_config)
     cost = provider.estimate_cost(input_tokens=1000, output_tokens=500)
     assert cost is not None
     assert cost > 0
 
 
-def test_send_message_uses_system_instruction_config(llm_config):
+def test_send_message_uses_system_instruction_config(llm_config: LLMConfig) -> None:
     with patch("lsm.providers.gemini.genai") as mock_genai:
         mock_client = _setup_genai_mock(mock_genai, "ok")
 
@@ -142,7 +69,7 @@ def test_send_message_uses_system_instruction_config(llm_config):
         assert kwargs["config"].system_instruction == "System rule"
 
 
-def test_send_message_instruction_optional(llm_config):
+def test_send_message_instruction_optional(llm_config: LLMConfig) -> None:
     with patch("lsm.providers.gemini.genai") as mock_genai:
         mock_client = _setup_genai_mock(mock_genai, "ok")
 
@@ -154,7 +81,7 @@ def test_send_message_instruction_optional(llm_config):
         assert kwargs["config"].system_instruction is None
 
 
-def test_send_message_logs_unsupported_cache_params(llm_config, caplog):
+def test_send_message_logs_unsupported_cache_params(llm_config: LLMConfig, caplog) -> None:
     import lsm.providers.gemini as gemini_module
 
     gemini_module._UNSUPPORTED_PARAM_TRACKER._unsupported.clear()
@@ -176,7 +103,7 @@ def test_send_message_logs_unsupported_cache_params(llm_config, caplog):
         assert "does not support 'prompt_cache_retention'" in caplog.text
 
 
-def test_streaming_uses_system_instruction_config(llm_config):
+def test_streaming_uses_system_instruction_config(llm_config: LLMConfig) -> None:
     stream_chunk = Mock()
     stream_chunk.text = "hello"
 

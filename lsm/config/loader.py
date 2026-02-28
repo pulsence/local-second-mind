@@ -185,9 +185,6 @@ def build_llm_provider_config(raw: Dict[str, Any]) -> LLMProviderConfig:
         provider_name=provider_name,
         api_key=raw.get("api_key"),
         base_url=raw.get("base_url"),
-        endpoint=raw.get("endpoint"),
-        api_version=raw.get("api_version"),
-        deployment_name=raw.get("deployment_name"),
         fallback_models=raw.get("fallback_models"),
     )
 
@@ -1139,9 +1136,6 @@ def config_to_raw(config: LSMConfig) -> Dict[str, Any]:
             "provider_name": provider.provider_name,
             "api_key": provider.api_key,
             "base_url": provider.base_url,
-            "endpoint": provider.endpoint,
-            "api_version": provider.api_version,
-            "deployment_name": provider.deployment_name,
         }
         if provider.fallback_models is not None:
             entry["fallback_models"] = list(provider.fallback_models)

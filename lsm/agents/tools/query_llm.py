@@ -8,6 +8,7 @@ from typing import Any, Dict
 
 from lsm.config.models import LLMRegistryConfig
 from lsm.providers.factory import create_provider
+from lsm.providers.helpers import format_user_content, get_synthesis_instructions
 
 from .base import BaseTool
 
@@ -62,4 +63,15 @@ class QueryLLMTool(BaseTool):
         else:
             llm_config = self.llm_registry.resolve_service(self.default_service)
         provider = create_provider(llm_config)
-        return provider.synthesize(prompt, context, mode=mode)
+        if context.strip():
+            return provider.send_message(
+                input=format_user_content(prompt, context),
+                instruction=get_synthesis_instructions(mode),
+                temperature=llm_config.temperature,
+                max_tokens=llm_config.max_tokens,
+            )
+        return provider.send_message(
+            input=prompt,
+            temperature=llm_config.temperature,
+            max_tokens=llm_config.max_tokens,
+        )

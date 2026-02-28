@@ -23,9 +23,9 @@ class TestTranslateChunk:
     """Tests for translate_chunk()."""
 
     @patch("lsm.ingest.translation.create_provider")
-    def test_calls_provider_synthesize(self, mock_create: MagicMock) -> None:
+    def test_calls_provider_send_message(self, mock_create: MagicMock) -> None:
         mock_provider = MagicMock()
-        mock_provider.synthesize.return_value = "Translated text"
+        mock_provider.send_message.return_value = "Translated text"
         mock_create.return_value = mock_provider
 
         result = translate_chunk(
@@ -36,12 +36,12 @@ class TestTranslateChunk:
         )
 
         assert result == "Translated text"
-        mock_provider.synthesize.assert_called_once()
+        mock_provider.send_message.assert_called_once()
 
     @patch("lsm.ingest.translation.create_provider")
     def test_includes_target_lang_in_prompt(self, mock_create: MagicMock) -> None:
         mock_provider = MagicMock()
-        mock_provider.synthesize.return_value = "Translated"
+        mock_provider.send_message.return_value = "Translated"
         mock_create.return_value = mock_provider
 
         translate_chunk(
@@ -51,8 +51,8 @@ class TestTranslateChunk:
             source_lang="de",
         )
 
-        call_args = mock_provider.synthesize.call_args
-        prompt = call_args[1].get("question", call_args[0][0] if call_args[0] else "")
+        call_args = mock_provider.send_message.call_args
+        prompt = call_args.kwargs.get("input", "")
         assert "en" in prompt
 
     @patch("lsm.ingest.translation.create_provider")
@@ -60,7 +60,7 @@ class TestTranslateChunk:
         self, mock_create: MagicMock,
     ) -> None:
         mock_provider = MagicMock()
-        mock_provider.synthesize.return_value = "Translated"
+        mock_provider.send_message.return_value = "Translated"
         mock_create.return_value = mock_provider
 
         translate_chunk(
@@ -70,8 +70,8 @@ class TestTranslateChunk:
             source_lang="de",
         )
 
-        call_args = mock_provider.synthesize.call_args
-        prompt = call_args[1].get("question", call_args[0][0] if call_args[0] else "")
+        call_args = mock_provider.send_message.call_args
+        prompt = call_args.kwargs.get("input", "")
         assert "de" in prompt
 
 
@@ -117,7 +117,7 @@ class TestTranslateChunkFailure:
         self, mock_create: MagicMock,
     ) -> None:
         mock_provider = MagicMock()
-        mock_provider.synthesize.side_effect = RuntimeError("API error")
+        mock_provider.send_message.side_effect = RuntimeError("API error")
         mock_create.return_value = mock_provider
 
         original = "Texte original en francais"
@@ -134,7 +134,7 @@ class TestTranslateChunkFailure:
         self, mock_create: MagicMock,
     ) -> None:
         mock_provider = MagicMock()
-        mock_provider.synthesize.return_value = ""
+        mock_provider.send_message.return_value = ""
         mock_create.return_value = mock_provider
 
         original = "Texte en francais"
@@ -155,7 +155,7 @@ class TestTranslateChunkRetry:
         self, mock_create: MagicMock,
     ) -> None:
         mock_provider = MagicMock()
-        mock_provider.synthesize.side_effect = [
+        mock_provider.send_message.side_effect = [
             RuntimeError("Temporary error"),
             "Translated text",
         ]
@@ -169,14 +169,14 @@ class TestTranslateChunkRetry:
             max_retries=1,
         )
         assert result == "Translated text"
-        assert mock_provider.synthesize.call_count == 2
+        assert mock_provider.send_message.call_count == 2
 
     @patch("lsm.ingest.translation.create_provider")
     def test_no_retry_when_max_retries_zero(
         self, mock_create: MagicMock,
     ) -> None:
         mock_provider = MagicMock()
-        mock_provider.synthesize.side_effect = RuntimeError("API error")
+        mock_provider.send_message.side_effect = RuntimeError("API error")
         mock_create.return_value = mock_provider
 
         original = "Texte en francais"
@@ -188,4 +188,4 @@ class TestTranslateChunkRetry:
             max_retries=0,
         )
         assert result == original
-        assert mock_provider.synthesize.call_count == 1
+        assert mock_provider.send_message.call_count == 1

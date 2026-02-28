@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from pathlib import Path
 
 import pytest
@@ -31,8 +32,9 @@ class FakeRerankProvider:
     name = "openai"
     model = "gpt-5.2"
 
-    def rerank(self, _question: str, candidates: list[dict], k: int) -> list[dict]:
-        return candidates[:k]
+    def send_message(self, input: str, instruction=None, **kwargs) -> str:
+        _ = input, instruction, kwargs
+        return json.dumps({"ranking": [{"index": 0, "reason": "best"}]})
 
     def estimate_cost(self, _input_tokens: int, _output_tokens: int) -> float:
         return 0.0
@@ -45,7 +47,7 @@ class FakeSynthesisProvider:
     def __init__(self, answer: str) -> None:
         self._answer = answer
 
-    def synthesize(self, *_args, **_kwargs) -> str:
+    def send_message(self, *_args, **_kwargs) -> str:
         return self._answer
 
     def estimate_cost(self, _input_tokens: int, _output_tokens: int) -> float:

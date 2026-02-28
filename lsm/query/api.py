@@ -14,7 +14,12 @@ from typing import Callable, Dict, Any, List, Optional
 
 from lsm.config.models import LSMConfig
 from lsm.providers import create_provider
+from lsm.providers.helpers import (
+    format_user_content,
+    get_synthesis_instructions,
+)
 from lsm.query.cache import QueryCache
+from lsm.query.rerank import llm_rerank_candidates
 from lsm.query.session import (
     Candidate,
     SessionState,
@@ -404,11 +409,12 @@ async def _apply_reranking(
     loop = asyncio.get_event_loop()
     reranked = await loop.run_in_executor(
         None,
-        lambda: provider.rerank(
+        lambda: llm_rerank_candidates(
             question,
             rerank_candidates,
             k=min(plan.k_rerank, len(plan.filtered)),
-        )
+            provider=provider,
+        ),
     )
 
     chosen = []
@@ -483,17 +489,22 @@ async def _synthesize_answer(
             + f"\n\nCurrent user question:\n{question}"
         )
 
+    instructions = get_synthesis_instructions(mode_config.synthesis_style)
+    user_content = format_user_content(question_payload, context_block)
+
     answer = await loop.run_in_executor(
         None,
-        lambda: synthesis_provider.synthesize(
-            question_payload,
-            context_block,
-            mode=mode_config.synthesis_style,
+        lambda: synthesis_provider.send_message(
+            input=user_content,
+            instruction=instructions,
+            temperature=query_config.temperature,
+            max_tokens=query_config.max_tokens,
+            reasoning_effort="medium",
             conversation_history=state.conversation_history,
             enable_server_cache=config.query.enable_llm_server_cache,
             previous_response_id=previous_response_id,
             prompt_cache_key=provider_cache_key,
-        )
+        ),
     )
 
     if config.query.enable_llm_server_cache:

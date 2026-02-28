@@ -91,7 +91,7 @@ def test_query_cache_short_circuits_second_call(monkeypatch, tmp_path: Path) -> 
         )
 
     provider = Mock()
-    provider.synthesize.side_effect = lambda *a, **k: calls.__setitem__("synthesize", calls["synthesize"] + 1) or "Answer [S1]"
+    provider.send_message.side_effect = lambda *a, **k: calls.__setitem__("synthesize", calls["synthesize"] + 1) or "Answer [S1]"
     provider.estimate_cost.return_value = 0.0
     provider.name = "openai"
     provider.model = "gpt-5.2"
@@ -142,7 +142,7 @@ def test_chat_mode_appends_conversation_history(monkeypatch, tmp_path: Path) -> 
         )
 
     provider = Mock()
-    provider.synthesize.return_value = "Chat answer [S1]"
+    provider.send_message.return_value = "Chat answer [S1]"
     provider.estimate_cost.return_value = 0.0
     provider.name = "openai"
     provider.model = "gpt-5.2"
@@ -205,7 +205,7 @@ def test_chat_mode_passes_previous_response_id_when_llm_server_cache_enabled(mon
         provider.last_response_id = f"resp-{len(captured)}"
         return "Chat answer [S1]"
 
-    provider.synthesize.side_effect = _synth
+    provider.send_message.side_effect = _synth
     provider.estimate_cost.return_value = 0.0
     provider.name = "openai"
     provider.model = "gpt-5.2"
@@ -264,7 +264,7 @@ def test_chat_mode_respects_mode_auto_save_override_off(monkeypatch, tmp_path: P
         )
 
     provider = Mock()
-    provider.synthesize.return_value = "Chat answer [S1]"
+    provider.send_message.return_value = "Chat answer [S1]"
     provider.estimate_cost.return_value = 0.0
     provider.name = "openai"
     provider.model = "gpt-5.2"
@@ -326,7 +326,7 @@ def test_chat_mode_respects_mode_chat_dir_override(monkeypatch, tmp_path: Path) 
         )
 
     provider = Mock()
-    provider.synthesize.return_value = "Chat answer [S1]"
+    provider.send_message.return_value = "Chat answer [S1]"
     provider.estimate_cost.return_value = 0.0
     provider.name = "openai"
     provider.model = "gpt-5.2"

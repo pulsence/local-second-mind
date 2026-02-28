@@ -98,11 +98,7 @@ def extract_fields_ai(query: str, llm_config: Optional[Any] = None) -> QueryFiel
             "Do not include markdown or explanations.\n\n"
             f"Query: {query}"
         )
-        response = provider.synthesize(
-            question=prompt,
-            context="",
-            mode="grounded",
-        )
+        response = provider.send_message(input=prompt)
         parsed = _parse_ai_decomposition_response(response)
         return _merge_fields(deterministic, parsed, query)
     except Exception as exc:
