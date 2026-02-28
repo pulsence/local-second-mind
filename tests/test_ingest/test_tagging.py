@@ -21,6 +21,7 @@ from lsm.ingest.tagging import (
     _serialize_tags,
     _deserialize_tags,
     generate_tags_for_chunk,
+    get_tag_instructions,
     get_untagged_chunks,
     tag_chunks,
     add_user_tags,
@@ -126,6 +127,14 @@ class TestTagGeneration:
         # Verify provider was created and called
         mock_create_provider.assert_called_once_with(llm_config)
         mock_provider.send_message.assert_called_once()
+
+    def test_get_tag_instructions_includes_existing_context(self):
+        instructions = get_tag_instructions(
+            num_tags=3,
+            existing_tags=["python", "testing"],
+        )
+        assert "Existing tags in this knowledge base: python, testing" in instructions
+        assert "Include exactly 3 tags." in instructions
 
     @patch("lsm.ingest.tagging.create_provider")
     def test_generate_tags_with_existing_context(self, mock_create_provider):

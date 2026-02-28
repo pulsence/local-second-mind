@@ -6,19 +6,12 @@ Provides lexical scoring, deduplication, and diversity enforcement.
 
 from __future__ import annotations
 
-import json
 import re
 from typing import Any, List, Dict
 
 from lsm.logging import get_logger
 from lsm.providers.base import BaseLLMProvider
-from lsm.providers.helpers import (
-    RERANK_INSTRUCTIONS,
-    RERANK_JSON_SCHEMA,
-    parse_json_payload,
-    parse_ranking_response,
-    prepare_candidates_for_rerank,
-)
+from lsm.query.stages.llm_rerank import llm_rerank
 from .session import Candidate
 
 logger = get_logger(__name__)
@@ -326,39 +319,4 @@ def llm_rerank_candidates(
     if not candidates:
         return []
 
-    top_k = max(1, min(k, len(candidates)))
-    payload = {
-        "question": question,
-        "top_n": top_k,
-        "candidates": prepare_candidates_for_rerank(candidates),
-    }
-    instructions = RERANK_INSTRUCTIONS.format(k=top_k)
-
-    try:
-        raw = provider.send_message(
-            input=json.dumps(payload),
-            instruction=instructions,
-            temperature=0.2,
-            max_tokens=800,
-            json_schema=RERANK_JSON_SCHEMA,
-            json_schema_name="rerank_response",
-            reasoning_effort="low",
-        )
-        data = parse_json_payload(raw)
-        ranking = data.get("ranking", []) if isinstance(data, dict) else None
-        if not isinstance(ranking, list):
-            logger.warning(
-                "LLM rerank returned invalid structure (%s/%s); using local order",
-                provider.name,
-                provider.model,
-            )
-            return candidates[:top_k]
-        return parse_ranking_response(ranking, candidates, top_k)
-    except Exception as exc:
-        logger.warning(
-            "LLM rerank failed (%s/%s: %s); using local order",
-            provider.name,
-            provider.model,
-            exc,
-        )
-        return candidates[:top_k]
+    return llm_rerank(candidates, question, provider, k=k)

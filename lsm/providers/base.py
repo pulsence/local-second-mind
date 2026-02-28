@@ -11,9 +11,6 @@ import time
 from typing import List, Dict, Any, Optional, Callable, Iterable
 
 from lsm.logging import get_logger
-from .helpers import (
-    generate_fallback_answer,
-)
 
 logger = get_logger(__name__)
 
@@ -341,11 +338,15 @@ class BaseLLMProvider(ABC):
 
     def _fallback_answer(self, question: str, context: str, max_chars: int = 1200) -> str:
         """Generate a fallback answer when provider requests fail."""
-        return generate_fallback_answer(
-            question=question,
-            context=context,
-            provider_name=self.name,
-            max_chars=max_chars,
+        snippet = context[:max_chars]
+        if len(context) > max_chars:
+            snippet += "\n...[truncated]..."
+        return (
+            f"[Offline mode: {self.name} unavailable]\n\n"
+            f"Question: {question}\n\n"
+            f"Retrieved context:\n{snippet}\n\n"
+            "Note: Unable to generate synthesized answer. "
+            "Please review the sources above directly."
         )
 
     def _default_temperature(self) -> Optional[float]:

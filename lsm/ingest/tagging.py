@@ -15,11 +15,55 @@ from typing import List, Dict, Any, Optional, Tuple
 
 from lsm.config.models import LLMConfig
 from lsm.providers import create_provider
-from lsm.providers.helpers import TAGS_JSON_SCHEMA, get_tag_instructions, parse_json_payload
+from lsm.providers.helpers import parse_json_payload
 from lsm.logging import get_logger
 from lsm.vectordb.base import BaseVectorDBProvider
 
 logger = get_logger(__name__)
+
+
+TAG_GENERATION_TEMPLATE = """You are a helpful assistant that generates concise, relevant tags for text content.
+
+Analyze the following text and generate {num_tags} relevant tags.
+
+Guidelines:
+- Tags should be concise (1-3 words)
+- Tags should be specific to the content
+- Tags should help with organization and retrieval
+- Use lowercase
+- Separate multi-word tags with hyphens (e.g., "machine-learning")
+{existing_context}
+
+Output requirements:
+- Return STRICT JSON only, no markdown, no extra text.
+- Schema: {{"tags":["tag1","tag2","tag3"]}}
+- Include exactly {num_tags} tags.
+"""
+
+TAGS_JSON_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "tags": {
+            "type": "array",
+            "items": {"type": "string"},
+        }
+    },
+    "required": ["tags"],
+    "additionalProperties": False,
+}
+
+
+def get_tag_instructions(num_tags: int, existing_tags: Optional[List[str]] = None) -> str:
+    """Return tag generation instruction block."""
+    existing_context = ""
+    if existing_tags:
+        existing_context = (
+            f"\n\nExisting tags in this knowledge base: {', '.join(existing_tags[:20])}"
+        )
+    return TAG_GENERATION_TEMPLATE.format(
+        num_tags=num_tags,
+        existing_context=existing_context,
+    )
 
 
 # -----------------------------------------------------------------------------

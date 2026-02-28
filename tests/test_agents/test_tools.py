@@ -138,7 +138,14 @@ def test_query_llm_tool_uses_provider_factory(monkeypatch, tmp_path: Path) -> No
 
     monkeypatch.setattr("lsm.agents.tools.query_llm.create_provider", fake_create_provider)
     monkeypatch.setattr("lsm.agents.tools.query_llm.format_user_content", lambda prompt, context: f"{prompt}|{context}")
-    monkeypatch.setattr("lsm.agents.tools.query_llm.get_synthesis_instructions", lambda mode: f"instr:{mode}")
+    monkeypatch.setattr(
+        "lsm.agents.tools.query_llm.SYNTHESIZE_GROUNDED_INSTRUCTIONS",
+        "instr:grounded",
+    )
+    monkeypatch.setattr(
+        "lsm.agents.tools.query_llm.SYNTHESIZE_INSIGHT_INSTRUCTIONS",
+        "instr:insight",
+    )
 
     raw = _base_raw(tmp_path)
     config = build_config_from_raw(raw, tmp_path / "config.json")

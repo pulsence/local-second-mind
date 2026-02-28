@@ -8,7 +8,11 @@ from typing import Any, Dict
 
 from lsm.config.models import LLMRegistryConfig
 from lsm.providers.factory import create_provider
-from lsm.providers.helpers import format_user_content, get_synthesis_instructions
+from lsm.query.context import format_user_content
+from lsm.query.prompts import (
+    SYNTHESIZE_GROUNDED_INSTRUCTIONS,
+    SYNTHESIZE_INSIGHT_INSTRUCTIONS,
+)
 
 from .base import BaseTool
 
@@ -64,9 +68,14 @@ class QueryLLMTool(BaseTool):
             llm_config = self.llm_registry.resolve_service(self.default_service)
         provider = create_provider(llm_config)
         if context.strip():
+            instructions = (
+                SYNTHESIZE_INSIGHT_INSTRUCTIONS
+                if mode == "insight"
+                else SYNTHESIZE_GROUNDED_INSTRUCTIONS
+            )
             return provider.send_message(
                 input=format_user_content(prompt, context),
-                instruction=get_synthesis_instructions(mode),
+                instruction=instructions,
                 temperature=llm_config.temperature,
                 max_tokens=llm_config.max_tokens,
             )
