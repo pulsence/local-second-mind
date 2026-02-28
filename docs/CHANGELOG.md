@@ -15,6 +15,11 @@ All notable changes to Local Second Mind are documented here.
 - Updated query, reranking, tagging, translation, and direct LLM tool paths to call provider transport methods directly with module-owned prompt/input shaping.
 - Removed Azure OpenAI provider support (`lsm/providers/azure_openai.py`), factory registration, related config fields, and Azure-specific provider tests.
 - Aligned provider implementations with signature parity across streaming and non-streaming calls, including prompt caching/response-chain parameter forwarding where supported.
+- Restructured `ModeConfig` for v0.8 composition presets with explicit `retrieval_profile`, `synthesis_instructions`, and split policy objects (`local_policy`, `remote_policy`, `model_knowledge_policy`).
+- Replaced `k_rerank` in mode-local policy with `k` as the post-rerank final-local budget.
+- Moved synthesis instructions out of provider helpers into `lsm/query/prompts.py` and updated built-in mode presets (`grounded`, `insight`, `hybrid`) to own instruction defaults.
+- Moved LLM rerank prompt assets and parsing to `lsm/query/stages/llm_rerank.py`; moved tag-generation prompt assets to `lsm/ingest/tagging.py`.
+- Reduced `lsm/providers/helpers.py` to provider-generic utilities only (`parse_json_payload`, `UnsupportedParamTracker`).
 
 ## 0.8.0 - 2026-02-28
 

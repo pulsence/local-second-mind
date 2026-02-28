@@ -1,52 +1,34 @@
-﻿# Query Modes Guide
+# Query Modes Guide
 
-Query modes define how LSM retrieves sources, which sources are allowed, and how
-the answer is synthesized. Modes live in the config under `modes` and are
-selected via `query.mode` or `/mode` in the TUI Query tab.
+Query modes define how LSM retrieves sources and synthesizes answers. Modes are
+configured under `modes` and selected with `query.mode` (or `/mode` in the TUI).
 
 ## Built-In Modes
 
-LSM ships with three built-in modes when `modes` is not defined:
+When `modes` is omitted, LSM loads three built-in presets:
 
-| Mode | Synthesis Style | Local Sources | Remote Sources | Model Knowledge | Typical Use |
+| Mode | retrieval_profile | Local policy | Remote policy | Model knowledge | synthesis_style |
 | --- | --- | --- | --- | --- | --- |
-| `grounded` | `grounded` | enabled | disabled | disabled | Strict Q&A from local sources |
-| `insight` | `insight` | enabled | disabled | enabled | Thematic synthesis across local docs |
-| `hybrid` | `grounded` | enabled | enabled | enabled | Broad research with local + remote |
+| `grounded` | `hybrid_rrf` | enabled, `k=12`, `min_relevance=0.25` | disabled | disabled | `grounded` |
+| `insight` | `hybrid_rrf` | enabled, `k=8`, `min_relevance=0.0` | enabled, `max_results=5` | enabled | `insight` |
+| `hybrid` | `hybrid_rrf` | enabled, `k=12`, `min_relevance=0.15` | enabled, `max_results=5` | enabled | `grounded` |
 
-These defaults are defined in `lsm/config/models/`.
+## Mode Data Model
 
-## What a Mode Controls
+Each mode is a `ModeConfig` with these fields:
 
-A mode has three sub-systems:
+- `retrieval_profile`: retrieval strategy identifier (current default: `hybrid_rrf`)
+- `synthesis_style`: answer style (`grounded` or `insight`)
+- `synthesis_instructions`: full synthesis instruction prompt (user-overridable)
+- `local_policy`: local retrieval policy (`enabled`, `k`, `min_relevance`)
+- `remote_policy`: remote policy (`enabled`, `rank_strategy`, `max_results`, `remote_providers`)
+- `model_knowledge_policy`: whether model priors are allowed (`enabled`, `require_label`)
+- `notes`: note-writing behavior for the mode
+- `chats`: optional per-mode transcript overrides (`auto_save`, `dir`)
 
-1. `synthesis_style` (how answers are written)
-2. `source_policy` (which sources can be used and how)
-3. `notes` (how query sessions are saved)
-
-### Synthesis Styles
-
-- `grounded`: Answers must cite sources and avoid unsupported claims.
-- `insight`: Summarize patterns, tensions, and themes across sources.
-
-### Source Policy
-
-`source_policy` has three parts:
-
-- `local`: how many local chunks to retrieve and rerank
-- `remote`: whether remote sources are allowed and how many results to fetch
-- `model_knowledge`: whether the model can use its own training knowledge
-
-### Notes Policy
-
-`notes` controls whether a query session can be saved and where it is stored.
-
-### Chats Policy
-
-Modes can optionally override global chat transcript auto-save behavior via `chats`:
-
-- `auto_save`: override global `chats.auto_save` for this mode.
-- `dir`: override global `chats.dir` for this mode (relative to `global_folder` unless absolute).
+Legacy note: older configs that used `source_policy` are still accepted by the
+loader, but new configs should use `local_policy` / `remote_policy` /
+`model_knowledge_policy`.
 
 ## Mode Configuration Reference
 
@@ -54,17 +36,17 @@ Modes can optionally override global chat transcript auto-save behavior via `cha
 "modes": [
   {
     "name": "research",
+    "retrieval_profile": "hybrid_rrf",
     "synthesis_style": "grounded",
-    "source_policy": {
-      "local": { "min_relevance": 0.20, "k": 15, "k_rerank": 8 },
-      "remote": {
-        "enabled": true,
-        "rank_strategy": "weighted",
-        "max_results": 10,
-        "remote_providers": ["brave", "wikipedia", "arxiv"]
-      },
-      "model_knowledge": { "enabled": true, "require_label": true }
+    "synthesis_instructions": "Answer using the provided context. Cite sources with [S#].",
+    "local_policy": { "enabled": true, "k": 15, "min_relevance": 0.20 },
+    "remote_policy": {
+      "enabled": true,
+      "rank_strategy": "weighted",
+      "max_results": 10,
+      "remote_providers": ["brave", "wikipedia", "arxiv"]
     },
+    "model_knowledge_policy": { "enabled": true, "require_label": true },
     "notes": {
       "enabled": true,
       "dir": "research_notes",
@@ -79,191 +61,102 @@ Modes can optionally override global chat transcript auto-save behavior via `cha
 ]
 ```
 
-### Local Source Policy
+## Policy Field Reference
 
-- `enabled`: enable local sources for this mode
-- `min_relevance`: minimum relevance (1 - distance) to synthesize
-- `k`: number of chunks to retrieve from Chroma
-- `k_rerank`: number of chunks to keep after reranking
+### local_policy
 
-### Remote Source Policy
+- `enabled`: include local chunk retrieval
+- `k`: final local chunk budget used for synthesis context
+- `min_relevance`: minimum local relevance threshold
 
-- `enabled`: enable remote sources for this mode
-- `rank_strategy`: `weighted`, `sequential`, `interleaved` (reserved for future)
-- `max_results`: max results per provider
-- `remote_providers`: optional list of `remote_providers[].name` values to use for this mode
+### remote_policy
 
-### Model Knowledge Policy
+- `enabled`: include remote sources
+- `rank_strategy`: remote merge strategy (`weighted`, `sequential`, `interleaved`)
+- `max_results`: max results fetched per remote source
+- `remote_providers`: optional list of provider names (or weighted refs) for this mode
 
-- `enabled`: allow LLM to use its own training knowledge
-- `require_label`: if true, model knowledge should be explicitly labeled
+### model_knowledge_policy
+
+- `enabled`: allow use of model training knowledge
+- `require_label`: require explicit labeling when model knowledge is used
 
 ## Mode Selection
 
 Modes are selected by:
 
-- `query.mode` in config (default for all sessions)
+- `query.mode` in config (default)
 - `/mode <name>` in the TUI Query tab (session override)
 
-The TUI shows mode details via `/mode`.
+`LSMConfig.validate()` ensures the selected mode exists, otherwise it falls back
+to `grounded` (or first available mode).
 
 ## Chat Mode and Caching
 
-Query mode selection (`/mode <name>`) is separate from query response mode:
+Mode selection is separate from chat behavior:
 
-- `query.chat_mode = "single"`: stateless turns.
-- `query.chat_mode = "chat"`: conversation history is tracked and sent as follow-up context.
+- `query.chat_mode = "single"`: stateless turns
+- `query.chat_mode = "chat"`: conversation history retained
 
-Caching options for query/chat:
+Caching controls:
 
-- `query.enable_query_cache`: local in-memory TTL/LRU result cache.
-- `query.enable_llm_server_cache`: provider-side server cache/session reuse for follow-up chat turns (enabled by default).
+- `query.enable_query_cache`: local in-memory result cache
+- `query.enable_llm_server_cache`: provider-side response-chain caching
 
-Live toggle in TUI:
+TUI toggles:
 
 - `/mode set llm_cache on`
 - `/mode set llm_cache off`
 
-`/mode set` also supports:
-
-- `model_knowledge`
-- `remote`
-- `notes`
-
-## Context Building Improvements (Phase 4.2)
-
-LSM now applies metadata-aware prefiltering before vector similarity search and supports explicit context anchors.
-
-Metadata prefiltering:
-
-- Builds a metadata inventory from stored chunk metadata and derives a best-effort `where` filter from the query.
-- Uses deterministic extraction for author/year/title hints.
-- Matches query terms against metadata fields:
-  - `content_type`
-  - `ai_tags`
-  - `user_tags`
-  - `root_tags`
-  - `folder_tags`
-
-Context anchors:
-
-- `/context` shows current anchor state.
-- `/context doc <path...>` sets document anchors.
-- `/context chunk <id...>` sets chunk anchors.
-- `/context clear` removes anchors.
-
-When anchors are set, anchored chunks/documents are prioritized as the primary context start, then augmented with vector retrieval candidates.
-
-## Natural Language Query Decomposition (Phase 4.3)
-
-LSM includes structured query decomposition in `lsm/query/decomposition.py`.
-
-Extracted fields:
-
-- `author`
-- `keywords`
-- `title`
-- `date_range` (`start`, `end`)
-- `doi`
-- `raw_query`
-
-Extraction modes:
-
-- Deterministic: regex-based extraction for DOI, author, title, and years.
-- AI-assisted: sends an extraction prompt to the configured LLM and parses structured JSON output.
-- Fallback: if AI extraction fails or returns invalid JSON, deterministic extraction is used.
-
-Service configuration:
-
-- Set `llms.services.decomposition` to choose the provider/model used for AI decomposition.
-- If `decomposition` is not defined, LSM falls back to the `default` service.
-
-Primary entrypoint:
-
-- `decompose_query(query, method="deterministic" | "ai", llm_config=...)`
-
 ## Custom Mode Examples
 
-### Example: Strict Local-Only Q&A
+### Strict local-only answers
 
 ```json
 "modes": [
   {
     "name": "local_only",
+    "retrieval_profile": "hybrid_rrf",
     "synthesis_style": "grounded",
-    "source_policy": {
-      "local": { "min_relevance": 0.30, "k": 10, "k_rerank": 5 },
-      "remote": { "enabled": false },
-      "model_knowledge": { "enabled": false }
-    },
+    "local_policy": { "enabled": true, "k": 10, "min_relevance": 0.30 },
+    "remote_policy": { "enabled": false },
+    "model_knowledge_policy": { "enabled": false },
     "notes": { "enabled": true, "dir": "notes", "template": "default", "filename_format": "timestamp" }
   }
 ]
 ```
 
-### Example: Insight-Only Analysis
+### Insight-oriented synthesis
 
 ```json
 "modes": [
   {
     "name": "themes",
+    "retrieval_profile": "hybrid_rrf",
     "synthesis_style": "insight",
-    "source_policy": {
-      "local": { "min_relevance": 0.20, "k": 18, "k_rerank": 10 },
-      "remote": { "enabled": false },
-      "model_knowledge": { "enabled": true, "require_label": true }
-    },
-    "notes": { "enabled": true, "dir": "analysis_notes", "template": "default", "filename_format": "query_slug" }
+    "local_policy": { "enabled": true, "k": 18, "min_relevance": 0.0 },
+    "remote_policy": { "enabled": false },
+    "model_knowledge_policy": { "enabled": true, "require_label": true }
   }
 ]
 ```
 
-### Example: Research With Remote Sources
+### Local + remote research
 
 ```json
 "modes": [
   {
     "name": "research",
+    "retrieval_profile": "hybrid_rrf",
     "synthesis_style": "grounded",
-    "source_policy": {
-      "local": { "enabled": true, "min_relevance": 0.25, "k": 12, "k_rerank": 6 },
-      "remote": {
-        "enabled": true,
-        "rank_strategy": "weighted",
-        "max_results": 5,
-        "remote_providers": ["arxiv", "wikipedia"]
-      },
-      "model_knowledge": { "enabled": true, "require_label": true }
+    "local_policy": { "enabled": true, "k": 12, "min_relevance": 0.15 },
+    "remote_policy": {
+      "enabled": true,
+      "rank_strategy": "weighted",
+      "max_results": 5,
+      "remote_providers": ["arxiv", "wikipedia"]
     },
-    "notes": { "enabled": true, "dir": "research_notes", "template": "default", "filename_format": "timestamp" }
+    "model_knowledge_policy": { "enabled": true, "require_label": true }
   }
 ]
 ```
-
-### Example: Remote-Only Mode
-
-```json
-"modes": [
-  {
-    "name": "remote_only",
-    "synthesis_style": "insight",
-    "source_policy": {
-      "local": { "enabled": false },
-      "remote": { "enabled": true, "rank_strategy": "weighted", "max_results": 5 },
-      "model_knowledge": { "enabled": true, "require_label": true }
-    },
-    "notes": { "enabled": true, "dir": "notes", "template": "default", "filename_format": "timestamp" }
-  }
-]
-```
-
-## Mode Comparison Tips
-
-- If you want strict citation answers, use `grounded`.
-- If you want broader synthesis across a corpus, use `insight`.
-- If you want web results displayed alongside local sources, use `hybrid`.
-
-## Current Limitations
-
-- `rank_strategy` is not yet applied when merging remote results.
-- `model_knowledge.require_label` is advisory in the current prompt.

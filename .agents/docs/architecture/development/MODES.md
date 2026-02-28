@@ -1,57 +1,63 @@
-﻿# Mode System Architecture
+# Mode System Architecture
 
-Modes define how LSM blends sources and synthesizes answers. This document
-explains the internal mode system and its integration points.
+Modes are composition presets that define retrieval behavior, source policy, and
+synthesis instructions for query execution.
 
 ## Mode Data Model
 
-A mode is represented by `ModeConfig`:
+`ModeConfig` is defined in `lsm/config/models/modes.py` and includes:
 
+- `retrieval_profile`: retrieval strategy name (default `hybrid_rrf`)
 - `synthesis_style`: `grounded` or `insight`
-- `source_policy`: `SourcePolicyConfig`
+- `synthesis_instructions`: full instruction prompt used for synthesis
+- `local_policy`: `LocalSourcePolicy(enabled, k, min_relevance)`
+- `remote_policy`: `RemoteSourcePolicy(enabled, rank_strategy, max_results, remote_providers)`
+- `model_knowledge_policy`: `ModelKnowledgePolicy(enabled, require_label)`
+- optional `chats`: per-mode transcript overrides (`auto_save`, `dir`)
 
-`SourcePolicyConfig` groups three sub-policies:
-
-- `LocalSourcePolicy`
-- `RemoteSourcePolicy`
-- `ModelKnowledgePolicy`
+`k_rerank` was removed from mode-local policy in v0.8 mode composition. `k`
+represents the final local context budget for synthesis.
 
 ## Built-In Modes
 
-When `modes` is not provided in config, LSM populates a built-in registry with:
+Built-ins are defined as `GROUNDED_MODE`, `INSIGHT_MODE`, `HYBRID_MODE` and
+registered in `BUILT_IN_MODES`.
 
-- `grounded`
-- `insight`
-- `hybrid`
+Defaults:
 
-These are defined in `LSMConfig._get_builtin_modes()`.
+| Mode | retrieval_profile | local.k | local.min_relevance | remote.enabled | model_knowledge.enabled | synthesis_style |
+| --- | --- | --- | --- | --- | --- | --- |
+| grounded | hybrid_rrf | 12 | 0.25 | false | false | grounded |
+| insight | hybrid_rrf | 8 | 0.0 | true (`max_results=5`) | true | insight |
+| hybrid | hybrid_rrf | 12 | 0.15 | true (`max_results=5`) | true | grounded |
 
-## Mode Selection Logic
+`LSMConfig` uses `get_builtin_modes()` when custom `modes` are not provided.
 
-- Default mode is `query.mode` in `QueryConfig`.
-- The TUI Query tab can switch modes with `/mode <name>`.
-- `LSMConfig.validate()` ensures the selected mode exists.
+## Prompt Ownership
 
-## Source Policy Integration
+Mode synthesis prompts are owned by query modules, not providers:
 
-- `local` policy controls `k`, `k_rerank`, and `min_relevance` used in query.
-- `remote` policy determines whether remote providers are queried.
-- `model_knowledge` policy toggles a warning banner after the answer.
+- `SYNTHESIZE_GROUNDED_INSTRUCTIONS`: `lsm/query/prompts.py`
+- `SYNTHESIZE_INSIGHT_INSTRUCTIONS`: `lsm/query/prompts.py`
 
-## Notes Integration
+Each mode stores instructions directly via `synthesis_instructions`, allowing
+per-mode prompt overrides in user config.
 
-`notes` is configured globally on `LSMConfig` and determines:
+## Mode Resolution
 
-- whether `/note` is allowed
-- where the note is written
-- how the filename is generated
+- Default active mode comes from `query.mode`.
+- Session override is available in TUI (`/mode <name>`).
+- `LSMConfig.validate()` ensures mode existence and applies fallback.
 
-## Extension Points
+## Backward-Compatibility Behavior
 
-Custom modes can be defined in `config.json` under `modes`. This allows
-project-specific tuning without modifying code.
+The loader still accepts legacy `source_policy` input and maps it to
+`local_policy`, `remote_policy`, and `model_knowledge_policy`.
 
-## Current Limitations
+New serialized config output uses only the v0.8 mode fields.
 
-- `rank_strategy` in `RemoteSourcePolicy` is reserved for future merging logic.
-- `ModelKnowledgePolicy.require_label` is advisory only.
+## Limitations
+
+- `remote_policy.rank_strategy` is currently advisory for some paths.
+- `model_knowledge_policy.require_label` is policy metadata; strict enforcement
+  depends on synthesis instructions.
