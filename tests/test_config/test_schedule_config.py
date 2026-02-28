@@ -15,8 +15,6 @@ def _base_raw(tmp_path: Path) -> dict:
         },
         "ingest": {
             "roots": [str(tmp_path / "docs")],
-            "persist_dir": str(tmp_path / ".chroma"),
-            "collection": "test_collection",
         },
         "llms": {
             "providers": [{"provider_name": "openai", "api_key": "test-key"}],
@@ -28,8 +26,8 @@ def _base_raw(tmp_path: Path) -> dict:
             },
         },
         "vectordb": {
-            "provider": "chromadb",
-            "persist_dir": str(tmp_path / ".chroma"),
+            "provider": "sqlite",
+            "path": str(tmp_path / "data"),
             "collection": "test_collection",
         },
         "query": {"mode": "grounded"},

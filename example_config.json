@@ -21,10 +21,6 @@
         "content_type": "writing"
       }
     ],
-    "persist_dir": ".chroma",
-    "collection": "local_kb",
-    "chroma_flush_interval": 2000,
-    "manifest": ".ingest/manifest.json",
     "chunk_size": 1800,
     "chunk_overlap": 200,
     "chunking_strategy": "structure",
@@ -41,16 +37,14 @@
     "exclude_dirs": [".cache", "node_modules", "__pycache__"],
     "override_excludes": false,
     "max_files": null,
-    "max_seconds": null,
-    "enable_versioning": false
+    "max_seconds": null
   },
 
-  "_comment_storage": "Vector database configuration (chromadb or postgresql)",
+  "_comment_storage": "Vector database configuration (sqlite or postgresql)",
   "vectordb": {
-    "provider": "chromadb",
-    "persist_dir": ".chroma",
-    "collection": "local_kb",
-    "chroma_hnsw_space": "cosine"
+    "provider": "sqlite",
+    "path": "data",
+    "collection": "local_kb"
   },
 
   "_comment_vectordb_postgresql": "Alternative: PostgreSQL with pgvector. Requires psycopg2-binary and pgvector extension.",
@@ -139,7 +133,7 @@
     "log_stream_queue_limit": 500,
     "context_window_strategy": "compact",
     "sandbox": {
-      "allowed_read_paths": ["./docs", "./notes", "./.ingest", "./.chroma"],
+      "allowed_read_paths": ["./docs", "./notes", "./.ingest", "./data"],
       "allowed_write_paths": ["./Agents", "./notes"],
       "allow_url_access": true,
       "require_user_permission": {},

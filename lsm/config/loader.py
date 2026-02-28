@@ -323,14 +323,26 @@ def build_ingest_config(raw: Dict[str, Any], config_path: Path) -> IngestConfig:
     """
     _ = config_path
     ingest_raw = raw.get("ingest", {})
+    if not isinstance(ingest_raw, dict):
+        raise ValueError("Config ingest section must be an object")
+
+    legacy_ingest_fields = {
+        "persist_dir": "vectordb.path",
+        "manifest": "manifest is now database-backed in lsm.db",
+        "chroma_flush_interval": "writes are internally batched for sqlite",
+        "enable_versioning": "versioning is always enabled in v0.8.0",
+    }
+    for field, replacement in legacy_ingest_fields.items():
+        if field in ingest_raw:
+            raise ValueError(
+                f"Unsupported legacy ingest field '{field}'. "
+                f"Update your config: {replacement}."
+            )
 
     # Required field
     roots = ingest_raw.get("roots")
     if not roots or not isinstance(roots, list):
         raise ValueError("Config ingest section must include 'roots' as a non-empty list of directory paths")
-
-    _ = ingest_raw.get("persist_dir")
-    collection = ingest_raw.get("collection", IngestConfig.collection)
 
     # Build root configs (supports both strings and dicts)
     root_configs = []
@@ -349,10 +361,6 @@ def build_ingest_config(raw: Dict[str, Any], config_path: Path) -> IngestConfig:
     # Build config
     config = IngestConfig(
         roots=root_configs,
-        persist_dir=Path(IngestConfig.persist_dir),
-        collection=collection,
-        chroma_flush_interval=int(ingest_raw.get("chroma_flush_interval", IngestConfig.chroma_flush_interval)),
-        manifest=Path(ingest_raw.get("manifest", ".ingest/manifest.json")),
         extensions=ingest_raw.get("extensions"),
         override_extensions=bool(ingest_raw.get("override_extensions", False)),
         exclude_dirs=ingest_raw.get("exclude_dirs"),
@@ -370,7 +378,6 @@ def build_ingest_config(raw: Dict[str, Any], config_path: Path) -> IngestConfig:
         translation_target=str(ingest_raw.get("translation_target", "en")),
         max_files=int(ingest_raw["max_files"]) if ingest_raw.get("max_files") is not None else None,
         max_seconds=int(ingest_raw["max_seconds"]) if ingest_raw.get("max_seconds") is not None else None,
-        enable_versioning=bool(ingest_raw.get("enable_versioning", False)),
     )
 
     return config
@@ -443,12 +450,24 @@ def build_vectordb_config(raw: Dict[str, Any]) -> VectorDBConfig:
     Build VectorDBConfig from raw configuration.
     """
     vectordb_raw = raw.get("vectordb", {})
+    if not isinstance(vectordb_raw, dict):
+        raise ValueError("Config vectordb section must be an object")
+
+    legacy_vdb_fields = {
+        "persist_dir": "path",
+        "chroma_hnsw_space": "no longer supported (sqlite provider)",
+    }
+    for field, replacement in legacy_vdb_fields.items():
+        if field in vectordb_raw:
+            raise ValueError(
+                f"Unsupported legacy vectordb field '{field}'. "
+                f"Use 'vectordb.{replacement}' instead."
+            )
 
     return VectorDBConfig(
         provider=vectordb_raw.get("provider", VectorDBConfig.provider),
         collection=vectordb_raw.get("collection", VectorDBConfig.collection),
-        persist_dir=vectordb_raw.get("persist_dir", VectorDBConfig.persist_dir),
-        chroma_hnsw_space=vectordb_raw.get("chroma_hnsw_space", VectorDBConfig.chroma_hnsw_space),
+        path=vectordb_raw.get("path", VectorDBConfig.path),
         connection_string=vectordb_raw.get("connection_string"),
         host=vectordb_raw.get("host"),
         port=vectordb_raw.get("port"),
@@ -1341,9 +1360,6 @@ def config_to_raw(config: LSMConfig) -> Dict[str, Any]:
                 )
                 for rc in config.ingest.roots
             ],
-            "collection": config.ingest.collection,
-            "chroma_flush_interval": config.ingest.chroma_flush_interval,
-            "manifest": str(config.ingest.manifest),
             "chunk_size": config.ingest.chunk_size,
             "chunk_overlap": config.ingest.chunk_overlap,
             "chunking_strategy": config.ingest.chunking_strategy,
@@ -1361,7 +1377,6 @@ def config_to_raw(config: LSMConfig) -> Dict[str, Any]:
             "override_excludes": config.ingest.override_excludes,
             "max_files": config.ingest.max_files,
             "max_seconds": config.ingest.max_seconds,
-            "enable_versioning": config.ingest.enable_versioning,
         },
         "llms": llms_raw,
         "query": {
@@ -1407,8 +1422,7 @@ def config_to_raw(config: LSMConfig) -> Dict[str, Any]:
         "vectordb": {
             "provider": config.vectordb.provider,
             "collection": config.vectordb.collection,
-            "persist_dir": str(config.vectordb.persist_dir),
-            "chroma_hnsw_space": config.vectordb.chroma_hnsw_space,
+            "path": str(config.vectordb.path),
             "connection_string": config.vectordb.connection_string,
             "host": config.vectordb.host,
             "port": config.vectordb.port,

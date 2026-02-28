@@ -20,8 +20,6 @@ def _base_raw(tmp_path: Path) -> dict:
         },
         "ingest": {
             "roots": [str(tmp_path / "docs")],
-            "persist_dir": str(tmp_path / ".chroma"),
-            "collection": "test_collection",
         },
         "llms": {
             "providers": [
@@ -35,8 +33,8 @@ def _base_raw(tmp_path: Path) -> dict:
             },
         },
         "vectordb": {
-            "provider": "chromadb",
-            "persist_dir": str(tmp_path / ".chroma"),
+            "provider": "sqlite",
+            "path": str(tmp_path / "data"),
             "collection": "test_collection",
         },
         "query": {"mode": "grounded"},
@@ -157,9 +155,7 @@ def test_build_config_reads_agents_section(tmp_path: Path) -> None:
     assert config.agents.sandbox.tool_llm_assignments["query_arxiv"] == "decomposition"
     assert config.agents.memory.enabled is True
     assert config.agents.memory.storage_backend == "sqlite"
-    assert config.agents.memory.sqlite_path == (
-        tmp_path / "lsm-global" / "Agents" / "memory.sqlite3"
-    ).resolve()
+    assert config.agents.memory.sqlite_path == Path("memory.sqlite3")
     assert config.agents.memory.ttl_project_fact_days == 120
     assert config.agents.memory.ttl_task_state_days == 14
     assert config.agents.memory.ttl_cache_hours == 12

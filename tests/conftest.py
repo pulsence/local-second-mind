@@ -48,10 +48,6 @@ def sample_config_dict(tmp_path: Path) -> Dict[str, Any]:
         },
         "ingest": {
             "roots": [str(tmp_path / "documents")],
-            "persist_dir": str(tmp_path / ".chroma"),
-            "chroma_flush_interval": 2000,
-            "collection": "test_kb",
-            "manifest": str(tmp_path / ".ingest" / "manifest.json"),
             "extensions": [".txt", ".md", ".pdf"],
             "override_extensions": False,
             "exclude_dirs": [".cache"],
@@ -59,8 +55,8 @@ def sample_config_dict(tmp_path: Path) -> Dict[str, Any]:
             "dry_run": False,
         },
         "vectordb": {
-            "provider": "chromadb",
-            "persist_dir": str(tmp_path / ".chroma"),
+            "provider": "sqlite",
+            "path": str(tmp_path / "data"),
             "collection": "test_kb",
         },
         "llms": {
@@ -257,9 +253,6 @@ def ingest_config(tmp_path: Path, global_folder: Path) -> LSMConfig:
 
     ingest = IngestConfig(
         roots=[roots_dir],
-        persist_dir=tmp_path / ".chroma",
-        collection="test_collection",
-        manifest=tmp_path / ".ingest" / "manifest.json",
     )
     query = QueryConfig()
     llm = LLMRegistryConfig(
@@ -267,8 +260,8 @@ def ingest_config(tmp_path: Path, global_folder: Path) -> LSMConfig:
         services={"query": LLMServiceConfig(provider="local", model="llama3.1")},
     )
     vectordb = VectorDBConfig(
-        provider="chromadb",
-        persist_dir=tmp_path / ".chroma",
+        provider="sqlite",
+        path=tmp_path / "data",
         collection="test_collection",
     )
     return LSMConfig(

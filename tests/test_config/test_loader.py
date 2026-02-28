@@ -35,8 +35,6 @@ def _base_raw(tmp_path: Path) -> dict:
         },
         "ingest": {
             "roots": [str(tmp_path / "docs")],
-            "persist_dir": str(tmp_path / ".chroma"),
-            "collection": "test_collection",
         },
         "llms": {
             "providers": [
@@ -52,8 +50,8 @@ def _base_raw(tmp_path: Path) -> dict:
             },
         },
         "vectordb": {
-            "provider": "chromadb",
-            "persist_dir": str(tmp_path / ".chroma"),
+            "provider": "sqlite",
+            "path": str(tmp_path / "data"),
             "collection": "test_collection",
         },
         "query": {"mode": "grounded"},
@@ -167,9 +165,7 @@ def test_build_config_uses_vectordb_fields(tmp_path: Path) -> None:
 
     config = build_config_from_raw(raw, tmp_path / "config.json")
 
-    assert config.ingest.persist_dir.name == ".chroma"
-    assert config.ingest.collection == "test_collection"
-    assert config.vectordb.persist_dir.name == ".chroma"
+    assert config.vectordb.path.name == "data"
     assert config.vectordb.collection == "test_collection"
 
 
@@ -227,7 +223,9 @@ def test_config_to_raw_uses_global_and_ingest_sections(tmp_path: Path) -> None:
     assert "ingest" in serialized
     assert "roots" in serialized["ingest"]
     assert "chunk_size" in serialized["ingest"]
-    assert "persist_dir" not in serialized["ingest"]
+    assert "manifest" not in serialized["ingest"]
+    assert "chroma_flush_interval" not in serialized["ingest"]
+    assert "enable_versioning" not in serialized["ingest"]
 
     # No flat top-level ingest/global fields
     assert "roots" not in serialized
@@ -238,7 +236,7 @@ def test_config_to_raw_uses_global_and_ingest_sections(tmp_path: Path) -> None:
     assert "chunk_size" not in serialized
 
     # vectordb still present
-    assert serialized["vectordb"]["persist_dir"].endswith(".chroma")
+    assert serialized["vectordb"]["path"].endswith("data")
     assert serialized["vectordb"]["collection"] == "test_collection"
 
 
@@ -248,27 +246,29 @@ def test_build_config_paths_resolve_relative_to_global_folder(tmp_path: Path) ->
     config_path = project_dir / "config.json"
     raw = _base_raw(tmp_path)
     raw["global"]["global_folder"] = "lsm-global"
-    raw["vectordb"]["persist_dir"] = ".chroma"
-    raw["ingest"]["manifest"] = ".ingest/manifest.json"
+    raw["vectordb"]["path"] = "db"
 
     config = build_config_from_raw(raw, config_path)
 
     expected_global = (project_dir / "lsm-global").resolve()
     assert config.global_folder == expected_global
-    assert config.vectordb.persist_dir == (expected_global / ".chroma").resolve()
-    assert config.ingest.persist_dir == config.vectordb.persist_dir
-    assert config.ingest.manifest == (expected_global / ".ingest/manifest.json").resolve()
+    assert config.vectordb.path == (expected_global / "db").resolve()
 
 
-def test_build_config_ignores_ingest_persist_dir_and_uses_vectordb(tmp_path: Path) -> None:
+def test_build_config_rejects_legacy_ingest_fields(tmp_path: Path) -> None:
     raw = _base_raw(tmp_path)
-    raw["ingest"]["persist_dir"] = str(tmp_path / "ingest-chroma")
-    raw["vectordb"]["persist_dir"] = str(tmp_path / "vectordb-chroma")
+    raw["ingest"]["manifest"] = str(tmp_path / ".ingest" / "manifest.json")
 
-    config = build_config_from_raw(raw, tmp_path / "config.json")
+    with pytest.raises(ValueError, match="Unsupported legacy ingest field 'manifest'"):
+        build_config_from_raw(raw, tmp_path / "config.json")
 
-    assert config.vectordb.persist_dir == (tmp_path / "vectordb-chroma").resolve()
-    assert config.ingest.persist_dir == config.vectordb.persist_dir
+
+def test_build_config_rejects_legacy_vectordb_fields(tmp_path: Path) -> None:
+    raw = _base_raw(tmp_path)
+    raw["vectordb"]["persist_dir"] = str(tmp_path / ".chroma")
+
+    with pytest.raises(ValueError, match="Unsupported legacy vectordb field 'persist_dir'"):
+        build_config_from_raw(raw, tmp_path / "config.json")
 
 
 def test_build_config_supports_global_folder(tmp_path: Path) -> None:

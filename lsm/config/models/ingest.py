@@ -9,10 +9,8 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Set, Union
 
 from .constants import (
-    DEFAULT_CHROMA_FLUSH_INTERVAL,
     DEFAULT_CHUNK_OVERLAP,
     DEFAULT_CHUNK_SIZE,
-    DEFAULT_COLLECTION,
     DEFAULT_EXCLUDE_DIRS,
     DEFAULT_EXTENSIONS,
 )
@@ -57,18 +55,6 @@ class IngestConfig:
     keys, or ``RootConfig`` instances. All are normalized to ``RootConfig`` in
     ``__post_init__``.
     """
-
-    persist_dir: Path = Path(".chroma")
-    """Directory for ChromaDB persistent storage."""
-
-    collection: str = DEFAULT_COLLECTION
-    """ChromaDB collection name."""
-
-    chroma_flush_interval: int = DEFAULT_CHROMA_FLUSH_INTERVAL
-    """Number of chunks to buffer before flushing to ChromaDB."""
-
-    manifest: Path = Path(".ingest/manifest.json")
-    """Path to manifest file for incremental updates."""
 
     extensions: Optional[List[str]] = None
     """File extensions to process. If None, uses DEFAULT_EXTENSIONS."""
@@ -122,10 +108,6 @@ class IngestConfig:
     max_seconds: Optional[int] = None
     """Maximum wall-clock seconds for an ingest run. None = no limit."""
 
-    enable_versioning: bool = False
-    """Enable chunk version control. Old chunks are marked ``is_current=False``
-    instead of deleted, and new chunks get incremented version numbers."""
-
     def __post_init__(self) -> None:
         """Normalize roots to RootConfig and convert string paths."""
         if isinstance(self.roots, list):
@@ -146,11 +128,6 @@ class IngestConfig:
                 else:
                     normalized.append(RootConfig(path=Path(r)))
             self.roots = normalized
-
-        if isinstance(self.persist_dir, str):
-            self.persist_dir = Path(self.persist_dir)
-        if isinstance(self.manifest, str):
-            self.manifest = Path(self.manifest)
 
     @property
     def root_paths(self) -> List[Path]:
@@ -193,11 +170,6 @@ class IngestConfig:
         """Validate ingest configuration."""
         if not self.roots:
             raise ValueError("At least one root directory is required")
-
-        if self.chroma_flush_interval < 1:
-            raise ValueError(
-                f"chroma_flush_interval must be positive, got {self.chroma_flush_interval}"
-            )
 
         if self.chunk_size < 1:
             raise ValueError(f"chunk_size must be positive, got {self.chunk_size}")

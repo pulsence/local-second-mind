@@ -87,13 +87,8 @@ class LSMConfig:
             base_dir = self.config_path.parent
 
         if base_dir is not None:
-            if self.vectordb and not self.vectordb.persist_dir.is_absolute():
-                self.vectordb.persist_dir = (base_dir / self.vectordb.persist_dir).resolve()
-            if not self.ingest.manifest.is_absolute():
-                self.ingest.manifest = (base_dir / self.ingest.manifest).resolve()
-
-        # Keep ingest cache/storage paths aligned with the vector DB location.
-        self.ingest.persist_dir = self.vectordb.persist_dir
+            if self.vectordb and not self.vectordb.path.is_absolute():
+                self.vectordb.path = (base_dir / self.vectordb.path).resolve()
 
         if self.agents is not None and not self.agents.agents_folder.is_absolute():
             if self.global_settings.global_folder is not None:
@@ -106,11 +101,6 @@ class LSMConfig:
                 ).resolve()
             else:
                 self.agents.agents_folder = self.agents.agents_folder.resolve()
-
-        if self.agents is not None and not self.agents.memory.sqlite_path.is_absolute():
-            self.agents.memory.sqlite_path = (
-                self.agents.agents_folder / self.agents.memory.sqlite_path
-            ).resolve()
 
         if self.modes is None:
             self.modes = self._get_builtin_modes()
@@ -346,8 +336,8 @@ class LSMConfig:
 
     @property
     def persist_dir(self) -> Path:
-        """Shortcut to vectordb persist_dir."""
-        return self.vectordb.persist_dir
+        """Compatibility alias for vectordb path."""
+        return self.vectordb.path
 
     @property
     def collection(self) -> str:

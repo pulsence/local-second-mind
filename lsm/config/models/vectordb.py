@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
-from .constants import DEFAULT_CHROMA_HNSW_SPACE, DEFAULT_COLLECTION, DEFAULT_VDB_PROVIDER
+from .constants import DEFAULT_COLLECTION, DEFAULT_VDB_PATH, DEFAULT_VDB_PROVIDER
 
 
 @dataclass
@@ -18,16 +18,13 @@ class VectorDBConfig:
     """
 
     provider: str = DEFAULT_VDB_PROVIDER
-    """Vector DB provider name (e.g., 'chromadb', 'postgresql')."""
+    """Vector DB provider name (e.g., 'sqlite', 'postgresql')."""
 
     collection: str = DEFAULT_COLLECTION
     """Collection or namespace name."""
 
-    persist_dir: Path = Path(".chroma")
-    """ChromaDB persistence directory (Chroma-only)."""
-
-    chroma_hnsw_space: str = DEFAULT_CHROMA_HNSW_SPACE
-    """ChromaDB HNSW space (e.g., 'cosine')."""
+    path: Path = Path(DEFAULT_VDB_PATH)
+    """Directory containing the unified ``lsm.db`` file."""
 
     connection_string: Optional[str] = None
     """PostgreSQL connection string."""
@@ -45,18 +42,27 @@ class VectorDBConfig:
     """Connection pool size for providers that support pooling."""
 
     def __post_init__(self):
-        if isinstance(self.persist_dir, str):
-            self.persist_dir = Path(self.persist_dir)
+        if isinstance(self.path, str):
+            self.path = Path(self.path)
+
+    @property
+    def persist_dir(self) -> Path:
+        """Backward-compatible alias for ``path``."""
+        return self.path
+
+    @persist_dir.setter
+    def persist_dir(self, value: Path | str) -> None:
+        self.path = Path(value)
 
     def validate(self) -> None:
         if not self.provider:
             raise ValueError("vectordb.provider must be set")
 
-        if self.provider == "chromadb":
-            if not self.persist_dir:
-                raise ValueError("vectordb.persist_dir is required for ChromaDB")
+        if self.provider == "sqlite":
+            if not self.path:
+                raise ValueError("vectordb.path is required for sqlite")
             if not self.collection:
-                raise ValueError("vectordb.collection is required for ChromaDB")
+                raise ValueError("vectordb.collection is required for sqlite")
 
         if self.provider == "postgresql":
             if not (self.connection_string or (self.host and self.database and self.user)):
