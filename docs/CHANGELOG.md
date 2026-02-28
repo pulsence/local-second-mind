@@ -32,6 +32,11 @@ All notable changes to Local Second Mind are documented here.
 - Added public text/markdown/docx/html FileGraph builders for ingest-time graph construction from parsed content.
 - Added `Candidate.heading_path` accessor for normalized heading hierarchy access in query/session workflows.
 
+### Added
+
+- Retrieval evaluation harness (`lsm/eval/`) with BEIR-format dataset support, standard IR metrics (recall@k, MRR, nDCG@k, diversity@k, latency stats), baseline save/load/compare, and bundled synthetic dataset (55 queries, 52 documents).
+- CLI commands: `lsm eval retrieval --profile <profile>`, `lsm eval save-baseline --name <name>`, `lsm eval list-baselines`.
+
 ## 0.8.0 - 2026-02-28
 
 ### Changed

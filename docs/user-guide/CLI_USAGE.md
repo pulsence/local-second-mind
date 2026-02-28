@@ -126,6 +126,37 @@ Common commands:
 - `/agent queue [agent_id] <message>`
 - `/agent select <agent_id>`
 
+### Evaluation Commands
+
+Run retrieval evaluation against a test dataset:
+
+```bash
+lsm eval retrieval --profile dense_only
+```
+
+Compare against a saved baseline:
+
+```bash
+lsm eval retrieval --profile hybrid_rrf --compare my-baseline
+```
+
+Save current results as a named baseline:
+
+```bash
+lsm eval save-baseline --name my-baseline --profile dense_only
+```
+
+List saved baselines:
+
+```bash
+lsm eval list-baselines
+```
+
+Options for `eval retrieval` and `eval save-baseline`:
+- `--profile <name>` - Retrieval profile to evaluate (default: `dense_only`)
+- `--dataset <path>` - Path to custom evaluation dataset directory (default: bundled dataset)
+- `--compare <name>` - Compare against a saved baseline (retrieval only)
+
 ## Configuration
 
 All modes use the same configuration file (default: `config.json`).
