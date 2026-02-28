@@ -16,6 +16,7 @@ from lsm.paths import get_chats_folder
 
 if TYPE_CHECKING:
     from .cost_tracking import CostTracker
+    from .pipeline_types import ScoreBreakdown
 
 
 @dataclass
@@ -37,6 +38,12 @@ class Candidate:
 
     distance: Optional[float] = None
     """Distance score from vector search (lower is better)."""
+
+    score_breakdown: Optional["ScoreBreakdown"] = None
+    """Per-stage score breakdown (populated by pipeline stages)."""
+
+    embedding: Optional[List[float]] = None
+    """Embedding vector (populated when needed for MMR diversity)."""
 
     @property
     def source_path(self) -> str:

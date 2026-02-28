@@ -26,6 +26,16 @@ __all__ = [
     "QueryFields",
     "decompose_query",
     "remote",
+    "QueryRequest",
+    "ContextPackage",
+    "QueryResponse",
+    "FilterSet",
+    "ScoreBreakdown",
+    "Citation",
+    "RetrievalTrace",
+    "CostEntry",
+    "RemoteSource",
+    "RetrievalPipeline",
 ]
 
 
@@ -66,6 +76,24 @@ def __getattr__(name: str) -> Any:
         from lsm.query import decomposition as _decomposition
 
         return getattr(_decomposition, name)
+    if name in {
+        "QueryRequest",
+        "ContextPackage",
+        "QueryResponse",
+        "FilterSet",
+        "ScoreBreakdown",
+        "Citation",
+        "RetrievalTrace",
+        "CostEntry",
+        "RemoteSource",
+    }:
+        from lsm.query import pipeline_types as _pt
+
+        return getattr(_pt, name)
+    if name == "RetrievalPipeline":
+        from lsm.query.pipeline import RetrievalPipeline as _RP
+
+        return _RP
     if name == "remote":
         import lsm.remote as _remote
         if not hasattr(_remote, "wikipedia"):
