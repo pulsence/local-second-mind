@@ -143,7 +143,6 @@ Fields:
 - `k: int = 12`
 - `retrieve_k: int | None = None`
 - `min_relevance: float = 0.25`
-- `k_rerank: int = 6`
 - `rerank_strategy: str = hybrid`
 - `no_rerank: bool = false`
 - `local_pool: int | None = None`
@@ -155,7 +154,7 @@ Fields:
 
 Derived behavior:
 
-- `local_pool` defaults to `max(k * 3, k_rerank * 4)`.
+- `local_pool` defaults to `k * 4`.
 - `no_rerank` forces `rerank_strategy = none`.
 
 ## LLMRegistryConfig
@@ -288,7 +287,6 @@ Fields:
 - `enabled: bool = true`
 - `min_relevance: float = 0.25`
 - `k: int = 12`
-- `k_rerank: int = 6`
 
 ## RemoteSourcePolicy
 

@@ -158,7 +158,7 @@ class TestConfigLoaderRoots:
                     "query": {"provider": "openai", "model": "gpt-5.2"}
                 },
             },
-            "query": {"k": 12, "k_rerank": 6},
+            "query": {"k": 12},
         }
 
     def test_build_ingest_config_string_roots(self, tmp_path: Path) -> None:

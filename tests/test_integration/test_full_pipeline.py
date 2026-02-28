@@ -83,7 +83,6 @@ def _build_pipeline_config(
         rerank_strategy=rerank_strategy,
         no_rerank=no_rerank,
         k=8,
-        k_rerank=4,
         retrieve_k=16,
         min_relevance=min_relevance,
     )

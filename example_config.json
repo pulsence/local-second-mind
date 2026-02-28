@@ -90,7 +90,6 @@
     "k": 12,
     "retrieve_k": null,
     "min_relevance": 0.25,
-    "k_rerank": 6,
     "rerank_strategy": "hybrid",
     "no_rerank": false,
     "local_pool": null,
@@ -241,7 +240,7 @@
         "local": {
           "min_relevance": 0.20,
           "k": 15,
-          "k_rerank": 8
+
         },
         "remote": {
           "enabled": true,
@@ -270,8 +269,7 @@
       "source_policy": {
         "local": {
           "min_relevance": 0.25,
-          "k": 12,
-          "k_rerank": 6
+          "k": 12
         },
         "remote": {
           "enabled": true,
@@ -298,7 +296,7 @@
         "local": {
           "min_relevance": 0.20,
           "k": 15,
-          "k_rerank": 8
+
         },
         "remote": {
           "enabled": true,

@@ -87,7 +87,7 @@ Local models are slower than hosted APIs, especially for large contexts.
 Tips:
 
 - Use smaller models for faster reranking and tagging.
-- Reduce `query.k` and `query.k_rerank` to shrink context size.
+- Reduce `query.k` to shrink context size.
 - Lower `max_tokens` to bound response length.
 - Consider running Ollama with a GPU if available.
 

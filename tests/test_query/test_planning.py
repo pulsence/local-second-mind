@@ -16,7 +16,7 @@ def _config(
     retrieve_k=None,
     no_rerank: bool = False,
 ):
-    local = SimpleNamespace(enabled=local_enabled, k=4, k_rerank=2, min_relevance=0.25)
+    local = SimpleNamespace(enabled=local_enabled, k=4, min_relevance=0.25)
     mode = SimpleNamespace(source_policy=SimpleNamespace(local=local))
     query = SimpleNamespace(
         no_rerank=no_rerank,

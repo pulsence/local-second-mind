@@ -342,7 +342,6 @@ The `query` section controls retrieval and reranking behavior.
 | `k` | int | `12` | Initial retrieval size. |
 | `retrieve_k` | int? | null | Override retrieval size when filtering. |
 | `min_relevance` | float | `0.25` | Minimum relevance to synthesize. |
-| `k_rerank` | int | `6` | Final candidate count after reranking. |
 | `rerank_strategy` | string | `hybrid` | `none`, `lexical`, `llm`, `hybrid`. |
 | `no_rerank` | bool | `false` | Disable LLM reranking even in `hybrid`. |
 | `local_pool` | int? | null | Pool size before diversity enforcement. |
@@ -356,7 +355,7 @@ The `query` section controls retrieval and reranking behavior.
 | `chat_mode` | string | `single` | Response mode: `single` or `chat`. |
 | `enable_llm_server_cache` | bool | `true` | Enable provider-side prompt/session cache reuse for chat follow-up turns. |
 
-`local_pool` defaults to `max(k * 3, k_rerank * 4)` when not provided.
+`local_pool` defaults to `k * 4` when not provided.
 
 Query caching notes:
 
@@ -381,7 +380,7 @@ Modes define per-mode behavior for synthesis and source blending.
     "name": "research",
     "synthesis_style": "grounded",
     "source_policy": {
-      "local": { "enabled": true, "min_relevance": 0.20, "k": 15, "k_rerank": 8 },
+      "local": { "enabled": true, "min_relevance": 0.20, "k": 15 },
       "remote": {
         "enabled": true,
         "rank_strategy": "weighted",
@@ -714,7 +713,7 @@ an API key.
       "name": "hybrid",
       "synthesis_style": "grounded",
       "source_policy": {
-        "local": { "min_relevance": 0.25, "k": 12, "k_rerank": 6 },
+        "local": { "min_relevance": 0.25, "k": 12 },
         "remote": {
           "enabled": true,
           "rank_strategy": "weighted",

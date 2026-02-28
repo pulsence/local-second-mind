@@ -69,7 +69,6 @@ def sample_config_dict(tmp_path: Path) -> Dict[str, Any]:
         },
         "query": {
             "k": 12,
-            "k_rerank": 6,
             "no_rerank": False,
             "max_per_file": 2,
             "local_pool": 36,

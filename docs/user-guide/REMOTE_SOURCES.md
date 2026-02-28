@@ -295,7 +295,7 @@ Notes:
     "name": "hybrid",
     "synthesis_style": "grounded",
     "source_policy": {
-      "local": { "min_relevance": 0.25, "k": 12, "k_rerank": 6 },
+      "local": { "min_relevance": 0.25, "k": 12 },
       "remote": {
         "enabled": true,
         "rank_strategy": "weighted",

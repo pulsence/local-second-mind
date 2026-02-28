@@ -38,7 +38,6 @@ class QueryCache:
         mode: str,
         filters: Optional[Dict[str, Any]],
         k: int,
-        k_rerank: int,
         conversation: Optional[str] = None,
     ) -> str:
         """
@@ -49,7 +48,6 @@ class QueryCache:
             "mode": mode or "",
             "filters": filters or {},
             "k": int(k),
-            "k_rerank": int(k_rerank),
             "conversation": conversation or "",
         }
         raw = json.dumps(payload, sort_keys=True, separators=(",", ":"))

@@ -141,7 +141,6 @@ async def query(
             mode=config.query.mode,
             filters=cache_filters,
             k=local_policy.k,
-            k_rerank=local_policy.k,
             conversation=serialize_conversation(state) if chat_mode == "chat" else None,
         )
         cached = cache.get(cache_key)
@@ -212,7 +211,6 @@ async def query(
             "question": question,
             "retrieve_k": plan.retrieve_k,
             "k": plan.k,
-            "k_rerank": plan.k_rerank,
             "filters_active": plan.filters_active,
             "path_contains": state.path_contains,
             "ext_allow": state.ext_allow,
@@ -233,7 +231,7 @@ async def query(
         }
 
         if plan.relevance < plan.min_relevance and not remote_policy.enabled:
-            chosen = plan.filtered[: min(plan.k_rerank, len(plan.filtered))]
+            chosen = plan.filtered[: min(plan.k, len(plan.filtered))]
             state.last_chosen = chosen
             state.last_label_to_candidate = {
                 f"S{i}": c for i, c in enumerate(chosen, start=1)
@@ -384,7 +382,7 @@ async def _apply_reranking(
         List of reranked candidates
     """
     if not plan.should_llm_rerank:
-        return plan.filtered[: min(plan.k_rerank, len(plan.filtered))]
+        return plan.filtered[: min(plan.k, len(plan.filtered))]
     if progress_callback:
         progress_callback("rerank", 0, 1, "Reranking candidates...")
 
@@ -404,7 +402,7 @@ async def _apply_reranking(
         provider,
         question,
         plan.filtered,
-        k=min(plan.k_rerank, len(plan.filtered)),
+        k=min(plan.k, len(plan.filtered)),
     )
 
     loop = asyncio.get_event_loop()
@@ -413,7 +411,7 @@ async def _apply_reranking(
         lambda: llm_rerank_candidates(
             question,
             rerank_candidates,
-            k=min(plan.k_rerank, len(plan.filtered)),
+            k=min(plan.k, len(plan.filtered)),
             provider=provider,
         ),
     )

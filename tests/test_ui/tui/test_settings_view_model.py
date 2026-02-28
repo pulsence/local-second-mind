@@ -41,7 +41,6 @@ def _raw_config(tmp_path: Path) -> dict:
         "query": {
             "mode": "grounded",
             "k": 12,
-            "k_rerank": 6,
             "min_relevance": 0.25,
         },
         "modes": [
@@ -52,7 +51,6 @@ def _raw_config(tmp_path: Path) -> dict:
                     "local": {
                         "min_relevance": 0.25,
                         "k": 12,
-                        "k_rerank": 6,
                     },
                     "remote": {
                         "enabled": True,
@@ -70,7 +68,6 @@ def _raw_config(tmp_path: Path) -> dict:
                     "local": {
                         "min_relevance": 0.2,
                         "k": 10,
-                        "k_rerank": 4,
                     },
                     "remote": {
                         "enabled": False,

@@ -78,7 +78,7 @@ class ModesSettingsTab(BaseSettingsTab):
         self._set_input("settings-modes-synthesis-style", mode.synthesis_style)
         self._set_input(
             "settings-modes-local-policy",
-            f"enabled={local.enabled}, min={local.min_relevance}, k={local.k}, k_rerank={local.k_rerank}",
+            f"enabled={local.enabled}, min={local.min_relevance}, k={local.k}",
         )
         self._set_input(
             "settings-modes-remote-policy",

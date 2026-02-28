@@ -65,7 +65,6 @@ def _build_config(tmp_path: Path, *, mode: str = "grounded") -> LSMConfig:
         ),
         query=QueryConfig(
             k=12,
-            k_rerank=6,
             no_rerank=False,
             mode=mode,
         ),
@@ -95,7 +94,6 @@ def _build_plan(candidate: Candidate, *, should_llm_rerank: bool, no_rerank: boo
         rerank_strategy="llm" if should_llm_rerank else "none",
         should_llm_rerank=should_llm_rerank,
         k=12,
-        k_rerank=6,
         min_relevance=0.3,
         max_per_file=2,
         local_pool=36,
@@ -288,7 +286,6 @@ def test_query_with_no_candidates(tmp_path: Path, monkeypatch) -> None:
         rerank_strategy="none",
         should_llm_rerank=False,
         k=12,
-        k_rerank=6,
         min_relevance=0.3,
         max_per_file=2,
         local_pool=36,

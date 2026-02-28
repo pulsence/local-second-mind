@@ -127,18 +127,18 @@ def estimate_query_cost(
     if plan.should_llm_rerank:
         ranking_config = config.llm.get_ranking_config()
         rerank_provider = create_provider(ranking_config)
-        chosen = plan.filtered[: min(plan.k_rerank, len(plan.filtered))]
+        chosen = plan.filtered[: min(plan.k, len(plan.filtered))]
         rerank_est = estimate_rerank_cost(
             rerank_provider,
             question,
             chosen,
-            k=min(plan.k_rerank, len(chosen)),
+            k=min(plan.k, len(chosen)),
         )
         total_estimated += rerank_est["cost"] or 0.0
 
     from lsm.query.context import build_context_block
 
-    chosen = plan.filtered[: min(plan.k_rerank, len(plan.filtered))]
+    chosen = plan.filtered[: min(plan.k, len(plan.filtered))]
     context_block, _ = build_context_block(chosen)
     query_config = config.llm.get_query_config()
     synthesis_provider = create_provider(query_config)

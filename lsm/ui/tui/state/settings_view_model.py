@@ -566,8 +566,6 @@ class SettingsViewModel:
             cfg.query.k = int(text)
         elif field_id == "settings-query-retrieve-k":
             cfg.query.retrieve_k = int(text) if text else None
-        elif field_id == "settings-query-k-rerank" and text:
-            cfg.query.k_rerank = int(text)
         elif field_id == "settings-query-min-relevance" and text:
             cfg.query.min_relevance = float(text)
         elif field_id == "settings-query-local-pool":

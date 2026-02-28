@@ -30,7 +30,6 @@ class LocalQueryPlan:
     rerank_strategy: str
     should_llm_rerank: bool
     k: int
-    k_rerank: int
     min_relevance: float
     max_per_file: int
     local_pool: int
@@ -141,11 +140,10 @@ def prepare_local_candidates(
     local_policy = getattr(mode_config, "local_policy", mode_config.source_policy.local)
 
     k = local_policy.k
-    k_rerank = k
     min_relevance = local_policy.min_relevance
     no_rerank = config.query.no_rerank
     max_per_file = config.query.max_per_file
-    local_pool = config.query.local_pool or max(k * 3, k_rerank * 4)
+    local_pool = config.query.local_pool or k * 4
     rerank_strategy = config.query.rerank_strategy.lower()
     local_enabled = local_policy.enabled
 
@@ -160,7 +158,6 @@ def prepare_local_candidates(
             rerank_strategy=rerank_strategy,
             should_llm_rerank=False,
             k=k,
-            k_rerank=k_rerank,
             min_relevance=min_relevance,
             max_per_file=max_per_file,
             local_pool=local_pool,
@@ -250,7 +247,7 @@ def prepare_local_candidates(
                 try:
                     anchored = collection.get(
                         filters={"source_path": doc_path},
-                        limit=max(1, min(k, k_rerank)),
+                        limit=k,
                         include=["documents", "metadatas"],
                     )
                     docs = anchored.documents or []
@@ -308,7 +305,6 @@ def prepare_local_candidates(
         rerank_strategy=rerank_strategy,
         should_llm_rerank=should_llm_rerank,
         k=k,
-        k_rerank=k_rerank,
         min_relevance=min_relevance,
         max_per_file=max_per_file,
         local_pool=local_pool,

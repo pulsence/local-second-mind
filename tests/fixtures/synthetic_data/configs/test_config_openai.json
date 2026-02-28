@@ -60,7 +60,6 @@
     "query":  {
                   "mode":  "grounded",
                   "k":  12,
-                  "k_rerank":  6,
                   "min_relevance":  0.2,
                   "max_per_file":  3,
                   "no_rerank":  false

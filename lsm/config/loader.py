@@ -509,7 +509,6 @@ def build_query_config(raw: Dict[str, Any]) -> QueryConfig:
         k=int(query_section.get("k", QueryConfig.k)),
         retrieve_k=query_section.get("retrieve_k"),
         min_relevance=float(query_section.get("min_relevance", QueryConfig.min_relevance)),
-        k_rerank=int(query_section.get("k_rerank", QueryConfig.k_rerank)),
         rerank_strategy=query_section.get("rerank_strategy", "hybrid"),
         no_rerank=bool(query_section.get("no_rerank", False)),
         local_pool=query_section.get("local_pool"),
@@ -818,7 +817,7 @@ def build_source_policy_config(raw: Dict[str, Any]) -> SourcePolicyConfig:
         local=LocalSourcePolicy(
             enabled=bool(local_raw.get("enabled", True)),
             min_relevance=float(local_raw.get("min_relevance", 0.25)),
-            k=int(local_raw.get("k", local_raw.get("k_rerank", 12))),
+            k=int(local_raw.get("k", 12)),
         ),
         remote=RemoteSourcePolicy(
             enabled=bool(remote_raw.get("enabled", False)),
@@ -1438,7 +1437,6 @@ def config_to_raw(config: LSMConfig) -> Dict[str, Any]:
             "k": config.query.k,
             "retrieve_k": config.query.retrieve_k,
             "min_relevance": config.query.min_relevance,
-            "k_rerank": config.query.k_rerank,
             "rerank_strategy": config.query.rerank_strategy,
             "no_rerank": config.query.no_rerank,
             "local_pool": config.query.local_pool,

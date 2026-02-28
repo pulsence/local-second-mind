@@ -121,7 +121,6 @@ def _build_local_plan() -> LocalQueryPlan:
         rerank_strategy="llm",
         should_llm_rerank=True,
         k=4,
-        k_rerank=2,
         min_relevance=0.0,
         max_per_file=2,
         local_pool=8,

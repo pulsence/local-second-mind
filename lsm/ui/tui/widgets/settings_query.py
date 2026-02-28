@@ -20,7 +20,6 @@ class QuerySettingsTab(BaseSettingsTab):
             self._select_field("Mode", "settings-query-mode"),
             self._field("k", "settings-query-k"),
             self._field("Retrieve k", "settings-query-retrieve-k"),
-            self._field("k_rerank", "settings-query-k-rerank"),
             self._field("Min relevance", "settings-query-min-relevance"),
             self._field("Local pool", "settings-query-local-pool"),
             self._field("Max per file", "settings-query-max-per-file"),
@@ -63,7 +62,6 @@ class QuerySettingsTab(BaseSettingsTab):
             "settings-query-retrieve-k",
             self._format_optional(getattr(query, "retrieve_k", None)),
         )
-        self._set_input("settings-query-k-rerank", str(getattr(query, "k_rerank", "")))
         self._set_input("settings-query-min-relevance", str(getattr(query, "min_relevance", "")))
         self._set_input(
             "settings-query-local-pool",
@@ -113,9 +111,6 @@ class QuerySettingsTab(BaseSettingsTab):
             return True
         if field_id == "settings-query-retrieve-k":
             query.retrieve_k = int(text) if text else None
-            return True
-        if field_id == "settings-query-k-rerank" and text:
-            query.k_rerank = int(text)
             return True
         if field_id == "settings-query-min-relevance" and text:
             query.min_relevance = float(text)

@@ -99,7 +99,6 @@ def _config() -> Any:
         mode="grounded",
         k=12,
         retrieve_k=None,
-        k_rerank=6,
         min_relevance=0.2,
         local_pool=None,
         max_per_file=2,
@@ -130,7 +129,7 @@ def _config() -> Any:
     mode_cfg = SimpleNamespace(
         synthesis_style="grounded",
         source_policy=SimpleNamespace(
-            local=SimpleNamespace(enabled=True, min_relevance=0.2, k=12, k_rerank=6),
+            local=SimpleNamespace(enabled=True, min_relevance=0.2, k=12),
             remote=SimpleNamespace(enabled=False, rank_strategy="weighted", max_results=5, remote_providers=["brave"]),
             model_knowledge=SimpleNamespace(enabled=False, require_label=True),
         ),
