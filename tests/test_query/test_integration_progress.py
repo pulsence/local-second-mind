@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-import json
 from pathlib import Path
 
 import pytest
@@ -22,47 +21,27 @@ from lsm.config.models import (
     VectorDBConfig,
 )
 from lsm.query.api import query
-from lsm.query.planning import LocalQueryPlan
+from lsm.query.pipeline_types import (
+    ContextPackage,
+    CostEntry,
+    QueryRequest,
+    QueryResponse,
+    RemoteSource,
+    RetrievalTrace,
+    StageTimings,
+)
 from lsm.query.session import Candidate, SessionState
-from lsm.remote.base import RemoteResult
 
 
-class FakeRerankProvider:
+class FakeLLMProvider:
     name = "openai"
     model = "gpt-5.2"
 
-    def send_message(self, input: str, instruction=None, **kwargs) -> str:
-        _ = input, instruction, kwargs
-        return json.dumps({"ranking": [{"index": 0, "reason": "best"}]})
+    def send_message(self, input, instruction=None, **kwargs):
+        return "fake"
 
-    def estimate_cost(self, _input_tokens: int, _output_tokens: int) -> float:
+    def estimate_cost(self, _input_tokens, _output_tokens):
         return 0.0
-
-
-class FakeSynthesisProvider:
-    name = "openai"
-    model = "gpt-5.2"
-
-    def __init__(self, answer: str) -> None:
-        self._answer = answer
-
-    def send_message(self, *_args, **_kwargs) -> str:
-        return self._answer
-
-    def estimate_cost(self, _input_tokens: int, _output_tokens: int) -> float:
-        return 0.0
-
-
-class FakeRemoteProvider:
-    def search(self, _query: str, max_results: int = 3) -> list[RemoteResult]:
-        return [
-            RemoteResult(
-                title="Remote Source",
-                url="https://example.com/remote",
-                snippet="Remote source snippet for integration progress test.",
-                score=0.9,
-            )
-        ][:max_results]
 
 
 def _build_query_config(tmp_path: Path, remote_enabled: bool) -> LSMConfig:
@@ -104,49 +83,109 @@ def _build_query_config(tmp_path: Path, remote_enabled: bool) -> LSMConfig:
     )
 
 
-def _build_local_plan() -> LocalQueryPlan:
-    candidate = Candidate(
+def _make_candidate():
+    return Candidate(
         cid="local-1",
         text="Local source content for integration testing.",
         meta={"source_path": "/docs/local.md", "source_name": "local.md", "chunk_index": 0},
         distance=0.1,
     )
-    return LocalQueryPlan(
-        local_enabled=True,
-        candidates=[candidate],
-        filtered=[candidate],
-        relevance=0.95,
-        filters_active=False,
-        retrieve_k=4,
-        rerank_strategy="llm",
-        should_llm_rerank=True,
-        k=4,
-        min_relevance=0.0,
-        max_per_file=2,
-        local_pool=8,
-        no_rerank=False,
-    )
+
+
+def _mock_pipeline_run_with_stages(candidate, stages, answer="Integrated answer [S1]."):
+    """Build a pipeline.run callable that simulates specific stages and timing."""
+    def _run(request, progress_callback=None):
+        # Emit progress callbacks to simulate pipeline stages
+        if progress_callback:
+            for i, stage in enumerate(stages):
+                progress_callback(stage, 0, 1, f"{stage} starting...")
+                progress_callback(stage, 1, 1, f"{stage} complete")
+
+        pkg = ContextPackage(
+            request=request,
+            candidates=[candidate],
+            remote_sources=[],
+            retrieval_trace=RetrievalTrace(
+                stages_executed=stages,
+                timings=[
+                    StageTimings(stage=s, duration_ms=10.0) for s in stages
+                ],
+            ),
+            all_candidates=[candidate],
+            filtered_candidates=[candidate],
+            relevance=0.95,
+            local_enabled=True,
+            context_block="[S1] Local content",
+            source_labels={"S1": {}},
+            starting_prompt="Answer.",
+        )
+        return QueryResponse(
+            answer=answer,
+            package=pkg,
+            costs=[CostEntry(provider="openai", model="gpt-5.2", cost=0.0)],
+        )
+    return _run
+
+
+def _mock_pipeline_run_with_remote(candidate, remote_sources):
+    """Build a pipeline.run callable that includes remote sources."""
+    def _run(request, progress_callback=None):
+        stages = ["retrieval", "rerank", "remote", "synthesis"]
+        if progress_callback:
+            for stage in stages:
+                progress_callback(stage, 0, 1, f"{stage}...")
+                progress_callback(stage, 1, 1, f"{stage} done")
+
+        pkg = ContextPackage(
+            request=request,
+            candidates=[candidate],
+            remote_sources=remote_sources,
+            retrieval_trace=RetrievalTrace(
+                stages_executed=stages,
+                timings=[StageTimings(stage=s, duration_ms=5.0) for s in stages],
+            ),
+            all_candidates=[candidate],
+            filtered_candidates=[candidate],
+            relevance=0.95,
+            local_enabled=True,
+            context_block="[S1] [S2] content",
+            source_labels={"S1": {}, "S2": {}},
+            starting_prompt="Answer.",
+        )
+        return QueryResponse(
+            answer="Integrated answer with remote [S1] [S2].",
+            package=pkg,
+            costs=[CostEntry(provider="openai", model="gpt-5.2", cost=0.0)],
+        )
+    return _run
+
+
+def _make_fake_pipeline_class(run_fn):
+    """Create a fake pipeline class bound to a specific run function."""
+    class _Pipeline:
+        def __init__(self, **_kwargs):
+            pass
+        def run(self, request, progress_callback=None):
+            return run_fn(request, progress_callback)
+    return _Pipeline
 
 
 @pytest.mark.integration
 class TestQueryProgressCallbacks:
-    def test_progress_callback_receives_all_stages(self, tmp_path: Path, monkeypatch) -> None:
+    def test_progress_callback_receives_all_stages(self, monkeypatch, tmp_path: Path) -> None:
+        from lsm.query import api as qapi
+
         config = _build_query_config(tmp_path, remote_enabled=False)
         progress_updates = []
-        local_plan = _build_local_plan()
+        candidate = _make_candidate()
 
-        monkeypatch.setattr(
-            "lsm.query.context.prepare_local_candidates",
-            lambda *_args, **_kwargs: local_plan,
+        run_fn = _mock_pipeline_run_with_stages(
+            candidate,
+            stages=["retrieval", "rerank", "synthesis"],
+            answer="Integrated answer [S1].",
         )
-
-        provider_iter = iter(
-            [
-                FakeRerankProvider(),
-                FakeSynthesisProvider("Integrated answer [S1]."),
-            ]
-        )
-        monkeypatch.setattr("lsm.query.api.create_provider", lambda _cfg: next(provider_iter))
+        monkeypatch.setattr(qapi, "RetrievalPipeline", _make_fake_pipeline_class(run_fn))
+        monkeypatch.setattr(qapi, "create_provider", lambda cfg: FakeLLMProvider())
 
         result = asyncio.run(
             query(
@@ -167,27 +206,26 @@ class TestQueryProgressCallbacks:
         assert stages.index("rerank") < stages.index("synthesis")
         assert "[S1]" in result.answer
 
-    def test_progress_callback_with_remote_sources(self, tmp_path: Path, monkeypatch) -> None:
+    def test_progress_callback_with_remote_sources(self, monkeypatch, tmp_path: Path) -> None:
+        from lsm.query import api as qapi
+
         config = _build_query_config(tmp_path, remote_enabled=True)
         progress_updates = []
-        local_plan = _build_local_plan()
+        candidate = _make_candidate()
 
-        monkeypatch.setattr(
-            "lsm.query.context.prepare_local_candidates",
-            lambda *_args, **_kwargs: local_plan,
-        )
-        monkeypatch.setattr(
-            "lsm.query.context.create_remote_provider",
-            lambda _provider_type, _runtime_cfg: FakeRemoteProvider(),
-        )
+        remote_sources = [
+            RemoteSource(
+                provider="mock_remote",
+                title="Remote Source",
+                url="https://example.com/remote",
+                snippet="Remote source snippet for integration progress test.",
+                score=0.9,
+            )
+        ]
 
-        provider_iter = iter(
-            [
-                FakeRerankProvider(),
-                FakeSynthesisProvider("Integrated answer with remote [S1] [S2]."),
-            ]
-        )
-        monkeypatch.setattr("lsm.query.api.create_provider", lambda _cfg: next(provider_iter))
+        run_fn = _mock_pipeline_run_with_remote(candidate, remote_sources)
+        monkeypatch.setattr(qapi, "RetrievalPipeline", _make_fake_pipeline_class(run_fn))
+        monkeypatch.setattr(qapi, "create_provider", lambda cfg: FakeLLMProvider())
 
         result = asyncio.run(
             query(

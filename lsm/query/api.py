@@ -3,19 +3,20 @@ Clean public API for query operations.
 
 This module provides the primary interface for executing queries.
 All query operations should go through these functions.
+
+Internally delegates to RetrievalPipeline for the three-stage execution.
 """
 
 from __future__ import annotations
 
 import asyncio
 from copy import deepcopy
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from typing import Callable, Dict, Any, List, Optional
 
 from lsm.config.models import LSMConfig
 from lsm.providers import create_provider
 from lsm.query.cache import QueryCache
-from lsm.query.rerank import llm_rerank_candidates
 from lsm.query.session import (
     Candidate,
     SessionState,
@@ -23,20 +24,10 @@ from lsm.query.session import (
     save_conversation_markdown,
     serialize_conversation,
 )
-from lsm.query.context import (
-    build_combined_context_async,
-    build_remote_candidates,
-    build_context_block,
-    fallback_answer,
-    format_user_content,
-    ContextResult,
-)
+from lsm.query.context import build_context_block
+from lsm.query.pipeline import RetrievalPipeline
+from lsm.query.pipeline_types import FilterSet, QueryRequest
 from lsm.ui.utils import format_source_list
-from lsm.query.cost_tracking import (
-    estimate_tokens,
-    estimate_output_tokens,
-    estimate_rerank_cost,
-)
 from lsm.logging import get_logger
 from lsm.paths import get_mode_chats_folder
 
@@ -89,7 +80,7 @@ async def query(
     Execute a query and return results.
 
     This is the primary entry point for all query operations.
-    Handles context building, reranking, and synthesis.
+    Delegates to RetrievalPipeline for three-stage execution.
 
     Args:
         question: User's question
@@ -111,21 +102,17 @@ async def query(
 
     def emit(stage: str, current: int, total: int, message: str) -> None:
         if progress_callback:
-            progress_callback(QueryProgress(stage=stage, current=current, total=total, message=message))
+            progress_callback(
+                QueryProgress(stage=stage, current=current, total=total, message=message)
+            )
 
     mode_config = config.get_mode_config()
     local_policy = getattr(mode_config, "local_policy", mode_config.source_policy.local)
-    remote_policy = getattr(mode_config, "remote_policy", mode_config.source_policy.remote)
-    model_knowledge_policy = getattr(
-        mode_config,
-        "model_knowledge_policy",
-        mode_config.source_policy.model_knowledge,
-    )
     chat_mode = config.query.chat_mode
 
     state.last_question = question
-    total_cost = 0.0
 
+    # --- Cache check ---
     cache = _get_query_cache(config)
     cache_key = None
     if cache is not None:
@@ -151,15 +138,12 @@ async def query(
             state.last_answer = result.answer
             state.last_chosen = list(result.candidates or [])
             state.last_label_to_candidate = {
-                f"S{i}": candidate for i, candidate in enumerate(result.candidates or [], start=1)
+                f"S{i}": candidate
+                for i, candidate in enumerate(result.candidates or [], start=1)
             }
             state.last_remote_sources = list(result.remote_sources or [])
             state.last_local_sources_for_notes = [
-                {
-                    "text": c.text,
-                    "meta": c.meta,
-                    "distance": c.distance,
-                }
+                {"text": c.text, "meta": c.meta, "distance": c.distance}
                 for c in (result.candidates or [])
                 if not (c.meta or {}).get("remote")
             ]
@@ -168,158 +152,122 @@ async def query(
     if chat_mode == "chat":
         append_chat_turn(state, "user", question)
 
-    context_result = await build_combined_context_async(
-        question,
-        config,
-        state,
-        embedder,
-        collection,
-        progress_callback=lambda stage, current, total, message: emit(
-            stage, current, total, message
+    # --- Build QueryRequest from session state ---
+    request = QueryRequest(
+        question=question,
+        mode=config.query.mode,
+        filters=FilterSet(
+            path_contains=state.path_contains
+            if isinstance(state.path_contains, list)
+            else ([state.path_contains] if state.path_contains else None),
+            ext_allow=state.ext_allow,
+            ext_deny=state.ext_deny,
         ),
+        k=local_policy.k,
+        conversation_id=state.conversation_id,
+        prior_response_id=state.prior_response_id,
+        conversation_history=state.conversation_history if chat_mode == "chat" else None,
+        chat_mode=chat_mode,
+        pinned_chunks=state.pinned_chunks or None,
+        context_documents=state.context_documents or None,
+        context_chunks=state.context_chunks or None,
+        model_override=state.model if state.model else None,
     )
 
-    plan = context_result.plan
-    local_enabled = plan.local_enabled if plan else False
-    filtered = context_result.local_candidates
+    # --- Create pipeline and run ---
+    query_config = config.llm.resolve_service("query")
+    llm_provider = create_provider(query_config)
 
-    if local_enabled:
-        state.last_all_candidates = plan.candidates
-        state.last_filtered_candidates = plan.filtered
+    pipeline = RetrievalPipeline(
+        db=collection,
+        embedder=embedder,
+        config=config,
+        llm_provider=llm_provider,
+    )
 
-        if not plan.candidates and not remote_policy.enabled:
-            return QueryResult(
-                answer="No results found in the knowledge base for this query.",
-                candidates=[],
-                sources_display="",
-                cost=0.0,
-                remote_sources=[],
-                debug_info={"local_enabled": True, "no_candidates": True},
-            )
+    loop = asyncio.get_event_loop()
 
-        if not plan.filtered and not remote_policy.enabled:
-            return QueryResult(
-                answer="No results matched the configured filters.",
-                candidates=[],
-                sources_display="",
-                cost=0.0,
-                remote_sources=[],
-                debug_info={"local_enabled": True, "no_filtered": True},
-            )
+    def _pipeline_progress(stage, current, total, message):
+        emit(stage, current, total, message)
 
-        state.last_debug = {
-            "question": question,
-            "retrieve_k": plan.retrieve_k,
-            "k": plan.k,
-            "filters_active": plan.filters_active,
-            "path_contains": state.path_contains,
-            "ext_allow": state.ext_allow,
-            "ext_deny": state.ext_deny,
-            "context_documents": state.context_documents,
-            "context_chunks": state.context_chunks,
-            "best_relevance": plan.relevance,
-            "min_relevance": plan.min_relevance,
-            "rerank_strategy": plan.rerank_strategy,
-            "no_rerank": plan.no_rerank,
-            "model": state.model,
-            "max_per_file": plan.max_per_file,
-            "local_pool": plan.local_pool,
-            "post_local_count": len(plan.filtered),
-            "local_enabled": local_enabled,
-            "remote_enabled": remote_policy.enabled,
-            "metadata_prefilter": getattr(plan, "metadata_filter", None),
-        }
-
-        if plan.relevance < plan.min_relevance and not remote_policy.enabled:
-            chosen = plan.filtered[: min(plan.k, len(plan.filtered))]
-            state.last_chosen = chosen
-            state.last_label_to_candidate = {
-                f"S{i}": c for i, c in enumerate(chosen, start=1)
-            }
-
-            answer = fallback_answer(question, chosen)
-            _, sources = build_context_block(chosen)
-
-            return QueryResult(
-                answer=answer,
-                candidates=chosen,
-                sources_display=format_source_list(sources),
-                cost=0.0,
-                remote_sources=[],
-                debug_info=state.last_debug,
-            )
-
-        chosen = await _apply_reranking(
-            question,
-            plan,
-            config,
-            state,
-            progress_callback=emit,
-        )
-    else:
-        state.last_all_candidates = []
-        state.last_filtered_candidates = []
-        state.last_debug = {
-            "question": question,
-            "model": state.model,
-            "local_enabled": local_enabled,
-            "remote_enabled": remote_policy.enabled,
-        }
-        chosen = []
-
-    state.last_chosen = chosen
-
-    remote_candidates = context_result.remote_candidates
-    remote_sources = context_result.remote_sources
-
-    combined_candidates = chosen + remote_candidates
-    state.last_label_to_candidate = {
-        f"S{i}": c for i, c in enumerate(combined_candidates, start=1)
-    }
-    context_block, sources = build_context_block(combined_candidates)
-
-    emit("synthesis", 0, 1, "Generating answer...")
-    synthesis_failed = False
     try:
-        answer, synthesis_cost = await _synthesize_answer(
-            question, context_block, config, state, mode_config
+        response = await loop.run_in_executor(
+            None,
+            lambda: pipeline.run(request, progress_callback=_pipeline_progress),
         )
-        total_cost += synthesis_cost
-        emit("synthesis", 1, 1, "Answer generation complete")
     except Exception as exc:
-        synthesis_failed = True
-        logger.error(f"Synthesis failed, returning fallback answer: {exc}")
-        answer = fallback_answer(question, combined_candidates)
-        emit("synthesis", 1, 1, f"Synthesis failed, returned fallback: {exc}")
+        logger.error(f"Pipeline execution failed: {exc}", exc_info=True)
+        raise
 
-    if "[S" not in answer:
-        answer += (
-            "\n\nNote: No inline citations were emitted. "
-            "If this persists, reduce mode local_policy.k / query.local_pool or reduce chunk size."
-        )
+    # --- Map QueryResponse back to SessionState and QueryResult ---
+    package = response.package
 
-    if model_knowledge_policy.enabled:
-        answer += (
-            "\n\n---\n"
-            "Note: Model knowledge is enabled for this mode. "
-            "The answer may include information from the LLM's training data."
-        )
+    # Update session state
+    state.last_all_candidates = package.all_candidates
+    state.last_filtered_candidates = package.filtered_candidates
+    state.last_chosen = list(package.candidates)
+    state.last_label_to_candidate = {
+        f"S{i}": c for i, c in enumerate(package.candidates, start=1)
+    }
+    state.last_answer = response.answer
+    state.last_remote_sources = [rs.to_dict() for rs in package.remote_sources]
+    state.last_local_sources_for_notes = [
+        {"text": c.text, "meta": c.meta, "distance": c.distance}
+        for c in package.candidates
+        if not (c.meta or {}).get("remote")
+    ]
+    state.last_retrieval_trace = package.retrieval_trace.to_dict()
 
-    _update_state(state, question, answer, chosen, remote_sources)
+    # Conversation chain state
+    if response.response_id:
+        state.prior_response_id = response.response_id
+    if response.conversation_id:
+        state.conversation_id = response.conversation_id
+
+    # Invalidation: reset chain on model/provider/mode switch
+    _check_conversation_invalidation(config, state)
+
+    # Debug info
+    state.last_debug = {
+        "question": question,
+        "k": local_policy.k,
+        "model": state.model,
+        "local_enabled": package.local_enabled,
+        "remote_enabled": getattr(
+            mode_config, "remote_policy", mode_config.source_policy.remote
+        ).enabled,
+        "relevance": package.relevance,
+        "retrieval_profile": package.retrieval_trace.retrieval_profile,
+        "stages": package.retrieval_trace.stages_executed,
+        "total_duration_ms": package.retrieval_trace.total_duration_ms(),
+    }
+
     if chat_mode == "chat":
-        append_chat_turn(state, "assistant", answer)
+        append_chat_turn(state, "assistant", response.answer)
         _maybe_auto_save_chat(config, state)
 
+    # Cost tracking
+    total_cost = response.total_cost()
+    if state.cost_tracker:
+        for entry in list(package.costs) + list(response.costs):
+            state.cost_tracker.add_entry(
+                provider=entry.provider,
+                model=entry.model,
+                input_tokens=entry.input_tokens,
+                output_tokens=entry.output_tokens,
+                cost=entry.cost,
+                kind=entry.kind,
+            )
+
+    _, sources = build_context_block(package.candidates)
     source_list = format_source_list(sources)
-    if synthesis_failed:
-        state.last_debug["synthesis_fallback"] = True
 
     result = QueryResult(
-        answer=answer,
-        candidates=combined_candidates,
+        answer=response.answer,
+        candidates=list(package.candidates),
         sources_display=source_list,
         cost=total_cost,
-        remote_sources=remote_sources,
+        remote_sources=[rs.to_dict() for rs in package.remote_sources],
         debug_info=state.last_debug,
     )
     if cache is not None and cache_key is not None:
@@ -360,201 +308,6 @@ def query_sync(
             progress_callback=progress_callback,
         )
     )
-
-
-async def _apply_reranking(
-    question: str,
-    plan,
-    config: LSMConfig,
-    state: SessionState,
-    progress_callback: Optional[Callable[[str, int, int, str], None]] = None,
-) -> List[Candidate]:
-    """
-    Apply reranking to candidates based on plan settings.
-
-    Args:
-        question: User's question
-        plan: LocalQueryPlan from context building
-        config: Global configuration
-        state: Session state
-
-    Returns:
-        List of reranked candidates
-    """
-    if not plan.should_llm_rerank:
-        return plan.filtered[: min(plan.k, len(plan.filtered))]
-    if progress_callback:
-        progress_callback("rerank", 0, 1, "Reranking candidates...")
-
-    ranking_config = config.llm.resolve_service("ranking")
-    provider = create_provider(ranking_config)
-
-    rerank_candidates = [
-        {
-            "text": c.text,
-            "metadata": c.meta,
-            "distance": c.distance,
-        }
-        for c in plan.filtered
-    ]
-
-    rerank_est = estimate_rerank_cost(
-        provider,
-        question,
-        plan.filtered,
-        k=min(plan.k, len(plan.filtered)),
-    )
-
-    loop = asyncio.get_event_loop()
-    reranked = await loop.run_in_executor(
-        None,
-        lambda: llm_rerank_candidates(
-            question,
-            rerank_candidates,
-            k=min(plan.k, len(plan.filtered)),
-            provider=provider,
-        ),
-    )
-
-    chosen = []
-    for item in reranked:
-        chosen.append(
-            Candidate(
-                cid=item.get("cid", ""),
-                text=item.get("text", ""),
-                meta=item.get("metadata", {}),
-                distance=item.get("distance"),
-            )
-        )
-
-    if state.cost_tracker:
-        cost = rerank_est["cost"]
-        state.cost_tracker.add_entry(
-            provider=provider.name,
-            model=provider.model,
-            input_tokens=rerank_est["input_tokens"],
-            output_tokens=rerank_est["output_tokens"],
-            cost=cost,
-            kind="rerank",
-        )
-
-    if progress_callback:
-        progress_callback("rerank", 1, 1, "Reranking complete")
-
-    return chosen
-
-
-async def _synthesize_answer(
-    question: str,
-    context_block: str,
-    config: LSMConfig,
-    state: SessionState,
-    mode_config,
-) -> tuple[str, float]:
-    """
-    Synthesize answer using LLM.
-
-    Args:
-        question: User's question
-        context_block: Formatted context string
-        config: Global configuration
-        state: Session state
-        mode_config: Mode configuration
-
-    Returns:
-        Tuple of (answer, cost)
-    """
-    query_config = config.llm.resolve_service("query")
-    if state.model and state.model != query_config.model:
-        query_config = replace(query_config, model=state.model)
-
-    synthesis_provider = create_provider(query_config)
-    provider_cache_key = f"{synthesis_provider.name}:{synthesis_provider.model}:{config.query.mode}"
-    previous_response_id = None
-    if config.query.chat_mode == "chat" and config.query.enable_llm_server_cache:
-        previous_response_id = state.llm_server_cache_ids.get(provider_cache_key)
-
-    loop = asyncio.get_event_loop()
-    question_payload = question
-    if config.query.chat_mode == "chat" and state.conversation_history:
-        history_lines: List[str] = []
-        for turn in state.conversation_history[-10:]:
-            role = (turn.get("role") or "user").upper()
-            content = turn.get("content") or ""
-            history_lines.append(f"{role}: {content}")
-        question_payload = (
-            "Conversation history:\n"
-            + "\n".join(history_lines)
-            + f"\n\nCurrent user question:\n{question}"
-        )
-
-    instructions = mode_config.synthesis_instructions
-    user_content = format_user_content(question_payload, context_block)
-
-    answer = await loop.run_in_executor(
-        None,
-        lambda: synthesis_provider.send_message(
-            input=user_content,
-            instruction=instructions,
-            temperature=query_config.temperature,
-            max_tokens=query_config.max_tokens,
-            reasoning_effort="medium",
-            conversation_history=state.conversation_history,
-            enable_server_cache=config.query.enable_llm_server_cache,
-            previous_response_id=previous_response_id,
-            prompt_cache_key=provider_cache_key,
-        ),
-    )
-
-    if config.query.enable_llm_server_cache:
-        response_id = getattr(synthesis_provider, "last_response_id", None)
-        if response_id:
-            state.llm_server_cache_ids[provider_cache_key] = str(response_id)
-
-    cost = 0.0
-    if state.cost_tracker:
-        input_tokens = estimate_tokens(f"{question_payload}\n{context_block}")
-        output_tokens = estimate_output_tokens(answer, query_config.max_tokens)
-        cost = synthesis_provider.estimate_cost(input_tokens, output_tokens) or 0.0
-        state.cost_tracker.add_entry(
-            provider=synthesis_provider.name,
-            model=synthesis_provider.model,
-            input_tokens=input_tokens,
-            output_tokens=output_tokens,
-            cost=cost,
-            kind="synthesize",
-        )
-
-    return answer, cost
-
-
-def _update_state(
-    state: SessionState,
-    question: str,
-    answer: str,
-    chosen: List[Candidate],
-    remote_sources: List[Dict[str, Any]],
-) -> None:
-    """
-    Update session state with query results.
-
-    Args:
-        state: Session state to update
-        question: User's question
-        answer: Generated answer
-        chosen: Chosen local candidates
-        remote_sources: Remote source data
-    """
-    state.last_answer = answer
-    state.last_remote_sources = remote_sources
-    state.last_local_sources_for_notes = [
-        {
-            "text": c.text,
-            "meta": c.meta,
-            "distance": c.distance,
-        }
-        for c in chosen
-    ]
 
 
 def _get_query_cache(config: LSMConfig) -> QueryCache | None:
@@ -601,3 +354,18 @@ def _maybe_auto_save_chat(config: LSMConfig, state: SessionState) -> None:
         save_conversation_markdown(state, chats_dir=chats_dir, mode_name=config.query.mode)
     except Exception as exc:
         logger.warning(f"Failed to auto-save chat transcript: {exc}")
+
+
+def _check_conversation_invalidation(config: LSMConfig, state: SessionState) -> None:
+    """Reset conversation chain state on model/mode changes."""
+    cache_key = f"{config.query.mode}"
+    if not hasattr(state, "_last_conversation_key"):
+        state._last_conversation_key = cache_key
+        return
+    if state._last_conversation_key != cache_key:
+        state.prior_response_id = None
+        state.conversation_id = None
+        state._last_conversation_key = cache_key
+    if config.query.chat_mode == "single":
+        state.prior_response_id = None
+        state.conversation_id = None

@@ -204,7 +204,8 @@ class TestSessionState:
         assert state.context_documents == []
         assert state.context_chunks == []
         assert state.conversation_history == []
-        assert state.llm_server_cache_ids == {}
+        assert state.conversation_id is None
+        assert state.prior_response_id is None
 
     def test_session_state_with_filters(self):
         """Test session state with filters."""
