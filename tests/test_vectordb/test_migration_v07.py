@@ -231,7 +231,6 @@ def test_v07_schedules_import_preserves_fields(
 def test_v07_missing_files_warn_and_skip(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
-    caplog: pytest.LogCaptureFixture,
 ) -> None:
     source_dir = tmp_path / "legacy"
     source_dir.mkdir(parents=True)
@@ -244,9 +243,15 @@ def test_v07_missing_files_warn_and_skip(
         lambda *_args, **_kwargs: target_provider,
     )
 
-    caplog.set_level("WARNING")
+    missing_paths: list[Path] = []
+    monkeypatch.setattr(
+        migration_mod,
+        "_warn_legacy_missing",
+        lambda path: missing_paths.append(Path(path)),
+    )
+
     result = migration_mod.migrate("v0.7", "v0.8", {"source_dir": source_dir}, _runtime_config())
 
     assert result["source"] == "v0.7"
-    assert "missing file" in caplog.text.lower()
+    assert len(missing_paths) >= 3
     assert target_conn.execute("SELECT COUNT(*) FROM lsm_manifest").fetchone()[0] == 0

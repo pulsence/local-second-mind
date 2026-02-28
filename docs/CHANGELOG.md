@@ -19,6 +19,7 @@ All notable changes to Local Second Mind are documented here.
 - Ingest now checks active schema compatibility before writes and records schema provenance on each run.
 - Re-ingest versioning is now unconditional for chunk history (`is_current=0` for prior versions; no hard-delete during normal ingest).
 - Added selective completion ingest paths for config drift without forcing a full corpus rebuild.
+- Added explicit migration guidance in the getting-started guide for v0.7 users moving to v0.8.
 
 ### Added
 
@@ -29,6 +30,9 @@ All notable changes to Local Second Mind are documented here.
 - Added DB maintenance commands: `lsm db prune` and `lsm db complete`.
 - Added ingest CLI controls: `--force-reingest-changed-config` and `--force-file-pattern`.
 - Added transactional selective re-ingest protection so chunk/vector/manifest writes rollback together on failure.
+- Added explicit `lsm migrate --from <source> --to <target>` command support for backend migrations (`chroma`, `sqlite`, `postgresql`).
+- Added legacy migration path `lsm migrate --from v0.7 --to v0.8` to import `manifest.json`, `memories.db`, `schedules.json`, `stats_cache.json`, and legacy remote cache blobs into unified `lsm.db`.
+- Added migration validation and idempotent upsert behavior to prevent duplicate records on re-run.
 
 ## 0.7.1 - 2026-02-27
 

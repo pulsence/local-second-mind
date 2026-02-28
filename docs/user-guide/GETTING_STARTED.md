@@ -111,7 +111,23 @@ This runs the ingest once and exits. Use this for automation.
 2. **Parses** each document (extracting text from PDFs, DOCX, etc.)
 3. **Chunks** the text into manageable pieces
 4. **Embeds** each chunk using a local model (all-MiniLM-L6-v2)
-5. **Stores** embeddings in ChromaDB for fast retrieval
+5. **Stores** embeddings in SQLite (`lsm.db`) with sqlite-vec for fast retrieval
+
+## Upgrading from v0.7?
+
+v0.8 uses the unified SQLite database (`lsm.db`) and no longer uses legacy sidecar files.
+
+If you already have a v0.7 workspace with files like `manifest.json`, `memories.db`, or
+`schedules.json`, run migration before ingesting with v0.8:
+
+```bash
+lsm migrate --from v0.7 --to v0.8 --source-dir <legacy_state_dir>
+```
+
+Notes:
+- `--source-dir` should point to the folder containing your legacy files.
+- If `--source-dir` is omitted, LSM uses `global.global_folder` from your config.
+- Migration is explicit only; it does not run automatically at startup or ingest.
 
 ## First Query: Ask Questions
 
@@ -267,7 +283,7 @@ Make sure `config.json` exists in the project root:
 cp example_config.json config.json
 ```
 
-### "ChromaDB directory not found"
+### "Database file not found"
 
 You need to run ingest first:
 
