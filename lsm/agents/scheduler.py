@@ -16,6 +16,11 @@ from typing import Any, Callable, Dict, Optional, Sequence
 
 from lsm.config.models import LSMConfig, ScheduleConfig, VectorDBConfig
 from lsm.config.models.agents import AgentConfig, SandboxConfig
+from lsm.db.connection import (
+    resolve_postgres_connection_factory,
+    resolve_sqlite_connection,
+    resolve_vectordb_provider_name,
+)
 from lsm.logging import get_logger
 from lsm.vectordb import BaseVectorDBProvider, create_vectordb_provider
 
@@ -261,26 +266,29 @@ class AgentScheduler:
             self._stop_event.wait(self.tick_seconds)
 
     def _initialize_persistence(self) -> None:
-        provider_name = self._resolve_vectordb_provider_name(self._vectordb)
+        provider_name = resolve_vectordb_provider_name(self._vectordb)
         if provider_name == "sqlite":
-            conn, owns_conn, owned_provider = self._resolve_sqlite_connection(self._vectordb)
+            conn, owns_conn = resolve_sqlite_connection(self._vectordb)
             self._persistence_backend = "sqlite"
             self._sqlite_conn = conn
             self._owned_sqlite_connection = owns_conn
-            self._owned_provider = owned_provider
             return
         if provider_name == "postgresql":
-            conn_factory, owned_provider = self._resolve_postgres_connection_factory(
-                self._vectordb
-            )
+            conn_factory = resolve_postgres_connection_factory(self._vectordb)
             if conn_factory is None:
-                raise ValueError(
-                    "PostgreSQL scheduler persistence requires a vectordb provider "
-                    "with an exposed connection factory."
-                )
+                # If given a config (not a live provider), create the provider
+                # so we can extract its connection factory.
+                if not isinstance(self._vectordb, BaseVectorDBProvider):
+                    provider = create_vectordb_provider(self._vectordb)
+                    conn_factory = resolve_postgres_connection_factory(provider)
+                    self._owned_provider = provider
+                if conn_factory is None:
+                    raise ValueError(
+                        "PostgreSQL scheduler persistence requires a vectordb provider "
+                        "with an exposed connection factory."
+                    )
             self._persistence_backend = "postgresql"
             self._postgres_conn_factory = conn_factory
-            self._owned_provider = owned_provider
             return
         raise ValueError(
             "Agent scheduler requires vectordb provider 'sqlite' or 'postgresql'."
@@ -558,69 +566,6 @@ class AgentScheduler:
             return
 
         raise ValueError("Scheduler persistence backend is not initialized.")
-
-    @staticmethod
-    def _resolve_vectordb_provider_name(
-        vectordb: VectorDBConfig | BaseVectorDBProvider,
-    ) -> str:
-        if isinstance(vectordb, BaseVectorDBProvider):
-            return str(getattr(vectordb, "name", "") or "").strip().lower()
-        return str(vectordb.provider or "").strip().lower()
-
-    @classmethod
-    def _resolve_sqlite_connection(
-        cls,
-        vectordb: VectorDBConfig | BaseVectorDBProvider,
-    ) -> tuple[sqlite3.Connection, bool, Optional[BaseVectorDBProvider]]:
-        if isinstance(vectordb, BaseVectorDBProvider):
-            if cls._resolve_vectordb_provider_name(vectordb) != "sqlite":
-                raise ValueError(
-                    "SQLite scheduler persistence requires vectordb provider='sqlite'."
-                )
-            connection = getattr(vectordb, "connection", None)
-            if not isinstance(connection, sqlite3.Connection):
-                raise ValueError(
-                    "SQLite vector provider does not expose a valid sqlite connection."
-                )
-            return connection, False, None
-
-        if cls._resolve_vectordb_provider_name(vectordb) != "sqlite":
-            raise ValueError(
-                "SQLite scheduler persistence requires vectordb.provider='sqlite'."
-            )
-
-        provider = create_vectordb_provider(vectordb)
-        connection = getattr(provider, "connection", None)
-        if not isinstance(connection, sqlite3.Connection):
-            raise ValueError(
-                "SQLite vector provider did not expose a valid sqlite connection."
-            )
-        return connection, True, provider
-
-    @classmethod
-    def _resolve_postgres_connection_factory(
-        cls,
-        vectordb: VectorDBConfig | BaseVectorDBProvider,
-    ) -> tuple[Optional[Callable[[], Any]], Optional[BaseVectorDBProvider]]:
-        if isinstance(vectordb, BaseVectorDBProvider):
-            if cls._resolve_vectordb_provider_name(vectordb) != "postgresql":
-                raise ValueError(
-                    "PostgreSQL scheduler persistence requires vectordb provider='postgresql'."
-                )
-            get_conn = getattr(vectordb, "_get_conn", None)
-            if callable(get_conn):
-                return get_conn, None
-            return None, None
-
-        if cls._resolve_vectordb_provider_name(vectordb) != "postgresql":
-            raise ValueError(
-                "PostgreSQL scheduler persistence requires vectordb.provider='postgresql'."
-            )
-        provider = create_vectordb_provider(vectordb)
-        get_conn = getattr(provider, "_get_conn", None)
-        if callable(get_conn):
-            return get_conn, provider
-        return None, provider
 
     def _process_entry(self, schedule_id: str, now: datetime) -> None:
         with self._lock:

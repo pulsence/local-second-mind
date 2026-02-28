@@ -16,6 +16,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+from lsm.db.connection import create_sqlite_connection, resolve_db_path
 from lsm.logging import get_logger
 from lsm.paths import get_global_folder
 
@@ -29,12 +30,6 @@ def _sanitize_provider_name(provider_name: str) -> str:
 
 def _query_hash(query: str) -> str:
     return hashlib.sha256(query.encode("utf-8")).hexdigest()[:24]
-
-
-def _resolve_db_path(path: Path) -> Path:
-    if str(path).lower().endswith(".db"):
-        return path
-    return path / "lsm.db"
 
 
 def _now_utc() -> datetime:
@@ -81,11 +76,9 @@ def _open_cache_connection(
         return db_connection, None, False
     if vectordb_path is None:
         return None, None, False
-    db_path = _resolve_db_path(Path(vectordb_path).expanduser())
+    db_path = resolve_db_path(Path(vectordb_path).expanduser())
     db_path.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(str(db_path))
-    conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA busy_timeout = 5000")
+    conn = create_sqlite_connection(db_path)
     _ensure_remote_cache_table(conn)
     return conn, db_path, True
 

@@ -12,15 +12,10 @@ import time
 from pathlib import Path
 from typing import Any, Dict, Optional
 
+from lsm.db.connection import create_sqlite_connection, resolve_db_path
 from lsm.logging import get_logger
 
 logger = get_logger(__name__)
-
-
-def _resolve_db_path(path: Path) -> Path:
-    if str(path).lower().endswith(".db"):
-        return path
-    return path / "lsm.db"
 
 
 class StatsCache:
@@ -42,10 +37,9 @@ class StatsCache:
         self._owns_connection = False
 
         if self._connection is None and db_path is not None:
-            resolved = _resolve_db_path(Path(db_path))
+            resolved = resolve_db_path(Path(db_path))
             resolved.parent.mkdir(parents=True, exist_ok=True)
-            self._connection = sqlite3.connect(str(resolved))
-            self._connection.row_factory = sqlite3.Row
+            self._connection = create_sqlite_connection(resolved)
             self._owns_connection = True
 
         if self._connection is not None:

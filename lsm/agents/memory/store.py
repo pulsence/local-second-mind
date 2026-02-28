@@ -15,6 +15,11 @@ from uuid import uuid4
 
 from lsm.config.models.agents import AgentConfig, MemoryConfig
 from lsm.config.models.vectordb import VectorDBConfig
+from lsm.db.connection import (
+    resolve_postgres_connection_factory,
+    resolve_sqlite_connection,
+    resolve_vectordb_provider_name,
+)
 from lsm.vectordb import BaseVectorDBProvider, create_vectordb_provider
 
 from .models import Memory, MemoryCandidate, now_utc
@@ -834,18 +839,18 @@ def create_memory_store(
     backend = (memory_cfg.storage_backend or "auto").strip().lower()
 
     if backend == "auto":
-        provider_name = _resolve_vectordb_provider_name(vectordb)
+        provider_name = resolve_vectordb_provider_name(vectordb)
         backend = "postgresql" if provider_name == "postgresql" else "sqlite"
 
     if backend == "sqlite":
-        sqlite_conn, owns_connection = _resolve_sqlite_connection(vectordb)
+        sqlite_conn, owns_connection = resolve_sqlite_connection(vectordb)
         return SQLiteMemoryStore(
             sqlite_conn,
             memory_cfg,
             owns_connection=owns_connection,
         )
     if backend == "postgresql":
-        external_factory = _resolve_postgres_connection_factory(vectordb)
+        external_factory = resolve_postgres_connection_factory(vectordb)
         if external_factory is not None:
             return PostgreSQLMemoryStore(
                 None,
@@ -870,12 +875,6 @@ def create_memory_store(
     raise ValueError("Unsupported memory backend. Use 'auto', 'sqlite', or 'postgresql'.")
 
 
-def _resolve_vectordb_provider_name(vectordb: VectorDBConfig | BaseVectorDBProvider) -> str:
-    if _is_vectordb_provider_instance(vectordb):
-        return str(getattr(vectordb, "name", "") or "").strip().lower()
-    return str(vectordb.provider or "sqlite").strip().lower()
-
-
 def _resolve_vectordb_config(vectordb: VectorDBConfig | BaseVectorDBProvider) -> VectorDBConfig:
     if isinstance(vectordb, VectorDBConfig):
         return vectordb
@@ -883,52 +882,6 @@ def _resolve_vectordb_config(vectordb: VectorDBConfig | BaseVectorDBProvider) ->
     if isinstance(config, VectorDBConfig):
         return config
     raise TypeError("vectordb must be a VectorDBConfig or vector DB provider instance")
-
-
-def _is_vectordb_provider_instance(vectordb: Any) -> bool:
-    if isinstance(vectordb, BaseVectorDBProvider):
-        return True
-    return hasattr(vectordb, "name") and hasattr(vectordb, "config")
-
-
-def _resolve_sqlite_connection(
-    vectordb: VectorDBConfig | BaseVectorDBProvider,
-) -> tuple[sqlite3.Connection, bool]:
-    if _is_vectordb_provider_instance(vectordb):
-        if _resolve_vectordb_provider_name(vectordb) != "sqlite":
-            raise ValueError(
-                "SQLite memory backend requires vectordb provider='sqlite' "
-                "or a SQLite vector provider instance."
-            )
-        connection = getattr(vectordb, "connection", None)
-        if not isinstance(connection, sqlite3.Connection):
-            raise ValueError("SQLite vector provider does not expose a valid SQLite connection.")
-        return connection, False
-
-    if _resolve_vectordb_provider_name(vectordb) != "sqlite":
-        raise ValueError(
-            "SQLite memory backend requires vectordb.provider='sqlite'. "
-            "Set agents.memory.storage_backend='postgresql' for PostgreSQL."
-        )
-
-    provider = create_vectordb_provider(vectordb)
-    connection = getattr(provider, "connection", None)
-    if not isinstance(connection, sqlite3.Connection):
-        raise ValueError("SQLite vector provider did not expose a valid SQLite connection.")
-    return connection, True
-
-
-def _resolve_postgres_connection_factory(
-    vectordb: VectorDBConfig | BaseVectorDBProvider,
-) -> Optional[Callable[[], Any]]:
-    if not _is_vectordb_provider_instance(vectordb):
-        return None
-    if _resolve_vectordb_provider_name(vectordb) != "postgresql":
-        return None
-    get_conn = getattr(vectordb, "_get_conn", None)
-    if callable(get_conn):
-        return get_conn
-    return None
 
 
 def _build_postgres_connection_string(vectordb_config: VectorDBConfig) -> Optional[str]:
