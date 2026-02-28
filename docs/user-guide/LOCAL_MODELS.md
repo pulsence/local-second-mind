@@ -123,7 +123,7 @@ Suggestions:
 Local reranking relies on JSON output parsing. Smaller models can struggle
 to produce valid JSON. If reranking quality is low:
 
-- Switch `rerank_strategy` to `lexical` or `hybrid`.
+- Switch `retrieval_profile` to `dense_only` or `hybrid_rrf`.
 - Use a stronger local model for reranking only via per-feature overrides.
 
 Example override:

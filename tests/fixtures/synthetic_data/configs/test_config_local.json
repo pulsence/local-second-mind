@@ -61,7 +61,6 @@
                   "mode":  "grounded",
                   "k":  10,
                   "min_relevance":  0.2,
-                  "max_per_file":  2,
-                  "no_rerank":  false
+                  "retrieval_profile":  "hybrid_rrf"
               }
 }

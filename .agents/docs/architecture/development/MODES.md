@@ -15,8 +15,7 @@ synthesis instructions for query execution.
 - `model_knowledge_policy`: `ModelKnowledgePolicy(enabled, require_label)`
 - optional `chats`: per-mode transcript overrides (`auto_save`, `dir`)
 
-`k_rerank` was removed from mode-local policy in v0.8 mode composition. `k`
-represents the final local context budget for synthesis.
+`k` represents the final local context budget for synthesis.
 
 ## Built-In Modes
 

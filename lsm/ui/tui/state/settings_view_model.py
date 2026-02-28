@@ -568,28 +568,20 @@ class SettingsViewModel:
             cfg.query.retrieve_k = int(text) if text else None
         elif field_id == "settings-query-min-relevance" and text:
             cfg.query.min_relevance = float(text)
-        elif field_id == "settings-query-local-pool":
-            cfg.query.local_pool = int(text) if text else None
-        elif field_id == "settings-query-max-per-file" and text:
-            cfg.query.max_per_file = int(text)
         elif field_id == "settings-query-path-contains":
             cfg.query.path_contains = self._parse_csv(text)
         elif field_id == "settings-query-ext-allow":
             cfg.query.ext_allow = self._parse_csv(text)
         elif field_id == "settings-query-ext-deny":
             cfg.query.ext_deny = self._parse_csv(text)
-        elif field_id == "settings-query-rerank-strategy":
-            cfg.query.rerank_strategy = text
+        elif field_id == "settings-query-retrieval-profile":
+            cfg.query.retrieval_profile = text
         elif field_id == "settings-query-chat-mode":
             cfg.query.chat_mode = text
         elif field_id == "settings-query-cache-ttl" and text:
             cfg.query.query_cache_ttl = int(text)
         elif field_id == "settings-query-cache-size" and text:
             cfg.query.query_cache_size = int(text)
-        elif field_id == "settings-query-no-rerank":
-            cfg.query.no_rerank = bool(value)
-            if cfg.query.no_rerank:
-                cfg.query.rerank_strategy = "none"
         elif field_id == "settings-query-enable-cache":
             cfg.query.enable_query_cache = bool(value)
         elif field_id == "settings-query-enable-llm-server-cache":

@@ -53,8 +53,6 @@ def _build_pipeline_config(
     model: str,
     api_key: str | None = None,
     base_url: str | None = None,
-    rerank_strategy: str = "none",
-    no_rerank: bool = True,
     min_relevance: float = 0.0,
     chunk_size: int = 1400,
     chunk_overlap: int = 120,
@@ -80,8 +78,6 @@ def _build_pipeline_config(
     )
     query = QueryConfig(
         mode=mode_name,
-        rerank_strategy=rerank_strategy,
-        no_rerank=no_rerank,
         k=8,
         retrieve_k=16,
         min_relevance=min_relevance,
@@ -193,8 +189,6 @@ def test_end_to_end_ingest_and_retrieval_without_network(
         embed_model=test_config.embed_model,
         provider_name="local",
         model="llama3.1",
-        rerank_strategy="none",
-        no_rerank=True,
         min_relevance=0.0,
     )
 
@@ -249,8 +243,6 @@ def test_full_live_pipeline_with_real_llm_rerank_and_synthesis(
         model=model,
         api_key=api_key,
         base_url=base_url,
-        rerank_strategy="llm",
-        no_rerank=False,
         min_relevance=0.0,
     )
 
@@ -300,8 +292,6 @@ def test_full_pipeline_with_postgresql_store(
         embed_model=test_config.embed_model,
         provider_name="local",
         model="llama3.1",
-        rerank_strategy="none",
-        no_rerank=True,
         min_relevance=0.0,
         vectordb_provider="postgresql",
         vectordb_connection_string=live_postgres_connection_string,
@@ -362,8 +352,6 @@ def test_performance_ingest_and_query_latency_over_100_chunks(
         embed_model=test_config.embed_model,
         provider_name="local",
         model="llama3.1",
-        rerank_strategy="none",
-        no_rerank=True,
         min_relevance=0.0,
         chunk_size=1500,
         chunk_overlap=100,

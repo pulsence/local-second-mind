@@ -21,16 +21,22 @@ class QuerySettingsTab(BaseSettingsTab):
             self._field("k", "settings-query-k"),
             self._field("Retrieve k", "settings-query-retrieve-k"),
             self._field("Min relevance", "settings-query-min-relevance"),
-            self._field("Local pool", "settings-query-local-pool"),
-            self._field("Max per file", "settings-query-max-per-file"),
+            self._select_field(
+                "Retrieval profile",
+                "settings-query-retrieval-profile",
+                [
+                    ("dense_only", "dense_only"),
+                    ("hybrid_rrf", "hybrid_rrf"),
+                    ("llm_rerank", "llm_rerank"),
+                ],
+            ),
+            self._field("k dense", "settings-query-k-dense"),
+            self._field("k sparse", "settings-query-k-sparse"),
+            self._field("RRF dense weight", "settings-query-rrf-dense-weight"),
+            self._field("RRF sparse weight", "settings-query-rrf-sparse-weight"),
             self._field("Path contains (comma-separated)", "settings-query-path-contains"),
             self._field("Ext allow (comma-separated)", "settings-query-ext-allow"),
             self._field("Ext deny (comma-separated)", "settings-query-ext-deny"),
-            self._select_field(
-                "Rerank strategy",
-                "settings-query-rerank-strategy",
-                [("none", "none"), ("lexical", "lexical"), ("llm", "llm"), ("hybrid", "hybrid")],
-            ),
             self._select_field(
                 "Chat mode",
                 "settings-query-chat-mode",
@@ -38,7 +44,6 @@ class QuerySettingsTab(BaseSettingsTab):
             ),
             self._field("Query cache TTL", "settings-query-cache-ttl"),
             self._field("Query cache size", "settings-query-cache-size"),
-            self._field("No rerank", "settings-query-no-rerank", field_type="switch"),
             self._field("Enable query cache", "settings-query-enable-cache", field_type="switch"),
             self._field(
                 "Enable LLM server cache",
@@ -63,11 +68,18 @@ class QuerySettingsTab(BaseSettingsTab):
             self._format_optional(getattr(query, "retrieve_k", None)),
         )
         self._set_input("settings-query-min-relevance", str(getattr(query, "min_relevance", "")))
-        self._set_input(
-            "settings-query-local-pool",
-            self._format_optional(getattr(query, "local_pool", None)),
+        self._set_select_value(
+            "settings-query-retrieval-profile",
+            str(getattr(query, "retrieval_profile", "hybrid_rrf")),
         )
-        self._set_input("settings-query-max-per-file", str(getattr(query, "max_per_file", "")))
+        self._set_input("settings-query-k-dense", str(getattr(query, "k_dense", 100)))
+        self._set_input("settings-query-k-sparse", str(getattr(query, "k_sparse", 100)))
+        self._set_input(
+            "settings-query-rrf-dense-weight", str(getattr(query, "rrf_dense_weight", 0.7))
+        )
+        self._set_input(
+            "settings-query-rrf-sparse-weight", str(getattr(query, "rrf_sparse_weight", 0.3))
+        )
         self._set_input(
             "settings-query-path-contains",
             ", ".join(getattr(query, "path_contains", None) or []),
@@ -80,14 +92,9 @@ class QuerySettingsTab(BaseSettingsTab):
             "settings-query-ext-deny",
             ", ".join(getattr(query, "ext_deny", None) or []),
         )
-        self._set_select_value(
-            "settings-query-rerank-strategy",
-            str(getattr(query, "rerank_strategy", "")),
-        )
         self._set_select_value("settings-query-chat-mode", str(getattr(query, "chat_mode", "")))
         self._set_input("settings-query-cache-ttl", str(getattr(query, "query_cache_ttl", "")))
         self._set_input("settings-query-cache-size", str(getattr(query, "query_cache_size", "")))
-        self._set_switch("settings-query-no-rerank", bool(getattr(query, "no_rerank", False)))
         self._set_switch(
             "settings-query-enable-cache",
             bool(getattr(query, "enable_query_cache", False)),
@@ -115,11 +122,20 @@ class QuerySettingsTab(BaseSettingsTab):
         if field_id == "settings-query-min-relevance" and text:
             query.min_relevance = float(text)
             return True
-        if field_id == "settings-query-local-pool":
-            query.local_pool = int(text) if text else None
+        if field_id == "settings-query-retrieval-profile":
+            query.retrieval_profile = text
             return True
-        if field_id == "settings-query-max-per-file" and text:
-            query.max_per_file = int(text)
+        if field_id == "settings-query-k-dense" and text:
+            query.k_dense = int(text)
+            return True
+        if field_id == "settings-query-k-sparse" and text:
+            query.k_sparse = int(text)
+            return True
+        if field_id == "settings-query-rrf-dense-weight" and text:
+            query.rrf_dense_weight = float(text)
+            return True
+        if field_id == "settings-query-rrf-sparse-weight" and text:
+            query.rrf_sparse_weight = float(text)
             return True
         if field_id == "settings-query-path-contains":
             query.path_contains = self._parse_csv(text)
@@ -130,9 +146,6 @@ class QuerySettingsTab(BaseSettingsTab):
         if field_id == "settings-query-ext-deny":
             query.ext_deny = self._parse_csv(text)
             return True
-        if field_id == "settings-query-rerank-strategy":
-            query.rerank_strategy = text
-            return True
         if field_id == "settings-query-chat-mode":
             query.chat_mode = text
             return True
@@ -141,12 +154,6 @@ class QuerySettingsTab(BaseSettingsTab):
             return True
         if field_id == "settings-query-cache-size" and text:
             query.query_cache_size = int(text)
-            return True
-        if field_id == "settings-query-no-rerank":
-            query.no_rerank = bool(value)
-            if query.no_rerank:
-                query.rerank_strategy = "none"
-                self._set_select_value("settings-query-rerank-strategy", "none")
             return True
         if field_id == "settings-query-enable-cache":
             query.enable_query_cache = bool(value)

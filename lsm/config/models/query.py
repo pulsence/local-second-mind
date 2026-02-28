@@ -7,7 +7,15 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import List, Optional
 
-from .constants import DEFAULT_K, DEFAULT_MAX_PER_FILE, DEFAULT_MIN_RELEVANCE
+from .constants import DEFAULT_K, DEFAULT_MIN_RELEVANCE
+
+VALID_PROFILES = (
+    "dense_only",
+    "hybrid_rrf",
+    "hyde_hybrid",
+    "dense_cross_rerank",
+    "llm_rerank",
+)
 
 
 @dataclass
@@ -15,11 +23,11 @@ class QueryConfig:
     """
     Configuration for the query pipeline.
 
-    Controls retrieval, reranking, and answer synthesis.
+    Controls retrieval profiles, reranking, and answer synthesis.
     """
 
     k: int = DEFAULT_K
-    """Number of chunks to retrieve from vector database."""
+    """Number of chunks to use in final context."""
 
     retrieve_k: Optional[int] = None
     """Override k for initial retrieval (useful with filters). If None, uses k."""
@@ -27,17 +35,20 @@ class QueryConfig:
     min_relevance: float = DEFAULT_MIN_RELEVANCE
     """Minimum relevance score (1 - distance) to proceed with LLM calls."""
 
-    rerank_strategy: str = "hybrid"
-    """Reranking strategy: 'none', 'lexical', 'llm', 'hybrid'."""
+    retrieval_profile: str = "hybrid_rrf"
+    """Retrieval profile: one of VALID_PROFILES."""
 
-    no_rerank: bool = False
-    """If True, skip reranking entirely."""
+    k_dense: int = 100
+    """Number of candidates from dense (vector) recall."""
 
-    local_pool: Optional[int] = None
-    """Pool size for local reranking. If None, computed as k * 4."""
+    k_sparse: int = 100
+    """Number of candidates from sparse (BM25) recall."""
 
-    max_per_file: int = DEFAULT_MAX_PER_FILE
-    """Maximum chunks from any single file in final results."""
+    rrf_dense_weight: float = 0.7
+    """Dense retrieval weight for RRF fusion."""
+
+    rrf_sparse_weight: float = 0.3
+    """Sparse retrieval weight for RRF fusion."""
 
     mode: str = "grounded"
     """Query mode: 'grounded' (strict citations) or 'insight' (thematic analysis)."""
@@ -69,29 +80,20 @@ class QueryConfig:
     def __post_init__(self):
         """Compute derived values."""
         self.chat_mode = (self.chat_mode or "single").strip().lower()
-        if self.local_pool is None:
-            self.local_pool = self.k * 4
-
-        if self.no_rerank:
-            self.rerank_strategy = "none"
 
     def validate(self) -> None:
         """Validate query configuration."""
         if self.k < 1:
             raise ValueError(f"k must be positive, got {self.k}")
 
-        if self.max_per_file < 1:
-            raise ValueError(f"max_per_file must be positive, got {self.max_per_file}")
-
         if self.min_relevance < 0.0 or self.min_relevance > 1.0:
             raise ValueError(
                 f"min_relevance must be between 0.0 and 1.0, got {self.min_relevance}"
             )
 
-        valid_strategies = {"none", "lexical", "llm", "hybrid"}
-        if self.rerank_strategy not in valid_strategies:
+        if self.retrieval_profile not in VALID_PROFILES:
             raise ValueError(
-                f"rerank_strategy must be one of {valid_strategies}, got '{self.rerank_strategy}'"
+                f"retrieval_profile must be one of {VALID_PROFILES}, got '{self.retrieval_profile}'"
             )
 
         if self.query_cache_ttl < 1:

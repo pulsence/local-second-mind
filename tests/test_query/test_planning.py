@@ -12,17 +12,11 @@ from lsm.vectordb.base import VectorDBGetResult
 def _config(
     *,
     local_enabled: bool = True,
-    rerank_strategy: str = "hybrid",
     retrieve_k=None,
-    no_rerank: bool = False,
 ):
     local = SimpleNamespace(enabled=local_enabled, k=4, min_relevance=0.25)
     mode = SimpleNamespace(source_policy=SimpleNamespace(local=local))
     query = SimpleNamespace(
-        no_rerank=no_rerank,
-        max_per_file=2,
-        local_pool=8,
-        rerank_strategy=rerank_strategy,
         retrieve_k=retrieve_k,
     )
     ingest = SimpleNamespace()
@@ -53,7 +47,7 @@ def test_prepare_local_candidates_local_disabled() -> None:
 
 
 def test_prepare_local_candidates_hybrid_rerank_with_filters(monkeypatch: pytest.MonkeyPatch) -> None:
-    cfg = _config(local_enabled=True, rerank_strategy="hybrid", retrieve_k=None, no_rerank=False)
+    cfg = _config(local_enabled=True, retrieve_k=None)
     state = _state(path_contains="docs")
 
     c1 = Candidate(cid="1", text="a", meta={"source_path": "/docs/a.md"}, distance=0.2)
@@ -72,13 +66,12 @@ def test_prepare_local_candidates_hybrid_rerank_with_filters(monkeypatch: pytest
     assert plan.retrieve_k == 12  # max(k, k*3) with filters and k=4
     assert [c.cid for c in plan.filtered] == ["2", "1"][: plan.k]
     assert plan.relevance == 0.77
-    assert plan.should_llm_rerank is True
 
 
 def test_prepare_local_candidates_rerank_none_uses_enforce_diversity(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    cfg = _config(local_enabled=True, rerank_strategy="none", retrieve_k=5, no_rerank=False)
+    cfg = _config(local_enabled=True, retrieve_k=5)
     state = _state()
 
     c1 = Candidate(cid="1", text="a", meta={}, distance=0.2)
@@ -89,17 +82,13 @@ def test_prepare_local_candidates_rerank_none_uses_enforce_diversity(
     monkeypatch.setattr(planning, "retrieve_candidates", lambda *a, **kw: [c1, c2, c3])
     monkeypatch.setattr(planning, "filter_candidates", lambda *a, **kw: [c1, c2, c3])
     monkeypatch.setattr(planning, "compute_relevance", lambda filtered: 0.5)
-    monkeypatch.setattr("lsm.query.rerank.enforce_diversity", lambda candidates, max_per_file: [c3, c2, c1])
-
     plan = planning.prepare_local_candidates("q", cfg, state, embedder=object(), collection=object())
 
     assert plan.retrieve_k == 5
-    assert [c.cid for c in plan.filtered] == ["3", "2", "1"][: plan.k]
-    assert plan.should_llm_rerank is False
 
 
 def test_prepare_local_candidates_pinned_chunks_inserted(monkeypatch: pytest.MonkeyPatch) -> None:
-    cfg = _config(local_enabled=True, rerank_strategy="lexical", no_rerank=False)
+    cfg = _config(local_enabled=True)
     state = _state(pinned_chunks=["p1"])
 
     base = Candidate(cid="1", text="a", meta={}, distance=0.2)
@@ -126,7 +115,7 @@ def test_prepare_local_candidates_pinned_chunks_inserted(monkeypatch: pytest.Mon
 def test_prepare_local_candidates_prefilter_uses_metadata_inventory(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    cfg = _config(local_enabled=True, rerank_strategy="none", retrieve_k=4, no_rerank=False)
+    cfg = _config(local_enabled=True, retrieve_k=4)
     state = _state()
 
     base = Candidate(cid="1", text="a", meta={"source_path": "/docs/a.md"}, distance=0.2)
@@ -134,7 +123,6 @@ def test_prepare_local_candidates_prefilter_uses_metadata_inventory(
     monkeypatch.setattr(planning, "retrieve_candidates", lambda *args, **kwargs: [base])
     monkeypatch.setattr(planning, "filter_candidates", lambda *args, **kwargs: [base])
     monkeypatch.setattr(planning, "compute_relevance", lambda filtered: 0.8)
-    monkeypatch.setattr("lsm.query.rerank.enforce_diversity", lambda candidates, max_per_file: candidates)
 
     captured = {}
 
@@ -174,7 +162,7 @@ def test_prepare_local_candidates_prefilter_uses_metadata_inventory(
 def test_prepare_local_candidates_uses_decomposition_service_for_prefilter(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    cfg = _config(local_enabled=True, rerank_strategy="none", retrieve_k=4, no_rerank=False)
+    cfg = _config(local_enabled=True, retrieve_k=4)
     state = _state()
 
     base = Candidate(cid="1", text="a", meta={"source_path": "/docs/a.md"}, distance=0.2)
@@ -182,7 +170,6 @@ def test_prepare_local_candidates_uses_decomposition_service_for_prefilter(
     monkeypatch.setattr(planning, "retrieve_candidates", lambda *args, **kwargs: [base])
     monkeypatch.setattr(planning, "filter_candidates", lambda *args, **kwargs: [base])
     monkeypatch.setattr(planning, "compute_relevance", lambda filtered: 0.8)
-    monkeypatch.setattr("lsm.query.rerank.enforce_diversity", lambda candidates, max_per_file: candidates)
 
     sentinel_llm = object()
     captured = {"service_name": None, "llm_config": None}
@@ -213,7 +200,7 @@ def test_prepare_local_candidates_uses_decomposition_service_for_prefilter(
 def test_prepare_local_candidates_anchor_chunks_stay_prioritized_after_rerank(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    cfg = _config(local_enabled=True, rerank_strategy="lexical", retrieve_k=4, no_rerank=False)
+    cfg = _config(local_enabled=True, retrieve_k=4)
     state = _state()
     state.context_chunks = ["anchor-1"]
 

@@ -23,20 +23,17 @@ def _make_config(
     enable_llm_server_cache=True,
     enable_query_cache=False,
     k=12,
-    rerank_strategy="hybrid",
-    no_rerank=False,
-    max_per_file=2,
-    local_pool=48,
     min_relevance=0.25,
 ):
     """Build a minimal config-like namespace for pipeline tests."""
     query = SimpleNamespace(
         k=k,
         retrieve_k=None,
-        rerank_strategy=rerank_strategy,
-        no_rerank=no_rerank,
-        local_pool=local_pool,
-        max_per_file=max_per_file,
+        retrieval_profile="hybrid_rrf",
+        k_dense=100,
+        k_sparse=100,
+        rrf_dense_weight=0.7,
+        rrf_sparse_weight=0.3,
         min_relevance=min_relevance,
         mode=mode,
         path_contains=None,
@@ -113,7 +110,7 @@ def _make_candidates(n=3):
     ]
 
 
-def _make_plan(candidates=None, filtered=None, k=12, should_llm_rerank=False):
+def _make_plan(candidates=None, filtered=None, k=12):
     from lsm.query.planning import LocalQueryPlan
 
     if candidates is None:
@@ -127,13 +124,8 @@ def _make_plan(candidates=None, filtered=None, k=12, should_llm_rerank=False):
         relevance=0.85,
         filters_active=False,
         retrieve_k=k,
-        rerank_strategy="hybrid",
-        should_llm_rerank=should_llm_rerank,
         k=k,
         min_relevance=0.25,
-        max_per_file=2,
-        local_pool=48,
-        no_rerank=False,
     )
 
 
@@ -154,7 +146,7 @@ class TestBuildSources:
         assert isinstance(package, ContextPackage)
         assert len(package.candidates) == 3
         assert package.local_enabled is True
-        assert package.retrieval_trace.stages_executed == ["local_retrieval"]
+        assert "dense_recall" in package.retrieval_trace.stages_executed
         assert package.retrieval_trace.dense_candidates_count == 5
 
     @patch("lsm.query.pipeline.prepare_local_candidates")

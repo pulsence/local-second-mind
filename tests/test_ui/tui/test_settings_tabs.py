@@ -100,13 +100,14 @@ def _config() -> Any:
         k=12,
         retrieve_k=None,
         min_relevance=0.2,
-        local_pool=None,
-        max_per_file=2,
+        retrieval_profile="hybrid_rrf",
+        k_dense=100,
+        k_sparse=100,
+        rrf_dense_weight=0.7,
+        rrf_sparse_weight=0.3,
         path_contains=None,
         ext_allow=None,
         ext_deny=None,
-        rerank_strategy="hybrid",
-        no_rerank=False,
         chat_mode="single",
         enable_query_cache=False,
         query_cache_ttl=3600,
@@ -286,25 +287,25 @@ def test_ingest_tab_dynamic_roots_and_buttons() -> None:
     assert sink.messages[-1][0] == "Removed ingest root"
 
 
-def test_query_tab_refresh_and_no_rerank_update() -> None:
+def test_query_tab_refresh_and_retrieval_profile_update() -> None:
     cfg = _config()
     tab = QuerySettingsTab()
     widgets = {
         "#settings-query-mode": _SelectWidget(),
         "#settings-query-k": _InputWidget(),
         "#settings-query-retrieve-k": _InputWidget(),
-        "#settings-query-k-rerank": _InputWidget(),
         "#settings-query-min-relevance": _InputWidget(),
-        "#settings-query-local-pool": _InputWidget(),
-        "#settings-query-max-per-file": _InputWidget(),
+        "#settings-query-retrieval-profile": _SelectWidget(),
+        "#settings-query-k-dense": _InputWidget(),
+        "#settings-query-k-sparse": _InputWidget(),
+        "#settings-query-rrf-dense-weight": _InputWidget(),
+        "#settings-query-rrf-sparse-weight": _InputWidget(),
         "#settings-query-path-contains": _InputWidget(),
         "#settings-query-ext-allow": _InputWidget(),
         "#settings-query-ext-deny": _InputWidget(),
-        "#settings-query-rerank-strategy": _SelectWidget(),
         "#settings-query-chat-mode": _SelectWidget(),
         "#settings-query-cache-ttl": _InputWidget(),
         "#settings-query-cache-size": _InputWidget(),
-        "#settings-query-no-rerank": _SwitchWidget(),
         "#settings-query-enable-cache": _SwitchWidget(),
         "#settings-query-enable-llm-server-cache": _SwitchWidget(),
     }
@@ -314,9 +315,8 @@ def test_query_tab_refresh_and_no_rerank_update() -> None:
     assert widgets["#settings-query-mode"].options == [("grounded", "grounded")]
     assert widgets["#settings-query-k"].value == "12"
 
-    assert tab.apply_update("settings-query-no-rerank", True, cfg) is True
-    assert cfg.query.no_rerank is True
-    assert cfg.query.rerank_strategy == "none"
+    assert tab.apply_update("settings-query-retrieval-profile", "dense_only", cfg) is True
+    assert cfg.query.retrieval_profile == "dense_only"
 
 
 def test_llm_tab_refresh_update_and_buttons() -> None:

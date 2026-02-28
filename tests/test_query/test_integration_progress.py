@@ -48,7 +48,7 @@ def _build_query_config(tmp_path: Path, remote_enabled: bool) -> LSMConfig:
     mode_name = "integration_mode"
     return LSMConfig(
         ingest=IngestConfig(roots=[tmp_path]),
-        query=QueryConfig(mode=mode_name, rerank_strategy="llm", no_rerank=False),
+        query=QueryConfig(mode=mode_name),
         llm=LLMRegistryConfig(
             providers=[LLMProviderConfig(provider_name="openai", api_key="test-key")],
             services={

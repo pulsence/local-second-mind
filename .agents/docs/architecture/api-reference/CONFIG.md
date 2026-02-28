@@ -143,19 +143,17 @@ Fields:
 - `k: int = 12`
 - `retrieve_k: int | None = None`
 - `min_relevance: float = 0.25`
-- `rerank_strategy: str = hybrid`
-- `no_rerank: bool = false`
-- `local_pool: int | None = None`
-- `max_per_file: int = 2`
+- `retrieval_profile: str = hybrid_rrf`
+- `k_dense: int = 100`
+- `k_sparse: int = 100`
+- `rrf_dense_weight: float = 0.7`
+- `rrf_sparse_weight: float = 0.3`
 - `mode: str = grounded`
 - `path_contains: list[str] | None = None`
 - `ext_allow: list[str] | None = None`
 - `ext_deny: list[str] | None = None`
 
-Derived behavior:
-
-- `local_pool` defaults to `k * 4`.
-- `no_rerank` forces `rerank_strategy = none`.
+Valid retrieval profiles: `dense_only`, `hybrid_rrf`, `hyde_hybrid`, `dense_cross_rerank`, `llm_rerank`.
 
 ## LLMRegistryConfig
 

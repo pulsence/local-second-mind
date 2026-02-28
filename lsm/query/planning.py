@@ -27,13 +27,8 @@ class LocalQueryPlan:
     relevance: float
     filters_active: bool
     retrieve_k: int
-    rerank_strategy: str
-    should_llm_rerank: bool
     k: int
     min_relevance: float
-    max_per_file: int
-    local_pool: int
-    no_rerank: bool
     metadata_filter: dict | None = None
 
 
@@ -141,10 +136,6 @@ def prepare_local_candidates(
 
     k = local_policy.k
     min_relevance = local_policy.min_relevance
-    no_rerank = config.query.no_rerank
-    max_per_file = config.query.max_per_file
-    local_pool = config.query.local_pool or k * 4
-    rerank_strategy = config.query.rerank_strategy.lower()
     local_enabled = local_policy.enabled
 
     if not local_enabled:
@@ -155,13 +146,8 @@ def prepare_local_candidates(
             relevance=0.0,
             filters_active=False,
             retrieve_k=0,
-            rerank_strategy=rerank_strategy,
-            should_llm_rerank=False,
             k=k,
             min_relevance=min_relevance,
-            max_per_file=max_per_file,
-            local_pool=local_pool,
-            no_rerank=no_rerank,
             metadata_filter=None,
         )
 
@@ -271,19 +257,13 @@ def prepare_local_candidates(
             limit=max(len(filtered), len(anchor_candidates)),
         )
 
+    # Local reranking (lexical dedup + diversity) is always applied
     if filtered:
-        if rerank_strategy in ("lexical", "hybrid"):
-            filtered = apply_local_reranking(
-                question,
-                filtered,
-                max_per_file=max_per_file,
-                local_pool=local_pool,
-            )
-            filtered = filtered[: min(k, len(filtered))]
-        elif rerank_strategy == "none":
-            from lsm.query.rerank import enforce_diversity
-            filtered = enforce_diversity(filtered, max_per_file=max_per_file)
-            filtered = filtered[: min(k, len(filtered))]
+        filtered = apply_local_reranking(
+            question,
+            filtered,
+        )
+        filtered = filtered[: min(k, len(filtered))]
 
     if anchor_candidates:
         filtered = _prioritize_anchor_candidates(
@@ -293,7 +273,6 @@ def prepare_local_candidates(
         )
 
     relevance = compute_relevance(filtered) if filtered else 0.0
-    should_llm_rerank = rerank_strategy in ("llm", "hybrid") and not no_rerank
 
     return LocalQueryPlan(
         local_enabled=True,
@@ -302,12 +281,7 @@ def prepare_local_candidates(
         relevance=relevance,
         filters_active=filters_active,
         retrieve_k=retrieve_k,
-        rerank_strategy=rerank_strategy,
-        should_llm_rerank=should_llm_rerank,
         k=k,
         min_relevance=min_relevance,
-        max_per_file=max_per_file,
-        local_pool=local_pool,
-        no_rerank=no_rerank,
         metadata_filter=where_filter,
     )

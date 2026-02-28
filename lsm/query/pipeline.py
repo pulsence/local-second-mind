@@ -48,7 +48,18 @@ from lsm.query.pipeline_types import (
 from lsm.query.planning import LocalQueryPlan, prepare_local_candidates
 from lsm.query.rerank import llm_rerank_candidates
 from lsm.query.session import Candidate, SessionState
+from lsm.query.stages.dense_recall import dense_recall
+from lsm.query.stages.sparse_recall import sparse_recall
+from lsm.query.stages.rrf_fusion import rrf_fuse
 from lsm.vectordb.base import BaseVectorDBProvider
+
+VALID_PROFILES = (
+    "dense_only",
+    "hybrid_rrf",
+    "hyde_hybrid",
+    "dense_cross_rerank",
+    "llm_rerank",
+)
 
 if TYPE_CHECKING:
     pass
@@ -93,36 +104,50 @@ class RetrievalPipeline:
     ) -> ContextPackage:
         """Retrieve candidates from local and remote sources.
 
+        Routes through the configured retrieval profile:
+        - dense_only: vector similarity only
+        - hybrid_rrf: dense + sparse (BM25) + RRF fusion
+        - llm_rerank: dense + LLM reranking
+        - hyde_hybrid, dense_cross_rerank: placeholders (Phase 11)
+
         Returns a ``ContextPackage`` with ``candidates``, ``remote_sources``,
         and ``retrieval_trace`` populated.
         """
         t0 = time.monotonic()
         trace = RetrievalTrace()
+        costs: List[CostEntry] = []
 
         mode_config = self._resolve_mode(request)
         local_policy = mode_config.local_policy
         remote_policy = mode_config.remote_policy
+        profile = mode_config.retrieval_profile or self.config.query.retrieval_profile
 
         # Build a lightweight SessionState for the planning module
         state = self._request_to_state(request)
 
-        # --- Local retrieval ---
+        # --- Local retrieval via profile routing ---
         plan: Optional[LocalQueryPlan] = None
         local_candidates: List[Candidate] = []
         if local_policy.enabled:
             stage_t0 = time.monotonic()
             if progress_callback:
                 progress_callback("retrieval", 0, 1, "Searching local knowledge base...")
-            plan = prepare_local_candidates(
-                request.question,
-                self.config,
-                state,
-                self.embedder,
-                self.db,
-            )
-            local_candidates = plan.filtered
-            trace.stages_executed.append("local_retrieval")
-            trace.dense_candidates_count = len(plan.candidates)
+
+            if profile == "hybrid_rrf":
+                local_candidates, plan = self._profile_hybrid_rrf(
+                    request, state, trace, costs
+                )
+            elif profile == "llm_rerank":
+                local_candidates, plan = self._profile_llm_rerank(
+                    request, state, trace, costs
+                )
+            else:
+                # dense_only (default), hyde_hybrid, dense_cross_rerank
+                local_candidates, plan = self._profile_dense_only(
+                    request, state, trace
+                )
+
+            trace.retrieval_profile = profile
             trace.timings.append(
                 StageTimings(
                     stage="local_retrieval",
@@ -131,47 +156,6 @@ class RetrievalPipeline:
             )
             if progress_callback:
                 progress_callback("retrieval", 1, 1, "Local retrieval complete")
-
-        # --- Local reranking (LLM) ---
-        if plan and plan.should_llm_rerank:
-            stage_t0 = time.monotonic()
-            if progress_callback:
-                progress_callback("rerank", 0, 1, "Reranking candidates...")
-            ranking_config = self.config.llm.resolve_service("ranking")
-            ranking_provider = create_provider(ranking_config)
-            rerank_dicts = [
-                {"text": c.text, "metadata": c.meta, "distance": c.distance}
-                for c in plan.filtered
-            ]
-            k_rerank = min(plan.k, len(plan.filtered))
-            reranked = llm_rerank_candidates(
-                request.question, rerank_dicts, k=k_rerank, provider=ranking_provider
-            )
-            local_candidates = [
-                Candidate(
-                    cid=item.get("cid", ""),
-                    text=item.get("text", ""),
-                    meta=item.get("metadata", {}),
-                    distance=item.get("distance"),
-                )
-                for item in reranked
-            ]
-            # Cost tracking for rerank
-            rerank_est = estimate_rerank_cost(
-                ranking_provider, request.question, plan.filtered, k=k_rerank
-            )
-            trace.stages_executed.append("llm_rerank")
-            trace.reranked_candidates_count = len(local_candidates)
-            trace.timings.append(
-                StageTimings(
-                    stage="llm_rerank",
-                    duration_ms=(time.monotonic() - stage_t0) * 1000,
-                )
-            )
-            if progress_callback:
-                progress_callback("rerank", 1, 1, "Reranking complete")
-        elif plan and not plan.should_llm_rerank:
-            local_candidates = plan.filtered[: min(plan.k, len(plan.filtered))]
 
         # --- Remote retrieval ---
         remote_sources: List[RemoteSource] = []
@@ -206,29 +190,6 @@ class RetrievalPipeline:
             )
 
         combined = local_candidates + remote_candidates
-        trace.retrieval_profile = mode_config.retrieval_profile
-
-        costs: List[CostEntry] = []
-        # Record rerank cost if applicable
-        if plan and plan.should_llm_rerank:
-            ranking_config = self.config.llm.resolve_service("ranking")
-            ranking_provider = create_provider(ranking_config)
-            rerank_est = estimate_rerank_cost(
-                ranking_provider,
-                request.question,
-                plan.filtered,
-                k=min(plan.k, len(plan.filtered)),
-            )
-            costs.append(
-                CostEntry(
-                    provider=ranking_provider.name,
-                    model=ranking_provider.model,
-                    input_tokens=rerank_est["input_tokens"],
-                    output_tokens=rerank_est["output_tokens"],
-                    cost=rerank_est["cost"],
-                    kind="rerank",
-                )
-            )
 
         return ContextPackage(
             request=request,
@@ -242,6 +203,127 @@ class RetrievalPipeline:
             local_enabled=plan.local_enabled if plan else False,
             prior_response_id=request.prior_response_id,
         )
+
+    # --- Profile implementations ---
+
+    def _profile_dense_only(
+        self,
+        request: QueryRequest,
+        state: SessionState,
+        trace: RetrievalTrace,
+    ) -> tuple:
+        """Dense-only retrieval (default profile)."""
+        plan = prepare_local_candidates(
+            request.question, self.config, state, self.embedder, self.db,
+        )
+        trace.stages_executed.append("dense_recall")
+        trace.dense_candidates_count = len(plan.candidates)
+        local_candidates = plan.filtered[: min(plan.k, len(plan.filtered))]
+        return local_candidates, plan
+
+    def _profile_hybrid_rrf(
+        self,
+        request: QueryRequest,
+        state: SessionState,
+        trace: RetrievalTrace,
+        costs: List[CostEntry],
+    ) -> tuple:
+        """Hybrid RRF: dense + sparse (BM25) + RRF fusion."""
+        # Check if FTS is available (graceful degradation)
+        test_result = self.db.fts_query("test", top_k=1)
+        fts_available = True
+        if not hasattr(self.db, "fts_query"):
+            fts_available = False
+        elif test_result.ids == [] and not getattr(self.db, "_extension_loaded", True):
+            fts_available = False
+
+        if not fts_available:
+            logger.warning(
+                "FTS5 not available; falling back to dense_only profile"
+            )
+            return self._profile_dense_only(request, state, trace)
+
+        # Dense recall
+        plan = prepare_local_candidates(
+            request.question, self.config, state, self.embedder, self.db,
+        )
+        dense_candidates = plan.filtered
+        trace.stages_executed.append("dense_recall")
+        trace.dense_candidates_count = len(plan.candidates)
+
+        # Sparse recall
+        k_sparse = self.config.query.k_sparse
+        sparse_candidates = sparse_recall(request.question, self.db, k_sparse)
+        trace.stages_executed.append("sparse_recall")
+        trace.sparse_candidates_count = len(sparse_candidates)
+
+        # RRF fusion
+        fused = rrf_fuse(
+            dense_candidates,
+            sparse_candidates,
+            dense_weight=self.config.query.rrf_dense_weight,
+            sparse_weight=self.config.query.rrf_sparse_weight,
+        )
+        trace.stages_executed.append("rrf_fusion")
+
+        # Trim to k
+        k = plan.k
+        local_candidates = fused[:k]
+        return local_candidates, plan
+
+    def _profile_llm_rerank(
+        self,
+        request: QueryRequest,
+        state: SessionState,
+        trace: RetrievalTrace,
+        costs: List[CostEntry],
+    ) -> tuple:
+        """Dense + LLM reranking profile."""
+        plan = prepare_local_candidates(
+            request.question, self.config, state, self.embedder, self.db,
+        )
+        trace.stages_executed.append("dense_recall")
+        trace.dense_candidates_count = len(plan.candidates)
+
+        # LLM reranking
+        ranking_config = self.config.llm.resolve_service("ranking")
+        ranking_provider = create_provider(ranking_config)
+        rerank_dicts = [
+            {"text": c.text, "metadata": c.meta, "distance": c.distance}
+            for c in plan.filtered
+        ]
+        k_rerank = min(plan.k, len(plan.filtered))
+        reranked = llm_rerank_candidates(
+            request.question, rerank_dicts, k=k_rerank, provider=ranking_provider
+        )
+        local_candidates = [
+            Candidate(
+                cid=item.get("cid", ""),
+                text=item.get("text", ""),
+                meta=item.get("metadata", {}),
+                distance=item.get("distance"),
+            )
+            for item in reranked
+        ]
+
+        # Cost tracking
+        rerank_est = estimate_rerank_cost(
+            ranking_provider, request.question, plan.filtered, k=k_rerank
+        )
+        costs.append(
+            CostEntry(
+                provider=ranking_provider.name,
+                model=ranking_provider.model,
+                input_tokens=rerank_est["input_tokens"],
+                output_tokens=rerank_est["output_tokens"],
+                cost=rerank_est["cost"],
+                kind="rerank",
+            )
+        )
+
+        trace.stages_executed.append("llm_rerank")
+        trace.reranked_candidates_count = len(local_candidates)
+        return local_candidates, plan
 
     # ------------------------------------------------------------------
     # Stage 2: synthesize_context
@@ -387,7 +469,7 @@ class RetrievalPipeline:
         if "[S" not in answer:
             answer += (
                 "\n\nNote: No inline citations were emitted. "
-                "If this persists, reduce mode local_policy.k / query.local_pool "
+                "If this persists, reduce mode local_policy.k "
                 "or reduce chunk size."
             )
 

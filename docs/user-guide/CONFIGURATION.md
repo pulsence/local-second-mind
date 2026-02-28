@@ -342,10 +342,11 @@ The `query` section controls retrieval and reranking behavior.
 | `k` | int | `12` | Initial retrieval size. |
 | `retrieve_k` | int? | null | Override retrieval size when filtering. |
 | `min_relevance` | float | `0.25` | Minimum relevance to synthesize. |
-| `rerank_strategy` | string | `hybrid` | `none`, `lexical`, `llm`, `hybrid`. |
-| `no_rerank` | bool | `false` | Disable LLM reranking even in `hybrid`. |
-| `local_pool` | int? | null | Pool size before diversity enforcement. |
-| `max_per_file` | int | `2` | Max chunks per source file. |
+| `retrieval_profile` | string | `hybrid_rrf` | `dense_only`, `hybrid_rrf`, `llm_rerank`, etc. |
+| `k_dense` | int | `100` | Candidates from dense (vector) recall. |
+| `k_sparse` | int | `100` | Candidates from sparse (BM25) recall. |
+| `rrf_dense_weight` | float | `0.7` | Dense weight for RRF fusion. |
+| `rrf_sparse_weight` | float | `0.3` | Sparse weight for RRF fusion. |
 | `path_contains` | list[string]? | null | Filter: substring(s) in path. |
 | `ext_allow` | list[string]? | null | Filter: allow extensions. |
 | `ext_deny` | list[string]? | null | Filter: deny extensions. |
@@ -354,8 +355,6 @@ The `query` section controls retrieval and reranking behavior.
 | `query_cache_size` | int | `100` | Max entries in local query cache. |
 | `chat_mode` | string | `single` | Response mode: `single` or `chat`. |
 | `enable_llm_server_cache` | bool | `true` | Enable provider-side prompt/session cache reuse for chat follow-up turns. |
-
-`local_pool` defaults to `k * 4` when not provided.
 
 Query caching notes:
 
@@ -659,7 +658,7 @@ an API key.
 }
 ```
 
-### Query-Only (No LLM Rerank)
+### Query-Only (Dense-Only Profile)
 
 ```json
 {
@@ -667,8 +666,7 @@ an API key.
     "roots": ["C:/Users/You/Documents"]
   },
   "query": {
-    "rerank_strategy": "lexical",
-    "no_rerank": true
+    "retrieval_profile": "dense_only"
   },
   "llms": {
     "providers": [{ "provider_name": "openai" }],

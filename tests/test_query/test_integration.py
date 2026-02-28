@@ -82,7 +82,6 @@ def _build_config(tmp_path: Path, *, mode: str = "grounded") -> LSMConfig:
         ),
         query=QueryConfig(
             k=12,
-            no_rerank=False,
             mode=mode,
         ),
         vectordb=VectorDBConfig(
@@ -250,8 +249,6 @@ def test_local_reranking_pipeline_integration() -> None:
     result = apply_local_reranking(
         "Python programming",
         candidates,
-        max_per_file=2,
-        local_pool=10,
     )
 
     texts = [c.text for c in result]
