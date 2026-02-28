@@ -219,3 +219,92 @@ def test_health_check_passes_and_fails_for_missing_extension(tmp_path: Path) -> 
     health_fail = provider.health_check()
     assert health_fail["status"] == "error"
     assert "extension" in health_fail["error"]
+
+
+# ---------------------------------------------------------------------------
+# FTS5 query tests
+# ---------------------------------------------------------------------------
+
+
+def _seed_fts_provider(tmp_path: Path) -> SQLiteVecProvider:
+    """Create a provider with sample chunks for FTS testing."""
+    provider = _provider(tmp_path)
+    provider.add_chunks(
+        ids=["fts-1", "fts-2", "fts-3", "fts-4"],
+        documents=[
+            "Python is a high-level programming language",
+            "JavaScript handles web interactivity",
+            "Python supports object-oriented and functional programming",
+            "Outdated Python content from old version",
+        ],
+        metadatas=[
+            {"source_path": "/docs/python.md", "source_name": "python.md", "is_current": 1},
+            {"source_path": "/docs/js.md", "source_name": "js.md", "is_current": 1},
+            {"source_path": "/docs/python2.md", "source_name": "python2.md", "is_current": 1},
+            {"source_path": "/docs/old.md", "source_name": "old.md", "is_current": 0},
+        ],
+        embeddings=[_vector(1.0), _vector(2.0), _vector(3.0), _vector(4.0)],
+    )
+    return provider
+
+
+def test_fts_query_returns_relevant_results(tmp_path: Path) -> None:
+    provider = _seed_fts_provider(tmp_path)
+    result = provider.fts_query("Python programming", top_k=10)
+
+    assert len(result.ids) >= 2
+    assert "fts-1" in result.ids
+    assert "fts-3" in result.ids
+
+
+def test_fts_query_ranking_bm25(tmp_path: Path) -> None:
+    provider = _seed_fts_provider(tmp_path)
+    result = provider.fts_query("Python", top_k=10)
+
+    # Results should be ranked by relevance (distances are negated BM25)
+    assert len(result.distances) >= 2
+    # All distances should be non-negative (negated negative BM25 scores)
+    assert all(d >= 0 for d in result.distances if d is not None)
+
+
+def test_fts_query_filters_is_current(tmp_path: Path) -> None:
+    provider = _seed_fts_provider(tmp_path)
+    result = provider.fts_query("Python", top_k=10)
+
+    # fts-4 has is_current=0 and should be excluded
+    assert "fts-4" not in result.ids
+
+
+def test_fts_query_special_characters(tmp_path: Path) -> None:
+    provider = _seed_fts_provider(tmp_path)
+
+    # These should not cause SQL/FTS5 errors
+    result1 = provider.fts_query('Python "quotes" test', top_k=5)
+    assert isinstance(result1.ids, list)
+
+    result2 = provider.fts_query("Python OR* NOT^ AND(test)", top_k=5)
+    assert isinstance(result2.ids, list)
+
+    result3 = provider.fts_query("", top_k=5)
+    assert result3.ids == []
+
+    result4 = provider.fts_query("   ", top_k=5)
+    assert result4.ids == []
+
+
+def test_fts_query_empty_input(tmp_path: Path) -> None:
+    provider = _seed_fts_provider(tmp_path)
+    result = provider.fts_query("", top_k=5)
+    assert result.ids == []
+
+
+def test_fts_query_returns_metadata_and_documents(tmp_path: Path) -> None:
+    provider = _seed_fts_provider(tmp_path)
+    result = provider.fts_query("JavaScript web", top_k=5)
+
+    assert len(result.ids) >= 1
+    assert "fts-2" in result.ids
+
+    idx = result.ids.index("fts-2")
+    assert "JavaScript" in result.documents[idx]
+    assert result.metadatas[idx]["source_path"] == "/docs/js.md"

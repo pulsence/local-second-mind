@@ -375,6 +375,100 @@ class SQLiteVecProvider(BaseVectorDBProvider):
             distances=result_dists,
         )
 
+    def fts_query(self, text: str, top_k: int) -> VectorDBQueryResult:
+        """Run a BM25 full-text search against the chunks_fts table.
+
+        Only returns chunks where is_current = 1.
+        BM25 scores are returned as distances (negated so lower = better,
+        matching vector distance convention).
+
+        Args:
+            text: Query text for full-text matching.
+            top_k: Maximum number of results.
+
+        Returns:
+            VectorDBQueryResult ranked by BM25 relevance.
+        """
+        if not text or not text.strip() or top_k <= 0:
+            return VectorDBQueryResult(ids=[], documents=[], metadatas=[], distances=[])
+        if not self._extension_loaded:
+            return VectorDBQueryResult(ids=[], documents=[], metadatas=[], distances=[])
+
+        # Sanitize query: FTS5 uses double-quotes for phrase matching.
+        # Escape any existing double-quotes and wrap terms safely.
+        sanitized = self._sanitize_fts_query(text)
+        if not sanitized:
+            return VectorDBQueryResult(ids=[], documents=[], metadatas=[], distances=[])
+
+        rows = self._conn.execute(
+            """
+            SELECT f.chunk_id, bm25(chunks_fts) AS rank
+            FROM chunks_fts f
+            JOIN lsm_chunks c ON c.chunk_id = f.chunk_id
+            WHERE chunks_fts MATCH ? AND c.is_current = 1
+            ORDER BY rank
+            LIMIT ?
+            """,
+            (sanitized, top_k),
+        ).fetchall()
+
+        if not rows:
+            return VectorDBQueryResult(ids=[], documents=[], metadatas=[], distances=[])
+
+        ids = [str(row["chunk_id"]) for row in rows]
+        ranks = {str(row["chunk_id"]): float(row["rank"]) for row in rows}
+
+        placeholders = ", ".join(["?"] * len(ids))
+        chunk_rows = self._conn.execute(
+            f"SELECT chunk_id, chunk_text, metadata_json FROM lsm_chunks WHERE chunk_id IN ({placeholders})",
+            ids,
+        ).fetchall()
+
+        meta_by_id = {
+            str(r["chunk_id"]): (str(r["chunk_text"] or ""), self._metadata_from_row(r))
+            for r in chunk_rows
+        }
+
+        result_ids: List[str] = []
+        result_docs: List[str] = []
+        result_metas: List[Dict[str, Any]] = []
+        result_dists: List[Optional[float]] = []
+
+        for chunk_id in ids:
+            if chunk_id not in meta_by_id:
+                continue
+            doc, meta = meta_by_id[chunk_id]
+            result_ids.append(chunk_id)
+            result_docs.append(doc)
+            result_metas.append(meta)
+            # BM25 returns negative values (more negative = better match).
+            # Negate so that lower values = better match (like vector distance).
+            result_dists.append(-ranks[chunk_id])
+
+        return VectorDBQueryResult(
+            ids=result_ids,
+            documents=result_docs,
+            metadatas=result_metas,
+            distances=result_dists,
+        )
+
+    @staticmethod
+    def _sanitize_fts_query(text: str) -> str:
+        """Sanitize text for FTS5 MATCH queries.
+
+        Removes FTS5 special operators and wraps each term safely.
+        """
+        # Remove characters that are FTS5 operators
+        cleaned = text.replace('"', " ").replace("*", " ").replace("^", " ")
+        cleaned = cleaned.replace("(", " ").replace(")", " ")
+        cleaned = cleaned.replace("{", " ").replace("}", " ")
+        # Split into words and filter empties
+        tokens = [t.strip() for t in cleaned.split() if t.strip()]
+        if not tokens:
+            return ""
+        # Quote each token to prevent injection via column: syntax or OR/AND/NOT
+        return " ".join(f'"{token}"' for token in tokens)
+
     def delete_by_id(self, ids: List[str]) -> None:
         if not ids:
             return

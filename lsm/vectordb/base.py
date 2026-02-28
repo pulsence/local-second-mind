@@ -192,3 +192,18 @@ class BaseVectorDBProvider(ABC):
     def prune_old_versions(self, criteria: PruneCriteria) -> int:
         """Delete non-current chunk versions that match prune criteria."""
         pass
+
+    def fts_query(self, text: str, top_k: int) -> VectorDBQueryResult:
+        """Run a full-text search query and return BM25-ranked results.
+
+        Providers without FTS support return an empty result by default.
+
+        Args:
+            text: Query text for full-text matching.
+            top_k: Maximum number of results to return.
+
+        Returns:
+            VectorDBQueryResult with BM25 rank scores as distances
+            (lower is better, consistent with vector distance semantics).
+        """
+        return VectorDBQueryResult(ids=[], documents=[], metadatas=[], distances=[])
