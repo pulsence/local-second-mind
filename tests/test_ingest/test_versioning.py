@@ -1,58 +1,39 @@
-"""Tests for chunk version control (enable_versioning)."""
+"""Tests for always-on chunk version metadata and manifest version helpers."""
 
 from __future__ import annotations
 
+import sqlite3
 from pathlib import Path
-from typing import Any, Dict, List, Optional
 
 import pytest
 
-from lsm.config.models.ingest import IngestConfig, RootConfig
 from lsm.ingest.manifest import get_next_version
 
 
-# ------------------------------------------------------------------
-# Config
-# ------------------------------------------------------------------
-
-
 class TestVersioningConfig:
-    def test_default_false(self, tmp_path: Path) -> None:
-        cfg = IngestConfig(roots=[RootConfig(path=tmp_path)])
-        assert cfg.enable_versioning is False
-
-    def test_enable(self, tmp_path: Path) -> None:
-        cfg = IngestConfig(roots=[RootConfig(path=tmp_path)], enable_versioning=True)
-        assert cfg.enable_versioning is True
-
-    def test_loader_roundtrip(self, tmp_path: Path) -> None:
+    def test_loader_rejects_legacy_enable_versioning_field(self, tmp_path: Path) -> None:
         from lsm.config.loader import build_ingest_config
 
         raw = {"ingest": {"roots": [str(tmp_path)], "enable_versioning": True}}
-        cfg = build_ingest_config(raw, tmp_path)
-        assert cfg.enable_versioning is True
+        with pytest.raises(ValueError, match="Unsupported legacy ingest field 'enable_versioning'"):
+            build_ingest_config(raw, tmp_path)
 
-    def test_config_to_raw(self, tmp_path: Path) -> None:
+    def test_config_to_raw_does_not_emit_enable_versioning(self, tmp_path: Path) -> None:
         from lsm.config.loader import build_config_from_raw, config_to_raw
 
         raw = {
             "global": {"embed_model": "sentence-transformers/all-MiniLM-L6-v2"},
-            "ingest": {"roots": [str(tmp_path)], "enable_versioning": True},
-            "vectordb": {},
+            "ingest": {"roots": [str(tmp_path)]},
+            "vectordb": {"provider": "sqlite", "path": str(tmp_path / "data")},
             "llms": {
                 "providers": [{"provider_name": "local"}],
                 "services": {"default": {"provider": "local", "model": "m"}},
             },
             "query": {},
         }
-        config = build_config_from_raw(raw, tmp_path)
+        config = build_config_from_raw(raw, tmp_path / "config.json")
         out = config_to_raw(config)
-        assert out["ingest"]["enable_versioning"] is True
-
-
-# ------------------------------------------------------------------
-# Manifest get_next_version
-# ------------------------------------------------------------------
+        assert "enable_versioning" not in out["ingest"]
 
 
 class TestGetNextVersion:
@@ -71,10 +52,23 @@ class TestGetNextVersion:
         manifest = {"file.pdf": {"version": 0}}
         assert get_next_version(manifest, "file.pdf") == 1
 
-
-# ------------------------------------------------------------------
-# Models
-# ------------------------------------------------------------------
+    def test_database_next_version(self, tmp_path: Path) -> None:
+        conn = sqlite3.connect(str(tmp_path / "lsm.db"))
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS lsm_manifest (
+                source_path TEXT PRIMARY KEY,
+                version INTEGER
+            )
+            """
+        )
+        conn.execute(
+            "INSERT INTO lsm_manifest(source_path, version) VALUES (?, ?)",
+            ("/tmp/file.txt", 4),
+        )
+        conn.commit()
+        assert get_next_version({}, "/tmp/file.txt", connection=conn) == 5
+        assert get_next_version({}, "/tmp/new.txt", connection=conn) == 1
 
 
 class TestVersioningModels:
@@ -82,8 +76,15 @@ class TestVersioningModels:
         from lsm.ingest.models import ParseResult
 
         pr = ParseResult(
-            source_path="a.pdf", fp=Path("a.pdf"), mtime_ns=0, size=0,
-            file_hash="h", chunks=[], ext=".pdf", had_prev=False, ok=True,
+            source_path="a.pdf",
+            fp=Path("a.pdf"),
+            mtime_ns=0,
+            size=0,
+            file_hash="h",
+            chunks=[],
+            ext=".pdf",
+            had_prev=False,
+            ok=True,
         )
         assert pr.version == 1
 
@@ -91,98 +92,14 @@ class TestVersioningModels:
         from lsm.ingest.models import WriteJob
 
         wj = WriteJob(
-            source_path="a.pdf", fp=Path("a.pdf"), mtime_ns=0, size=0,
-            file_hash="h", ext=".pdf", chunks=[], embeddings=[], had_prev=False,
+            source_path="a.pdf",
+            fp=Path("a.pdf"),
+            mtime_ns=0,
+            size=0,
+            file_hash="h",
+            ext=".pdf",
+            chunks=[],
+            embeddings=[],
+            had_prev=False,
         )
         assert wj.version == 1
-
-
-# ------------------------------------------------------------------
-# VectorDB provider methods
-# ------------------------------------------------------------------
-
-
-class TestVectorDBProviderVersioningMethods:
-    def test_update_metadatas_is_abstract(self) -> None:
-        """update_metadatas is now abstract — cannot instantiate without it."""
-        from lsm.vectordb.base import BaseVectorDBProvider
-
-        class _Stub(BaseVectorDBProvider):
-            name = "stub"
-            def is_available(self): return True
-            def add_chunks(self, *a, **kw): pass
-            def get(self, *a, **kw): pass
-            def query(self, *a, **kw): pass
-            def delete_by_id(self, *a, **kw): pass
-            def delete_by_filter(self, *a, **kw): pass
-            def delete_all(self): return 0
-            def count(self): return 0
-            def get_stats(self): return {}
-            def optimize(self): return {}
-            def health_check(self): return {}
-            # update_metadatas intentionally omitted
-
-        from lsm.config.models.vectordb import VectorDBConfig
-        with pytest.raises(TypeError, match="update_metadatas"):
-            _Stub(VectorDBConfig())
-
-    def test_get_is_abstract(self) -> None:
-        """get() is now abstract — cannot instantiate without it."""
-        from lsm.vectordb.base import BaseVectorDBProvider
-
-        class _Stub(BaseVectorDBProvider):
-            name = "stub"
-            def is_available(self): return True
-            def add_chunks(self, *a, **kw): pass
-            def query(self, *a, **kw): pass
-            def delete_by_id(self, *a, **kw): pass
-            def delete_by_filter(self, *a, **kw): pass
-            def delete_all(self): return 0
-            def count(self): return 0
-            def get_stats(self): return {}
-            def optimize(self): return {}
-            def health_check(self): return {}
-            def update_metadatas(self, *a, **kw): pass
-            # get intentionally omitted
-
-        from lsm.config.models.vectordb import VectorDBConfig
-        with pytest.raises(TypeError, match="get"):
-            _Stub(VectorDBConfig())
-
-
-# ------------------------------------------------------------------
-# Query retrieval where_filter
-# ------------------------------------------------------------------
-
-
-class TestRetrieveCandidatesWhereFilter:
-    def test_where_filter_passed_to_provider(self) -> None:
-        from lsm.query.retrieval import retrieve_candidates
-        from lsm.vectordb.base import BaseVectorDBProvider, VectorDBQueryResult
-        from unittest.mock import MagicMock
-
-        mock_provider = MagicMock(spec=BaseVectorDBProvider)
-        mock_provider.query.return_value = VectorDBQueryResult(
-            ids=["c1"], documents=["text"], metadatas=[{"is_current": True}],
-            distances=[0.1],
-        )
-
-        candidates = retrieve_candidates(
-            mock_provider, [0.0] * 384, k=5, where_filter={"is_current": True},
-        )
-        assert len(candidates) == 1
-        # Verify filter was passed
-        mock_provider.query.assert_called_once_with([0.0] * 384, top_k=5, filters={"is_current": True})
-
-    def test_where_filter_none_by_default(self) -> None:
-        from lsm.query.retrieval import retrieve_candidates
-        from lsm.vectordb.base import BaseVectorDBProvider, VectorDBQueryResult
-        from unittest.mock import MagicMock
-
-        mock_provider = MagicMock(spec=BaseVectorDBProvider)
-        mock_provider.query.return_value = VectorDBQueryResult(
-            ids=[], documents=[], metadatas=[], distances=[],
-        )
-
-        retrieve_candidates(mock_provider, [0.0] * 384, k=5)
-        mock_provider.query.assert_called_once_with([0.0] * 384, top_k=5, filters=None)

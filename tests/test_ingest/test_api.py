@@ -129,9 +129,6 @@ def test_get_collection_stats_fallback(ingest_config, monkeypatch) -> None:
 def test_run_ingest_maps_result_and_force_resets_manifest(ingest_config, monkeypatch) -> None:
     import lsm.ingest.pipeline as ingest_pipeline
 
-    ingest_config.ingest.manifest.parent.mkdir(parents=True, exist_ok=True)
-    ingest_config.ingest.manifest.write_text("{}", encoding="utf-8")
-
     captured_kwargs = {}
 
     def fake_ingest(**kwargs):
@@ -160,8 +157,10 @@ def test_run_ingest_maps_result_and_force_resets_manifest(ingest_config, monkeyp
     assert result.chunks_added == 12
     assert result.elapsed_seconds == 1.25
     assert result.errors == [{"file": "bad.pdf", "error": "parse failed"}]
-    assert not ingest_config.ingest.manifest.exists()
     assert captured_kwargs["progress_callback"] is progress_callback
+    assert captured_kwargs["force_reingest"] is True
+    assert captured_kwargs["manifest_path"] is None
+    assert captured_kwargs["chroma_flush_interval"] is None
 
 
 def test_wipe_collection_deletes_all(ingest_config, monkeypatch) -> None:

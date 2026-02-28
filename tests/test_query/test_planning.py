@@ -163,7 +163,7 @@ def test_prepare_local_candidates_prefilter_uses_metadata_inventory(
 
     plan = planning.prepare_local_candidates("q", cfg, state, embedder=object(), collection=mock_collection)
 
-    assert plan.metadata_filter == {"content_type": "theology"}
+    assert plan.metadata_filter == {"content_type": "theology", "is_current": True}
     assert captured["metadata"]["content_type"] == ["theology"]
     assert captured["metadata"]["ai_tags"] == ["christology"]
     assert captured["metadata"]["user_tags"] == ["doctrine"]

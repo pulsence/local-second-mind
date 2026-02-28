@@ -1,4 +1,4 @@
-import json
+import sqlite3
 import sys
 from pathlib import Path
 from types import SimpleNamespace
@@ -16,12 +16,15 @@ from lsm.config.models import (
     VectorDBConfig,
 )
 from lsm.ingest.api import run_ingest
+from lsm.ingest.manifest import load_manifest
 
 
 class InMemoryVectorProvider:
-    def __init__(self) -> None:
+    def __init__(self, db_path: Path) -> None:
         self._rows = {}
-        self.name = "chromadb"
+        self.name = "sqlite"
+        self.connection = sqlite3.connect(str(db_path))
+        self.connection.row_factory = sqlite3.Row
 
     def add_chunks(self, ids, documents, metadatas, embeddings) -> None:
         for cid, doc, meta, emb in zip(ids, documents, metadatas, embeddings):
@@ -37,6 +40,28 @@ class InMemoryVectorProvider:
             return
         for cid in [k for k, v in self._rows.items() if v["meta"].get("source_path") == source_path]:
             self._rows.pop(cid, None)
+
+    def get(self, ids=None, filters=None, include=None):
+        _ = ids, include
+        source_path = (filters or {}).get("source_path")
+        if not source_path:
+            selected = list(self._rows.keys())
+        else:
+            selected = [
+                cid
+                for cid, row in self._rows.items()
+                if row["meta"].get("source_path") == source_path
+            ]
+        return SimpleNamespace(ids=selected)
+
+    def update_metadatas(self, ids, metadatas) -> None:
+        for cid, metadata in zip(ids, metadatas):
+            row = self._rows.get(cid)
+            if not row:
+                continue
+            updated = dict(row["meta"])
+            updated.update(metadata or {})
+            row["meta"] = updated
 
     def count(self) -> int:
         return len(self._rows)
@@ -65,9 +90,6 @@ def _build_config(root: Path, tmp_path: Path) -> LSMConfig:
     return LSMConfig(
         ingest=IngestConfig(
             roots=[root],
-            path=tmp_path / ".chroma",
-            collection="integration_test_collection",
-            manifest=tmp_path / ".ingest" / "manifest.json",
             extensions=[".txt", ".md", ".html"],
             override_extensions=True,
             exclude_dirs=[],
@@ -80,8 +102,8 @@ def _build_config(root: Path, tmp_path: Path) -> LSMConfig:
             services={"query": LLMServiceConfig(provider="local", model="llama3.1")}
         ),
         vectordb=VectorDBConfig(
-            provider="chromadb",
-            path=tmp_path / ".chroma",
+            provider="sqlite",
+            path=tmp_path / "data",
             collection="integration_test_collection",
         ),
         global_settings=GlobalConfig(
@@ -96,7 +118,7 @@ def _build_config(root: Path, tmp_path: Path) -> LSMConfig:
 @pytest.mark.integration
 class TestIngestIntegration:
     def test_ingest_empty_directory(self, tmp_path: Path, monkeypatch) -> None:
-        provider = InMemoryVectorProvider()
+        provider = InMemoryVectorProvider(tmp_path / "lsm.db")
         empty_root = tmp_path / "empty_docs"
         empty_root.mkdir()
         config = _build_config(empty_root, tmp_path)
@@ -128,7 +150,7 @@ class TestIngestIntegration:
         assert any(event[0] == "complete" for event in progress_events)
 
     def test_ingest_with_text_files(self, synthetic_data_root: Path, tmp_path: Path, monkeypatch) -> None:
-        provider = InMemoryVectorProvider()
+        provider = InMemoryVectorProvider(tmp_path / "lsm.db")
         config = _build_config(synthetic_data_root, tmp_path)
 
         monkeypatch.setitem(
@@ -150,8 +172,9 @@ class TestIngestIntegration:
         assert result.chunks_added > 0
         assert provider.count() == result.chunks_added
 
-        manifest_data = json.loads(config.ingest.manifest.read_text(encoding="utf-8"))
+        manifest_data = load_manifest(connection=provider.connection)
         assert len(manifest_data) == result.total_files - result.skipped_files
+        assert not (tmp_path / ".ingest" / "manifest.json").exists()
 
     def test_incremental_ingest_skips_unchanged(
         self,
@@ -159,7 +182,7 @@ class TestIngestIntegration:
         tmp_path: Path,
         monkeypatch,
     ) -> None:
-        provider = InMemoryVectorProvider()
+        provider = InMemoryVectorProvider(tmp_path / "lsm.db")
         config = _build_config(synthetic_data_root, tmp_path)
 
         monkeypatch.setitem(

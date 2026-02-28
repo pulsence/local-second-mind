@@ -185,8 +185,7 @@ def prepare_local_candidates(
         available_metadata=available_metadata,
         llm_config=decomposition_llm,
     )
-    if config.ingest.enable_versioning:
-        where_filter = {**where_filter, "is_current": True}
+    where_filter = {**where_filter, "is_current": True}
     if not where_filter:
         where_filter = None
 

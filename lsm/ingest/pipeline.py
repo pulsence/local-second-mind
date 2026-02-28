@@ -5,6 +5,7 @@ import time
 import threading
 import queue
 import json
+import sqlite3
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Callable, Dict, List, Optional, Tuple
 from pathlib import Path
@@ -23,7 +24,7 @@ from lsm.ingest.utils import (
     format_time,
     make_chunk_id,
 )
-from lsm.vectordb import create_vectordb_provider
+from lsm.vectordb import BaseVectorDBProvider, create_vectordb_provider
 from lsm.config.models import LLMConfig, RootConfig, VectorDBConfig
 
 # -----------------------------
@@ -230,13 +231,21 @@ def parse_and_chunk_job(
             err=str(e),
         )
 
+
+def _resolve_runtime_artifact_dir(vectordb_config: VectorDBConfig) -> Path:
+    vdb_path = Path(vectordb_config.path)
+    if str(vdb_path).lower().endswith(".db"):
+        return vdb_path.parent
+    return vdb_path
+
+
 def ingest(
     roots: List[RootConfig],
-    chroma_flush_interval: int,
+    chroma_flush_interval: Optional[int],
     embed_model_name: str,
     device: str,
     batch_size: int,
-    manifest_path: Path,
+    manifest_path: Optional[Path],
     exts: set[str],
     exclude_dirs: set[str],
     vectordb_config: VectorDBConfig,
@@ -255,7 +264,9 @@ def ingest(
     embedding_dimension: Optional[int] = None,
     max_files: Optional[int] = None,
     max_seconds: Optional[int] = None,
-    enable_versioning: bool = False,
+    enable_versioning: bool = True,
+    force_reingest: bool = False,
+    provider: Optional[BaseVectorDBProvider] = None,
 ) -> Dict[str, Any]:
     """
     Run ingest pipeline.
@@ -263,12 +274,17 @@ def ingest(
     Returns:
         Summary dictionary with ingest metrics.
     """
+    _ = enable_versioning  # Versioning is always on; retained for compatibility.
+
     def emit(event: str, current: int, total: int, message: str) -> None:
         if progress_callback:
             progress_callback(event, current, total, message)
 
     stop_signal = stop_event or threading.Event()
-    provider = create_vectordb_provider(vectordb_config)
+    provider = provider or create_vectordb_provider(vectordb_config)
+    manifest_connection = getattr(provider, "connection", None)
+    if not isinstance(manifest_connection, sqlite3.Connection):
+        manifest_connection = None
 
     emit("init", 0, 0, f"Model device: {device}")
     from sentence_transformers import SentenceTransformer
@@ -288,7 +304,19 @@ def ingest(
     else:
         emit("init", 0, 0, f"Auto-detected embedding dimension: {actual_dim}")
 
-    manifest = load_manifest(manifest_path)
+    if force_reingest:
+        manifest = {}
+        if manifest_connection is not None:
+            load_manifest(connection=manifest_connection)
+            manifest_connection.execute("DELETE FROM lsm_manifest")
+            manifest_connection.commit()
+        elif manifest_path is not None and manifest_path.exists():
+            manifest_path.unlink()
+    else:
+        manifest = load_manifest(manifest_path, connection=manifest_connection)
+
+    runtime_artifact_dir = _resolve_runtime_artifact_dir(vectordb_config)
+    runtime_artifact_dir.mkdir(parents=True, exist_ok=True)
 
     file_tuples = list(iter_files(roots, exts, exclude_dirs))
     total_files = len(file_tuples)
@@ -313,13 +341,14 @@ def ingest(
     files_submitted = 0
     limit_reached = False
     written_chunks = 0
-    error_report_path = manifest_path.parent / "ingest_error_report.json"
+    error_report_path = runtime_artifact_dir / "ingest_error_report.json"
     error_records = {
         "failed_documents": [],
         "page_errors": [],
     }
 
     REPORT_EVERY_SECONDS = 1.0
+    flush_threshold = max(64, int(chroma_flush_interval or (batch_size * 8)))
 
     # ---- Writer thread (sole Chroma owner) ----
     def writer_thread():
@@ -367,23 +396,17 @@ def ingest(
 
             # Handle prior chunks
             if job.had_prev:
-                if enable_versioning:
-                    # Mark old chunks as non-current instead of deleting
-                    try:
-                        old = provider.get(
-                            filters={"source_path": job.source_path}, include=["metadatas"],
-                        )
-                        old_ids = old.ids
-                        if old_ids:
-                            updated = [{"is_current": False} for _ in old_ids]
-                            provider.update_metadatas(old_ids, updated)
-                    except Exception:
-                        pass
-                else:
-                    try:
-                        provider.delete_by_filter({"source_path": job.source_path})
-                    except Exception:
-                        pass
+                # Versioning is always on in v0.8.0.
+                try:
+                    old = provider.get(
+                        filters={"source_path": job.source_path}, include=["metadatas"],
+                    )
+                    old_ids = old.ids
+                    if old_ids:
+                        updated = [{"is_current": False} for _ in old_ids]
+                        provider.update_metadatas(old_ids, updated)
+                except Exception:
+                    pass
 
             ingested_at = now_iso()
 
@@ -430,10 +453,9 @@ def ingest(
                         else:
                             meta["page_number"] = f"{pos['page_start']}-{pos['page_end']}"
 
-                # Versioning metadata
-                if enable_versioning:
-                    meta["is_current"] = True
-                    meta["version"] = job.version
+                # Versioning metadata is always set in v0.8.0.
+                meta["is_current"] = True
+                meta["version"] = job.version
 
                 to_add_ids.append(chunk_id)
                 to_add_docs.append(chunk)
@@ -445,14 +467,13 @@ def ingest(
                 "mtime_ns": job.mtime_ns,
                 "size": job.size,
                 "file_hash": job.file_hash,
+                "version": job.version,
                 "updated_at": now_iso(),
             }
-            if enable_versioning:
-                manifest_entry["version"] = job.version
             pending_manifest_updates[job.source_path] = manifest_entry
 
             # Flush when we hit threshold
-            if len(to_add_ids) >= chroma_flush_interval:
+            if len(to_add_ids) >= flush_threshold:
                 flush()
 
         # Final flush
@@ -639,7 +660,13 @@ def ingest(
 
                 if prev and prev.get("file_hash") == fhash:
                     # content unchanged, update manifest
-                    manifest[key] = {"mtime_ns": mtime_ns, "size": size, "file_hash": fhash, "updated_at": now_iso()}
+                    manifest[key] = {
+                        "mtime_ns": mtime_ns,
+                        "size": size,
+                        "file_hash": fhash,
+                        "version": int(prev.get("version", 1)) if prev else 1,
+                        "updated_at": now_iso(),
+                    }
                     skipped += 1
                     processed += 1
                     completed += 1
@@ -648,8 +675,12 @@ def ingest(
 
                 had_prev = prev is not None
 
-                # Compute version for versioning support
-                version = get_next_version(manifest, key) if enable_versioning else 1
+                # Versioning is always enabled.
+                version = get_next_version(
+                    manifest,
+                    key,
+                    connection=manifest_connection,
+                )
 
                 # Collect folder tags from .lsm_tags.json files
                 f_tags = collect_folder_tags(fp, root_cfg.path)
@@ -772,7 +803,7 @@ def ingest(
         emit("interrupt", completed, total_files, "Stopping ingest (received interrupt)")
 
     if not dry_run:
-        save_manifest(manifest_path, manifest)
+        save_manifest(manifest_path, manifest, connection=manifest_connection)
         error_report_path.parent.mkdir(parents=True, exist_ok=True)
         report = {
             "generated_at": now_iso(),

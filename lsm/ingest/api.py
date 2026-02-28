@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Callable, Dict, Optional
 
 from lsm.config.models import LSMConfig
@@ -38,6 +39,13 @@ class CollectionStats:
     top_files: list[Dict[str, Any]]
 
 
+def _runtime_artifact_dir(config: LSMConfig) -> Path:
+    vdb_path = Path(config.vectordb.path)
+    if str(vdb_path).lower().endswith(".db"):
+        return vdb_path.parent
+    return vdb_path
+
+
 def get_collection_info(config: LSMConfig) -> CollectionInfo:
     """Return collection info in structured form."""
     provider = create_vectordb_provider(config.vectordb)
@@ -61,11 +69,12 @@ def get_collection_stats(
         if progress_callback:
             progress_callback(analyzed, count)
 
-    cache_path = config.vectordb.persist_dir / "stats_cache.json"
+    runtime_dir = _runtime_artifact_dir(config)
+    cache_path = runtime_dir / "stats_cache.json"
     stats = _get_collection_stats(
         provider,
         limit=None,
-        error_report_path=config.ingest.manifest.parent / "ingest_error_report.json",
+        error_report_path=runtime_dir / "ingest_error_report.json",
         progress_callback=report_progress,
         cache_path=cache_path,
     )
@@ -90,9 +99,6 @@ def run_ingest(
     """Run ingest pipeline and return structured result."""
     from lsm.ingest.pipeline import ingest
 
-    if force and config.ingest.manifest.exists():
-        config.ingest.manifest.unlink()
-
     # Resolve translation LLM config if translation is enabled
     translation_llm = None
     if config.ingest.enable_translation:
@@ -103,11 +109,11 @@ def run_ingest(
 
     result = ingest(
         roots=config.ingest.roots,
-        chroma_flush_interval=config.ingest.chroma_flush_interval,
+        chroma_flush_interval=None,
         embed_model_name=config.embed_model,
         device=config.device,
         batch_size=config.batch_size,
-        manifest_path=config.ingest.manifest,
+        manifest_path=None,
         exts=config.ingest.exts,
         exclude_dirs=config.ingest.exclude_set,
         vectordb_config=config.vectordb,
@@ -125,12 +131,13 @@ def run_ingest(
         embedding_dimension=config.embedding_dimension,
         max_files=config.ingest.max_files,
         max_seconds=config.ingest.max_seconds,
-        enable_versioning=config.ingest.enable_versioning,
+        enable_versioning=True,
+        force_reingest=force,
     )
 
     # Invalidate stats cache after ingest
     from lsm.ingest.stats_cache import StatsCache
-    StatsCache(config.vectordb.persist_dir / "stats_cache.json").invalidate()
+    StatsCache(_runtime_artifact_dir(config) / "stats_cache.json").invalidate()
 
     return IngestResult(
         total_files=int(result.get("total_files", 0)),
