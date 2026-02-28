@@ -356,6 +356,18 @@ The `query` section controls retrieval and reranking behavior.
 | `chat_mode` | string | `single` | Response mode: `single` or `chat`. |
 | `enable_llm_server_cache` | bool | `true` | Enable provider-side prompt/session cache reuse for chat follow-up turns. |
 
+Retrieval profiles:
+
+- `dense_only` — Vector similarity search only. Fastest, no FTS dependency.
+- `hybrid_rrf` — Dense + sparse (BM25/FTS5) + Reciprocal Rank Fusion. Best recall for keyword+semantic queries. Falls back to `dense_only` if FTS5 is unavailable.
+- `llm_rerank` — Dense retrieval + LLM-based reranking. Highest quality but higher latency and cost. Requires a `ranking` service in `llms.services`.
+- `hyde_hybrid` — HyDE embedding + hybrid_rrf (Phase 11, placeholder).
+- `dense_cross_rerank` — Dense + cross-encoder reranking (Phase 11, placeholder).
+
+The `k_dense` and `k_sparse` parameters control the candidate pool size for each stage.
+The `rrf_dense_weight` and `rrf_sparse_weight` parameters control the relative importance
+of vector similarity vs keyword matching in `hybrid_rrf`.
+
 Query caching notes:
 
 - `enable_query_cache` caches synthesized query results in process memory with query/mode/filter-sensitive cache keys.

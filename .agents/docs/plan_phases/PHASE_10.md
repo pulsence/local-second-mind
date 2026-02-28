@@ -1,6 +1,6 @@
 # Phase 10: Retrieval Profiles and Hybrid RRF
 
-**Status**: Pending
+**Status**: Complete
 
 Implements the five retrieval profiles and the hybrid retrieval system combining dense
 vector search with BM25/FTS5 sparse search via Reciprocal Rank Fusion (RRF).

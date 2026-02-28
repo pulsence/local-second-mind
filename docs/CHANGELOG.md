@@ -36,6 +36,16 @@ All notable changes to Local Second Mind are documented here.
 
 - Retrieval evaluation harness (`lsm/eval/`) with BEIR-format dataset support, standard IR metrics (recall@k, MRR, nDCG@k, diversity@k, latency stats), baseline save/load/compare, and bundled synthetic dataset (55 queries, 52 documents).
 - CLI commands: `lsm eval retrieval --profile <profile>`, `lsm eval save-baseline --name <name>`, `lsm eval list-baselines`.
+- Five retrieval profiles (`dense_only`, `hybrid_rrf`, `hyde_hybrid`, `dense_cross_rerank`, `llm_rerank`) with profile routing in `RetrievalPipeline.build_sources()`.
+- Three retrieval stages: `lsm/query/stages/dense_recall.py` (vector similarity), `lsm/query/stages/sparse_recall.py` (BM25/FTS5), `lsm/query/stages/rrf_fusion.py` (Reciprocal Rank Fusion).
+- `fts_query()` method on `BaseVectorDBProvider` for BM25 full-text search, implemented in `SQLiteVecProvider` with FTS5 and `_sanitize_fts_query()` injection prevention.
+- Per-candidate `ScoreBreakdown` with `dense_score`, `dense_rank`, `sparse_score`, `sparse_rank`, `fused_score` populated across all retrieval stages.
+- Graceful degradation: `hybrid_rrf` falls back to `dense_only` with a warning when FTS5 is unavailable.
+- New `QueryConfig` fields: `retrieval_profile`, `k_dense`, `k_sparse`, `rrf_dense_weight`, `rrf_sparse_weight`.
+
+### Removed
+
+- Removed legacy `QueryConfig` fields: `rerank_strategy`, `no_rerank`, `local_pool`, `max_per_file`, `DEFAULT_MAX_PER_FILE`.
 
 ## 0.8.0 - 2026-02-28
 

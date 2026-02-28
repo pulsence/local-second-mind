@@ -24,10 +24,9 @@ question → QueryRequest → RetrievalPipeline
 The central pipeline abstraction in `lsm/query/pipeline.py` exposes three stages:
 
 1. **build_sources(request)** → `ContextPackage`
-   - Embeds the question, retrieves local candidates via `prepare_local_candidates()`
-   - Applies LLM reranking when configured (`stages/llm_rerank.py`)
+   - Routes through the configured retrieval profile (see below)
    - Fetches remote sources when enabled (`context.fetch_remote_sources()`)
-   - Records stage timings in `RetrievalTrace`
+   - Records stage timings and profile name in `RetrievalTrace`
 
 2. **synthesize_context(package)** → `ContextPackage`
    - Assigns `[S#]` source labels via `build_context_block()`
@@ -80,6 +79,47 @@ Defined in `lsm/query/pipeline_types.py`:
 - Pinned chunk IDs for forced inclusion
 - Conversation chain state (`conversation_id`, `prior_response_id`)
 - Last retrieval trace for diagnostics
+
+## Retrieval Profiles
+
+The pipeline supports five retrieval profiles configured via `retrieval_profile`:
+
+| Profile | Stages | Status |
+|---------|--------|--------|
+| `dense_only` | Dense vector recall only | Implemented |
+| `hybrid_rrf` | Dense + Sparse (BM25/FTS5) + RRF fusion | Implemented |
+| `llm_rerank` | Dense + LLM reranking | Implemented |
+| `hyde_hybrid` | HyDE embedding + hybrid_rrf | Placeholder (Phase 11) |
+| `dense_cross_rerank` | Dense + cross-encoder reranking | Placeholder (Phase 11) |
+
+Profile routing lives in `build_sources()` with `_profile_dense_only()`,
+`_profile_hybrid_rrf()`, and `_profile_llm_rerank()` methods.
+
+### RRF Fusion (`lsm/query/stages/rrf_fusion.py`)
+
+Implements Reciprocal Rank Fusion (Cormack et al. 2009):
+
+```
+fused_score(d) = dense_weight / (k + dense_rank) + sparse_weight / (k + sparse_rank)
+```
+
+- Default k=60, dense_weight=0.7, sparse_weight=0.3
+- Candidates missing from one list get default rank = len(list) + 1
+- Preserves original `ScoreBreakdown` fields from upstream stages
+
+### Retrieval Stages
+
+- `lsm/query/stages/dense_recall.py` — Dense vector similarity via `db.query()`.
+  Populates `dense_score` and `dense_rank` on `ScoreBreakdown`.
+- `lsm/query/stages/sparse_recall.py` — BM25 full-text via `db.fts_query()`.
+  Populates `sparse_score` and `sparse_rank` on `ScoreBreakdown`.
+- `lsm/query/stages/rrf_fusion.py` — Merges dense + sparse via RRF.
+  Populates `fused_score` and preserves upstream scores.
+
+### Graceful Degradation
+
+`_profile_hybrid_rrf()` probes FTS availability before executing sparse recall.
+If FTS5 is not available, it falls back to `_profile_dense_only()` with a warning log.
 
 ## Core Components
 
