@@ -14,10 +14,6 @@ from typing import Callable, Dict, Any, List, Optional
 
 from lsm.config.models import LSMConfig
 from lsm.providers import create_provider
-from lsm.providers.helpers import (
-    format_user_content,
-    get_synthesis_instructions,
-)
 from lsm.query.cache import QueryCache
 from lsm.query.rerank import llm_rerank_candidates
 from lsm.query.session import (
@@ -32,6 +28,7 @@ from lsm.query.context import (
     build_remote_candidates,
     build_context_block,
     fallback_answer,
+    format_user_content,
     ContextResult,
 )
 from lsm.ui.utils import format_source_list
@@ -117,9 +114,13 @@ async def query(
             progress_callback(QueryProgress(stage=stage, current=current, total=total, message=message))
 
     mode_config = config.get_mode_config()
-    local_policy = mode_config.source_policy.local
-    remote_policy = mode_config.source_policy.remote
-    model_knowledge_policy = mode_config.source_policy.model_knowledge
+    local_policy = getattr(mode_config, "local_policy", mode_config.source_policy.local)
+    remote_policy = getattr(mode_config, "remote_policy", mode_config.source_policy.remote)
+    model_knowledge_policy = getattr(
+        mode_config,
+        "model_knowledge_policy",
+        mode_config.source_policy.model_knowledge,
+    )
     chat_mode = config.query.chat_mode
 
     state.last_question = question
@@ -140,7 +141,7 @@ async def query(
             mode=config.query.mode,
             filters=cache_filters,
             k=local_policy.k,
-            k_rerank=local_policy.k_rerank,
+            k_rerank=local_policy.k,
             conversation=serialize_conversation(state) if chat_mode == "chat" else None,
         )
         cached = cache.get(cache_key)
@@ -296,7 +297,7 @@ async def query(
     if "[S" not in answer:
         answer += (
             "\n\nNote: No inline citations were emitted. "
-            "If this persists, tighten query.k / query.k_rerank or reduce chunk size."
+            "If this persists, reduce mode local_policy.k / query.local_pool or reduce chunk size."
         )
 
     if model_knowledge_policy.enabled:
@@ -489,7 +490,7 @@ async def _synthesize_answer(
             + f"\n\nCurrent user question:\n{question}"
         )
 
-    instructions = get_synthesis_instructions(mode_config.synthesis_style)
+    instructions = mode_config.synthesis_instructions
     user_content = format_user_content(question_payload, context_block)
 
     answer = await loop.run_in_executor(

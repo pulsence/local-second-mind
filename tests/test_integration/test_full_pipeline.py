@@ -21,7 +21,6 @@ from lsm.config.models import (
     ModelKnowledgePolicy,
     QueryConfig,
     RemoteSourcePolicy,
-    SourcePolicyConfig,
     VectorDBConfig,
 )
 from lsm.ingest.api import run_ingest
@@ -120,17 +119,15 @@ def _build_pipeline_config(
 
     modes = {
         mode_name: ModeConfig(
+            retrieval_profile="hybrid_rrf",
             synthesis_style="grounded",
-            source_policy=SourcePolicyConfig(
-                local=LocalSourcePolicy(
-                    enabled=True,
-                    min_relevance=min_relevance,
-                    k=8,
-                    k_rerank=4,
-                ),
-                remote=RemoteSourcePolicy(enabled=False),
-                model_knowledge=ModelKnowledgePolicy(enabled=False),
+            local_policy=LocalSourcePolicy(
+                enabled=True,
+                min_relevance=min_relevance,
+                k=4,
             ),
+            remote_policy=RemoteSourcePolicy(enabled=False),
+            model_knowledge_policy=ModelKnowledgePolicy(enabled=False),
         )
     }
 

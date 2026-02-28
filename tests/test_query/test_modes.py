@@ -5,6 +5,7 @@ Tests for query mode and global notes configuration.
 from pathlib import Path
 
 from lsm.config.models import (
+    BUILT_IN_MODES,
     IngestConfig,
     LLMProviderConfig,
     LLMRegistryConfig,
@@ -16,7 +17,6 @@ from lsm.config.models import (
     NotesConfig,
     QueryConfig,
     RemoteSourcePolicy,
-    SourcePolicyConfig,
     VectorDBConfig,
 )
 
@@ -44,17 +44,20 @@ class TestModeConfig:
     def test_mode_config_defaults(self):
         mode = ModeConfig()
         assert mode.synthesis_style == "grounded"
-        assert mode.source_policy is not None
+        assert mode.retrieval_profile == "hybrid_rrf"
+        assert mode.local_policy is not None
 
     def test_mode_config_custom_values(self):
-        source_policy = SourcePolicyConfig(
-            local=LocalSourcePolicy(k=15, min_relevance=0.3),
-            remote=RemoteSourcePolicy(enabled=True),
-            model_knowledge=ModelKnowledgePolicy(enabled=True),
+        mode = ModeConfig(
+            retrieval_profile="dense_only",
+            synthesis_style="insight",
+            local_policy=LocalSourcePolicy(k=15, min_relevance=0.3),
+            remote_policy=RemoteSourcePolicy(enabled=True),
+            model_knowledge_policy=ModelKnowledgePolicy(enabled=True),
         )
-        mode = ModeConfig(synthesis_style="insight", source_policy=source_policy)
         assert mode.synthesis_style == "insight"
-        assert mode.source_policy.local.k == 15
+        assert mode.retrieval_profile == "dense_only"
+        assert mode.local_policy.k == 15
 
 
 class TestNotesConfig:
@@ -94,38 +97,47 @@ class TestBuiltInModes:
         config = _make_config("grounded")
         mode = config.get_mode_config()
         assert mode.synthesis_style == "grounded"
-        assert mode.source_policy.remote.enabled is False
-        assert mode.source_policy.model_knowledge.enabled is False
+        assert mode.remote_policy.enabled is False
+        assert mode.model_knowledge_policy.enabled is False
 
     def test_insight_mode_config(self):
         config = _make_config("insight")
         mode = config.get_mode_config()
         assert mode.synthesis_style == "insight"
-        assert mode.source_policy.model_knowledge.enabled is True
+        assert mode.retrieval_profile == "hybrid_rrf"
+        assert mode.local_policy.k == 8
+        assert mode.remote_policy.enabled is True
+        assert mode.model_knowledge_policy.enabled is True
 
     def test_hybrid_mode_config(self):
         config = _make_config("hybrid")
         mode = config.get_mode_config()
         assert mode.synthesis_style == "grounded"
-        assert mode.source_policy.remote.enabled is True
-        assert mode.source_policy.model_knowledge.enabled is True
+        assert mode.local_policy.min_relevance == 0.15
+        assert mode.remote_policy.enabled is True
+        assert mode.model_knowledge_policy.enabled is True
+        assert set(BUILT_IN_MODES.keys()) == {"grounded", "insight", "hybrid"}
 
 
 class TestCustomModes:
     def test_custom_mode_registration(self):
         custom_mode = ModeConfig(
+            retrieval_profile="dense_only",
             synthesis_style="grounded",
-            source_policy=SourcePolicyConfig(
-                local=LocalSourcePolicy(k=20, min_relevance=0.15),
-                remote=RemoteSourcePolicy(enabled=True, max_results=15, remote_providers=["arxiv"]),
-                model_knowledge=ModelKnowledgePolicy(enabled=True, require_label=False),
+            local_policy=LocalSourcePolicy(k=20, min_relevance=0.15),
+            remote_policy=RemoteSourcePolicy(
+                enabled=True,
+                max_results=15,
+                remote_providers=["arxiv"],
             ),
+            model_knowledge_policy=ModelKnowledgePolicy(enabled=True, require_label=False),
         )
         config = _make_config("my_custom_mode", modes={"my_custom_mode": custom_mode})
         mode = config.get_mode_config()
-        assert mode.source_policy.local.k == 20
-        assert mode.source_policy.remote.max_results == 15
-        assert mode.source_policy.remote.remote_providers == ["arxiv"]
+        assert mode.retrieval_profile == "dense_only"
+        assert mode.local_policy.k == 20
+        assert mode.remote_policy.max_results == 15
+        assert mode.remote_policy.remote_providers == ["arxiv"]
 
     def test_mode_fallback_to_default(self):
         config = _make_config("nonexistent_mode")

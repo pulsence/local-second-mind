@@ -138,10 +138,10 @@ def prepare_local_candidates(
     Prepare local candidates for query execution or cost estimation.
     """
     mode_config = config.get_mode_config()
-    local_policy = mode_config.source_policy.local
+    local_policy = getattr(mode_config, "local_policy", mode_config.source_policy.local)
 
     k = local_policy.k
-    k_rerank = local_policy.k_rerank
+    k_rerank = k
     min_relevance = local_policy.min_relevance
     no_rerank = config.query.no_rerank
     max_per_file = config.query.max_per_file

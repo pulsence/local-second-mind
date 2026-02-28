@@ -4,10 +4,16 @@ Query mode and source policy configuration models.
 
 from __future__ import annotations
 
+from copy import deepcopy
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Union
 
-from .constants import DEFAULT_K, DEFAULT_K_RERANK, DEFAULT_MIN_RELEVANCE
+from lsm.query.prompts import (
+    SYNTHESIZE_GROUNDED_INSTRUCTIONS,
+    SYNTHESIZE_INSIGHT_INSTRUCTIONS,
+)
+
+from .constants import DEFAULT_K, DEFAULT_MIN_RELEVANCE
 
 
 @dataclass
@@ -26,10 +32,6 @@ class LocalSourcePolicy:
 
     k: int = DEFAULT_K
     """Number of chunks to retrieve."""
-
-    k_rerank: int = DEFAULT_K_RERANK
-    """Number of chunks to keep after reranking."""
-
 
 @dataclass
 class RemoteProviderRef:
@@ -201,17 +203,55 @@ class ModeConfig:
     """
     Complete configuration for a query mode.
 
-    Defines synthesis style and source policies for a named mode.
+    Defines synthesis style, retrieval profile, and source policies for a named mode.
     """
+
+    retrieval_profile: str = "hybrid_rrf"
+    """Retrieval profile name consumed by query pipeline orchestration."""
+
+    local_policy: LocalSourcePolicy = field(default_factory=LocalSourcePolicy)
+    """Local source retrieval policy."""
+
+    remote_policy: RemoteSourcePolicy = field(default_factory=RemoteSourcePolicy)
+    """Remote source retrieval policy."""
+
+    model_knowledge_policy: ModelKnowledgePolicy = field(
+        default_factory=ModelKnowledgePolicy
+    )
+    """Model knowledge usage policy."""
 
     synthesis_style: str = "grounded"
     """Synthesis style: 'grounded' (strict citations) or 'insight' (thematic analysis)."""
 
-    source_policy: SourcePolicyConfig = field(default_factory=SourcePolicyConfig)
-    """Source policy configuration."""
+    synthesis_instructions: str = SYNTHESIZE_GROUNDED_INSTRUCTIONS
+    """Prompt template used as provider instruction for synthesis."""
 
     chats: Optional[ModeChatsConfig] = None
     """Optional per-mode chat save overrides."""
+
+    def __post_init__(self) -> None:
+        if (
+            self.synthesis_style == "insight"
+            and self.synthesis_instructions == SYNTHESIZE_GROUNDED_INSTRUCTIONS
+        ):
+            self.synthesis_instructions = SYNTHESIZE_INSIGHT_INSTRUCTIONS
+
+    @property
+    def source_policy(self) -> SourcePolicyConfig:
+        """Backward-compatible source policy view."""
+        return SourcePolicyConfig(
+            local=self.local_policy,
+            remote=self.remote_policy,
+            model_knowledge=self.model_knowledge_policy,
+        )
+
+    @source_policy.setter
+    def source_policy(self, value: SourcePolicyConfig) -> None:
+        """Backward-compatible source policy assignment."""
+        if isinstance(value, SourcePolicyConfig):
+            self.local_policy = value.local
+            self.remote_policy = value.remote
+            self.model_knowledge_policy = value.model_knowledge
 
     def validate(self) -> None:
         """Validate mode configuration."""
@@ -220,8 +260,63 @@ class ModeConfig:
             raise ValueError(
                 f"synthesis_style must be one of {valid_styles}, got '{self.synthesis_style}'"
             )
+        if not str(self.retrieval_profile or "").strip():
+            raise ValueError("retrieval_profile must be a non-empty string")
         if self.chats is not None:
             self.chats.validate()
+
+
+GROUNDED_MODE = ModeConfig(
+    retrieval_profile="hybrid_rrf",
+    local_policy=LocalSourcePolicy(enabled=True, min_relevance=0.25, k=12),
+    remote_policy=RemoteSourcePolicy(enabled=False),
+    model_knowledge_policy=ModelKnowledgePolicy(enabled=False),
+    synthesis_style="grounded",
+    synthesis_instructions=SYNTHESIZE_GROUNDED_INSTRUCTIONS,
+)
+
+INSIGHT_MODE = ModeConfig(
+    retrieval_profile="hybrid_rrf",
+    local_policy=LocalSourcePolicy(enabled=True, min_relevance=0.0, k=8),
+    remote_policy=RemoteSourcePolicy(
+        enabled=True,
+        rank_strategy="weighted",
+        max_results=5,
+    ),
+    model_knowledge_policy=ModelKnowledgePolicy(
+        enabled=True,
+        require_label=True,
+    ),
+    synthesis_style="insight",
+    synthesis_instructions=SYNTHESIZE_INSIGHT_INSTRUCTIONS,
+)
+
+HYBRID_MODE = ModeConfig(
+    retrieval_profile="hybrid_rrf",
+    local_policy=LocalSourcePolicy(enabled=True, min_relevance=0.15, k=12),
+    remote_policy=RemoteSourcePolicy(
+        enabled=True,
+        rank_strategy="weighted",
+        max_results=5,
+    ),
+    model_knowledge_policy=ModelKnowledgePolicy(
+        enabled=True,
+        require_label=True,
+    ),
+    synthesis_style="grounded",
+    synthesis_instructions=SYNTHESIZE_GROUNDED_INSTRUCTIONS,
+)
+
+BUILT_IN_MODES: Dict[str, ModeConfig] = {
+    "grounded": GROUNDED_MODE,
+    "insight": INSIGHT_MODE,
+    "hybrid": HYBRID_MODE,
+}
+
+
+def get_builtin_modes() -> Dict[str, ModeConfig]:
+    """Return a mutable copy of built-in mode presets."""
+    return {name: deepcopy(mode) for name, mode in BUILT_IN_MODES.items()}
 
 
 @dataclass

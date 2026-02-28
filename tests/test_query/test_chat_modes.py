@@ -14,7 +14,6 @@ from lsm.config.models import (
     LSMConfig,
     ModeChatsConfig,
     ModeConfig,
-    SourcePolicyConfig,
     QueryConfig,
     VectorDBConfig,
 )
@@ -229,7 +228,6 @@ def test_chat_mode_respects_mode_auto_save_override_off(monkeypatch, tmp_path: P
     config.modes = {
         "grounded": ModeConfig(
             synthesis_style="grounded",
-            source_policy=SourcePolicyConfig(),
             chats=ModeChatsConfig(auto_save=False),
         )
     }
@@ -291,7 +289,6 @@ def test_chat_mode_respects_mode_chat_dir_override(monkeypatch, tmp_path: Path) 
     config.modes = {
         "grounded": ModeConfig(
             synthesis_style="grounded",
-            source_policy=SourcePolicyConfig(),
             chats=ModeChatsConfig(dir="Chats/CustomModeFolder"),
         )
     }

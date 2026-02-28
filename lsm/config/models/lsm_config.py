@@ -17,15 +17,13 @@ from .agents import AgentConfig
 from .ingest import IngestConfig
 from .llm import LLMRegistryConfig
 from .modes import (
-    LocalSourcePolicy,
     ModeConfig,
-    ModelKnowledgePolicy,
+    BUILT_IN_MODES,
     NotesConfig,
     RemoteProviderConfig,
     RemoteProviderChainConfig,
-    RemoteSourcePolicy,
-    SourcePolicyConfig,
     RemoteConfig,
+    get_builtin_modes,
 )
 from .query import QueryConfig
 from .vectordb import VectorDBConfig
@@ -103,7 +101,7 @@ class LSMConfig:
                 self.agents.agents_folder = self.agents.agents_folder.resolve()
 
         if self.modes is None:
-            self.modes = self._get_builtin_modes()
+            self.modes = get_builtin_modes()
 
     def validate(self) -> None:
         """Validate entire configuration."""
@@ -220,54 +218,8 @@ class LSMConfig:
         Returns:
             Dictionary of mode name to ModeConfig
         """
-        return {
-            "grounded": ModeConfig(
-                synthesis_style="grounded",
-                source_policy=SourcePolicyConfig(
-                    local=LocalSourcePolicy(
-                        min_relevance=0.25,
-                        k=12,
-                        k_rerank=6,
-                    ),
-                    remote=RemoteSourcePolicy(enabled=False),
-                    model_knowledge=ModelKnowledgePolicy(enabled=False),
-                ),
-            ),
-            "insight": ModeConfig(
-                synthesis_style="insight",
-                source_policy=SourcePolicyConfig(
-                    local=LocalSourcePolicy(
-                        min_relevance=0.20,
-                        k=14,
-                        k_rerank=8,
-                    ),
-                    remote=RemoteSourcePolicy(enabled=False),
-                    model_knowledge=ModelKnowledgePolicy(
-                        enabled=True,
-                        require_label=True,
-                    ),
-                ),
-            ),
-            "hybrid": ModeConfig(
-                synthesis_style="grounded",
-                source_policy=SourcePolicyConfig(
-                    local=LocalSourcePolicy(
-                        min_relevance=0.25,
-                        k=12,
-                        k_rerank=6,
-                    ),
-                    remote=RemoteSourcePolicy(
-                        enabled=True,
-                        rank_strategy="weighted",
-                        max_results=5,
-                    ),
-                    model_knowledge=ModelKnowledgePolicy(
-                        enabled=True,
-                        require_label=True,
-                    ),
-                ),
-            ),
-        }
+        _ = BUILT_IN_MODES
+        return get_builtin_modes()
 
     def get_mode_config(self, mode_name: Optional[str] = None) -> ModeConfig:
         """

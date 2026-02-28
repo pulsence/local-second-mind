@@ -19,7 +19,6 @@ from lsm.config.models import (
     QueryConfig,
     RemoteProviderConfig,
     RemoteSourcePolicy,
-    SourcePolicyConfig,
     VectorDBConfig,
 )
 from lsm.query.api import query
@@ -85,16 +84,15 @@ def _build_query_config(tmp_path: Path, remote_enabled: bool) -> LSMConfig:
         ),
         modes={
             mode_name: ModeConfig(
+                retrieval_profile="hybrid_rrf",
                 synthesis_style="grounded",
-                source_policy=SourcePolicyConfig(
-                    local=LocalSourcePolicy(enabled=True, min_relevance=0.0, k=4, k_rerank=2),
-                    remote=RemoteSourcePolicy(
-                        enabled=remote_enabled,
-                        remote_providers=["mock_remote"] if remote_enabled else None,
-                        max_results=3,
-                    ),
-                    model_knowledge=ModelKnowledgePolicy(enabled=False),
+                local_policy=LocalSourcePolicy(enabled=True, min_relevance=0.0, k=2),
+                remote_policy=RemoteSourcePolicy(
+                    enabled=remote_enabled,
+                    remote_providers=["mock_remote"] if remote_enabled else None,
+                    max_results=3,
                 ),
+                model_knowledge_policy=ModelKnowledgePolicy(enabled=False),
             )
         },
         remote_providers=(

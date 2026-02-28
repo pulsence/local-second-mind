@@ -97,8 +97,8 @@ def estimate_query_cost(
     from lsm.query.planning import prepare_local_candidates
 
     mode_config = config.get_mode_config()
-    local_policy = mode_config.source_policy.local
-    remote_policy = mode_config.source_policy.remote
+    local_policy = getattr(mode_config, "local_policy", mode_config.source_policy.local)
+    remote_policy = getattr(mode_config, "remote_policy", mode_config.source_policy.remote)
 
     plan = prepare_local_candidates(question, config, state, embedder, collection)
 

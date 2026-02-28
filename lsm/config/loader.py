@@ -15,6 +15,10 @@ from typing import Dict, Any
 from dotenv import load_dotenv
 
 from lsm.utils.paths import resolve_path
+from lsm.query.prompts import (
+    SYNTHESIZE_GROUNDED_INSTRUCTIONS,
+    SYNTHESIZE_INSIGHT_INSTRUCTIONS,
+)
 
 from .models import (
     LSMConfig,
@@ -801,8 +805,7 @@ def build_source_policy_config(raw: Dict[str, Any]) -> SourcePolicyConfig:
         local=LocalSourcePolicy(
             enabled=bool(local_raw.get("enabled", True)),
             min_relevance=float(local_raw.get("min_relevance", 0.25)),
-            k=int(local_raw.get("k", 12)),
-            k_rerank=int(local_raw.get("k_rerank", 6)),
+            k=int(local_raw.get("k", local_raw.get("k_rerank", 12))),
         ),
         remote=RemoteSourcePolicy(
             enabled=bool(remote_raw.get("enabled", False)),
@@ -827,7 +830,38 @@ def build_mode_config(raw: Dict[str, Any]) -> ModeConfig:
     Returns:
         ModeConfig instance
     """
-    source_policy = build_source_policy_config(raw.get("source_policy", {}))
+    source_policy_raw = raw.get("source_policy", {})
+    if not isinstance(source_policy_raw, dict):
+        source_policy_raw = {}
+
+    local_policy_raw = raw.get("local_policy")
+    if not isinstance(local_policy_raw, dict):
+        local_policy_raw = source_policy_raw.get("local", {})
+
+    remote_policy_raw = raw.get("remote_policy")
+    if not isinstance(remote_policy_raw, dict):
+        remote_policy_raw = source_policy_raw.get("remote", {})
+
+    model_policy_raw = raw.get("model_knowledge_policy")
+    if not isinstance(model_policy_raw, dict):
+        model_policy_raw = source_policy_raw.get("model_knowledge", {})
+
+    source_policy = build_source_policy_config(
+        {
+            "local": local_policy_raw or {},
+            "remote": remote_policy_raw or {},
+            "model_knowledge": model_policy_raw or {},
+        }
+    )
+
+    synthesis_style = str(raw.get("synthesis_style", "grounded"))
+    synthesis_instructions = raw.get("synthesis_instructions")
+    if synthesis_instructions is None:
+        synthesis_instructions = (
+            SYNTHESIZE_INSIGHT_INSTRUCTIONS
+            if synthesis_style == "insight"
+            else SYNTHESIZE_GROUNDED_INSTRUCTIONS
+        )
 
     chats_raw = raw.get("chats")
     chats_config = None
@@ -842,8 +876,12 @@ def build_mode_config(raw: Dict[str, Any]) -> ModeConfig:
         )
 
     return ModeConfig(
-        synthesis_style=raw.get("synthesis_style", "grounded"),
-        source_policy=source_policy,
+        retrieval_profile=str(raw.get("retrieval_profile", "hybrid_rrf")),
+        local_policy=source_policy.local,
+        remote_policy=source_policy.remote,
+        model_knowledge_policy=source_policy.model_knowledge,
+        synthesis_style=synthesis_style,
+        synthesis_instructions=str(synthesis_instructions),
         chats=chats_config,
     )
 
@@ -1170,9 +1208,9 @@ def config_to_raw(config: LSMConfig) -> Dict[str, Any]:
     if config.modes:
         for name, mode in config.modes.items():
             serialized_remote_providers = None
-            if mode.source_policy.remote.remote_providers:
+            if mode.remote_policy.remote_providers:
                 serialized_remote_providers = []
-                for item in mode.source_policy.remote.remote_providers:
+                for item in mode.remote_policy.remote_providers:
                     if isinstance(item, RemoteProviderRef):
                         value: Dict[str, Any] = {"source": item.source}
                         if item.weight is not None:
@@ -1182,24 +1220,23 @@ def config_to_raw(config: LSMConfig) -> Dict[str, Any]:
                         serialized_remote_providers.append(item)
             mode_entry = {
                 "name": name,
+                "retrieval_profile": mode.retrieval_profile,
                 "synthesis_style": mode.synthesis_style,
-                "source_policy": {
-                    "local": {
-                        "enabled": mode.source_policy.local.enabled,
-                        "min_relevance": mode.source_policy.local.min_relevance,
-                        "k": mode.source_policy.local.k,
-                        "k_rerank": mode.source_policy.local.k_rerank,
-                    },
-                    "remote": {
-                        "enabled": mode.source_policy.remote.enabled,
-                        "rank_strategy": mode.source_policy.remote.rank_strategy,
-                        "max_results": mode.source_policy.remote.max_results,
-                        "remote_providers": serialized_remote_providers,
-                    },
-                    "model_knowledge": {
-                        "enabled": mode.source_policy.model_knowledge.enabled,
-                        "require_label": mode.source_policy.model_knowledge.require_label,
-                    },
+                "synthesis_instructions": mode.synthesis_instructions,
+                "local_policy": {
+                    "enabled": mode.local_policy.enabled,
+                    "min_relevance": mode.local_policy.min_relevance,
+                    "k": mode.local_policy.k,
+                },
+                "remote_policy": {
+                    "enabled": mode.remote_policy.enabled,
+                    "rank_strategy": mode.remote_policy.rank_strategy,
+                    "max_results": mode.remote_policy.max_results,
+                    "remote_providers": serialized_remote_providers,
+                },
+                "model_knowledge_policy": {
+                    "enabled": mode.model_knowledge_policy.enabled,
+                    "require_label": mode.model_knowledge_policy.require_label,
                 },
             }
             if mode.chats is not None:

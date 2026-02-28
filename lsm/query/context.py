@@ -147,6 +147,15 @@ def build_context_block(candidates: List[Candidate]) -> Tuple[str, List[Dict[str
     return context_block, sources_for_user
 
 
+def format_user_content(question: str, context: str) -> str:
+    """Build the user payload with question and cited source block."""
+    return (
+        f"Question:\n{question}\n\n"
+        f"Sources:\n{context}\n\n"
+        "Write the answer with inline citations."
+    )
+
+
 # -----------------------------
 # Fallback Answer Generation
 # -----------------------------
@@ -249,7 +258,7 @@ def fetch_remote_sources(
     Returns:
         List of remote source dicts, sorted by weighted score if rank_strategy is 'weighted'
     """
-    remote_policy = mode_config.source_policy.remote
+    remote_policy = getattr(mode_config, "remote_policy", mode_config.source_policy.remote)
 
     if not remote_policy.enabled:
         return []
