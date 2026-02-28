@@ -23,7 +23,7 @@ from lsm.remote.chains import build_chain
 
 def _base_config() -> LSMConfig:
     return LSMConfig(
-        ingest=IngestConfig(roots=[Path("/tmp")], manifest=Path("/tmp/manifest.json")),
+        ingest=IngestConfig(roots=[Path("/tmp")]),
         query=QueryConfig(mode="grounded"),
         llm=LLMRegistryConfig(
             providers=[LLMProviderConfig(provider_name="openai", api_key="test")],

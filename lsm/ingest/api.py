@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import sqlite3
 from pathlib import Path
 from typing import Any, Callable, Dict, Optional
 
@@ -46,6 +47,20 @@ def _runtime_artifact_dir(config: LSMConfig) -> Path:
     return vdb_path
 
 
+def _build_stats_cache(
+    config: LSMConfig,
+    connection: Optional[sqlite3.Connection] = None,
+):
+    from lsm.ingest.stats_cache import StatsCache
+
+    cache_key = f"{config.vectordb.collection}:collection_stats"
+    if config.vectordb.provider == "sqlite":
+        if isinstance(connection, sqlite3.Connection):
+            return StatsCache(connection=connection, cache_key=cache_key)
+        return StatsCache(db_path=config.vectordb.path, cache_key=cache_key)
+    return StatsCache(_runtime_artifact_dir(config) / "stats_cache.json", cache_key=cache_key)
+
+
 def get_collection_info(config: LSMConfig) -> CollectionInfo:
     """Return collection info in structured form."""
     provider = create_vectordb_provider(config.vectordb)
@@ -70,13 +85,16 @@ def get_collection_stats(
             progress_callback(analyzed, count)
 
     runtime_dir = _runtime_artifact_dir(config)
-    cache_path = runtime_dir / "stats_cache.json"
+    stats_cache = _build_stats_cache(
+        config,
+        connection=getattr(provider, "connection", None),
+    )
     stats = _get_collection_stats(
         provider,
         limit=None,
         error_report_path=runtime_dir / "ingest_error_report.json",
         progress_callback=report_progress,
-        cache_path=cache_path,
+        stats_cache=stats_cache,
     )
 
     top_files = [
@@ -136,8 +154,7 @@ def run_ingest(
     )
 
     # Invalidate stats cache after ingest
-    from lsm.ingest.stats_cache import StatsCache
-    StatsCache(_runtime_artifact_dir(config) / "stats_cache.json").invalidate()
+    _build_stats_cache(config).invalidate()
 
     return IngestResult(
         total_files=int(result.get("total_files", 0)),

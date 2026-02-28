@@ -40,6 +40,8 @@ def test_schema_creation_on_fresh_database(tmp_path: Path) -> None:
         "lsm_graph_edges",
         "lsm_embedding_models",
         "lsm_job_status",
+        "lsm_stats_cache",
+        "lsm_remote_cache",
     }
 
     rows = provider.connection.execute(
@@ -217,4 +219,3 @@ def test_health_check_passes_and_fails_for_missing_extension(tmp_path: Path) -> 
     health_fail = provider.health_check()
     assert health_fail["status"] == "error"
     assert "extension" in health_fail["error"]
-

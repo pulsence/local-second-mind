@@ -85,6 +85,7 @@ class RSSProvider(BaseRemoteProvider):
             or self.DEFAULT_USER_AGENT
         )
         self.global_folder = config.get("global_folder")
+        self.vectordb_path = config.get("vectordb_path")
         fetcher = config.get("fetcher")
         self._fetcher = fetcher if callable(fetcher) else None
         self._last_request_time = 0.0
@@ -154,6 +155,7 @@ class RSSProvider(BaseRemoteProvider):
                 feed_url=feed_url,
                 global_folder=self.global_folder,
                 max_age=self.cache_ttl_seconds,
+                vectordb_path=self.vectordb_path,
             )
             seen_ids = set(cache.seen_ids) if cache else set()
 
@@ -177,6 +179,8 @@ class RSSProvider(BaseRemoteProvider):
                         items=[item.__dict__ for item in items],
                         seen_ids=list(seen_ids),
                         global_folder=self.global_folder,
+                        vectordb_path=self.vectordb_path,
+                        cache_ttl_seconds=self.cache_ttl_seconds,
                     )
                 except Exception as exc:
                     logger.warning("Failed saving feed cache for '%s': %s", feed_url, exc)

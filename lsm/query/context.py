@@ -28,6 +28,7 @@ def _remote_provider_runtime_config(
     provider_config: Any,
     effective_weight: float,
     global_folder: Optional[str | Path] = None,
+    vectordb_path: Optional[str | Path] = None,
 ) -> Dict[str, Any]:
     """Build provider runtime config preserving provider-specific passthrough fields."""
     runtime_config: Dict[str, Any] = {
@@ -46,6 +47,8 @@ def _remote_provider_runtime_config(
     }
     if global_folder is not None:
         runtime_config["global_folder"] = str(global_folder)
+    if vectordb_path is not None:
+        runtime_config["vectordb_path"] = str(vectordb_path)
     if getattr(provider_config, "extra", None):
         runtime_config.update(provider_config.extra)
     return runtime_config
@@ -294,6 +297,7 @@ def fetch_remote_sources(
                     query=question,
                     global_folder=config.global_folder,
                     max_age=int(cache_ttl),
+                    vectordb_path=config.vectordb.path,
                 )
                 if cached is not None:
                     raw_results = []
@@ -321,6 +325,7 @@ def fetch_remote_sources(
                         provider_config,
                         effective_weight,
                         config.global_folder,
+                        config.vectordb.path,
                     ),
                 )
 
@@ -355,6 +360,8 @@ def fetch_remote_sources(
                             query=question,
                             results=raw_results,
                             global_folder=config.global_folder,
+                            vectordb_path=config.vectordb.path,
+                            cache_ttl_seconds=int(cache_ttl),
                         )
                     except Exception as exc:
                         logger.warning(

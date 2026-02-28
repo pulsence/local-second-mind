@@ -144,6 +144,7 @@ def get_collection_stats(
     error_report_path: Optional[Path] = None,
     progress_callback: Optional[Callable[[int], None]] = None,
     cache_path: Optional[Path] = None,
+    stats_cache: Optional[Any] = None,
 ) -> Dict[str, Any]:
     """
     Get detailed statistics about a collection.
@@ -166,10 +167,11 @@ def get_collection_stats(
         }
 
     # Check stats cache
-    _stats_cache = None
-    if cache_path is not None:
+    _stats_cache = stats_cache
+    if _stats_cache is None and cache_path is not None:
         from lsm.ingest.stats_cache import StatsCache
         _stats_cache = StatsCache(cache_path)
+    if _stats_cache is not None:
         cached = _stats_cache.get_if_fresh(count)
         if cached is not None:
             logger.debug("Returning cached stats (count=%d)", count)

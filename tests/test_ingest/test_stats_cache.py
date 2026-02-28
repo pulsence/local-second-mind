@@ -1,20 +1,14 @@
-"""Tests for stats caching (StatsCache)."""
+"""Tests for DB-backed stats caching."""
 
 from __future__ import annotations
 
-import json
+import sqlite3
 import time
 from pathlib import Path
 from unittest.mock import MagicMock
 
-import pytest
-
 from lsm.ingest.stats_cache import StatsCache
 
-
-# ------------------------------------------------------------------
-# Sample stats for testing
-# ------------------------------------------------------------------
 
 _SAMPLE_STATS = {
     "total_chunks": 1000,
@@ -29,171 +23,102 @@ _SAMPLE_STATS = {
 }
 
 
-# ------------------------------------------------------------------
-# load / save
-# ------------------------------------------------------------------
+def _db_path(tmp_path: Path) -> Path:
+    return tmp_path / "runtime"
 
 
-class TestStatsCacheLoadSave:
-    def test_load_missing_file(self, tmp_path: Path) -> None:
-        cache = StatsCache(tmp_path / "nonexistent.json")
-        assert cache.load() is None
-
-    def test_load_corrupt_json(self, tmp_path: Path) -> None:
-        p = tmp_path / "corrupt.json"
-        p.write_text("{bad json", encoding="utf-8")
-        cache = StatsCache(p)
-        assert cache.load() is None
-
-    def test_save_and_load_roundtrip(self, tmp_path: Path) -> None:
-        p = tmp_path / "stats_cache.json"
-        cache = StatsCache(p)
-        cache.save(_SAMPLE_STATS, chunk_count=1000)
-
-        loaded = cache.load()
-        assert loaded is not None
-        assert loaded["stats"]["total_chunks"] == 1000
-        assert loaded["chunk_count"] == 1000
-        assert "cached_at" in loaded
-
-    def test_save_creates_parent_dirs(self, tmp_path: Path) -> None:
-        p = tmp_path / "sub" / "dir" / "stats_cache.json"
-        cache = StatsCache(p)
-        cache.save(_SAMPLE_STATS, chunk_count=500)
-        assert p.exists()
+def _cache(tmp_path: Path, *, max_age_seconds: int = 3600) -> StatsCache:
+    return StatsCache(
+        db_path=_db_path(tmp_path),
+        cache_key="test_collection_stats",
+        max_age_seconds=max_age_seconds,
+    )
 
 
-# ------------------------------------------------------------------
-# is_stale
-# ------------------------------------------------------------------
+def test_db_cache_load_missing_returns_none(tmp_path: Path) -> None:
+    cache = _cache(tmp_path)
+    assert cache.load() is None
 
 
-class TestStatsCacheIsStaleFresh:
-    def test_stale_when_no_file(self, tmp_path: Path) -> None:
-        cache = StatsCache(tmp_path / "missing.json")
-        assert cache.is_stale(100) is True
+def test_db_cache_save_and_load_roundtrip(tmp_path: Path) -> None:
+    cache = _cache(tmp_path)
+    cache.save(_SAMPLE_STATS, chunk_count=1000)
 
-    def test_stale_when_count_changed(self, tmp_path: Path) -> None:
-        p = tmp_path / "cache.json"
-        cache = StatsCache(p)
-        cache.save(_SAMPLE_STATS, chunk_count=1000)
-        assert cache.is_stale(1001) is True
+    loaded = cache.load()
+    assert loaded is not None
+    assert loaded["stats"]["total_chunks"] == 1000
+    assert loaded["chunk_count"] == 1000
+    assert "cached_at" in loaded
 
-    def test_stale_when_expired(self, tmp_path: Path) -> None:
-        p = tmp_path / "cache.json"
-        cache = StatsCache(p, max_age_seconds=0)
-        cache.save(_SAMPLE_STATS, chunk_count=1000)
-        # max_age_seconds=0 means immediately stale
-        time.sleep(0.01)
-        assert cache.is_stale(1000) is True
+    db_path = _db_path(tmp_path) / "lsm.db"
+    assert db_path.exists()
+    assert not (tmp_path / "stats_cache.json").exists()
 
-    def test_fresh_when_count_matches(self, tmp_path: Path) -> None:
-        p = tmp_path / "cache.json"
-        cache = StatsCache(p, max_age_seconds=3600)
-        cache.save(_SAMPLE_STATS, chunk_count=1000)
-        assert cache.is_stale(1000) is False
+    conn = sqlite3.connect(str(db_path))
+    count = conn.execute("SELECT COUNT(*) FROM lsm_stats_cache").fetchone()[0]
+    conn.close()
+    assert count == 1
 
 
-# ------------------------------------------------------------------
-# get_if_fresh
-# ------------------------------------------------------------------
+def test_db_cache_staleness_checks_count_and_age(tmp_path: Path) -> None:
+    cache = _cache(tmp_path, max_age_seconds=3600)
+    cache.save(_SAMPLE_STATS, chunk_count=1000)
+    assert cache.is_stale(1000) is False
+    assert cache.is_stale(999) is True
+
+    immediate_stale = _cache(tmp_path, max_age_seconds=0)
+    immediate_stale.save(_SAMPLE_STATS, chunk_count=1000)
+    time.sleep(0.01)
+    assert immediate_stale.is_stale(1000) is True
 
 
-class TestStatsCacheGetIfFresh:
-    def test_returns_stats_when_fresh(self, tmp_path: Path) -> None:
-        p = tmp_path / "cache.json"
-        cache = StatsCache(p, max_age_seconds=3600)
-        cache.save(_SAMPLE_STATS, chunk_count=1000)
+def test_db_cache_get_if_fresh_and_invalidate(tmp_path: Path) -> None:
+    cache = _cache(tmp_path, max_age_seconds=3600)
+    cache.save(_SAMPLE_STATS, chunk_count=1000)
+    assert cache.get_if_fresh(1000) == _SAMPLE_STATS
+    assert cache.get_if_fresh(999) is None
 
-        result = cache.get_if_fresh(1000)
-        assert result is not None
-        assert result["total_chunks"] == 1000
-        assert result["unique_files"] == 50
-
-    def test_returns_none_when_stale(self, tmp_path: Path) -> None:
-        p = tmp_path / "cache.json"
-        cache = StatsCache(p, max_age_seconds=3600)
-        cache.save(_SAMPLE_STATS, chunk_count=1000)
-
-        assert cache.get_if_fresh(999) is None
-
-    def test_returns_none_when_no_file(self, tmp_path: Path) -> None:
-        cache = StatsCache(tmp_path / "missing.json")
-        assert cache.get_if_fresh(0) is None
+    cache.invalidate()
+    assert cache.load() is None
 
 
-# ------------------------------------------------------------------
-# invalidate
-# ------------------------------------------------------------------
+def test_stats_integration_cache_hit_avoids_full_scan(tmp_path: Path) -> None:
+    from lsm.ingest.stats import get_collection_stats
+
+    cache = _cache(tmp_path)
+    cache.save(_SAMPLE_STATS, chunk_count=1000)
+
+    mock_provider = MagicMock()
+    mock_provider.count.return_value = 1000
+
+    stats = get_collection_stats(mock_provider, stats_cache=cache)
+    assert stats["total_chunks"] == 1000
+    assert stats["unique_files"] == 50
+    mock_provider.get.assert_not_called()
 
 
-class TestStatsCacheInvalidate:
-    def test_invalidate_deletes_file(self, tmp_path: Path) -> None:
-        p = tmp_path / "cache.json"
-        cache = StatsCache(p)
-        cache.save(_SAMPLE_STATS, chunk_count=1000)
-        assert p.exists()
+def test_stats_integration_recomputes_on_stale_cache(tmp_path: Path) -> None:
+    from lsm.ingest.stats import get_collection_stats
+    from lsm.vectordb.base import VectorDBGetResult
 
-        cache.invalidate()
-        assert not p.exists()
+    cache = _cache(tmp_path)
+    cache.save(_SAMPLE_STATS, chunk_count=500)
 
-    def test_invalidate_missing_file_no_error(self, tmp_path: Path) -> None:
-        cache = StatsCache(tmp_path / "missing.json")
-        cache.invalidate()  # should not raise
+    mock_provider = MagicMock()
+    mock_provider.count.return_value = 2
+    mock_provider.get.side_effect = [
+        VectorDBGetResult(
+            ids=["a", "b"],
+            metadatas=[
+                {"source_path": "/a.pdf", "ext": ".pdf", "ingested_at": "2026-01-01"},
+                {"source_path": "/b.md", "ext": ".md", "ingested_at": "2026-01-02"},
+            ],
+        ),
+        VectorDBGetResult(ids=[], metadatas=[]),
+    ]
 
+    stats = get_collection_stats(mock_provider, stats_cache=cache)
+    assert stats["total_chunks"] == 2
 
-# ------------------------------------------------------------------
-# Integration with get_collection_stats
-# ------------------------------------------------------------------
-
-
-class TestStatsCacheIntegration:
-    def test_cache_hit_avoids_full_scan(self, tmp_path: Path) -> None:
-        """When cache is fresh, get_collection_stats returns cached stats."""
-        from lsm.ingest.stats import get_collection_stats
-        from lsm.vectordb.base import VectorDBGetResult
-
-        # Create a pre-populated cache
-        cache_path = tmp_path / "stats_cache.json"
-        cache = StatsCache(cache_path)
-        cache.save(_SAMPLE_STATS, chunk_count=1000)
-
-        # Mock provider that should NOT be scanned
-        mock_provider = MagicMock()
-        mock_provider.count.return_value = 1000
-
-        stats = get_collection_stats(mock_provider, cache_path=cache_path)
-        assert stats["total_chunks"] == 1000
-        assert stats["unique_files"] == 50
-        # iter_collection_metadatas should not have been called
-        mock_provider.get.assert_not_called()
-
-    def test_recomputes_on_stale_cache(self, tmp_path: Path) -> None:
-        """When cache is stale, get_collection_stats recomputes stats."""
-        from lsm.ingest.stats import get_collection_stats
-        from lsm.vectordb.base import VectorDBGetResult
-
-        # Create a cache with different count
-        cache_path = tmp_path / "stats_cache.json"
-        cache = StatsCache(cache_path)
-        cache.save(_SAMPLE_STATS, chunk_count=500)  # different from actual count
-
-        # Mock provider with actual data — first call returns data, second returns empty (end of iteration)
-        mock_provider = MagicMock()
-        mock_provider.count.return_value = 2
-        mock_provider.get.side_effect = [
-            VectorDBGetResult(
-                ids=["a", "b"],
-                metadatas=[
-                    {"source_path": "/a.pdf", "ext": ".pdf", "ingested_at": "2026-01-01"},
-                    {"source_path": "/b.md", "ext": ".md", "ingested_at": "2026-01-02"},
-                ],
-            ),
-            VectorDBGetResult(ids=[], metadatas=[]),
-        ]
-
-        stats = get_collection_stats(mock_provider, cache_path=cache_path)
-        assert stats["total_chunks"] == 2
-        # Cache should have been updated
-        new_cache = StatsCache(cache_path)
-        assert new_cache.is_stale(2) is False
+    fresh = _cache(tmp_path)
+    assert fresh.is_stale(2) is False

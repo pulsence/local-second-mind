@@ -376,7 +376,7 @@ def test_fetch_remote_sources_timeout_is_handled(monkeypatch):
     monkeypatch.setattr("lsm.query.context.create_remote_provider", fake_create_remote_provider)
 
     config = LSMConfig(
-        ingest=IngestConfig(roots=[Path("/tmp")], manifest=Path("/tmp/manifest.json")),
+        ingest=IngestConfig(roots=[Path("/tmp")]),
         query=QueryConfig(mode="hybrid"),
         llm=LLMRegistryConfig(
             providers=[LLMProviderConfig(provider_name="openai", api_key="test")],
@@ -417,7 +417,7 @@ def test_fetch_remote_sources_uses_provider_cache_when_enabled(monkeypatch):
     )
 
     config = LSMConfig(
-        ingest=IngestConfig(roots=[Path("/tmp")], manifest=Path("/tmp/manifest.json")),
+        ingest=IngestConfig(roots=[Path("/tmp")]),
         query=QueryConfig(mode="hybrid"),
         llm=LLMRegistryConfig(
             providers=[LLMProviderConfig(provider_name="openai", api_key="test")],
@@ -469,7 +469,7 @@ def test_fetch_remote_sources_saves_cache_on_miss(monkeypatch):
     )
 
     config = LSMConfig(
-        ingest=IngestConfig(roots=[Path("/tmp")], manifest=Path("/tmp/manifest.json")),
+        ingest=IngestConfig(roots=[Path("/tmp")]),
         query=QueryConfig(mode="hybrid"),
         llm=LLMRegistryConfig(
             providers=[LLMProviderConfig(provider_name="openai", api_key="test")],
@@ -519,7 +519,7 @@ def test_fetch_remote_sources_passes_provider_specific_options(monkeypatch):
     monkeypatch.setattr("lsm.query.context.create_remote_provider", _factory)
 
     config = LSMConfig(
-        ingest=IngestConfig(roots=[Path("/tmp")], manifest=Path("/tmp/manifest.json")),
+        ingest=IngestConfig(roots=[Path("/tmp")]),
         query=QueryConfig(mode="hybrid"),
         llm=LLMRegistryConfig(
             providers=[LLMProviderConfig(provider_name="openai", api_key="test")],

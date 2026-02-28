@@ -261,6 +261,21 @@ class SQLiteVecProvider(BaseVectorDBProvider):
                 metadata         TEXT
             );
 
+            CREATE TABLE IF NOT EXISTS lsm_stats_cache (
+                cache_key        TEXT PRIMARY KEY,
+                cached_at        REAL NOT NULL,
+                chunk_count      INTEGER NOT NULL,
+                stats_json       TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS lsm_remote_cache (
+                cache_key        TEXT PRIMARY KEY,
+                provider         TEXT NOT NULL,
+                response_json    TEXT NOT NULL,
+                created_at       TEXT NOT NULL,
+                expires_at       TEXT
+            );
+
             CREATE INDEX IF NOT EXISTS idx_lsm_chunks_source_path ON lsm_chunks(source_path);
             CREATE INDEX IF NOT EXISTS idx_lsm_chunks_is_current ON lsm_chunks(is_current);
             CREATE INDEX IF NOT EXISTS idx_lsm_chunks_ext ON lsm_chunks(ext);
@@ -271,6 +286,9 @@ class SQLiteVecProvider(BaseVectorDBProvider):
             CREATE INDEX IF NOT EXISTS idx_lsm_agent_schedules_next_run ON lsm_agent_schedules(next_run_at);
             CREATE INDEX IF NOT EXISTS idx_lsm_graph_edges_src ON lsm_graph_edges(src_id);
             CREATE INDEX IF NOT EXISTS idx_lsm_graph_edges_dst ON lsm_graph_edges(dst_id);
+            CREATE INDEX IF NOT EXISTS idx_lsm_stats_cache_cached_at ON lsm_stats_cache(cached_at);
+            CREATE INDEX IF NOT EXISTS idx_lsm_remote_cache_provider ON lsm_remote_cache(provider);
+            CREATE INDEX IF NOT EXISTS idx_lsm_remote_cache_expires_at ON lsm_remote_cache(expires_at);
             """
         )
 
