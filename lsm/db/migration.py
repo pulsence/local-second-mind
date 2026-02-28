@@ -17,7 +17,6 @@ from lsm import __version__ as LSM_VERSION
 from lsm.config.models import VectorDBConfig
 from lsm.logging import get_logger
 from lsm.vectordb import create_vectordb_provider
-from lsm.vectordb.chromadb import ChromaDBProvider
 
 logger = get_logger(__name__)
 
@@ -631,6 +630,8 @@ def _coerce_target(value: MigrationTarget | str) -> MigrationTarget:
 
 def _provider_from_source(source: MigrationSource, source_config: Any) -> Any:
     if source == MigrationSource.CHROMA:
+        from lsm.vectordb.chromadb import ChromaDBProvider
+
         config = _to_vectordb_config(source_config, provider_hint="chromadb")
         return ChromaDBProvider(config)
     config = _to_vectordb_config(

@@ -11,7 +11,6 @@ requires-python = ">=3.10"
 # Keep deps unpinned here; your existing environment already has these.
 dependencies = [
   "sqlite-vec",
-  "chromadb",
   "pgvector",
   "psycopg2",
   "sentence-transformers>=3.0,<6",
@@ -35,6 +34,9 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+migration = [
+  "chromadb",
+]
 dev = [
   "pytest>=7.0",
   "pytest-cov>=4.0",
