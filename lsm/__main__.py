@@ -85,6 +85,16 @@ def build_parser() -> argparse.ArgumentParser:
         help="Force re-ingest all files (clears manifest)",
     )
     build_parser.add_argument(
+        "--force-reingest-changed-config",
+        action="store_true",
+        help="Allow selective re-ingest when schema-affecting config changed",
+    )
+    build_parser.add_argument(
+        "--force-file-pattern",
+        type=str,
+        help="Only ingest files matching this glob pattern",
+    )
+    build_parser.add_argument(
         "--skip-errors",
         action="store_true",
         default=None,
@@ -138,6 +148,16 @@ def build_parser() -> argparse.ArgumentParser:
         "--older-than-days",
         type=int,
         help="Prune only versions older than N days",
+    )
+
+    complete_parser = db_subparsers.add_parser(
+        "complete",
+        help="Run selective completion re-ingest for changed configuration",
+    )
+    complete_parser.add_argument(
+        "--force-file-pattern",
+        type=str,
+        help="Restrict completion ingest to files matching this glob pattern",
     )
 
     return parser

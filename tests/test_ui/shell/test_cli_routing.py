@@ -13,11 +13,22 @@ def test_ingest_requires_subcommand():
 
 def test_ingest_build_parses():
     parser = build_parser()
-    args = parser.parse_args(["ingest", "build", "--force"])
+    args = parser.parse_args(
+        [
+            "ingest",
+            "build",
+            "--force",
+            "--force-reingest-changed-config",
+            "--force-file-pattern",
+            "*.md",
+        ]
+    )
 
     assert args.command == "ingest"
     assert args.ingest_command == "build"
     assert args.force is True
+    assert args.force_reingest_changed_config is True
+    assert args.force_file_pattern == "*.md"
 
 
 def test_ingest_tag_parses():
@@ -52,6 +63,15 @@ def test_db_prune_parses():
     assert args.db_command == "prune"
     assert args.max_versions == 3
     assert args.older_than_days == 10
+
+
+def test_db_complete_parses():
+    parser = build_parser()
+    args = parser.parse_args(["db", "complete", "--force-file-pattern", "*.pdf"])
+
+    assert args.command == "db"
+    assert args.db_command == "complete"
+    assert args.force_file_pattern == "*.pdf"
 
 
 def test_query_rejects_interactive_flag():

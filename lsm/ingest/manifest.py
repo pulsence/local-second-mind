@@ -161,6 +161,53 @@ def save_manifest(
     )
 
 
+def upsert_manifest_entries(
+    connection: sqlite3.Connection,
+    entries: Dict[str, Dict[str, Any]],
+    *,
+    commit: bool = False,
+) -> None:
+    """Upsert a subset of manifest entries without deleting other rows."""
+    _ensure_manifest_table(connection)
+    for source_path, entry in entries.items():
+        if not isinstance(entry, dict):
+            continue
+        connection.execute(
+            """
+            INSERT INTO lsm_manifest (
+                source_path,
+                mtime_ns,
+                file_size,
+                file_hash,
+                version,
+                embedding_model,
+                schema_version_id,
+                updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(source_path) DO UPDATE SET
+                mtime_ns = excluded.mtime_ns,
+                file_size = excluded.file_size,
+                file_hash = excluded.file_hash,
+                version = excluded.version,
+                embedding_model = excluded.embedding_model,
+                schema_version_id = excluded.schema_version_id,
+                updated_at = excluded.updated_at
+            """,
+            (
+                str(source_path),
+                entry.get("mtime_ns"),
+                entry.get("size"),
+                entry.get("file_hash"),
+                entry.get("version"),
+                entry.get("embedding_model"),
+                entry.get("schema_version_id"),
+                entry.get("updated_at"),
+            ),
+        )
+    if commit:
+        connection.commit()
+
+
 def get_next_version(
     manifest: Dict[str, Dict[str, Any]],
     source_path: str,

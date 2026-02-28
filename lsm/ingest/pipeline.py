@@ -5,6 +5,7 @@ import time
 import threading
 import queue
 import json
+import fnmatch
 import sqlite3
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Callable, Dict, List, Optional, Tuple
@@ -12,7 +13,12 @@ from pathlib import Path
 
 from lsm.ingest.chunking import chunk_text
 from lsm.ingest.fs import iter_files, collect_folder_tags
-from lsm.ingest.manifest import load_manifest, save_manifest, get_next_version
+from lsm.ingest.manifest import (
+    get_next_version,
+    load_manifest,
+    save_manifest,
+    upsert_manifest_entries,
+)
 from lsm.ingest.models import PageSegment, ParseResult, WriteJob
 from lsm.ingest.parsers import parse_file
 from lsm.ingest.structure_chunking import structure_chunk_text, structured_chunks_to_positions
@@ -24,7 +30,9 @@ from lsm.ingest.utils import (
     format_time,
     make_chunk_id,
 )
+from lsm.db.completion import detect_completion_mode, get_stale_files
 from lsm.db.schema_version import (
+    SchemaVersionMismatchError,
     check_schema_compatibility,
     record_schema_version,
 )
@@ -270,6 +278,8 @@ def ingest(
     max_seconds: Optional[int] = None,
     enable_versioning: bool = True,
     force_reingest: bool = False,
+    force_reingest_changed_config: bool = False,
+    force_file_pattern: Optional[str] = None,
     provider: Optional[BaseVectorDBProvider] = None,
 ) -> Dict[str, Any]:
     """
@@ -308,20 +318,46 @@ def ingest(
     else:
         emit("init", 0, 0, f"Auto-detected embedding dimension: {actual_dim}")
 
+    schema_config = {
+        "embedding_model": embed_model_name,
+        "embedding_dim": actual_dim,
+        "chunking_strategy": chunking_strategy,
+        "chunk_size": chunk_size,
+        "chunk_overlap": chunk_overlap,
+    }
+
     schema_version_id: Optional[int] = None
+    completion_mode: Optional[str] = None
+    stale_file_paths: Optional[set[str]] = None
     if manifest_connection is not None:
-        schema_config = {
-            "embedding_model": embed_model_name,
-            "embedding_dim": actual_dim,
-            "chunking_strategy": chunking_strategy,
-            "chunk_size": chunk_size,
-            "chunk_overlap": chunk_overlap,
-        }
-        check_schema_compatibility(
+        compatible, diff = check_schema_compatibility(
             manifest_connection,
             schema_config,
-            raise_on_mismatch=True,
+            raise_on_mismatch=False,
         )
+        completion_runtime_config = {
+            "roots": roots,
+            "exts": exts,
+            "exclude_dirs": exclude_dirs,
+            **schema_config,
+        }
+        if force_reingest_changed_config:
+            completion_mode = detect_completion_mode(
+                manifest_connection,
+                completion_runtime_config,
+            )
+            if completion_mode:
+                stale_file_paths = set(
+                    get_stale_files(
+                        manifest_connection,
+                        completion_runtime_config,
+                        completion_mode,
+                    )
+                )
+            elif not compatible:
+                stale_file_paths = set()
+        elif not compatible:
+            raise SchemaVersionMismatchError(diff)
         schema_version_id = record_schema_version(manifest_connection, schema_config)
 
     if force_reingest:
@@ -334,6 +370,17 @@ def ingest(
             manifest_path.unlink()
     else:
         manifest = load_manifest(manifest_path, connection=manifest_connection)
+
+    if completion_mode is not None:
+        emit(
+            "init",
+            0,
+            0,
+            "Completion mode detected: "
+            f"{completion_mode} (stale files: {len(stale_file_paths or set())})",
+        )
+    if force_file_pattern:
+        emit("init", 0, 0, f"Selective ingest pattern enabled: {force_file_pattern}")
 
     runtime_artifact_dir = _resolve_runtime_artifact_dir(vectordb_config)
     runtime_artifact_dir.mkdir(parents=True, exist_ok=True)
@@ -361,6 +408,7 @@ def ingest(
     files_submitted = 0
     limit_reached = False
     written_chunks = 0
+    writer_error: Optional[Exception] = None
     error_report_path = runtime_artifact_dir / "ingest_error_report.json"
     error_records = {
         "failed_documents": [],
@@ -369,137 +417,165 @@ def ingest(
 
     REPORT_EVERY_SECONDS = 1.0
     flush_threshold = max(64, int(chroma_flush_interval or (batch_size * 8)))
+    try:
+        from lsm.vectordb.sqlite_vec import SQLiteVecProvider  # local import to avoid hard dependency in tests
+
+        is_sqlite_provider = isinstance(provider, SQLiteVecProvider)
+    except Exception:
+        is_sqlite_provider = False
+    transactional_manifest_writes = (
+        not dry_run
+        and manifest_connection is not None
+        and is_sqlite_provider
+    )
 
     # ---- Writer thread (sole Chroma owner) ----
     def writer_thread():
-        nonlocal written_chunks
+        nonlocal written_chunks, writer_error
 
-        to_add_ids: List[str] = []
-        to_add_docs: List[str] = []
-        to_add_metas: List[Dict] = []
-        to_add_embs: List[List[float]] = []
-        seen_ids: set[str] = set()
-
+        try:
+            to_add_ids: List[str] = []
+            to_add_docs: List[str] = []
+            to_add_metas: List[Dict] = []
+            to_add_embs: List[List[float]] = []
+            seen_ids: set[str] = set()
             # Manifest updates are committed only after a successful vector DB flush.
-        pending_manifest_updates: Dict[str, Dict] = {}
+            pending_manifest_updates: Dict[str, Dict] = {}
 
-        def flush():
-            """Flush staged vectors and, only on success, commit pending manifest updates."""
-            nonlocal to_add_ids, to_add_docs, to_add_metas, to_add_embs, seen_ids, pending_manifest_updates, written_chunks
+            def flush():
+                """Flush staged vectors and, only on success, commit pending manifest updates."""
+                nonlocal to_add_ids, to_add_docs, to_add_metas, to_add_embs, seen_ids, pending_manifest_updates, written_chunks
 
-            if not to_add_ids:
-                return
+                if not to_add_ids:
+                    return
 
-            if not dry_run:
-                # If this raises, we do NOT update the manifest.
-                provider.add_chunks(to_add_ids, to_add_docs, to_add_metas, to_add_embs)
+                if not dry_run:
+                    if transactional_manifest_writes and manifest_connection is not None:
+                        manifest_connection.execute("BEGIN")
+                        try:
+                            provider.add_chunks(to_add_ids, to_add_docs, to_add_metas, to_add_embs)
+                            upsert_manifest_entries(
+                                manifest_connection,
+                                pending_manifest_updates,
+                                commit=False,
+                            )
+                            manifest_connection.commit()
+                        except Exception:
+                            manifest_connection.rollback()
+                            raise
+                    else:
+                        # If this raises, we do NOT update the manifest.
+                        provider.add_chunks(to_add_ids, to_add_docs, to_add_metas, to_add_embs)
 
-            # Commit manifest updates only after successful write (or dry_run)
-            manifest.update(pending_manifest_updates)
-            pending_manifest_updates.clear()
+                # Commit manifest updates only after successful write (or dry_run)
+                manifest.update(pending_manifest_updates)
+                pending_manifest_updates.clear()
 
-            with lock:
-                written_chunks += len(to_add_ids)
+                with lock:
+                    written_chunks += len(to_add_ids)
 
-            to_add_ids, to_add_docs, to_add_metas, to_add_embs = [], [], [], []
-            seen_ids.clear()
+                to_add_ids, to_add_docs, to_add_metas, to_add_embs = [], [], [], []
+                seen_ids.clear()
 
-        while True:
-            if stop_signal.is_set() and write_q.empty():
-                break
-            try:
-                job = write_q.get(timeout=0.2)
-            except queue.Empty:
-                continue
-            if job is None:
-                break
-
-            # Handle prior chunks
-            if job.had_prev:
-                # Versioning is always on in v0.8.0.
+            while True:
+                if stop_signal.is_set() and write_q.empty():
+                    break
                 try:
-                    old = provider.get(
-                        filters={"source_path": job.source_path}, include=["metadatas"],
-                    )
-                    old_ids = old.ids
-                    if old_ids:
-                        updated = [{"is_current": False} for _ in old_ids]
-                        provider.update_metadatas(old_ids, updated)
-                except Exception:
-                    pass
-
-            ingested_at = now_iso()
-
-            # Stage chunks
-            for idx, (chunk, emb) in enumerate(zip(job.chunks, job.embeddings)):
-                chunk_id = make_chunk_id(job.source_path, job.file_hash, idx)
-                if chunk_id in seen_ids:
+                    job = write_q.get(timeout=0.2)
+                except queue.Empty:
                     continue
-                seen_ids.add(chunk_id)
+                if job is None:
+                    break
 
-                # Base metadata
-                meta = {
-                    "source_path": job.source_path,
-                    "source_name": job.fp.name,
-                    "ext": job.ext,
+                # Handle prior chunks
+                if job.had_prev:
+                    # Versioning is always on in v0.8.0.
+                    try:
+                        old = provider.get(
+                            filters={"source_path": job.source_path}, include=["metadatas"],
+                        )
+                        old_ids = old.ids
+                        if old_ids:
+                            updated = [{"is_current": False} for _ in old_ids]
+                            provider.update_metadatas(old_ids, updated)
+                    except Exception:
+                        pass
+
+                ingested_at = now_iso()
+
+                # Stage chunks
+                for idx, (chunk, emb) in enumerate(zip(job.chunks, job.embeddings)):
+                    chunk_id = make_chunk_id(job.source_path, job.file_hash, idx)
+                    if chunk_id in seen_ids:
+                        continue
+                    seen_ids.add(chunk_id)
+
+                    # Base metadata
+                    meta = {
+                        "source_path": job.source_path,
+                        "source_name": job.fp.name,
+                        "ext": job.ext,
+                        "mtime_ns": job.mtime_ns,
+                        "file_hash": job.file_hash,
+                        "chunk_index": idx,
+                        "ingested_at": ingested_at,
+                    }
+
+                    # Merge document-level metadata
+                    if job.metadata:
+                        for key, value in job.metadata.items():
+                            # Avoid overwriting base fields
+                            if key not in meta and value is not None:
+                                meta[key] = value
+
+                    # Add position information
+                    if job.chunk_positions and idx < len(job.chunk_positions):
+                        pos = job.chunk_positions[idx]
+                        meta["start_char"] = pos.get("start_char")
+                        meta["end_char"] = pos.get("end_char")
+                        meta["chunk_length"] = pos.get("length")
+                        # Structure chunking metadata
+                        if pos.get("heading") is not None:
+                            meta["heading"] = pos["heading"]
+                        if pos.get("paragraph_index") is not None:
+                            meta["paragraph_index"] = pos["paragraph_index"]
+                        # Page number tracking
+                        if pos.get("page_start") is not None and pos.get("page_end") is not None:
+                            if pos["page_start"] == pos["page_end"]:
+                                meta["page_number"] = str(pos["page_start"])
+                            else:
+                                meta["page_number"] = f"{pos['page_start']}-{pos['page_end']}"
+
+                    # Versioning metadata is always set in v0.8.0.
+                    meta["is_current"] = True
+                    meta["version"] = job.version
+
+                    to_add_ids.append(chunk_id)
+                    to_add_docs.append(chunk)
+                    to_add_metas.append(meta)
+                    to_add_embs.append(emb)
+
+                # Stage manifest update for this file, but do NOT commit yet
+                manifest_entry = {
                     "mtime_ns": job.mtime_ns,
+                    "size": job.size,
                     "file_hash": job.file_hash,
-                    "chunk_index": idx,
-                    "ingested_at": ingested_at,
+                    "version": job.version,
+                    "embedding_model": embed_model_name,
+                    "schema_version_id": schema_version_id,
+                    "updated_at": now_iso(),
                 }
+                pending_manifest_updates[job.source_path] = manifest_entry
 
-                # Merge document-level metadata
-                if job.metadata:
-                    for key, value in job.metadata.items():
-                        # Avoid overwriting base fields
-                        if key not in meta and value is not None:
-                            meta[key] = value
+                # Flush when we hit threshold
+                if len(to_add_ids) >= flush_threshold:
+                    flush()
 
-                # Add position information
-                if job.chunk_positions and idx < len(job.chunk_positions):
-                    pos = job.chunk_positions[idx]
-                    meta["start_char"] = pos.get("start_char")
-                    meta["end_char"] = pos.get("end_char")
-                    meta["chunk_length"] = pos.get("length")
-                    # Structure chunking metadata
-                    if pos.get("heading") is not None:
-                        meta["heading"] = pos["heading"]
-                    if pos.get("paragraph_index") is not None:
-                        meta["paragraph_index"] = pos["paragraph_index"]
-                    # Page number tracking
-                    if pos.get("page_start") is not None and pos.get("page_end") is not None:
-                        if pos["page_start"] == pos["page_end"]:
-                            meta["page_number"] = str(pos["page_start"])
-                        else:
-                            meta["page_number"] = f"{pos['page_start']}-{pos['page_end']}"
-
-                # Versioning metadata is always set in v0.8.0.
-                meta["is_current"] = True
-                meta["version"] = job.version
-
-                to_add_ids.append(chunk_id)
-                to_add_docs.append(chunk)
-                to_add_metas.append(meta)
-                to_add_embs.append(emb)
-
-            # Stage manifest update for this file, but do NOT commit yet
-            manifest_entry = {
-                "mtime_ns": job.mtime_ns,
-                "size": job.size,
-                "file_hash": job.file_hash,
-                "version": job.version,
-                "embedding_model": embed_model_name,
-                "schema_version_id": schema_version_id,
-                "updated_at": now_iso(),
-            }
-            pending_manifest_updates[job.source_path] = manifest_entry
-
-            # Flush when we hit threshold
-            if len(to_add_ids) >= flush_threshold:
-                flush()
-
-        # Final flush
-        flush()
+            # Final flush
+            flush()
+        except Exception as exc:
+            writer_error = exc
+            stop_signal.set()
 
     wt = threading.Thread(target=writer_thread, daemon=True)
     wt.start()
@@ -632,6 +708,10 @@ def ingest(
         )
         last_report = now
 
+    force_pattern = str(force_file_pattern or "").strip()
+    if not force_pattern:
+        force_pattern = ""
+
     try:
         with ThreadPoolExecutor(max_workers=parse_workers) as pool:
             futures = []
@@ -649,6 +729,25 @@ def ingest(
                 source_path = canonical_path(fp)
                 key = source_path
 
+                if force_pattern:
+                    match_pattern = (
+                        fnmatch.fnmatch(source_path.lower(), force_pattern.lower())
+                        or fnmatch.fnmatch(fp.name.lower(), force_pattern.lower())
+                    )
+                    if not match_pattern:
+                        skipped += 1
+                        processed += 1
+                        completed += 1
+                        maybe_report()
+                        continue
+
+                if stale_file_paths is not None and key not in stale_file_paths:
+                    skipped += 1
+                    processed += 1
+                    completed += 1
+                    maybe_report()
+                    continue
+
                 # Stat
                 try:
                     st = fp.stat()
@@ -661,9 +760,18 @@ def ingest(
                     continue
 
                 prev = manifest.get(key)
+                force_this_file = bool(force_pattern) or (
+                    stale_file_paths is not None and key in stale_file_paths
+                )
 
                 # Fast skip on (mtime,size) + hash present
-                if prev and prev.get("mtime_ns") == mtime_ns and prev.get("size") == size and prev.get("file_hash"):
+                if (
+                    not force_this_file
+                    and prev
+                    and prev.get("mtime_ns") == mtime_ns
+                    and prev.get("size") == size
+                    and prev.get("file_hash")
+                ):
                     skipped += 1
                     processed += 1
                     completed += 1
@@ -680,7 +788,50 @@ def ingest(
                     maybe_report()
                     continue
 
-                if prev and prev.get("file_hash") == fhash:
+                if (
+                    force_this_file
+                    and completion_mode == "metadata_enrichment"
+                    and prev
+                    and prev.get("file_hash") == fhash
+                ):
+                    existing = provider.get(
+                        filters={"source_path": key},
+                        include=["metadatas"],
+                    )
+                    existing_ids = list(existing.ids or [])
+                    existing_metas = list(existing.metadatas or [])
+                    if existing_ids:
+                        while len(existing_metas) < len(existing_ids):
+                            existing_metas.append({})
+                        folder_tags = collect_folder_tags(fp, root_cfg.path)
+                        updated_metas: List[Dict[str, Any]] = []
+                        for metadata in existing_metas[: len(existing_ids)]:
+                            merged = dict(metadata or {})
+                            if root_cfg.tags:
+                                merged["root_tags"] = json.dumps(root_cfg.tags)
+                            if root_cfg.content_type:
+                                merged["content_type"] = root_cfg.content_type
+                            if folder_tags:
+                                merged["folder_tags"] = json.dumps(folder_tags)
+                            updated_metas.append(merged)
+                        provider.update_metadatas(existing_ids, updated_metas)
+
+                    manifest[key] = {
+                        "mtime_ns": mtime_ns,
+                        "size": size,
+                        "file_hash": fhash,
+                        "version": int(prev.get("version", 1)),
+                        "embedding_model": embed_model_name,
+                        "schema_version_id": schema_version_id,
+                        "updated_at": now_iso(),
+                    }
+                    skipped += 1
+                    processed += 1
+                    completed += 1
+                    maybe_report()
+                    continue
+
+                if not force_this_file and prev and prev.get("file_hash") == fhash:
                     # content unchanged, update manifest
                     manifest[key] = {
                         "mtime_ns": mtime_ns,
@@ -822,6 +973,9 @@ def ingest(
     # Wait for threads
     et.join()
     wt.join()
+
+    if writer_error is not None:
+        raise RuntimeError(f"Ingest write stage failed: {writer_error}") from writer_error
 
     if interrupted:
         emit("interrupt", completed, total_files, "Stopping ingest (received interrupt)")

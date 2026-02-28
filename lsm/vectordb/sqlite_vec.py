@@ -63,6 +63,7 @@ class SQLiteVecProvider(BaseVectorDBProvider):
         self._conn.execute("PRAGMA journal_mode = WAL")
 
         self._extension_loaded = False
+        self._savepoint_counter = 0
         self._load_extension()
         self._ensure_schema()
 
@@ -95,6 +96,19 @@ class SQLiteVecProvider(BaseVectorDBProvider):
 
     @contextmanager
     def _transaction(self):
+        if self._conn.in_transaction:
+            self._savepoint_counter += 1
+            savepoint = f"lsm_sp_{self._savepoint_counter}"
+            self._conn.execute(f"SAVEPOINT {savepoint}")
+            try:
+                yield
+                self._conn.execute(f"RELEASE SAVEPOINT {savepoint}")
+            except Exception:
+                self._conn.execute(f"ROLLBACK TO SAVEPOINT {savepoint}")
+                self._conn.execute(f"RELEASE SAVEPOINT {savepoint}")
+                raise
+            return
+
         try:
             self._conn.execute("BEGIN")
             yield

@@ -28,6 +28,8 @@ def run_ingest(args) -> int:
             force=getattr(args, "force", False),
             skip_errors=getattr(args, "skip_errors", None),
             dry_run=getattr(args, "dry_run", None),
+            force_reingest_changed_config=getattr(args, "force_reingest_changed_config", False),
+            force_file_pattern=getattr(args, "force_file_pattern", None),
         )
     if command == "tag":
         return run_tag_cli(args.config, max_chunks=getattr(args, "max", None))
@@ -46,6 +48,11 @@ def run_db(args) -> int:
             args.config,
             max_versions=getattr(args, "max_versions", None),
             older_than_days=getattr(args, "older_than_days", None),
+        )
+    if command == "complete":
+        return run_db_complete_cli(
+            args.config,
+            force_file_pattern=getattr(args, "force_file_pattern", None),
         )
 
     print("Missing db subcommand. Use `lsm db --help` for options.")
@@ -71,6 +78,8 @@ def run_build_cli(
     force: bool = False,
     skip_errors: Optional[bool] = None,
     dry_run: Optional[bool] = None,
+    force_reingest_changed_config: bool = False,
+    force_file_pattern: Optional[str] = None,
 ) -> int:
     """
     Run the ingest build pipeline.
@@ -100,6 +109,8 @@ def run_build_cli(
     api_run_ingest(
         config,
         force=force,
+        force_reingest_changed_config=force_reingest_changed_config,
+        force_file_pattern=force_file_pattern,
         progress_callback=progress,
     )
 
@@ -202,4 +213,34 @@ def run_db_prune_cli(
         f"deleted {deleted:,} non-current chunks "
         f"(max_versions={max_versions}, older_than_days={older_than_days})."
     )
+    return 0
+
+
+def run_db_complete_cli(
+    config_path: str | Path,
+    *,
+    force_file_pattern: Optional[str] = None,
+) -> int:
+    """Run selective completion ingest for changed config state."""
+    config = _load_config(config_path)
+
+    def progress(event: str, current: int, total: int, message: str) -> None:
+        if total > 0:
+            print(f"[{event}] {current}/{total} {message}")
+        else:
+            print(f"[{event}] {message}")
+
+    try:
+        api_run_ingest(
+            config,
+            force=False,
+            force_reingest_changed_config=True,
+            force_file_pattern=force_file_pattern,
+            progress_callback=progress,
+        )
+    except Exception as exc:
+        print(f"Error: {exc}")
+        return 1
+
+    print("Completion ingest finished successfully.")
     return 0

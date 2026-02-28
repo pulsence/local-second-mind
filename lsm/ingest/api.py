@@ -112,6 +112,8 @@ def get_collection_stats(
 def run_ingest(
     config: LSMConfig,
     force: bool = False,
+    force_reingest_changed_config: bool = False,
+    force_file_pattern: Optional[str] = None,
     progress_callback: Optional[Callable[[str, int, int, str], None]] = None,
 ) -> IngestResult:
     """Run ingest pipeline and return structured result."""
@@ -151,6 +153,8 @@ def run_ingest(
         max_seconds=config.ingest.max_seconds,
         enable_versioning=True,
         force_reingest=force,
+        force_reingest_changed_config=force_reingest_changed_config,
+        force_file_pattern=force_file_pattern,
     )
 
     # Invalidate stats cache after ingest

@@ -25,10 +25,14 @@ def test_run_ingest_dispatches_and_missing_subcommand(monkeypatch: pytest.Monkey
 
 def test_run_db_dispatches_and_missing_subcommand(monkeypatch: pytest.MonkeyPatch, capsys) -> None:
     monkeypatch.setattr(shell_cli, "run_db_prune_cli", lambda *args, **kwargs: 21)
+    monkeypatch.setattr(shell_cli, "run_db_complete_cli", lambda *args, **kwargs: 22)
 
     assert shell_cli.run_db(
         SimpleNamespace(db_command="prune", config="c", max_versions=3, older_than_days=7)
     ) == 21
+    assert shell_cli.run_db(
+        SimpleNamespace(db_command="complete", config="c", force_file_pattern="*.md")
+    ) == 22
 
     code = shell_cli.run_db(SimpleNamespace(db_command=None, config="c"))
     out = capsys.readouterr().out
@@ -52,7 +56,8 @@ def test_run_build_cli_overrides_and_progress(monkeypatch: pytest.MonkeyPatch, c
     cfg = SimpleNamespace(ingest=SimpleNamespace(skip_errors=True, dry_run=False))
     monkeypatch.setattr(shell_cli, "_load_config", lambda p: cfg)
 
-    def _api_run_ingest(config, force=False, progress_callback=None):
+    def _api_run_ingest(config, force=False, progress_callback=None, **kwargs):
+        _ = kwargs
         progress_callback("progress", 1, 2, "halfway")
         progress_callback("done", 0, 0, "done")
 
@@ -130,3 +135,28 @@ def test_run_db_prune_cli_success_and_error(monkeypatch: pytest.MonkeyPatch, cap
     out2 = capsys.readouterr().out
     assert code2 == 1
     assert "Error: prune failed" in out2
+
+
+def test_run_db_complete_cli_success_and_error(monkeypatch: pytest.MonkeyPatch, capsys) -> None:
+    cfg = SimpleNamespace()
+    monkeypatch.setattr(shell_cli, "_load_config", lambda p: cfg)
+
+    def _ok_api_run_ingest(config, **kwargs):
+        _ = config, kwargs
+        return None
+
+    monkeypatch.setattr(shell_cli, "api_run_ingest", _ok_api_run_ingest)
+    code = shell_cli.run_db_complete_cli("config.json", force_file_pattern="*.md")
+    out = capsys.readouterr().out
+    assert code == 0
+    assert "Completion ingest finished successfully." in out
+
+    def _boom_api_run_ingest(config, **kwargs):
+        _ = config, kwargs
+        raise RuntimeError("completion failed")
+
+    monkeypatch.setattr(shell_cli, "api_run_ingest", _boom_api_run_ingest)
+    code2 = shell_cli.run_db_complete_cli("config.json")
+    out2 = capsys.readouterr().out
+    assert code2 == 1
+    assert "Error: completion failed" in out2
