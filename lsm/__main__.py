@@ -224,6 +224,71 @@ def build_parser() -> argparse.ArgumentParser:
         help="Vector migration batch size",
     )
 
+    # -------------------------------------------------------------------------
+    # Eval subcommand
+    # -------------------------------------------------------------------------
+    eval_parser = subparsers.add_parser(
+        "eval",
+        help="Evaluate retrieval quality",
+        description="Run retrieval evaluation against a test dataset.",
+    )
+    eval_subparsers = eval_parser.add_subparsers(
+        dest="eval_command",
+        title="eval commands",
+        required=True,
+    )
+
+    eval_retrieval_parser = eval_subparsers.add_parser(
+        "retrieval",
+        help="Run retrieval evaluation",
+    )
+    eval_retrieval_parser.add_argument(
+        "--profile",
+        type=str,
+        default="dense_only",
+        help="Retrieval profile to evaluate (default: dense_only)",
+    )
+    eval_retrieval_parser.add_argument(
+        "--dataset",
+        type=str,
+        default=None,
+        help="Path to evaluation dataset directory (default: bundled dataset)",
+    )
+    eval_retrieval_parser.add_argument(
+        "--compare",
+        type=str,
+        default=None,
+        help="Name of baseline to compare against",
+    )
+
+    eval_save_parser = eval_subparsers.add_parser(
+        "save-baseline",
+        help="Save evaluation results as a named baseline",
+    )
+    eval_save_parser.add_argument(
+        "--name",
+        type=str,
+        required=True,
+        help="Baseline name",
+    )
+    eval_save_parser.add_argument(
+        "--profile",
+        type=str,
+        default="dense_only",
+        help="Retrieval profile to evaluate and save",
+    )
+    eval_save_parser.add_argument(
+        "--dataset",
+        type=str,
+        default=None,
+        help="Path to evaluation dataset directory",
+    )
+
+    eval_list_parser = eval_subparsers.add_parser(
+        "list-baselines",
+        help="List saved evaluation baselines",
+    )
+
     return parser
 
 
@@ -284,6 +349,10 @@ def main(argv: list[str] | None = None) -> int:
             logger.info("Starting migrate command")
             from lsm.ui.shell.cli import run_migrate
             return run_migrate(args)
+        if args.command == "eval":
+            logger.info("Starting eval command")
+            from lsm.eval.cli import run_eval
+            return run_eval(args, config)
 
         else:
             # Should not reach here with required=True in subparsers
