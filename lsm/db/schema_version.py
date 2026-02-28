@@ -40,29 +40,18 @@ def _now_iso() -> str:
 
 
 def _ensure_schema_versions_table(conn: sqlite3.Connection) -> None:
-    conn.execute(
-        """
-        CREATE TABLE IF NOT EXISTS lsm_schema_versions (
-            id                INTEGER PRIMARY KEY AUTOINCREMENT,
-            manifest_version  INTEGER,
-            lsm_version       TEXT,
-            embedding_model   TEXT,
-            embedding_dim     INTEGER,
-            chunking_strategy TEXT,
-            chunk_size        INTEGER,
-            chunk_overlap     INTEGER,
-            created_at        TEXT,
-            last_ingest_at    TEXT
-        )
-        """
-    )
-    conn.execute(
-        """
-        CREATE INDEX IF NOT EXISTS idx_lsm_schema_versions_created_at
-        ON lsm_schema_versions(created_at)
-        """
-    )
-    conn.commit()
+    """Ensure the lsm_schema_versions table exists.
+
+    .. note::
+
+       When using the full provider path (``SQLiteVecProvider``), the table
+       is already created by ``lsm.db.schema.ensure_application_schema``.
+       This function is retained for standalone callers (e.g. tests, CLI
+       migration commands) that operate on a connection without a provider.
+    """
+    from lsm.db.schema import ensure_application_schema
+
+    ensure_application_schema(conn)
 
 
 def _get_value(config: Any, key: str, default: Any = None) -> Any:
