@@ -92,7 +92,7 @@ class _TestableIngestScreen(ingest_screen_mod.IngestScreen):
         fn()
 
 
-def _screen(current_context: str = "ingest"):
+def _screen(current_context: str = "ingest", provider: str = "sqlite"):
     notifications = []
 
     def _start_managed_worker(*, owner, key, start, timeout_s=None, cancel_existing=True):
@@ -101,7 +101,7 @@ def _screen(current_context: str = "ingest"):
 
     app = SimpleNamespace(
         ingest_provider=SimpleNamespace(count=lambda: 3),
-        config=SimpleNamespace(collection="kb", vectordb=SimpleNamespace(provider="chromadb")),
+        config=SimpleNamespace(collection="kb", vectordb=SimpleNamespace(provider=provider)),
         current_context=current_context,
         call_from_thread=lambda fn: fn(),
         update_chunk_count=lambda n: None,
@@ -209,6 +209,19 @@ def test_run_ingest_command_and_refresh_stats(monkeypatch: pytest.MonkeyPatch) -
 
     asyncio.run(screen._refresh_stats())
     assert "Collection: kb" in screen.widgets["#stats-content"].value
+
+
+def test_refresh_stats_shows_migration_advisory_for_chromadb(monkeypatch: pytest.MonkeyPatch) -> None:
+    screen = _screen(provider="chromadb")
+
+    async def _fake_to_thread(fn, *args, **kwargs):
+        return fn(*args, **kwargs)
+
+    monkeypatch.setattr(asyncio, "to_thread", _fake_to_thread)
+    asyncio.run(screen._refresh_stats())
+    assert "Migration required" in screen.widgets["#stats-content"].value
+    screen.action_show_migration_help()
+    assert "lsm migrate --from chroma --to sqlite" in screen.widgets["#ingest-output"].value
 
 
 def test_build_command_emits_completion_notification(monkeypatch: pytest.MonkeyPatch) -> None:

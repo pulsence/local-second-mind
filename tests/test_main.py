@@ -57,6 +57,19 @@ def test_main_dispatches_db(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> 
     assert code == 5
 
 
+def test_main_dispatches_migrate(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    cfg_file = tmp_path / "config.json"
+    cfg_file.write_text("{}", encoding="utf-8")
+    fake_config = SimpleNamespace()
+
+    monkeypatch.setattr(lsm_main, "configure_logging_from_args", lambda **kwargs: None)
+    monkeypatch.setattr("lsm.config.load_config_from_file", lambda p: fake_config)
+    monkeypatch.setattr("lsm.ui.shell.cli.run_migrate", lambda args: 6)
+
+    code = lsm_main.main(["--config", str(cfg_file), "migrate", "--from", "sqlite", "--to", "sqlite"])
+    assert code == 6
+
+
 def test_main_handles_keyboard_interrupt(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys) -> None:
     cfg_file = tmp_path / "config.json"
     cfg_file.write_text("{}", encoding="utf-8")

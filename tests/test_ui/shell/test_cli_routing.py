@@ -74,6 +74,32 @@ def test_db_complete_parses():
     assert args.force_file_pattern == "*.pdf"
 
 
+def test_migrate_parses():
+    parser = build_parser()
+    args = parser.parse_args(
+        [
+            "migrate",
+            "--from",
+            "sqlite",
+            "--to",
+            "postgresql",
+            "--source-path",
+            ".lsm",
+            "--target-connection-string",
+            "postgresql://user:pass@localhost:5432/lsm",
+            "--batch-size",
+            "500",
+        ]
+    )
+
+    assert args.command == "migrate"
+    assert args.migration_source == "sqlite"
+    assert args.migration_target == "postgresql"
+    assert args.source_path == ".lsm"
+    assert args.target_connection_string.startswith("postgresql://")
+    assert args.batch_size == 500
+
+
 def test_query_rejects_interactive_flag():
     parser = build_parser()
     with pytest.raises(SystemExit):

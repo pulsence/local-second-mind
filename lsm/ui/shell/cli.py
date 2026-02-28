@@ -6,12 +6,14 @@ Provides build, tag, and wipe command runners for non-interactive usage.
 
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
 from typing import Optional
 
 from lsm.config import load_config_from_file
-from lsm.config.models import LSMConfig
+from lsm.config.models import LSMConfig, VectorDBConfig
 from lsm.logging import get_logger
+from lsm.db.migration import migrate as migrate_db
 from lsm.ingest.api import run_ingest as api_run_ingest, wipe_collection as api_wipe_collection
 from lsm.ingest.tagging import tag_chunks
 from lsm.vectordb import PruneCriteria, create_vectordb_provider
@@ -57,6 +59,23 @@ def run_db(args) -> int:
 
     print("Missing db subcommand. Use `lsm db --help` for options.")
     return 2
+
+
+def run_migrate(args) -> int:
+    """Run explicit migration command."""
+    return run_migrate_cli(
+        args.config,
+        migration_source=getattr(args, "migration_source", None),
+        migration_target=getattr(args, "migration_target", None),
+        source_path=getattr(args, "source_path", None),
+        source_collection=getattr(args, "source_collection", None),
+        source_connection_string=getattr(args, "source_connection_string", None),
+        source_dir=getattr(args, "source_dir", None),
+        target_path=getattr(args, "target_path", None),
+        target_collection=getattr(args, "target_collection", None),
+        target_connection_string=getattr(args, "target_connection_string", None),
+        batch_size=getattr(args, "batch_size", 1000),
+    )
 
 
 def _load_config(config_path: str | Path) -> LSMConfig:
@@ -243,4 +262,109 @@ def run_db_complete_cli(
         return 1
 
     print("Completion ingest finished successfully.")
+    return 0
+
+
+def _with_overrides(
+    base: VectorDBConfig,
+    *,
+    provider: Optional[str] = None,
+    path: Optional[str] = None,
+    collection: Optional[str] = None,
+    connection_string: Optional[str] = None,
+) -> VectorDBConfig:
+    config = replace(base)
+    if provider:
+        config.provider = str(provider)
+    if path:
+        config.path = Path(path).expanduser()
+    if collection:
+        config.collection = str(collection)
+    if connection_string:
+        config.connection_string = str(connection_string)
+    return config
+
+
+def run_migrate_cli(
+    config_path: str | Path,
+    *,
+    migration_source: Optional[str],
+    migration_target: Optional[str],
+    source_path: Optional[str] = None,
+    source_collection: Optional[str] = None,
+    source_connection_string: Optional[str] = None,
+    source_dir: Optional[str] = None,
+    target_path: Optional[str] = None,
+    target_collection: Optional[str] = None,
+    target_connection_string: Optional[str] = None,
+    batch_size: int = 1000,
+) -> int:
+    """Run backend migration command."""
+    if not migration_source or not migration_target:
+        print("Error: --from and --to are required.")
+        return 2
+
+    source_value = str(migration_source).strip().lower()
+    target_value = str(migration_target).strip().lower()
+    if target_value == "v0.8":
+        target_value = "sqlite"
+
+    config = _load_config(config_path)
+    target_vdb = _with_overrides(
+        config.vectordb,
+        provider=target_value,
+        path=target_path,
+        collection=target_collection,
+        connection_string=target_connection_string,
+    )
+
+    source_payload: object
+    if source_value == "chroma":
+        source_payload = _with_overrides(
+            config.vectordb,
+            provider="chromadb",
+            path=source_path or ".chroma",
+            collection=source_collection or config.vectordb.collection,
+            connection_string=source_connection_string,
+        )
+    elif source_value in {"sqlite", "postgresql"}:
+        source_payload = _with_overrides(
+            config.vectordb,
+            provider=source_value,
+            path=source_path,
+            collection=source_collection,
+            connection_string=source_connection_string,
+        )
+    elif source_value == "v0.7":
+        source_payload = {"source_dir": source_dir}
+    else:
+        print(f"Error: unsupported migration source '{migration_source}'.")
+        return 2
+
+    target_runtime = replace(config, vectordb=target_vdb)
+
+    def progress(stage: str, current: int, total: int, message: str) -> None:
+        if total > 0:
+            print(f"[{stage}] {current}/{total} {message}")
+        else:
+            print(f"[{stage}] {message}")
+
+    try:
+        result = migrate_db(
+            source=source_value,
+            target=target_value,
+            source_config=source_payload,
+            target_config=target_runtime,
+            progress_callback=progress,
+            batch_size=max(1, int(batch_size)),
+        )
+    except Exception as exc:
+        print(f"Error: {exc}")
+        return 1
+
+    print(
+        "Migration complete: "
+        f"{result.get('migrated_vectors', 0):,}/{result.get('total_vectors', 0):,} vectors, "
+        f"validated tables={result.get('validated_tables', 0)}."
+    )
     return 0

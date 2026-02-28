@@ -160,6 +160,70 @@ def build_parser() -> argparse.ArgumentParser:
         help="Restrict completion ingest to files matching this glob pattern",
     )
 
+    # -------------------------------------------------------------------------
+    # Migration subcommand
+    # -------------------------------------------------------------------------
+    migrate_parser = subparsers.add_parser(
+        "migrate",
+        help="Migrate vector/state data across backends",
+        description="Run explicit migration between supported backend/state formats.",
+    )
+    migrate_parser.add_argument(
+        "--from",
+        dest="migration_source",
+        required=True,
+        choices=["chroma", "sqlite", "postgresql", "v0.7"],
+        help="Migration source backend/state",
+    )
+    migrate_parser.add_argument(
+        "--to",
+        dest="migration_target",
+        required=True,
+        choices=["sqlite", "postgresql", "v0.8"],
+        help="Migration target backend/state",
+    )
+    migrate_parser.add_argument(
+        "--source-path",
+        type=str,
+        help="Source sqlite/chroma path override",
+    )
+    migrate_parser.add_argument(
+        "--source-collection",
+        type=str,
+        help="Source collection override",
+    )
+    migrate_parser.add_argument(
+        "--source-connection-string",
+        type=str,
+        help="Source PostgreSQL connection string override",
+    )
+    migrate_parser.add_argument(
+        "--source-dir",
+        type=str,
+        help="Legacy v0.7 state directory (manifest.json, memories.db, schedules.json)",
+    )
+    migrate_parser.add_argument(
+        "--target-path",
+        type=str,
+        help="Target sqlite path override",
+    )
+    migrate_parser.add_argument(
+        "--target-collection",
+        type=str,
+        help="Target collection override",
+    )
+    migrate_parser.add_argument(
+        "--target-connection-string",
+        type=str,
+        help="Target PostgreSQL connection string override",
+    )
+    migrate_parser.add_argument(
+        "--batch-size",
+        type=int,
+        default=1000,
+        help="Vector migration batch size",
+    )
+
     return parser
 
 
@@ -216,6 +280,10 @@ def main(argv: list[str] | None = None) -> int:
             logger.info("Starting db command")
             from lsm.ui.shell.cli import run_db
             return run_db(args)
+        if args.command == "migrate":
+            logger.info("Starting migrate command")
+            from lsm.ui.shell.cli import run_migrate
+            return run_migrate(args)
 
         else:
             # Should not reach here with required=True in subparsers

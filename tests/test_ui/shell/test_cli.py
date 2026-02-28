@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 
+from lsm.config.models import VectorDBConfig
 import lsm.ui.shell.cli as shell_cli
 
 
@@ -38,6 +40,26 @@ def test_run_db_dispatches_and_missing_subcommand(monkeypatch: pytest.MonkeyPatc
     out = capsys.readouterr().out
     assert code == 2
     assert "Missing db subcommand" in out
+
+
+def test_run_migrate_dispatch(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(shell_cli, "run_migrate_cli", lambda *args, **kwargs: 31)
+    code = shell_cli.run_migrate(
+        SimpleNamespace(
+            config="c",
+            migration_source="sqlite",
+            migration_target="sqlite",
+            source_path=None,
+            source_collection=None,
+            source_connection_string=None,
+            source_dir=None,
+            target_path=None,
+            target_collection=None,
+            target_connection_string=None,
+            batch_size=1000,
+        )
+    )
+    assert code == 31
 
 
 def test_load_config_missing_and_success(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -160,3 +182,46 @@ def test_run_db_complete_cli_success_and_error(monkeypatch: pytest.MonkeyPatch, 
     out2 = capsys.readouterr().out
     assert code2 == 1
     assert "Error: completion failed" in out2
+
+
+def test_run_migrate_cli_success_and_error(monkeypatch: pytest.MonkeyPatch, capsys) -> None:
+    @dataclass
+    class _ConfigStub:
+        vectordb: VectorDBConfig
+        ingest: object
+        global_settings: object
+
+    cfg = _ConfigStub(
+        vectordb=VectorDBConfig(provider="sqlite", path=Path(".lsm"), collection="kb"),
+        ingest=SimpleNamespace(chunking_strategy="structure", chunk_size=1800, chunk_overlap=200),
+        global_settings=SimpleNamespace(embed_model="test-model", embedding_dimension=384),
+    )
+    monkeypatch.setattr(shell_cli, "_load_config", lambda p: cfg)
+    monkeypatch.setattr(
+        shell_cli,
+        "migrate_db",
+        lambda **kwargs: {"migrated_vectors": 2, "total_vectors": 2, "validated_tables": 3},
+    )
+
+    ok_code = shell_cli.run_migrate_cli(
+        "config.json",
+        migration_source="sqlite",
+        migration_target="sqlite",
+    )
+    ok_out = capsys.readouterr().out
+    assert ok_code == 0
+    assert "Migration complete" in ok_out
+
+    monkeypatch.setattr(
+        shell_cli,
+        "migrate_db",
+        lambda **kwargs: (_ for _ in ()).throw(RuntimeError("migration failed")),
+    )
+    bad_code = shell_cli.run_migrate_cli(
+        "config.json",
+        migration_source="sqlite",
+        migration_target="sqlite",
+    )
+    bad_out = capsys.readouterr().out
+    assert bad_code == 1
+    assert "Error: migration failed" in bad_out

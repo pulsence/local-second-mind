@@ -54,6 +54,7 @@ class IngestScreen(ManagedScreenMixin, Widget):
     BINDINGS = [
         Binding("ctrl+b", "run_build", "Build", show=True),
         Binding("ctrl+t", "run_tagging", "Tag", show=True),
+        Binding("ctrl+m", "show_migration_help", "Migrate", show=True),
         Binding("ctrl+shift+r", "refresh_stats", "Refresh", show=True),
         Binding("escape", "clear_input", "Clear", show=False),
     ]
@@ -99,7 +100,7 @@ class IngestScreen(ManagedScreenMixin, Widget):
 
                     yield Static(
                         "Common Commands\n"
-                        "/stats   /explore   /build   /tag   /wipe",
+                        "/stats   /explore   /build   /tag   /wipe   /migrate",
                         id="ingest-common-commands",
                     )
 
@@ -125,8 +126,10 @@ class IngestScreen(ManagedScreenMixin, Widget):
                         "/tag [--max N]    - Run AI tagging\n"
                         "/stats            - Show detailed statistics\n"
                         "/explore [query]  - Browse indexed files\n"
-                        "/wipe             - Clear collection\n\n"
-                        "Use Ctrl+B to build, Ctrl+T to tag, Ctrl+Shift+R to refresh.",
+                        "/wipe             - Clear collection\n"
+                        "/migrate          - Show migration instructions\n\n"
+                        "Use Ctrl+B to build, Ctrl+T to tag, Ctrl+M for migration help, "
+                        "Ctrl+Shift+R to refresh.",
                         id="ingest-output",
                     )
                     yield Tree("Explore Results", id="ingest-explore-tree")
@@ -189,6 +192,10 @@ class IngestScreen(ManagedScreenMixin, Widget):
         Args:
             command: Command string
         """
+        if command.strip().lower() in {"/migrate", "migrate"}:
+            self.action_show_migration_help()
+            return
+
         output_widget = self.query_one("#ingest-output", Static)
         if self._pending_command:
             self._pending_responses.append(command)
@@ -531,6 +538,14 @@ class IngestScreen(ManagedScreenMixin, Widget):
 
         try:
             app = self.app
+            configured_provider = str(getattr(app.config.vectordb, "provider", "")).strip().lower()
+            if configured_provider in {"chromadb", "chroma"}:
+                stats_widget.update(
+                    "Migration required\n"
+                    "Configured provider: chromadb (migration-only in v0.8)\n"
+                    "Action: press Ctrl+M for migration command help."
+                )
+                return
 
             # Initialize provider if needed
             if not hasattr(app, 'ingest_provider') or app.ingest_provider is None:
@@ -585,6 +600,28 @@ class IngestScreen(ManagedScreenMixin, Widget):
             timeout_s=self._INGEST_STATS_WORKER_TIMEOUT_SECONDS,
             exclusive=True,
         )
+
+    def action_show_migration_help(self) -> None:
+        """Show migration instructions (advisory only)."""
+        provider = str(getattr(self.app.config.vectordb, "provider", "")).strip().lower()
+        if provider in {"chromadb", "chroma"}:
+            message = (
+                "Migration action\n\n"
+                "Run this command in shell mode:\n"
+                "lsm migrate --from chroma --to sqlite --source-path .chroma --target-path .lsm\n\n"
+                "Adjust paths/collection to match your setup."
+            )
+        else:
+            message = (
+                "Migration action\n\n"
+                "Use explicit migration command:\n"
+                "lsm migrate --from <source> --to <target> [options]\n\n"
+                "Examples:\n"
+                "- lsm migrate --from sqlite --to postgresql --target-connection-string <dsn>\n"
+                "- lsm migrate --from postgresql --to sqlite --target-path .lsm"
+            )
+        self._update_output_text(message)
+        self._set_command_status("Migration guidance displayed.")
 
     def action_clear_input(self) -> None:
         """Clear the input field."""
