@@ -226,6 +226,36 @@ class TestStructureChunkText:
         assert "Section A" in headings
         assert "Section B" in headings
 
+    def test_max_heading_depth_ignores_deep_heading_boundaries(self):
+        text = (
+            "# H1\n\n"
+            "Intro.\n\n"
+            "## H2\n\n"
+            "Level 2 content.\n\n"
+            "### H3\n\n"
+            "Level 3 content."
+        )
+        chunks = structure_chunk_text(text, chunk_size=5000, max_heading_depth=2)
+        headings = {c.heading for c in chunks if c.heading}
+        assert "H1" in headings
+        assert "H2" in headings
+        assert "H3" not in headings
+        assert any("### H3" in c.text for c in chunks)
+
+    def test_max_heading_depth_none_keeps_all_heading_boundaries(self):
+        text = (
+            "# H1\n\n"
+            "Intro.\n\n"
+            "## H2\n\n"
+            "Level 2 content.\n\n"
+            "### H3\n\n"
+            "Level 3 content."
+        )
+        chunks = structure_chunk_text(text, chunk_size=5000, max_heading_depth=None)
+        headings = {c.heading for c in chunks if c.heading}
+        assert "H3" in headings
+        assert all("### H3" not in c.text for c in chunks)
+
     def test_heading_metadata(self):
         """Heading text should appear in chunk metadata."""
         text = "## My Section\n\nSome content here."
@@ -633,3 +663,40 @@ class TestPipelineIntegration:
             for p in result.chunk_positions
         )
         assert has_page
+
+    def test_parse_and_chunk_job_root_max_heading_depth_overrides_global(self, tmp_path):
+        """Per-root max heading depth takes precedence over global value."""
+        from lsm.ingest.pipeline import parse_and_chunk_job
+
+        md_file = tmp_path / "depth_override.md"
+        md_file.write_text(
+            "# Root\n\n"
+            "Root text.\n\n"
+            "## L2\n\n"
+            "Level 2 text.\n\n"
+            "### L3\n\n"
+            "Level 3 text.",
+            encoding="utf-8",
+        )
+
+        result = parse_and_chunk_job(
+            fp=md_file,
+            source_path=str(md_file),
+            mtime_ns=md_file.stat().st_mtime_ns,
+            size=md_file.stat().st_size,
+            fhash="abc123",
+            had_prev=False,
+            chunk_size=5000,
+            chunk_overlap=0,
+            chunking_strategy="structure",
+            max_heading_depth=1,
+            root_max_heading_depth=3,
+        )
+
+        assert result.ok
+        headings = [
+            p.get("heading")
+            for p in (result.chunk_positions or [])
+            if p.get("heading") is not None
+        ]
+        assert "L3" in headings

@@ -18,12 +18,14 @@
       {
         "path": "D:\\Writings",
         "tags": ["creative", "personal"],
-        "content_type": "writing"
+        "content_type": "writing",
+        "max_heading_depth": 2
       }
     ],
     "chunk_size": 1800,
     "chunk_overlap": 200,
     "chunking_strategy": "structure",
+    "max_heading_depth": null,
     "enable_ocr": false,
     "enable_ai_tagging": false,
     "tags_per_chunk": 3,

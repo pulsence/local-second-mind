@@ -141,6 +141,39 @@ def test_build_config_reads_ingest_from_nested_section(tmp_path: Path) -> None:
     assert config.ingest.enable_ocr is True
 
 
+def test_build_config_reads_max_heading_depth_fields(tmp_path: Path) -> None:
+    raw = _base_raw(tmp_path)
+    raw["ingest"]["max_heading_depth"] = 2
+    raw["ingest"]["roots"] = [
+        {
+            "path": str(tmp_path / "docs"),
+            "max_heading_depth": 3,
+        }
+    ]
+
+    config = build_config_from_raw(raw, tmp_path / "config.json")
+
+    assert config.ingest.max_heading_depth == 2
+    assert config.ingest.roots[0].max_heading_depth == 3
+
+
+def test_config_to_raw_includes_max_heading_depth_fields(tmp_path: Path) -> None:
+    raw = _base_raw(tmp_path)
+    raw["ingest"]["max_heading_depth"] = 2
+    raw["ingest"]["roots"] = [
+        {
+            "path": str(tmp_path / "docs"),
+            "max_heading_depth": 4,
+        }
+    ]
+
+    config = build_config_from_raw(raw, tmp_path / "config.json")
+    serialized = config_to_raw(config)
+
+    assert serialized["ingest"]["max_heading_depth"] == 2
+    assert serialized["ingest"]["roots"][0]["max_heading_depth"] == 4
+
+
 def test_build_config_reads_global_settings(tmp_path: Path) -> None:
     raw = _base_raw(tmp_path)
     raw["global"]["embed_model"] = "custom-model"

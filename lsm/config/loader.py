@@ -354,6 +354,11 @@ def build_ingest_config(raw: Dict[str, Any], config_path: Path) -> IngestConfig:
                     path=Path(r["path"]),
                     tags=r.get("tags"),
                     content_type=r.get("content_type"),
+                    max_heading_depth=(
+                        int(r["max_heading_depth"])
+                        if r.get("max_heading_depth") is not None
+                        else None
+                    ),
                 )
             )
         else:
@@ -369,6 +374,11 @@ def build_ingest_config(raw: Dict[str, Any], config_path: Path) -> IngestConfig:
         chunk_size=int(ingest_raw.get("chunk_size", IngestConfig.chunk_size)),
         chunk_overlap=int(ingest_raw.get("chunk_overlap", IngestConfig.chunk_overlap)),
         chunking_strategy=str(ingest_raw.get("chunking_strategy", IngestConfig.chunking_strategy)),
+        max_heading_depth=(
+            int(ingest_raw["max_heading_depth"])
+            if ingest_raw.get("max_heading_depth") is not None
+            else None
+        ),
         enable_ocr=bool(ingest_raw.get("enable_ocr", False)),
         enable_ai_tagging=bool(ingest_raw.get("enable_ai_tagging", False)),
         tags_per_chunk=int(ingest_raw.get("tags_per_chunk", 3)),
@@ -1388,8 +1398,13 @@ def config_to_raw(config: LSMConfig) -> Dict[str, Any]:
         "ingest": {
             "roots": [
                 (
-                    {"path": str(rc.path), "tags": rc.tags, "content_type": rc.content_type}
-                    if rc.tags or rc.content_type
+                    {
+                        "path": str(rc.path),
+                        "tags": rc.tags,
+                        "content_type": rc.content_type,
+                        "max_heading_depth": rc.max_heading_depth,
+                    }
+                    if rc.tags or rc.content_type or rc.max_heading_depth is not None
                     else str(rc.path)
                 )
                 for rc in config.ingest.roots
@@ -1397,6 +1412,7 @@ def config_to_raw(config: LSMConfig) -> Dict[str, Any]:
             "chunk_size": config.ingest.chunk_size,
             "chunk_overlap": config.ingest.chunk_overlap,
             "chunking_strategy": config.ingest.chunking_strategy,
+            "max_heading_depth": config.ingest.max_heading_depth,
             "enable_ocr": config.ingest.enable_ocr,
             "enable_ai_tagging": config.ingest.enable_ai_tagging,
             "tags_per_chunk": config.ingest.tags_per_chunk,

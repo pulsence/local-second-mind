@@ -71,6 +71,19 @@ def _split_paragraphs(text: str) -> List[_Paragraph]:
     return _split_paragraphs_base(text, allow_plain_headings=False)
 
 
+def _is_heading_boundary(
+    paragraph: _Paragraph,
+    max_heading_depth: Optional[int],
+) -> bool:
+    """Return True when paragraph should be treated as a heading boundary."""
+    if not paragraph.is_heading:
+        return False
+    if max_heading_depth is None:
+        return True
+    level = paragraph.heading_level or 1
+    return level <= max_heading_depth
+
+
 # ------------------------------------------------------------------
 # Sentence splitting
 # ------------------------------------------------------------------
@@ -131,6 +144,7 @@ def structure_chunk_text(
     chunk_size: int = DEFAULT_CHUNK_SIZE,
     overlap: float = 0.25,
     page_segments: Optional[List[PageSegment]] = None,
+    max_heading_depth: Optional[int] = None,
     track_positions: bool = True,
 ) -> List[StructuredChunk]:
     """
@@ -154,6 +168,9 @@ def structure_chunk_text(
             next.  Defaults to 0.25 (25%).
         page_segments: Optional page-level segments from the parser for
             mapping chunks back to page numbers.
+        max_heading_depth: Optional maximum heading depth treated as a chunk
+            boundary. Headings deeper than this value are folded into parent
+            section body text.
         track_positions: If True, populate character offsets and page
             numbers on each ``StructuredChunk``.
 
@@ -180,6 +197,7 @@ def structure_chunk_text(
     current_sentences: List[str] = []
     current_len = 0
     current_heading: Optional[str] = None
+    active_boundary_heading: Optional[str] = None
     current_para_index: Optional[int] = None
     current_start_char: int = 0
 
@@ -218,18 +236,21 @@ def structure_chunk_text(
         current_len = 0
 
     for para in paragraphs:
-        # Heading paragraphs start a new chunk
-        if para.is_heading:
+        # Heading paragraphs at/above max depth start a new chunk.
+        if _is_heading_boundary(para, max_heading_depth):
             _flush()
-            current_heading = para.heading
+            active_boundary_heading = para.heading
+            current_heading = active_boundary_heading
             current_start_char = para.start_char
             current_para_index = para.index
             continue
 
-        # If heading changed (e.g. paragraph under a new heading), flush
-        if para.heading != current_heading:
+        effective_heading = active_boundary_heading
+
+        # If heading changed (e.g. paragraph under a new heading), flush.
+        if effective_heading != current_heading:
             _flush()
-            current_heading = para.heading
+            current_heading = effective_heading
             current_start_char = para.start_char
             current_para_index = para.index
 

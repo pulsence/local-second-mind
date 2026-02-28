@@ -28,6 +28,7 @@ class TestRootConfig:
         rc = RootConfig(path="/tmp")
         assert rc.tags is None
         assert rc.content_type is None
+        assert rc.max_heading_depth is None
 
     def test_with_tags(self) -> None:
         rc = RootConfig(path="/tmp", tags=["research", "papers"])
@@ -38,10 +39,16 @@ class TestRootConfig:
         assert rc.content_type == "writing"
 
     def test_with_all_fields(self) -> None:
-        rc = RootConfig(path="/tmp", tags=["a", "b"], content_type="notes")
+        rc = RootConfig(
+            path="/tmp",
+            tags=["a", "b"],
+            content_type="notes",
+            max_heading_depth=2,
+        )
         assert rc.path == Path("/tmp")
         assert rc.tags == ["a", "b"]
         assert rc.content_type == "notes"
+        assert rc.max_heading_depth == 2
 
 
 # ---- IngestConfig roots backward compatibility ----
@@ -66,13 +73,19 @@ class TestIngestConfigRoots:
     def test_dict_roots_converted_to_root_config(self) -> None:
         cfg = IngestConfig(
             roots=[
-                {"path": "/tmp/docs", "tags": ["research"], "content_type": "academic"}
+                {
+                    "path": "/tmp/docs",
+                    "tags": ["research"],
+                    "content_type": "academic",
+                    "max_heading_depth": 3,
+                }
             ]
         )
         assert isinstance(cfg.roots[0], RootConfig)
         assert cfg.roots[0].path == Path("/tmp/docs")
         assert cfg.roots[0].tags == ["research"]
         assert cfg.roots[0].content_type == "academic"
+        assert cfg.roots[0].max_heading_depth == 3
 
     def test_dict_roots_without_optional_fields(self) -> None:
         cfg = IngestConfig(roots=[{"path": "/tmp/docs"}])
@@ -163,11 +176,17 @@ class TestConfigLoaderRoots:
 
         raw = self._base_raw(tmp_path)
         raw["ingest"]["roots"] = [
-            {"path": str(tmp_path / "docs"), "tags": ["research"], "content_type": "academic"}
+            {
+                "path": str(tmp_path / "docs"),
+                "tags": ["research"],
+                "content_type": "academic",
+                "max_heading_depth": 2,
+            }
         ]
         config = build_ingest_config(raw, tmp_path / "config.json")
         assert config.roots[0].tags == ["research"]
         assert config.roots[0].content_type == "academic"
+        assert config.roots[0].max_heading_depth == 2
 
     def test_build_ingest_config_mixed_roots(self, tmp_path: Path) -> None:
         from lsm.config.loader import build_ingest_config
@@ -218,7 +237,12 @@ class TestConfigLoaderRoots:
 
         config = self._make_config(tmp_path, [
             str(tmp_path / "plain"),
-            RootConfig(path=tmp_path / "tagged", tags=["t1"], content_type="notes"),
+            RootConfig(
+                path=tmp_path / "tagged",
+                tags=["t1"],
+                content_type="notes",
+                max_heading_depth=4,
+            ),
         ])
         out = config_to_raw(config)
         roots_out = out["ingest"]["roots"]
@@ -226,6 +250,7 @@ class TestConfigLoaderRoots:
         assert isinstance(roots_out[1], dict)  # tagged root
         assert roots_out[1]["tags"] == ["t1"]
         assert roots_out[1]["content_type"] == "notes"
+        assert roots_out[1]["max_heading_depth"] == 4
 
     def test_config_to_raw_roundtrip(self, tmp_path: Path) -> None:
         from lsm.config.loader import config_to_raw, build_ingest_config

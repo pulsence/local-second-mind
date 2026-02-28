@@ -24,6 +24,7 @@ class RootConfig:
         path: Root directory path to scan for documents.
         tags: Optional tags to propagate to all chunks from this root.
         content_type: Optional content type label for chunks from this root.
+        max_heading_depth: Optional per-root override for heading boundary depth.
     """
 
     path: Path
@@ -35,9 +36,14 @@ class RootConfig:
     content_type: Optional[str] = None
     """Content type label for documents under this root."""
 
+    max_heading_depth: Optional[int] = None
+    """Optional per-root heading depth override for structure chunking."""
+
     def __post_init__(self) -> None:
         if isinstance(self.path, str):
             self.path = Path(self.path)
+        if self.max_heading_depth is not None:
+            self.max_heading_depth = int(self.max_heading_depth)
 
 
 @dataclass
@@ -77,6 +83,12 @@ class IngestConfig:
     chunking_strategy: str = "structure"
     """Chunking strategy: 'structure' (heading/paragraph/sentence-aware) or
     'fixed' (simple character-based sliding window)."""
+
+    max_heading_depth: Optional[int] = None
+    """Maximum heading depth treated as chunk boundary for structure chunking.
+
+    When None, all heading depths are treated as boundaries.
+    """
 
     enable_ocr: bool = False
     """Enable OCR for image-based PDFs."""
@@ -121,6 +133,7 @@ class IngestConfig:
                             path=Path(r["path"]),
                             tags=r.get("tags"),
                             content_type=r.get("content_type"),
+                            max_heading_depth=r.get("max_heading_depth"),
                         )
                     )
                 elif isinstance(r, (str, Path)):
@@ -189,6 +202,18 @@ class IngestConfig:
                 f"chunking_strategy must be one of {valid_strategies}, "
                 f"got '{self.chunking_strategy}'"
             )
+
+        if self.max_heading_depth is not None and self.max_heading_depth < 1:
+            raise ValueError(
+                f"max_heading_depth must be positive if set, got {self.max_heading_depth}"
+            )
+
+        for root_cfg in self.roots:
+            if root_cfg.max_heading_depth is not None and root_cfg.max_heading_depth < 1:
+                raise ValueError(
+                    "root max_heading_depth must be positive if set, "
+                    f"got {root_cfg.max_heading_depth} for {root_cfg.path}"
+                )
 
         if self.enable_translation and not self.enable_language_detection:
             raise ValueError(

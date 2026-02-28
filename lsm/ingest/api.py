@@ -143,6 +143,7 @@ def run_ingest(
         chunk_size=config.ingest.chunk_size,
         chunk_overlap=config.ingest.chunk_overlap,
         chunking_strategy=config.ingest.chunking_strategy,
+        max_heading_depth=config.ingest.max_heading_depth,
         progress_callback=progress_callback,
         enable_language_detection=config.ingest.enable_language_detection,
         enable_translation=config.ingest.enable_translation,

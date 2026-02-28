@@ -55,6 +55,8 @@ def parse_and_chunk_job(
     chunk_size: int = 1800,
     chunk_overlap: int = 200,
     chunking_strategy: str = "structure",
+    max_heading_depth: Optional[int] = None,
+    root_max_heading_depth: Optional[int] = None,
     enable_language_detection: bool = False,
     enable_translation: bool = False,
     translation_target: str = "en",
@@ -80,6 +82,8 @@ def parse_and_chunk_job(
         chunk_overlap: Chunk overlap in characters
         chunking_strategy: 'structure' for heading/paragraph/sentence-aware
             chunking, 'fixed' for simple sliding-window chunking.
+        max_heading_depth: Global heading depth limit for structure chunking.
+        root_max_heading_depth: Optional per-root override for heading depth.
         enable_language_detection: Detect document language and store in metadata.
         enable_translation: Translate non-target-language chunks via LLM.
         translation_target: Target language code for translation (ISO 639-1).
@@ -156,6 +160,11 @@ def parse_and_chunk_job(
 
         # Chunk text using the configured strategy
         if chunking_strategy == "structure":
+            effective_max_heading_depth = (
+                root_max_heading_depth
+                if root_max_heading_depth is not None
+                else max_heading_depth
+            )
             # Convert overlap from absolute chars to a ratio for structure chunking
             overlap_ratio = chunk_overlap / chunk_size if chunk_size > 0 else 0.0
             structured = structure_chunk_text(
@@ -163,6 +172,7 @@ def parse_and_chunk_job(
                 chunk_size=chunk_size,
                 overlap=overlap_ratio,
                 page_segments=page_segments,
+                max_heading_depth=effective_max_heading_depth,
                 track_positions=True,
             )
             chunks, positions = structured_chunks_to_positions(structured)
@@ -268,6 +278,7 @@ def ingest(
     chunk_size: int = 1800,
     chunk_overlap: int = 200,
     chunking_strategy: str = "structure",
+    max_heading_depth: Optional[int] = None,
     progress_callback: Optional[Callable[[str, int, int, str], None]] = None,
     enable_language_detection: bool = False,
     enable_translation: bool = False,
@@ -876,6 +887,8 @@ def ingest(
                         chunk_size,
                         chunk_overlap,
                         chunking_strategy,
+                        max_heading_depth,
+                        root_cfg.max_heading_depth,
                         enable_language_detection,
                         enable_translation,
                         translation_target,
