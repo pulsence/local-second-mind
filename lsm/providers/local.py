@@ -13,8 +13,10 @@ import requests
 from lsm.config.models import LLMConfig
 from lsm.logging import get_logger
 from .base import BaseLLMProvider
+from .helpers import UnsupportedParamTracker
 
 logger = get_logger(__name__)
+_UNSUPPORTED_PARAM_TRACKER = UnsupportedParamTracker()
 
 
 class LocalProvider(BaseLLMProvider):
@@ -89,7 +91,31 @@ class LocalProvider(BaseLLMProvider):
         prompt_cache_retention: Optional[int] = None,
         **kwargs,
     ) -> str:
-        _ = previous_response_id, prompt_cache_key, prompt_cache_retention, kwargs
+        _ = kwargs
+        if previous_response_id is not None and _UNSUPPORTED_PARAM_TRACKER.should_send(
+            self.model, "previous_response_id"
+        ):
+            logger.debug(
+                "Local model '%s' does not support 'previous_response_id'; ignoring.",
+                self.model,
+            )
+            _UNSUPPORTED_PARAM_TRACKER.mark_unsupported(self.model, "previous_response_id")
+        if prompt_cache_key is not None and _UNSUPPORTED_PARAM_TRACKER.should_send(
+            self.model, "prompt_cache_key"
+        ):
+            logger.debug(
+                "Local model '%s' does not support 'prompt_cache_key'; ignoring.",
+                self.model,
+            )
+            _UNSUPPORTED_PARAM_TRACKER.mark_unsupported(self.model, "prompt_cache_key")
+        if prompt_cache_retention is not None and _UNSUPPORTED_PARAM_TRACKER.should_send(
+            self.model, "prompt_cache_retention"
+        ):
+            logger.debug(
+                "Local model '%s' does not support 'prompt_cache_retention'; ignoring.",
+                self.model,
+            )
+            _UNSUPPORTED_PARAM_TRACKER.mark_unsupported(self.model, "prompt_cache_retention")
         user = f"{prompt}\n\n{input}" if prompt else input
         return self._chat(
             instruction or "",
@@ -148,7 +174,31 @@ class LocalProvider(BaseLLMProvider):
         prompt_cache_retention: Optional[int] = None,
         **kwargs,
     ):
-        _ = previous_response_id, prompt_cache_key, prompt_cache_retention, kwargs
+        _ = kwargs
+        if previous_response_id is not None and _UNSUPPORTED_PARAM_TRACKER.should_send(
+            self.model, "previous_response_id"
+        ):
+            logger.debug(
+                "Local model '%s' does not support 'previous_response_id'; ignoring.",
+                self.model,
+            )
+            _UNSUPPORTED_PARAM_TRACKER.mark_unsupported(self.model, "previous_response_id")
+        if prompt_cache_key is not None and _UNSUPPORTED_PARAM_TRACKER.should_send(
+            self.model, "prompt_cache_key"
+        ):
+            logger.debug(
+                "Local model '%s' does not support 'prompt_cache_key'; ignoring.",
+                self.model,
+            )
+            _UNSUPPORTED_PARAM_TRACKER.mark_unsupported(self.model, "prompt_cache_key")
+        if prompt_cache_retention is not None and _UNSUPPORTED_PARAM_TRACKER.should_send(
+            self.model, "prompt_cache_retention"
+        ):
+            logger.debug(
+                "Local model '%s' does not support 'prompt_cache_retention'; ignoring.",
+                self.model,
+            )
+            _UNSUPPORTED_PARAM_TRACKER.mark_unsupported(self.model, "prompt_cache_retention")
         user = f"{prompt}\n\n{input}" if prompt else input
         yield from self._chat_stream(
             instruction or "",

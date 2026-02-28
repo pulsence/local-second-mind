@@ -14,8 +14,10 @@ from google.genai import types as genai_types
 from lsm.config.models import LLMConfig
 from lsm.logging import get_logger
 from .base import BaseLLMProvider
+from .helpers import UnsupportedParamTracker
 
 logger = get_logger(__name__)
+_UNSUPPORTED_PARAM_TRACKER = UnsupportedParamTracker()
 
 
 class GeminiProvider(BaseLLMProvider):
@@ -190,7 +192,31 @@ class GeminiProvider(BaseLLMProvider):
         prompt_cache_retention: Optional[int] = None,
         **kwargs,
     ) -> str:
-        _ = previous_response_id, prompt_cache_key, prompt_cache_retention
+        _ = kwargs
+        if previous_response_id is not None and _UNSUPPORTED_PARAM_TRACKER.should_send(
+            self.model, "previous_response_id"
+        ):
+            logger.debug(
+                "Gemini model '%s' does not support 'previous_response_id'; ignoring.",
+                self.model,
+            )
+            _UNSUPPORTED_PARAM_TRACKER.mark_unsupported(self.model, "previous_response_id")
+        if prompt_cache_key is not None and _UNSUPPORTED_PARAM_TRACKER.should_send(
+            self.model, "prompt_cache_key"
+        ):
+            logger.debug(
+                "Gemini model '%s' does not support 'prompt_cache_key'; ignoring.",
+                self.model,
+            )
+            _UNSUPPORTED_PARAM_TRACKER.mark_unsupported(self.model, "prompt_cache_key")
+        if prompt_cache_retention is not None and _UNSUPPORTED_PARAM_TRACKER.should_send(
+            self.model, "prompt_cache_retention"
+        ):
+            logger.debug(
+                "Gemini model '%s' does not support 'prompt_cache_retention'; ignoring.",
+                self.model,
+            )
+            _UNSUPPORTED_PARAM_TRACKER.mark_unsupported(self.model, "prompt_cache_retention")
         user = f"{prompt}\n\n{input}" if prompt else input
         tools = kwargs.get("tools")
         if tools:
@@ -228,11 +254,16 @@ class GeminiProvider(BaseLLMProvider):
                 )
             return (text or "").strip()
 
-        prompt_text = f"{instruction}\n\n{user}" if instruction else user
-        return self._generate(
-            prompt_text,
+        config = self._build_config(
             temperature=temperature if temperature is not None else 0.0,
             max_tokens=max_tokens,
+            system_instruction=instruction,
+        )
+        return self._generate(
+            user,
+            temperature=temperature if temperature is not None else 0.0,
+            max_tokens=max_tokens,
+            config=config,
         )
 
     def send_streaming_message(
@@ -247,14 +278,41 @@ class GeminiProvider(BaseLLMProvider):
         prompt_cache_retention: Optional[int] = None,
         **kwargs,
     ):
-        _ = previous_response_id, prompt_cache_key, prompt_cache_retention, kwargs
+        _ = kwargs
+        if previous_response_id is not None and _UNSUPPORTED_PARAM_TRACKER.should_send(
+            self.model, "previous_response_id"
+        ):
+            logger.debug(
+                "Gemini model '%s' does not support 'previous_response_id'; ignoring.",
+                self.model,
+            )
+            _UNSUPPORTED_PARAM_TRACKER.mark_unsupported(self.model, "previous_response_id")
+        if prompt_cache_key is not None and _UNSUPPORTED_PARAM_TRACKER.should_send(
+            self.model, "prompt_cache_key"
+        ):
+            logger.debug(
+                "Gemini model '%s' does not support 'prompt_cache_key'; ignoring.",
+                self.model,
+            )
+            _UNSUPPORTED_PARAM_TRACKER.mark_unsupported(self.model, "prompt_cache_key")
+        if prompt_cache_retention is not None and _UNSUPPORTED_PARAM_TRACKER.should_send(
+            self.model, "prompt_cache_retention"
+        ):
+            logger.debug(
+                "Gemini model '%s' does not support 'prompt_cache_retention'; ignoring.",
+                self.model,
+            )
+            _UNSUPPORTED_PARAM_TRACKER.mark_unsupported(self.model, "prompt_cache_retention")
         user = f"{prompt}\n\n{input}" if prompt else input
         client = self._ensure_client()
-        config = self._build_config(temperature or 0.0, max_tokens)
-        prompt_text = f"{instruction}\n\n{user}" if instruction else user
+        config = self._build_config(
+            temperature or 0.0,
+            max_tokens,
+            system_instruction=instruction,
+        )
         stream = client.models.generate_content_stream(
             model=self.model,
-            contents=prompt_text,
+            contents=user,
             config=config,
         )
         for chunk in stream:

@@ -128,3 +128,73 @@ def test_estimate_cost(llm_config):
     cost = provider.estimate_cost(input_tokens=1000, output_tokens=500)
     assert cost is not None
     assert cost > 0
+
+
+def test_send_message_uses_system_instruction_config(llm_config):
+    with patch("lsm.providers.gemini.genai") as mock_genai:
+        mock_client = _setup_genai_mock(mock_genai, "ok")
+
+        provider = GeminiProvider(llm_config)
+        provider.send_message(input="Question", instruction="System rule", max_tokens=32)
+
+        kwargs = mock_client.models.generate_content.call_args.kwargs
+        assert kwargs["contents"] == "Question"
+        assert kwargs["config"].system_instruction == "System rule"
+
+
+def test_send_message_instruction_optional(llm_config):
+    with patch("lsm.providers.gemini.genai") as mock_genai:
+        mock_client = _setup_genai_mock(mock_genai, "ok")
+
+        provider = GeminiProvider(llm_config)
+        provider.send_message(input="Question", instruction=None, max_tokens=32)
+
+        kwargs = mock_client.models.generate_content.call_args.kwargs
+        assert kwargs["contents"] == "Question"
+        assert kwargs["config"].system_instruction is None
+
+
+def test_send_message_logs_unsupported_cache_params(llm_config, caplog):
+    import lsm.providers.gemini as gemini_module
+
+    gemini_module._UNSUPPORTED_PARAM_TRACKER._unsupported.clear()
+    with patch("lsm.providers.gemini.genai") as mock_genai:
+        _setup_genai_mock(mock_genai, "ok")
+
+        provider = GeminiProvider(llm_config)
+        with caplog.at_level("DEBUG", logger="lsm.providers.gemini"):
+            provider.send_message(
+                input="Question",
+                previous_response_id="resp-prev",
+                prompt_cache_key="cache-key",
+                prompt_cache_retention=300,
+                max_tokens=32,
+            )
+
+        assert "does not support 'previous_response_id'" in caplog.text
+        assert "does not support 'prompt_cache_key'" in caplog.text
+        assert "does not support 'prompt_cache_retention'" in caplog.text
+
+
+def test_streaming_uses_system_instruction_config(llm_config):
+    stream_chunk = Mock()
+    stream_chunk.text = "hello"
+
+    with patch("lsm.providers.gemini.genai") as mock_genai:
+        mock_client = Mock()
+        mock_client.models.generate_content_stream.return_value = [stream_chunk]
+        mock_genai.Client.return_value = mock_client
+
+        provider = GeminiProvider(llm_config)
+        chunks = list(
+            provider.send_streaming_message(
+                input="Question",
+                instruction="System stream rule",
+                max_tokens=32,
+            )
+        )
+
+        assert "".join(chunks) == "hello"
+        kwargs = mock_client.models.generate_content_stream.call_args.kwargs
+        assert kwargs["contents"] == "Question"
+        assert kwargs["config"].system_instruction == "System stream rule"

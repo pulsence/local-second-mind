@@ -13,8 +13,10 @@ from anthropic import Anthropic
 from lsm.config.models import LLMConfig
 from lsm.logging import get_logger
 from .base import BaseLLMProvider
+from .helpers import UnsupportedParamTracker
 
 logger = get_logger(__name__)
+_UNSUPPORTED_PARAM_TRACKER = UnsupportedParamTracker()
 
 
 class AnthropicProvider(BaseLLMProvider):
@@ -153,17 +155,39 @@ class AnthropicProvider(BaseLLMProvider):
         prompt_cache_retention: Optional[int] = None,
         **kwargs,
     ) -> str:
-        _ = previous_response_id, prompt_cache_retention
-        user = f"{prompt}\n\n{input}" if prompt else input
-        system_payload: Any = instruction or ""
-        if kwargs.get("enable_server_cache"):
+        _ = kwargs
+        if previous_response_id is not None and _UNSUPPORTED_PARAM_TRACKER.should_send(
+            self.model, "previous_response_id"
+        ):
+            logger.debug(
+                "Anthropic model '%s' does not support 'previous_response_id'; ignoring.",
+                self.model,
+            )
+            _UNSUPPORTED_PARAM_TRACKER.mark_unsupported(self.model, "previous_response_id")
+        if prompt is not None and _UNSUPPORTED_PARAM_TRACKER.should_send(self.model, "prompt"):
+            logger.debug("Anthropic model '%s' does not support 'prompt'; ignoring.", self.model)
+            _UNSUPPORTED_PARAM_TRACKER.mark_unsupported(self.model, "prompt")
+        if prompt_cache_retention is not None and _UNSUPPORTED_PARAM_TRACKER.should_send(
+            self.model, "prompt_cache_retention"
+        ):
+            logger.debug(
+                "Anthropic model '%s' does not support 'prompt_cache_retention'; ignoring.",
+                self.model,
+            )
+            _UNSUPPORTED_PARAM_TRACKER.mark_unsupported(self.model, "prompt_cache_retention")
+
+        system_payload: Any = instruction
+        if prompt_cache_key:
             system_payload = [
-                {"type": "text", "text": instruction or "", "cache_control": {"type": "ephemeral"}}
+                {
+                    "type": "text",
+                    "text": instruction or "",
+                    "cache_control": {"type": "ephemeral"},
+                }
             ]
-        if prompt_cache_key and kwargs.get("enable_server_cache"):
-            system_payload = [
-                {"type": "text", "text": instruction or "", "cache_control": {"type": "ephemeral"}}
-            ]
+        extra_headers: Dict[str, str] = {}
+        if prompt_cache_key:
+            extra_headers["x-prompt-cache-key"] = prompt_cache_key
 
         tools = kwargs.get("tools")
         tool_choice = kwargs.get("tool_choice")
@@ -187,8 +211,10 @@ class AnthropicProvider(BaseLLMProvider):
                 "max_tokens": max_tokens,
                 "temperature": temperature,
                 "system": system_payload,
-                "messages": [{"role": "user", "content": user}],
+                "messages": [{"role": "user", "content": input}],
             }
+            if extra_headers:
+                request_args["extra_headers"] = extra_headers
             if tools_payload is not None:
                 request_args["tools"] = tools_payload
             if tool_choice_payload is not None:
@@ -214,16 +240,51 @@ class AnthropicProvider(BaseLLMProvider):
         prompt_cache_retention: Optional[int] = None,
         **kwargs,
     ):
-        _ = previous_response_id, prompt_cache_key, prompt_cache_retention, kwargs
-        user = f"{prompt}\n\n{input}" if prompt else input
-        try:
-            stream = self.client.messages.stream(
-                model=self.model,
-                max_tokens=max_tokens,
-                temperature=temperature,
-                system=instruction,
-                messages=[{"role": "user", "content": user}],
+        _ = kwargs
+        if previous_response_id is not None and _UNSUPPORTED_PARAM_TRACKER.should_send(
+            self.model, "previous_response_id"
+        ):
+            logger.debug(
+                "Anthropic model '%s' does not support 'previous_response_id'; ignoring.",
+                self.model,
             )
+            _UNSUPPORTED_PARAM_TRACKER.mark_unsupported(self.model, "previous_response_id")
+        if prompt is not None and _UNSUPPORTED_PARAM_TRACKER.should_send(self.model, "prompt"):
+            logger.debug("Anthropic model '%s' does not support 'prompt'; ignoring.", self.model)
+            _UNSUPPORTED_PARAM_TRACKER.mark_unsupported(self.model, "prompt")
+        if prompt_cache_retention is not None and _UNSUPPORTED_PARAM_TRACKER.should_send(
+            self.model, "prompt_cache_retention"
+        ):
+            logger.debug(
+                "Anthropic model '%s' does not support 'prompt_cache_retention'; ignoring.",
+                self.model,
+            )
+            _UNSUPPORTED_PARAM_TRACKER.mark_unsupported(self.model, "prompt_cache_retention")
+
+        system_payload: Any = instruction
+        if prompt_cache_key:
+            system_payload = [
+                {
+                    "type": "text",
+                    "text": instruction or "",
+                    "cache_control": {"type": "ephemeral"},
+                }
+            ]
+        extra_headers: Dict[str, str] = {}
+        if prompt_cache_key:
+            extra_headers["x-prompt-cache-key"] = prompt_cache_key
+
+        try:
+            stream_args: Dict[str, Any] = {
+                "model": self.model,
+                "max_tokens": max_tokens,
+                "temperature": temperature,
+                "system": system_payload,
+                "messages": [{"role": "user", "content": input}],
+            }
+            if extra_headers:
+                stream_args["extra_headers"] = extra_headers
+            stream = self.client.messages.stream(**stream_args)
             with stream as session:
                 for text in session.text_stream:
                     if text:
@@ -232,14 +293,17 @@ class AnthropicProvider(BaseLLMProvider):
         except AttributeError:
             pass
 
-        stream = self.client.messages.create(
-            model=self.model,
-            max_tokens=max_tokens,
-            temperature=temperature,
-            system=instruction,
-            messages=[{"role": "user", "content": user}],
-            stream=True,
-        )
+        create_args: Dict[str, Any] = {
+            "model": self.model,
+            "max_tokens": max_tokens,
+            "temperature": temperature,
+            "system": system_payload,
+            "messages": [{"role": "user", "content": input}],
+            "stream": True,
+        }
+        if extra_headers:
+            create_args["extra_headers"] = extra_headers
+        stream = self.client.messages.create(**create_args)
         for event in stream:
             event_type = getattr(event, "type", None)
             if event_type is None and isinstance(event, dict):

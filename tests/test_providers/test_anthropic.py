@@ -140,3 +140,73 @@ def test_estimate_cost(llm_config):
     cost = provider.estimate_cost(input_tokens=1000, output_tokens=500)
     assert cost is not None
     assert cost > 0
+
+
+def test_send_message_maps_instruction_and_cache_key(llm_config):
+    with patch("lsm.providers.anthropic.Anthropic") as mock_anthropic:
+        mock_client = Mock()
+        mock_client.messages.create.return_value = _mock_anthropic_response("Answer")
+        mock_anthropic.return_value = mock_client
+
+        provider = AnthropicProvider(llm_config)
+        provider.send_message(
+            input="Question",
+            instruction="System rule",
+            prompt_cache_key="anthropic-cache",
+            max_tokens=64,
+        )
+
+        kwargs = mock_client.messages.create.call_args.kwargs
+        assert kwargs["messages"][0]["content"] == "Question"
+        assert kwargs["system"][0]["text"] == "System rule"
+        assert kwargs["system"][0]["cache_control"]["type"] == "ephemeral"
+        assert kwargs["extra_headers"]["x-prompt-cache-key"] == "anthropic-cache"
+
+
+def test_send_message_logs_unsupported_params(llm_config, caplog):
+    import lsm.providers.anthropic as anthropic_module
+
+    anthropic_module._UNSUPPORTED_PARAM_TRACKER._unsupported.clear()
+    with patch("lsm.providers.anthropic.Anthropic") as mock_anthropic:
+        mock_client = Mock()
+        mock_client.messages.create.return_value = _mock_anthropic_response("Answer")
+        mock_anthropic.return_value = mock_client
+
+        provider = AnthropicProvider(llm_config)
+        with caplog.at_level("DEBUG", logger="lsm.providers.anthropic"):
+            provider.send_message(
+                input="Question",
+                instruction="System rule",
+                previous_response_id="prev-id",
+                prompt="Prefix",
+                prompt_cache_retention=3600,
+                max_tokens=64,
+            )
+
+        assert "does not support 'previous_response_id'" in caplog.text
+        assert "does not support 'prompt'" in caplog.text
+        assert "does not support 'prompt_cache_retention'" in caplog.text
+
+
+def test_streaming_maps_cache_key(llm_config):
+    stream_event = {"type": "content_block_delta", "delta": {"text": "chunk"}}
+    with patch("lsm.providers.anthropic.Anthropic") as mock_anthropic:
+        mock_client = Mock()
+        mock_client.messages.stream.side_effect = AttributeError()
+        mock_client.messages.create.return_value = [stream_event]
+        mock_anthropic.return_value = mock_client
+
+        provider = AnthropicProvider(llm_config)
+        chunks = list(
+            provider.send_streaming_message(
+                input="Question",
+                instruction="System rule",
+                prompt_cache_key="anthropic-cache",
+                max_tokens=64,
+            )
+        )
+
+        assert "".join(chunks) == "chunk"
+        kwargs = mock_client.messages.create.call_args.kwargs
+        assert kwargs["system"][0]["cache_control"]["type"] == "ephemeral"
+        assert kwargs["extra_headers"]["x-prompt-cache-key"] == "anthropic-cache"

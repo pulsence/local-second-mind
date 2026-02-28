@@ -109,7 +109,7 @@ class TestOpenRouterProvider:
                 instruction="system",
                 temperature=0.2,
                 max_tokens=12,
-                enable_server_cache=True,
+                prompt_cache_key="cache-key-1",
             )
 
             _, kwargs = mock_client.chat.completions.create.call_args
@@ -117,6 +117,7 @@ class TestOpenRouterProvider:
             assert messages
             assert isinstance(messages[0].get("content"), list)
             assert messages[0]["content"][0].get("cache_control") is not None
+            assert kwargs["extra_headers"]["x-prompt-cache-key"] == "cache-key-1"
 
     def test_usage_tracking_populated(self, llm_config: LLMConfig) -> None:
         usage = {
@@ -146,3 +147,56 @@ class TestOpenRouterProvider:
         with patch("lsm.providers.openrouter.OpenAI"):
             provider = create_provider(config)
             assert isinstance(provider, OpenRouterProvider)
+
+    def test_streaming_cache_support_matches_non_streaming(self, llm_config: LLMConfig) -> None:
+        delta = Mock()
+        delta.content = "chunk"
+        choice = Mock()
+        choice.delta = delta
+        event = Mock()
+        event.choices = [choice]
+
+        with patch("lsm.providers.openrouter.OpenAI") as mock_openai:
+            mock_client = Mock()
+            mock_client.chat.completions.create.return_value = [event]
+            mock_openai.return_value = mock_client
+
+            provider = OpenRouterProvider(llm_config)
+            chunks = list(
+                provider.send_streaming_message(
+                    input="user",
+                    instruction="system",
+                    prompt_cache_key="cache-key-stream",
+                    max_tokens=12,
+                )
+            )
+
+            assert "".join(chunks) == "chunk"
+            _, kwargs = mock_client.chat.completions.create.call_args
+            messages = kwargs.get("messages") or []
+            assert isinstance(messages[0]["content"], list)
+            assert kwargs["extra_headers"]["x-prompt-cache-key"] == "cache-key-stream"
+            assert kwargs["stream"] is True
+
+    def test_logs_unsupported_params(self, llm_config: LLMConfig, caplog) -> None:
+        import lsm.providers.openrouter as openrouter_module
+
+        openrouter_module._UNSUPPORTED_PARAM_TRACKER._unsupported.clear()
+        response = _mock_chat_response()
+        with patch("lsm.providers.openrouter.OpenAI") as mock_openai:
+            mock_client = Mock()
+            mock_client.chat.completions.create.return_value = response
+            mock_openai.return_value = mock_client
+
+            provider = OpenRouterProvider(llm_config)
+            with caplog.at_level("DEBUG", logger="lsm.providers.openrouter"):
+                provider.send_message(
+                    input="user",
+                    instruction="system",
+                    previous_response_id="prev-id",
+                    prompt_cache_retention=120,
+                    max_tokens=12,
+                )
+
+        assert "does not support 'previous_response_id'" in caplog.text
+        assert "does not support 'prompt_cache_retention'" in caplog.text

@@ -15,8 +15,10 @@ from openai import OpenAI
 from lsm.config.models import LLMConfig
 from lsm.logging import get_logger
 from .base import BaseLLMProvider
+from .helpers import UnsupportedParamTracker
 
 logger = get_logger(__name__)
+_UNSUPPORTED_PARAM_TRACKER = UnsupportedParamTracker()
 
 _DEFAULT_BASE_URL = "https://openrouter.ai/api/v1"
 
@@ -203,9 +205,24 @@ class OpenRouterProvider(BaseLLMProvider):
         prompt_cache_retention: Optional[int] = None,
         **kwargs,
     ) -> str:
-        _ = previous_response_id, prompt_cache_key, prompt_cache_retention
+        if previous_response_id is not None and _UNSUPPORTED_PARAM_TRACKER.should_send(
+            self.model, "previous_response_id"
+        ):
+            logger.debug(
+                "OpenRouter model '%s' does not support 'previous_response_id'; ignoring.",
+                self.model,
+            )
+            _UNSUPPORTED_PARAM_TRACKER.mark_unsupported(self.model, "previous_response_id")
+        if prompt_cache_retention is not None and _UNSUPPORTED_PARAM_TRACKER.should_send(
+            self.model, "prompt_cache_retention"
+        ):
+            logger.debug(
+                "OpenRouter model '%s' does not support 'prompt_cache_retention'; ignoring.",
+                self.model,
+            )
+            _UNSUPPORTED_PARAM_TRACKER.mark_unsupported(self.model, "prompt_cache_retention")
         user = f"{prompt}\n\n{input}" if prompt else input
-        use_cache = bool(kwargs.get("enable_server_cache"))
+        use_cache = bool(kwargs.get("enable_server_cache") or prompt_cache_key)
         messages: List[Dict[str, Any]] = []
         if instruction:
             messages.append(self._build_message("system", instruction, use_cache=use_cache))
@@ -218,6 +235,8 @@ class OpenRouterProvider(BaseLLMProvider):
         }
         if temperature is not None:
             request_args["temperature"] = temperature
+        if prompt_cache_key:
+            request_args["extra_headers"] = {"x-prompt-cache-key": prompt_cache_key}
 
         tools = kwargs.get("tools")
         if tools:
@@ -273,9 +292,24 @@ class OpenRouterProvider(BaseLLMProvider):
         prompt_cache_retention: Optional[int] = None,
         **kwargs,
     ) -> Iterable[str]:
-        _ = previous_response_id, prompt_cache_key, prompt_cache_retention
+        if previous_response_id is not None and _UNSUPPORTED_PARAM_TRACKER.should_send(
+            self.model, "previous_response_id"
+        ):
+            logger.debug(
+                "OpenRouter model '%s' does not support 'previous_response_id'; ignoring.",
+                self.model,
+            )
+            _UNSUPPORTED_PARAM_TRACKER.mark_unsupported(self.model, "previous_response_id")
+        if prompt_cache_retention is not None and _UNSUPPORTED_PARAM_TRACKER.should_send(
+            self.model, "prompt_cache_retention"
+        ):
+            logger.debug(
+                "OpenRouter model '%s' does not support 'prompt_cache_retention'; ignoring.",
+                self.model,
+            )
+            _UNSUPPORTED_PARAM_TRACKER.mark_unsupported(self.model, "prompt_cache_retention")
         user = f"{prompt}\n\n{input}" if prompt else input
-        use_cache = bool(kwargs.get("enable_server_cache"))
+        use_cache = bool(kwargs.get("enable_server_cache") or prompt_cache_key)
         messages: List[Dict[str, Any]] = []
         if instruction:
             messages.append(self._build_message("system", instruction, use_cache=use_cache))
@@ -289,6 +323,27 @@ class OpenRouterProvider(BaseLLMProvider):
         }
         if temperature is not None:
             request_args["temperature"] = temperature
+        if prompt_cache_key:
+            request_args["extra_headers"] = {"x-prompt-cache-key": prompt_cache_key}
+
+        tools = kwargs.get("tools")
+        if tools:
+            request_args["tools"] = [
+                self._format_tool_definition(tool) for tool in tools if isinstance(tool, dict)
+            ]
+            tool_choice = kwargs.get("tool_choice")
+            if tool_choice:
+                request_args["tool_choice"] = tool_choice
+
+        extra_body: Dict[str, Any] = {}
+        fallback_models = _normalize_fallback_models(self.config.fallback_models)
+        if fallback_models:
+            extra_body["models"] = [self.config.model] + fallback_models
+            extra_body["route"] = "fallback"
+        if kwargs.get("include_usage") or use_cache:
+            extra_body["usage"] = {"include": True}
+        if extra_body:
+            request_args["extra_body"] = extra_body
 
         stream = self.client.chat.completions.create(**request_args)
         for event in stream:

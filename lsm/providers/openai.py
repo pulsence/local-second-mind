@@ -164,14 +164,15 @@ class OpenAIProvider(BaseLLMProvider):
         prompt_cache_retention: Optional[int] = None,
         **kwargs,
     ) -> str:
-        user = f"{prompt}\n\n{input}" if prompt else input
+        user_input = f"{prompt}\n\n{input}" if prompt else input
         request_args: Dict[str, Any] = {
             "model": self.config.model,
             "reasoning": {"effort": kwargs.get("reasoning_effort", "medium")},
-            "instructions": instruction,
-            "input": [{"role": "user", "content": user}],
+            "input": user_input,
             "max_output_tokens": max_tokens,
         }
+        if instruction is not None:
+            request_args["instructions"] = instruction
         tools = kwargs.get("tools")
         if tools:
             request_args["tools"] = [
@@ -181,12 +182,13 @@ class OpenAIProvider(BaseLLMProvider):
             if tool_choice:
                 request_args["tool_choice"] = tool_choice
 
-        _ = prompt_cache_retention
-        if kwargs.get("enable_server_cache") and previous_response_id:
+        if previous_response_id:
             request_args["previous_response_id"] = previous_response_id
 
-        if kwargs.get("enable_server_cache") and prompt_cache_key:
+        if prompt_cache_key:
             request_args["prompt_cache_key"] = prompt_cache_key
+        if prompt_cache_retention is not None:
+            request_args["prompt_cache_retention"] = prompt_cache_retention
 
         json_schema = kwargs.get("json_schema")
         if json_schema and _UNSUPPORTED_PARAM_TRACKER.should_send(self.config.model, "text"):
@@ -225,6 +227,10 @@ class OpenAIProvider(BaseLLMProvider):
                 _UNSUPPORTED_PARAM_TRACKER.mark_unsupported(self.config.model, "previous_response_id")
                 request_args.pop("previous_response_id", None)
                 resp = self._call_responses(request_args, "send_message")
+            elif _UNSUPPORTED_PARAM_TRACKER.is_unsupported_error(e, "prompt_cache_retention"):
+                _UNSUPPORTED_PARAM_TRACKER.mark_unsupported(self.config.model, "prompt_cache_retention")
+                request_args.pop("prompt_cache_retention", None)
+                resp = self._call_responses(request_args, "send_message")
             else:
                 raise
 
@@ -248,19 +254,41 @@ class OpenAIProvider(BaseLLMProvider):
         prompt_cache_retention: Optional[int] = None,
         **kwargs,
     ):
-        _ = prompt_cache_retention
-        user = f"{prompt}\n\n{input}" if prompt else input
+        user_input = f"{prompt}\n\n{input}" if prompt else input
         request_args: Dict[str, Any] = {
             "model": self.config.model,
             "reasoning": {"effort": kwargs.get("reasoning_effort", "medium")},
-            "instructions": instruction,
-            "input": [{"role": "user", "content": user}],
+            "input": user_input,
             "max_output_tokens": max_tokens,
         }
-        if kwargs.get("enable_server_cache") and previous_response_id:
+        if instruction is not None:
+            request_args["instructions"] = instruction
+        if previous_response_id:
             request_args["previous_response_id"] = previous_response_id
-        if kwargs.get("enable_server_cache") and prompt_cache_key:
+        if prompt_cache_key:
             request_args["prompt_cache_key"] = prompt_cache_key
+        if prompt_cache_retention is not None:
+            request_args["prompt_cache_retention"] = prompt_cache_retention
+
+        tools = kwargs.get("tools")
+        if tools:
+            request_args["tools"] = [
+                self._format_tool_definition(tool) for tool in tools if isinstance(tool, dict)
+            ]
+            tool_choice = kwargs.get("tool_choice")
+            if tool_choice:
+                request_args["tool_choice"] = tool_choice
+
+        json_schema = kwargs.get("json_schema")
+        if json_schema and _UNSUPPORTED_PARAM_TRACKER.should_send(self.config.model, "text"):
+            request_args["text"] = {
+                "format": {
+                    "type": "json_schema",
+                    "name": kwargs.get("json_schema_name", "response"),
+                    "strict": True,
+                    "schema": json_schema,
+                }
+            }
 
         if (
             temperature is not None
@@ -276,6 +304,22 @@ class OpenAIProvider(BaseLLMProvider):
                 _UNSUPPORTED_PARAM_TRACKER.mark_unsupported(self.config.model, "temperature")
                 request_args.pop("temperature", None)
                 stream = self.client.responses.create(**request_args, stream=True)
+            elif _UNSUPPORTED_PARAM_TRACKER.is_unsupported_error(e, "text"):
+                _UNSUPPORTED_PARAM_TRACKER.mark_unsupported(self.config.model, "text")
+                request_args.pop("text", None)
+                stream = self.client.responses.create(**request_args, stream=True)
+            elif _UNSUPPORTED_PARAM_TRACKER.is_unsupported_error(e, "prompt_cache_key"):
+                _UNSUPPORTED_PARAM_TRACKER.mark_unsupported(self.config.model, "prompt_cache_key")
+                request_args.pop("prompt_cache_key", None)
+                stream = self.client.responses.create(**request_args, stream=True)
+            elif _UNSUPPORTED_PARAM_TRACKER.is_unsupported_error(e, "previous_response_id"):
+                _UNSUPPORTED_PARAM_TRACKER.mark_unsupported(self.config.model, "previous_response_id")
+                request_args.pop("previous_response_id", None)
+                stream = self.client.responses.create(**request_args, stream=True)
+            elif _UNSUPPORTED_PARAM_TRACKER.is_unsupported_error(e, "prompt_cache_retention"):
+                _UNSUPPORTED_PARAM_TRACKER.mark_unsupported(self.config.model, "prompt_cache_retention")
+                request_args.pop("prompt_cache_retention", None)
+                stream = self.client.responses.create(**request_args, stream=True)
             else:
                 raise
 
@@ -290,6 +334,14 @@ class OpenAIProvider(BaseLLMProvider):
                 if delta:
                     yield delta
             elif event_type == "response.completed":
+                response_obj = getattr(event, "response", None)
+                if response_obj is None and isinstance(event, dict):
+                    response_obj = event.get("response")
+                response_id = getattr(response_obj, "id", None)
+                if response_id is None and isinstance(response_obj, dict):
+                    response_id = response_obj.get("id")
+                if response_id:
+                    self.last_response_id = str(response_id)
                 break
 
     def get_model_pricing(self) -> Optional[Dict[str, float]]:

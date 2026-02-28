@@ -88,3 +88,47 @@ def test_generate_tags_success(llm_config):
         tags = provider.generate_tags("Local model", num_tags=2)
 
         assert tags == ["local", "model"]
+
+
+def test_send_message_maps_instruction_to_system_role(llm_config):
+    with patch("lsm.providers.local.requests.post") as mock_post:
+        mock_post.return_value = _mock_response("ok")
+
+        provider = LocalProvider(llm_config)
+        provider.send_message(
+            input="hello",
+            instruction="system-rule",
+            prompt="prefix",
+            max_tokens=32,
+        )
+
+        kwargs = mock_post.call_args.kwargs
+        payload = kwargs["json"]
+        messages = payload["messages"]
+        assert messages[0]["role"] == "system"
+        assert messages[0]["content"] == "system-rule"
+        assert messages[1]["role"] == "user"
+        assert messages[1]["content"] == "prefix\n\nhello"
+
+
+def test_send_message_logs_unsupported_cache_params(llm_config, caplog):
+    import lsm.providers.local as local_module
+
+    local_module._UNSUPPORTED_PARAM_TRACKER._unsupported.clear()
+    with patch("lsm.providers.local.requests.post") as mock_post:
+        mock_post.return_value = _mock_response("ok")
+
+        provider = LocalProvider(llm_config)
+        with caplog.at_level("DEBUG", logger="lsm.providers.local"):
+            provider.send_message(
+                input="hello",
+                instruction="system-rule",
+                previous_response_id="prev",
+                prompt_cache_key="cache-key",
+                prompt_cache_retention=60,
+                max_tokens=32,
+            )
+
+    assert "does not support 'previous_response_id'" in caplog.text
+    assert "does not support 'prompt_cache_key'" in caplog.text
+    assert "does not support 'prompt_cache_retention'" in caplog.text

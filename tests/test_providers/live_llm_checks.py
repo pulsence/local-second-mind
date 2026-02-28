@@ -28,8 +28,8 @@ def exercise_live_provider_contract(
     assert health["available"] is True
 
     direct = provider.send_message(
-        system="You are concise.",
-        user="Reply with a short acknowledgment for a live test.",
+        instruction="You are concise.",
+        input="Reply with a short acknowledgment for a live test.",
         temperature=0.0,
         max_tokens=80,
     )
@@ -41,8 +41,8 @@ def exercise_live_provider_contract(
 
     streamed = _collect_stream_text(
         provider.send_streaming_message(
-            system="You are concise.",
-            user="Stream a short acknowledgment for a live test.",
+            instruction="You are concise.",
+            input="Stream a short acknowledgment for a live test.",
             temperature=0.0,
             max_tokens=80,
         )
