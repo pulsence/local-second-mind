@@ -280,7 +280,8 @@ def migrate(
                 runtime_config=target_config,
                 inferred_embedding_dim=None,
             )
-            expected_counts = {"vector_rows": _count_vector_rows(target_conn)}
+            vector_key = _vector_validation_key(target_provider, target_conn)
+            expected_counts = {vector_key: _count_vector_rows(target_conn, vector_key)}
             expected_counts.update(imported_counts)
             if _table_exists(target_conn, "lsm_schema_versions"):
                 expected_counts["lsm_schema_versions"] = _count_table_rows(
@@ -292,8 +293,8 @@ def migrate(
         return {
             "source": source_enum.value,
             "target": target_enum.value,
-            "total_vectors": expected_counts["vector_rows"],
-            "migrated_vectors": expected_counts["vector_rows"],
+            "total_vectors": expected_counts[vector_key],
+            "migrated_vectors": expected_counts[vector_key],
             "validated_tables": int(validation_result.get("checked", 0)),
             "legacy_source_dir": str(source_dir),
         }
@@ -317,7 +318,12 @@ def migrate(
         if target_conn is not None:
             _ensure_aux_tables(target_conn)
 
-        expected_counts: dict[str, int] = {"vector_rows": int(total)}
+        vector_key = (
+            _vector_validation_key(target_provider, target_conn)
+            if target_conn is not None
+            else "vector_rows"
+        )
+        expected_counts: dict[str, int] = {vector_key: int(total)}
         if source_conn is not None and target_conn is not None:
             expected_counts.update(
                 _copy_auxiliary_state(
@@ -363,8 +369,8 @@ def validate_migration(target_conn: Any) -> Dict[str, Any]:
         if not table_name:
             continue
         expected = int(row.get("expected_count") or 0)
-        if table_name == "vector_rows":
-            actual = _count_vector_rows(target_conn)
+        if table_name.startswith("vector_rows"):
+            actual = _count_vector_rows(target_conn, table_name)
         else:
             actual = _count_table_rows(target_conn, table_name)
         if actual != expected:
@@ -853,7 +859,18 @@ def _count_table_rows(conn: Any, table_name: str) -> int:
     return int(row[0] or 0)
 
 
-def _count_vector_rows(conn: Any) -> int:
+def _count_vector_rows_for_key(conn: Any, key: Optional[str]) -> int:
+    preferred_table: Optional[str] = None
+    if key and ":" in key:
+        _prefix, table_name = key.split(":", 1)
+        table_name = str(table_name or "").strip()
+        if table_name:
+            preferred_table = table_name
+    if preferred_table:
+        if _table_exists(conn, preferred_table):
+            return _count_table_rows(conn, preferred_table)
+        return 0
+
     if _table_exists(conn, "lsm_chunks"):
         row = _execute(conn, "SELECT COUNT(*) FROM lsm_chunks").fetchone()
         return int(row[0] or 0) if row is not None else 0
@@ -875,6 +892,27 @@ def _count_vector_rows(conn: Any) -> int:
             if table_name:
                 return _count_table_rows(conn, table_name)
     return 0
+
+
+def _count_vector_rows(conn: Any, key: Optional[str] = None) -> int:
+    return _count_vector_rows_for_key(conn, key)
+
+
+def _vector_validation_key(target_provider: Any, target_conn: Any) -> str:
+    if _table_exists(target_conn, "lsm_chunks"):
+        return "vector_rows:lsm_chunks"
+
+    table_name = getattr(target_provider, "_table_name", None)
+    if isinstance(table_name, str):
+        candidate = table_name.strip()
+        if candidate:
+            try:
+                _safe_ident(candidate)
+            except ValueError:
+                return "vector_rows"
+            return f"vector_rows:{candidate}"
+
+    return "vector_rows"
 
 
 def _next_schema_version_id(conn: Any) -> int:

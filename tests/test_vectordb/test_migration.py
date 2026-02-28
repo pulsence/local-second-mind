@@ -394,6 +394,45 @@ def test_framework_validation_detects_mismatch(monkeypatch: pytest.MonkeyPatch) 
         )
 
 
+def test_validate_migration_supports_explicit_vector_table_key() -> None:
+    conn = _aux_connection()
+    conn.execute(
+        """
+        INSERT INTO lsm_chunks(chunk_id, source_path, chunk_text, is_current)
+        VALUES ('a', '/tmp/a.md', 'alpha', 1), ('b', '/tmp/b.md', 'beta', 1)
+        """
+    )
+    conn.commit()
+    migration_mod._record_validation_counts(conn, {"vector_rows:lsm_chunks": 2})
+
+    result = migration_mod.validate_migration(conn)
+    assert result["checked"] >= 1
+    assert result["mismatches"] == {}
+
+
+def test_count_vector_rows_explicit_key_does_not_fallback(monkeypatch: pytest.MonkeyPatch) -> None:
+    class _Cursor:
+        @staticmethod
+        def fetchone() -> tuple[int]:
+            return (5,)
+
+    execute_calls: list[str] = []
+
+    def _fake_execute(_conn, query: str, _params=()):  # noqa: ANN001
+        execute_calls.append(query)
+        return _Cursor()
+
+    def _fake_table_exists(_conn, table_name: str) -> bool:  # noqa: ANN001
+        return table_name == "lsm_chunks"
+
+    monkeypatch.setattr(migration_mod, "_execute", _fake_execute)
+    monkeypatch.setattr(migration_mod, "_table_exists", _fake_table_exists)
+
+    # Explicit table key should not fallback to the generic lsm_chunks row count path.
+    assert migration_mod._count_vector_rows(object(), "vector_rows:chunks_target") == 0
+    assert execute_calls == []
+
+
 def test_framework_migration_is_idempotent(monkeypatch: pytest.MonkeyPatch) -> None:
     source_conn = _aux_connection()
     target_conn = _aux_connection()
