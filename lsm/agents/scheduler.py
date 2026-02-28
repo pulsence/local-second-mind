@@ -4,18 +4,20 @@ Agent scheduler service for recurring harness runs.
 
 from __future__ import annotations
 
+import hashlib
 import inspect
 import json
+import sqlite3
 import threading
 import time
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
-from pathlib import Path
 from typing import Any, Callable, Dict, Optional, Sequence
 
-from lsm.config.models import LSMConfig, ScheduleConfig
+from lsm.config.models import LSMConfig, ScheduleConfig, VectorDBConfig
 from lsm.config.models.agents import AgentConfig, SandboxConfig
 from lsm.logging import get_logger
+from lsm.vectordb import BaseVectorDBProvider, create_vectordb_provider
 
 from .base import AgentState, AgentStatus
 from .factory import create_agent
@@ -44,14 +46,24 @@ def _parse_datetime(value: Any) -> Optional[datetime]:
     return parsed.astimezone(timezone.utc)
 
 
-def _safe_schedule_id(index: int, schedule: ScheduleConfig) -> str:
+def _safe_schedule_id(schedule: ScheduleConfig) -> str:
     normalized = "".join(
         ch if ch.isalnum() or ch in {"_", "-"} else "_"
         for ch in str(schedule.agent_name or "").strip().lower()
     ).strip("_")
     if not normalized:
         normalized = "agent"
-    return f"{index}:{normalized}"
+    payload = {
+        "agent_name": str(schedule.agent_name or "").strip(),
+        "interval": str(schedule.interval or "").strip(),
+        "params": dict(schedule.params or {}),
+        "concurrency_policy": str(schedule.concurrency_policy or "").strip(),
+        "confirmation_mode": str(schedule.confirmation_mode or "").strip(),
+    }
+    digest = hashlib.sha256(
+        json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()[:12]
+    return f"{normalized}:{digest}"
 
 
 def _to_bool(value: Any, default: bool = False) -> bool:
@@ -95,6 +107,7 @@ class AgentScheduler:
         *,
         collection: Any = None,
         embedder: Any = None,
+        vectordb: VectorDBConfig | BaseVectorDBProvider | None = None,
         batch_size: int = 32,
         tick_seconds: float = 60.0,
         now_fn: Optional[Callable[[], datetime]] = None,
@@ -113,18 +126,25 @@ class AgentScheduler:
         self.batch_size = int(batch_size)
         self.tick_seconds = max(1.0, float(tick_seconds))
         self.now_fn = now_fn or _utcnow
+        self._vectordb = vectordb or config.vectordb
 
         self.harness_cls = harness_cls
         self.agent_factory = agent_factory
         self.tool_registry_builder = tool_registry_builder
         self.memory_store_factory = memory_store_factory
 
-        self.state_path = self.agent_config.agents_folder / "schedules.json"
-
         self._lock = threading.Lock()
         self._stop_event = threading.Event()
         self._thread: Optional[threading.Thread] = None
         self._entries: Dict[str, _ScheduleRuntime] = {}
+        self._persistence_backend: str = ""
+        self._sqlite_conn: Optional[sqlite3.Connection] = None
+        self._postgres_conn_factory: Optional[Callable[[], Any]] = None
+        self._owned_sqlite_connection = False
+        self._owned_provider: Optional[BaseVectorDBProvider] = None
+
+        self._initialize_persistence()
+        self._ensure_schedule_state_schema()
 
         self._initialize_entries_from_config()
         self._save_state_locked()
@@ -240,16 +260,93 @@ class AgentScheduler:
                 logger.exception("Scheduler tick failed")
             self._stop_event.wait(self.tick_seconds)
 
+    def _initialize_persistence(self) -> None:
+        provider_name = self._resolve_vectordb_provider_name(self._vectordb)
+        if provider_name == "sqlite":
+            conn, owns_conn, owned_provider = self._resolve_sqlite_connection(self._vectordb)
+            self._persistence_backend = "sqlite"
+            self._sqlite_conn = conn
+            self._owned_sqlite_connection = owns_conn
+            self._owned_provider = owned_provider
+            return
+        if provider_name == "postgresql":
+            conn_factory, owned_provider = self._resolve_postgres_connection_factory(
+                self._vectordb
+            )
+            if conn_factory is None:
+                raise ValueError(
+                    "PostgreSQL scheduler persistence requires a vectordb provider "
+                    "with an exposed connection factory."
+                )
+            self._persistence_backend = "postgresql"
+            self._postgres_conn_factory = conn_factory
+            self._owned_provider = owned_provider
+            return
+        raise ValueError(
+            "Agent scheduler requires vectordb provider 'sqlite' or 'postgresql'."
+        )
+
+    def _ensure_schedule_state_schema(self) -> None:
+        if self._persistence_backend == "sqlite":
+            assert self._sqlite_conn is not None
+            self._sqlite_conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS lsm_agent_schedules (
+                    schedule_id TEXT PRIMARY KEY,
+                    agent_name TEXT NOT NULL,
+                    last_run_at TEXT,
+                    next_run_at TEXT NOT NULL,
+                    last_status TEXT DEFAULT 'idle',
+                    last_error TEXT,
+                    queued_runs INTEGER DEFAULT 0,
+                    updated_at TEXT NOT NULL
+                );
+                """
+            )
+            self._sqlite_conn.execute(
+                """
+                CREATE INDEX IF NOT EXISTS idx_lsm_agent_schedules_next_run
+                ON lsm_agent_schedules(next_run_at);
+                """
+            )
+            self._sqlite_conn.commit()
+            return
+
+        if self._persistence_backend == "postgresql":
+            assert self._postgres_conn_factory is not None
+            with self._postgres_conn_factory() as conn:
+                try:
+                    with conn.cursor() as cur:
+                        cur.execute(
+                            """
+                            CREATE TABLE IF NOT EXISTS lsm_agent_schedules (
+                                schedule_id TEXT PRIMARY KEY,
+                                agent_name TEXT NOT NULL,
+                                last_run_at TIMESTAMPTZ,
+                                next_run_at TIMESTAMPTZ NOT NULL,
+                                last_status TEXT DEFAULT 'idle',
+                                last_error TEXT,
+                                queued_runs INTEGER DEFAULT 0,
+                                updated_at TIMESTAMPTZ NOT NULL
+                            );
+                            """
+                        )
+                        cur.execute(
+                            """
+                            CREATE INDEX IF NOT EXISTS idx_lsm_agent_schedules_next_run
+                            ON lsm_agent_schedules(next_run_at);
+                            """
+                        )
+                    conn.commit()
+                except Exception:
+                    conn.rollback()
+                    raise
+            return
+
+        raise ValueError("Scheduler persistence backend is not initialized.")
+
     def _initialize_entries_from_config(self) -> None:
-        persisted = self._load_state_file()
-        persisted_entries = {}
-        for row in persisted.get("schedules", []) if isinstance(persisted, dict) else []:
-            if not isinstance(row, dict):
-                continue
-            row_id = str(row.get("id", "")).strip()
-            if not row_id:
-                continue
-            persisted_entries[row_id] = row
+        persisted_entries = self._load_state_rows()
 
         now = self.now_fn()
         if now.tzinfo is None:
@@ -259,7 +356,13 @@ class AgentScheduler:
 
         entries: Dict[str, _ScheduleRuntime] = {}
         for index, schedule in enumerate(self.agent_config.schedules):
-            schedule_id = _safe_schedule_id(index, schedule)
+            base_schedule_id = _safe_schedule_id(schedule)
+            schedule_id = base_schedule_id
+            dedupe_suffix = 2
+            while schedule_id in entries:
+                schedule_id = f"{base_schedule_id}-{dedupe_suffix}"
+                dedupe_suffix += 1
+
             persisted_row = persisted_entries.get(schedule_id, {})
 
             last_run_at = _parse_datetime(persisted_row.get("last_run_at"))
@@ -285,48 +388,239 @@ class AgentScheduler:
         with self._lock:
             self._entries = entries
 
-    def _load_state_file(self) -> Dict[str, Any]:
-        try:
-            if not self.state_path.exists():
-                return {}
-            raw = self.state_path.read_text(encoding="utf-8")
-            parsed = json.loads(raw)
-            if not isinstance(parsed, dict):
-                return {}
-            return parsed
-        except Exception:
-            logger.exception("Failed to load scheduler state from '%s'", self.state_path)
-            return {}
+    def _load_state_rows(self) -> Dict[str, Dict[str, Any]]:
+        rows_by_id: Dict[str, Dict[str, Any]] = {}
+        if self._persistence_backend == "sqlite":
+            assert self._sqlite_conn is not None
+            rows = self._sqlite_conn.execute(
+                """
+                SELECT
+                    schedule_id,
+                    last_run_at,
+                    next_run_at,
+                    last_status,
+                    last_error,
+                    queued_runs
+                FROM lsm_agent_schedules
+                """
+            ).fetchall()
+            for row in rows:
+                schedule_id = str(row["schedule_id"] or "").strip()
+                if not schedule_id:
+                    continue
+                rows_by_id[schedule_id] = dict(row)
+            return rows_by_id
+
+        if self._persistence_backend == "postgresql":
+            assert self._postgres_conn_factory is not None
+            with self._postgres_conn_factory() as conn:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        """
+                        SELECT
+                            schedule_id,
+                            last_run_at,
+                            next_run_at,
+                            last_status,
+                            last_error,
+                            queued_runs
+                        FROM lsm_agent_schedules
+                        """
+                    )
+                    columns = [desc[0] for desc in (cur.description or [])]
+                    for values in cur.fetchall():
+                        row = dict(zip(columns, values))
+                        schedule_id = str(row.get("schedule_id") or "").strip()
+                        if not schedule_id:
+                            continue
+                        rows_by_id[schedule_id] = row
+            return rows_by_id
+
+        raise ValueError("Scheduler persistence backend is not initialized.")
 
     def _save_state_locked(self) -> None:
-        payload = {
-            "version": 1,
-            "updated_at": self.now_fn().isoformat(),
-            "schedules": [
-                {
-                    "id": entry.schedule_id,
-                    "index": entry.index,
-                    "agent_name": entry.schedule.agent_name,
-                    "interval": entry.schedule.interval,
-                    "enabled": entry.schedule.enabled,
-                    "concurrency_policy": entry.schedule.concurrency_policy,
-                    "confirmation_mode": entry.schedule.confirmation_mode,
-                    "params": dict(entry.schedule.params),
-                    "last_run_at": entry.last_run_at.isoformat() if entry.last_run_at else None,
-                    "next_run_at": entry.next_run_at.isoformat(),
-                    "last_status": entry.last_status,
-                    "last_error": entry.last_error,
-                    "queued_runs": int(entry.queued_runs),
-                    "running": bool(entry.running),
-                }
-                for entry in sorted(self._entries.values(), key=lambda item: item.index)
-            ],
-        }
-        try:
-            self.state_path.parent.mkdir(parents=True, exist_ok=True)
-            self.state_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
-        except Exception:
-            logger.exception("Failed to persist scheduler state to '%s'", self.state_path)
+        rows = [
+            {
+                "schedule_id": entry.schedule_id,
+                "agent_name": entry.schedule.agent_name,
+                "last_run_at": entry.last_run_at.isoformat() if entry.last_run_at else None,
+                "next_run_at": entry.next_run_at.isoformat(),
+                "last_status": entry.last_status,
+                "last_error": entry.last_error,
+                "queued_runs": int(entry.queued_runs),
+                "updated_at": self.now_fn().isoformat(),
+            }
+            for entry in sorted(self._entries.values(), key=lambda item: item.index)
+        ]
+        schedule_ids = [row["schedule_id"] for row in rows]
+
+        if self._persistence_backend == "sqlite":
+            assert self._sqlite_conn is not None
+            try:
+                self._sqlite_conn.execute("BEGIN")
+                for row in rows:
+                    self._sqlite_conn.execute(
+                        """
+                        INSERT INTO lsm_agent_schedules (
+                            schedule_id,
+                            agent_name,
+                            last_run_at,
+                            next_run_at,
+                            last_status,
+                            last_error,
+                            queued_runs,
+                            updated_at
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                        ON CONFLICT(schedule_id) DO UPDATE SET
+                            agent_name = excluded.agent_name,
+                            last_run_at = excluded.last_run_at,
+                            next_run_at = excluded.next_run_at,
+                            last_status = excluded.last_status,
+                            last_error = excluded.last_error,
+                            queued_runs = excluded.queued_runs,
+                            updated_at = excluded.updated_at
+                        """,
+                        (
+                            row["schedule_id"],
+                            row["agent_name"],
+                            row["last_run_at"],
+                            row["next_run_at"],
+                            row["last_status"],
+                            row["last_error"],
+                            row["queued_runs"],
+                            row["updated_at"],
+                        ),
+                    )
+
+                if schedule_ids:
+                    placeholders = ", ".join(["?"] * len(schedule_ids))
+                    self._sqlite_conn.execute(
+                        f"DELETE FROM lsm_agent_schedules WHERE schedule_id NOT IN ({placeholders})",
+                        schedule_ids,
+                    )
+                else:
+                    self._sqlite_conn.execute("DELETE FROM lsm_agent_schedules")
+                self._sqlite_conn.commit()
+            except Exception:
+                self._sqlite_conn.rollback()
+                logger.exception("Failed to persist scheduler state to lsm_agent_schedules")
+            return
+
+        if self._persistence_backend == "postgresql":
+            assert self._postgres_conn_factory is not None
+            try:
+                with self._postgres_conn_factory() as conn:
+                    with conn.cursor() as cur:
+                        for row in rows:
+                            cur.execute(
+                                """
+                                INSERT INTO lsm_agent_schedules (
+                                    schedule_id,
+                                    agent_name,
+                                    last_run_at,
+                                    next_run_at,
+                                    last_status,
+                                    last_error,
+                                    queued_runs,
+                                    updated_at
+                                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                                ON CONFLICT(schedule_id) DO UPDATE SET
+                                    agent_name = EXCLUDED.agent_name,
+                                    last_run_at = EXCLUDED.last_run_at,
+                                    next_run_at = EXCLUDED.next_run_at,
+                                    last_status = EXCLUDED.last_status,
+                                    last_error = EXCLUDED.last_error,
+                                    queued_runs = EXCLUDED.queued_runs,
+                                    updated_at = EXCLUDED.updated_at
+                                """,
+                                (
+                                    row["schedule_id"],
+                                    row["agent_name"],
+                                    row["last_run_at"],
+                                    row["next_run_at"],
+                                    row["last_status"],
+                                    row["last_error"],
+                                    row["queued_runs"],
+                                    row["updated_at"],
+                                ),
+                            )
+
+                        if schedule_ids:
+                            cur.execute(
+                                "DELETE FROM lsm_agent_schedules WHERE NOT (schedule_id = ANY(%s))",
+                                (schedule_ids,),
+                            )
+                        else:
+                            cur.execute("DELETE FROM lsm_agent_schedules")
+                    conn.commit()
+            except Exception:
+                logger.exception("Failed to persist scheduler state to lsm_agent_schedules")
+            return
+
+        raise ValueError("Scheduler persistence backend is not initialized.")
+
+    @staticmethod
+    def _resolve_vectordb_provider_name(
+        vectordb: VectorDBConfig | BaseVectorDBProvider,
+    ) -> str:
+        if isinstance(vectordb, BaseVectorDBProvider):
+            return str(getattr(vectordb, "name", "") or "").strip().lower()
+        return str(vectordb.provider or "").strip().lower()
+
+    @classmethod
+    def _resolve_sqlite_connection(
+        cls,
+        vectordb: VectorDBConfig | BaseVectorDBProvider,
+    ) -> tuple[sqlite3.Connection, bool, Optional[BaseVectorDBProvider]]:
+        if isinstance(vectordb, BaseVectorDBProvider):
+            if cls._resolve_vectordb_provider_name(vectordb) != "sqlite":
+                raise ValueError(
+                    "SQLite scheduler persistence requires vectordb provider='sqlite'."
+                )
+            connection = getattr(vectordb, "connection", None)
+            if not isinstance(connection, sqlite3.Connection):
+                raise ValueError(
+                    "SQLite vector provider does not expose a valid sqlite connection."
+                )
+            return connection, False, None
+
+        if cls._resolve_vectordb_provider_name(vectordb) != "sqlite":
+            raise ValueError(
+                "SQLite scheduler persistence requires vectordb.provider='sqlite'."
+            )
+
+        provider = create_vectordb_provider(vectordb)
+        connection = getattr(provider, "connection", None)
+        if not isinstance(connection, sqlite3.Connection):
+            raise ValueError(
+                "SQLite vector provider did not expose a valid sqlite connection."
+            )
+        return connection, True, provider
+
+    @classmethod
+    def _resolve_postgres_connection_factory(
+        cls,
+        vectordb: VectorDBConfig | BaseVectorDBProvider,
+    ) -> tuple[Optional[Callable[[], Any]], Optional[BaseVectorDBProvider]]:
+        if isinstance(vectordb, BaseVectorDBProvider):
+            if cls._resolve_vectordb_provider_name(vectordb) != "postgresql":
+                raise ValueError(
+                    "PostgreSQL scheduler persistence requires vectordb provider='postgresql'."
+                )
+            get_conn = getattr(vectordb, "_get_conn", None)
+            if callable(get_conn):
+                return get_conn, None
+            return None, None
+
+        if cls._resolve_vectordb_provider_name(vectordb) != "postgresql":
+            raise ValueError(
+                "PostgreSQL scheduler persistence requires vectordb.provider='postgresql'."
+            )
+        provider = create_vectordb_provider(vectordb)
+        get_conn = getattr(provider, "_get_conn", None)
+        if callable(get_conn):
+            return get_conn, provider
+        return None, provider
 
     def _process_entry(self, schedule_id: str, now: datetime) -> None:
         with self._lock:

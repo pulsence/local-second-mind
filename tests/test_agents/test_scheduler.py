@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 import threading
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -149,8 +148,8 @@ def _base_raw(tmp_path: Path, schedule: dict) -> dict:
             "services": {"default": {"provider": "openai", "model": "gpt-5.2"}},
         },
         "vectordb": {
-            "provider": "chromadb",
-            "path": str(tmp_path / ".chroma"),
+            "provider": "sqlite",
+            "path": str(tmp_path / "data"),
             "collection": "local_kb",
         },
         "query": {"mode": "grounded"},
@@ -223,10 +222,14 @@ def test_scheduler_persists_and_reloads_schedule_state(tmp_path: Path) -> None:
         assert snapshots[0]["last_status"] == "completed"
         assert snapshots[0]["last_run_at"] is not None
 
-        state_path = scheduler.state_path
-        assert state_path.exists()
-        persisted = json.loads(state_path.read_text(encoding="utf-8"))
-        assert persisted["schedules"][0]["last_status"] == "completed"
+        schedules_json_path = tmp_path / "global" / "Agents" / "schedules.json"
+        assert not schedules_json_path.exists()
+        assert scheduler._sqlite_conn is not None
+        persisted = scheduler._sqlite_conn.execute(
+            "SELECT last_status FROM lsm_agent_schedules"
+        ).fetchall()
+        assert persisted
+        assert str(persisted[0]["last_status"]) == "completed"
 
         reloaded = _create_scheduler(
             tmp_path,
