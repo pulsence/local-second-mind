@@ -147,7 +147,7 @@ _WHATS_NEW: tuple[str, ...] = (
     "query_knowledge_base tool replaces query_embeddings with full query pipeline.",
     "Per-source remote tools: each provider gets its own query_<name> tool instance.",
     "BaseAgent.remote_source_allowlist for fine-grained per-source tool filtering.",
-    "Manual token tracking and direct provider.synthesize() calls removed from all agents.",
+    "Manual token tracking and direct provider domain-method calls removed from all agents.",
 )
 
 

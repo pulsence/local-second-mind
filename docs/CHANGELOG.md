@@ -11,6 +11,10 @@ All notable changes to Local Second Mind are documented here.
 - Consolidated duplicated connection resolution logic from `memory/store.py` (4 functions) and `scheduler.py` (3 methods) into `lsm.db.connection` (`resolve_sqlite_connection`, `resolve_postgres_connection_factory`, `resolve_vectordb_provider_name`).
 - Updated `stats_cache.py` and `remote/storage.py` fallback connections to use `create_sqlite_connection()` for consistent WAL/FK/busy_timeout configuration.
 - Redirected `schema_version._ensure_schema_versions_table()` to `lsm.db.schema.ensure_application_schema()` to eliminate schema DDL duplication.
+- Simplified `BaseLLMProvider` to a transport-only contract (`send_message`, `send_streaming_message`) and removed domain helper methods (`synthesize`, `stream_synthesize`, `rerank`, `generate_tags`).
+- Updated query, reranking, tagging, translation, and direct LLM tool paths to call provider transport methods directly with module-owned prompt/input shaping.
+- Removed Azure OpenAI provider support (`lsm/providers/azure_openai.py`), factory registration, related config fields, and Azure-specific provider tests.
+- Aligned provider implementations with signature parity across streaming and non-streaming calls, including prompt caching/response-chain parameter forwarding where supported.
 
 ## 0.8.0 - 2026-02-28
 

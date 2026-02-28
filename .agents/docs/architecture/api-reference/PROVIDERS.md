@@ -1,91 +1,79 @@
-﻿# LLM Provider API Reference
+# LLM Provider API Reference
 
-This document defines the `BaseLLMProvider` contract and related factory APIs.
+This document defines the `BaseLLMProvider` transport contract and factory APIs.
 
 ## BaseLLMProvider
 
 Location: `lsm/providers/base.py`
 
-### Methods
+### Required Methods
 
-#### rerank(question, candidates, k, **kwargs)
+#### `send_message(...) -> str`
 
-- `question: str`
-- `candidates: list[dict]`
-  - `text: str`
-  - `metadata: dict`
-  - `distance: float | None`
-- `k: int`
+```python
+def send_message(
+    self,
+    input: str,
+    instruction: str | None = None,
+    prompt: str | None = None,
+    temperature: float | None = None,
+    max_tokens: int = 4096,
+    previous_response_id: str | None = None,
+    prompt_cache_key: str | None = None,
+    prompt_cache_retention: int | None = None,
+    **kwargs,
+) -> str
+```
 
-Returns: `list[dict]` in the same candidate shape, ordered by relevance.
+#### `send_streaming_message(...) -> Iterable[str]`
 
-#### synthesize(question, context, mode="grounded", **kwargs)
+Signature matches `send_message(...)` and yields text chunks.
 
-- `question: str`
-- `context: str` (contains `[S#]` source blocks)
-- `mode: str` (`grounded` or `insight`)
+#### `is_available() -> bool`
 
-Returns: `str` answer with inline citations.
+Returns whether provider credentials/client setup are usable.
 
-#### generate_tags(text, num_tags=3, existing_tags=None, **kwargs)
+### Required Properties
 
-- `text: str`
-- `num_tags: int`
-- `existing_tags: list[str] | None`
+- `name: str`
+- `model: str`
 
-Returns: `list[str]` tags.
+### Optional Utility Methods
 
-#### is_available()
+- `list_models() -> list[str]`
+- `get_model_pricing() -> dict[str, float] | None`
+- `estimate_cost(input_tokens: int, output_tokens: int) -> float | None`
+- `health_check() -> dict[str, Any]`
 
-Returns: `bool` (true if provider is configured).
+### Notes
 
-#### health_check()
-
-Returns: `dict` with availability, status, and recent success/failure stats.
-
-### Properties
-
-- `name: str` (provider name)
-- `model: str` (model name)
-
-### Optional
-
-- `estimate_cost(input_tokens, output_tokens) -> float | None`
+- Provider adapters are transport-only.
+- Domain logic (`rerank`, `synthesize`, tagging prompts/parsers) lives in query/ingest modules, not in provider classes.
 
 ## Factory APIs
 
 Location: `lsm/providers/factory.py`
 
-### create_provider(config: LLMConfig) -> BaseLLMProvider
+### `create_provider(config: LLMConfig) -> BaseLLMProvider`
 
-Creates and returns a provider instance using the registry.
+Constructs a provider instance from registry + resolved config.
 
-### list_available_providers() -> list[str]
+### `list_available_providers() -> list[str]`
 
-Returns provider names registered in `PROVIDER_REGISTRY`.
+Returns registered provider names.
 
-### register_provider(name: str, provider_class: Type[BaseLLMProvider]) -> None
+### `register_provider(name: str, provider_class: Type[BaseLLMProvider]) -> None`
 
-Registers a custom provider at runtime.
+Registers a custom provider class at runtime.
 
-## OpenAI Provider Behavior
+## Built-In Providers
 
-Location: `lsm/providers/openai.py`
-
-- Uses OpenAI Responses API for rerank and synthesize.
-- Handles unsupported parameters by retrying without them.
-- Provides rough cost estimation.
-
-## OpenRouter Provider Behavior
-
-Location: `lsm/providers/openrouter.py`
-
-- Uses OpenRouter's OpenAI-compatible Chat Completions API.
-- Supports routing with fallback models via `llms.providers[].fallback_models`.
-- Emits prompt caching markers when `enable_llm_server_cache` is enabled.
-- Captures response usage metadata for token tracking.
+- OpenAI (`lsm/providers/openai.py`)
+- OpenRouter (`lsm/providers/openrouter.py`)
+- Anthropic (`lsm/providers/anthropic.py`)
+- Gemini (`lsm/providers/gemini.py`)
+- Local/Ollama (`lsm/providers/local.py`)
 
 ## Error Handling
 
-Providers should raise exceptions for API errors. The query pipeline catches
-rerank or synthesis errors and falls back when possible.
+Providers raise transport/API exceptions. Higher-level query/ingest pipelines decide retries, fallback behavior, and user-facing failure handling.
