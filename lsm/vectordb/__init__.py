@@ -2,7 +2,7 @@
 Vector database providers.
 """
 
-from .base import BaseVectorDBProvider, VectorDBGetResult, VectorDBQueryResult
+from .base import BaseVectorDBProvider, PruneCriteria, VectorDBGetResult, VectorDBQueryResult
 from .factory import create_vectordb_provider, list_available_providers, register_provider
 from .sqlite_vec import SQLiteVecProvider
 
@@ -13,6 +13,7 @@ def create_vectordb(config):
 
 __all__ = [
     "BaseVectorDBProvider",
+    "PruneCriteria",
     "VectorDBGetResult",
     "VectorDBQueryResult",
     "SQLiteVecProvider",

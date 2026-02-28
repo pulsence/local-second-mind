@@ -23,6 +23,19 @@ def test_run_ingest_dispatches_and_missing_subcommand(monkeypatch: pytest.Monkey
     assert "Missing ingest subcommand" in out
 
 
+def test_run_db_dispatches_and_missing_subcommand(monkeypatch: pytest.MonkeyPatch, capsys) -> None:
+    monkeypatch.setattr(shell_cli, "run_db_prune_cli", lambda *args, **kwargs: 21)
+
+    assert shell_cli.run_db(
+        SimpleNamespace(db_command="prune", config="c", max_versions=3, older_than_days=7)
+    ) == 21
+
+    code = shell_cli.run_db(SimpleNamespace(db_command=None, config="c"))
+    out = capsys.readouterr().out
+    assert code == 2
+    assert "Missing db subcommand" in out
+
+
 def test_load_config_missing_and_success(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     missing = tmp_path / "missing.json"
     with pytest.raises(FileNotFoundError):
@@ -95,3 +108,25 @@ def test_run_wipe_cli_confirmation_and_error_paths(monkeypatch: pytest.MonkeyPat
     out3 = capsys.readouterr().out
     assert code3 == 1
     assert "Error: wipe failed" in out3
+
+
+def test_run_db_prune_cli_success_and_error(monkeypatch: pytest.MonkeyPatch, capsys) -> None:
+    cfg = SimpleNamespace(vectordb=SimpleNamespace(provider="sqlite"))
+    provider = SimpleNamespace(prune_old_versions=lambda criteria: 7)
+    monkeypatch.setattr(shell_cli, "_load_config", lambda p: cfg)
+    monkeypatch.setattr(shell_cli, "create_vectordb_provider", lambda _v: provider)
+
+    code = shell_cli.run_db_prune_cli("config.json", max_versions=2, older_than_days=14)
+    out = capsys.readouterr().out
+    assert code == 0
+    assert "Prune complete" in out
+
+    def _boom(_criteria):
+        raise RuntimeError("prune failed")
+
+    provider_bad = SimpleNamespace(prune_old_versions=_boom)
+    monkeypatch.setattr(shell_cli, "create_vectordb_provider", lambda _v: provider_bad)
+    code2 = shell_cli.run_db_prune_cli("config.json")
+    out2 = capsys.readouterr().out
+    assert code2 == 1
+    assert "Error: prune failed" in out2

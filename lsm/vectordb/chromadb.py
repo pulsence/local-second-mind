@@ -8,7 +8,7 @@ from typing import Any, Dict, List, Optional
 
 from lsm.logging import get_logger
 from lsm.config.models import VectorDBConfig
-from .base import BaseVectorDBProvider, VectorDBGetResult, VectorDBQueryResult
+from .base import BaseVectorDBProvider, PruneCriteria, VectorDBGetResult, VectorDBQueryResult
 
 logger = get_logger(__name__)
 
@@ -240,6 +240,11 @@ class ChromaDBProvider(BaseVectorDBProvider):
             return
         collection = self._ensure_collection()
         collection.update(ids=ids, metadatas=metadatas)
+
+    def prune_old_versions(self, criteria: PruneCriteria) -> int:
+        _ = criteria
+        # Chroma is retained for migration/testing only in v0.8.0.
+        return 0
 
     def _get_raw_collection(self):
         """Return underlying ChromaDB collection for migration tools only."""

@@ -7,6 +7,7 @@ from __future__ import annotations
 import json
 import sqlite3
 from contextlib import contextmanager
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from struct import unpack
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
@@ -14,7 +15,7 @@ from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 from lsm.config.models import VectorDBConfig
 from lsm.logging import get_logger
 
-from .base import BaseVectorDBProvider, VectorDBGetResult, VectorDBQueryResult
+from .base import BaseVectorDBProvider, PruneCriteria, VectorDBGetResult, VectorDBQueryResult
 
 logger = get_logger(__name__)
 
@@ -750,6 +751,82 @@ class SQLiteVecProvider(BaseVectorDBProvider):
                     ),
                 )
 
+    def prune_old_versions(self, criteria: PruneCriteria) -> int:
+        max_versions = (
+            int(criteria.max_versions)
+            if criteria.max_versions is not None
+            else None
+        )
+        older_than_days = (
+            int(criteria.older_than_days)
+            if criteria.older_than_days is not None
+            else None
+        )
+
+        if max_versions is not None and max_versions < 1:
+            raise ValueError("max_versions must be >= 1 when provided")
+        if older_than_days is not None and older_than_days < 0:
+            raise ValueError("older_than_days must be >= 0 when provided")
+
+        rows = self._conn.execute(
+            """
+            SELECT chunk_id, source_path, version, ingested_at
+            FROM lsm_chunks
+            WHERE is_current = 0
+            """
+        ).fetchall()
+        if not rows:
+            return 0
+
+        keep_versions_by_source: dict[str, set[int]] = {}
+        if max_versions is not None:
+            versions_by_source: dict[str, set[int]] = {}
+            for row in rows:
+                source_path = str(row["source_path"] or "")
+                version = int(row["version"] or 0)
+                versions_by_source.setdefault(source_path, set()).add(version)
+            for source_path, versions in versions_by_source.items():
+                keep_versions_by_source[source_path] = set(
+                    sorted(versions, reverse=True)[:max_versions]
+                )
+
+        cutoff: Optional[datetime] = None
+        if older_than_days is not None:
+            cutoff = datetime.now(timezone.utc) - timedelta(days=older_than_days)
+
+        to_delete: List[str] = []
+        for row in rows:
+            source_path = str(row["source_path"] or "")
+            version = int(row["version"] or 0)
+            ingested_at = self._parse_iso_datetime(row["ingested_at"])
+
+            if max_versions is not None:
+                kept = keep_versions_by_source.get(source_path, set())
+                if version in kept:
+                    continue
+
+            if cutoff is not None:
+                # If timestamp is unavailable, keep the row for safety.
+                if ingested_at is None or ingested_at > cutoff:
+                    continue
+
+            to_delete.append(str(row["chunk_id"]))
+
+        if not to_delete:
+            return 0
+
+        with self._transaction():
+            placeholders = ", ".join(["?"] * len(to_delete))
+            self._conn.execute(
+                f"DELETE FROM vec_chunks WHERE chunk_id IN ({placeholders})",
+                to_delete,
+            )
+            self._conn.execute(
+                f"DELETE FROM lsm_chunks WHERE chunk_id IN ({placeholders})",
+                to_delete,
+            )
+        return len(to_delete)
+
     @staticmethod
     def _normalize_metadata(metadata: Dict[str, Any]) -> Dict[str, Any]:
         source_path = str(metadata.get("source_path", "") or "")
@@ -782,6 +859,21 @@ class SQLiteVecProvider(BaseVectorDBProvider):
             "end_char": metadata.get("end_char"),
             "chunk_length": metadata.get("chunk_length"),
         }
+
+    @staticmethod
+    def _parse_iso_datetime(raw: Any) -> Optional[datetime]:
+        text = str(raw or "").strip()
+        if not text:
+            return None
+        if text.endswith("Z"):
+            text = text[:-1] + "+00:00"
+        try:
+            parsed = datetime.fromisoformat(text)
+        except ValueError:
+            return None
+        if parsed.tzinfo is None:
+            return parsed.replace(tzinfo=timezone.utc)
+        return parsed.astimezone(timezone.utc)
 
     @staticmethod
     def _deserialize_embedding(raw: Any) -> List[float]:

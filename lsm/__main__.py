@@ -111,6 +111,35 @@ def build_parser() -> argparse.ArgumentParser:
         help="Confirm destructive wipe",
     )
 
+    # -------------------------------------------------------------------------
+    # DB maintenance subcommand
+    # -------------------------------------------------------------------------
+    db_parser = subparsers.add_parser(
+        "db",
+        help="Database maintenance commands",
+        description="Prune old chunk versions and run DB maintenance tasks.",
+    )
+    db_subparsers = db_parser.add_subparsers(
+        dest="db_command",
+        title="db commands",
+        required=True,
+    )
+
+    prune_parser = db_subparsers.add_parser(
+        "prune",
+        help="Prune non-current chunk versions",
+    )
+    prune_parser.add_argument(
+        "--max-versions",
+        type=int,
+        help="Keep at most N non-current versions per source file",
+    )
+    prune_parser.add_argument(
+        "--older-than-days",
+        type=int,
+        help="Prune only versions older than N days",
+    )
+
     return parser
 
 
@@ -163,6 +192,10 @@ def main(argv: list[str] | None = None) -> int:
             logger.info("Starting ingest command")
             from lsm.ui.shell.cli import run_ingest
             return run_ingest(args)
+        if args.command == "db":
+            logger.info("Starting db command")
+            from lsm.ui.shell.cli import run_db
+            return run_db(args)
 
         else:
             # Should not reach here with required=True in subparsers

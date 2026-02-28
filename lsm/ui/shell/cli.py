@@ -14,7 +14,7 @@ from lsm.config.models import LSMConfig
 from lsm.logging import get_logger
 from lsm.ingest.api import run_ingest as api_run_ingest, wipe_collection as api_wipe_collection
 from lsm.ingest.tagging import tag_chunks
-from lsm.vectordb import create_vectordb_provider
+from lsm.vectordb import PruneCriteria, create_vectordb_provider
 
 logger = get_logger(__name__)
 
@@ -35,6 +35,20 @@ def run_ingest(args) -> int:
         return run_wipe_cli(args.config, confirm=getattr(args, "confirm", False))
 
     print("Missing ingest subcommand. Use `lsm ingest --help` for options.")
+    return 2
+
+
+def run_db(args) -> int:
+    """Run db maintenance command."""
+    command = getattr(args, "db_command", None)
+    if command == "prune":
+        return run_db_prune_cli(
+            args.config,
+            max_versions=getattr(args, "max_versions", None),
+            older_than_days=getattr(args, "older_than_days", None),
+        )
+
+    print("Missing db subcommand. Use `lsm db --help` for options.")
     return 2
 
 
@@ -159,4 +173,33 @@ def run_wipe_cli(
         return 1
     print(f"\nDeleted {deleted:,} chunks from collection '{config.collection}'.")
     print("Collection cleared successfully.")
+    return 0
+
+
+def run_db_prune_cli(
+    config_path: str | Path,
+    *,
+    max_versions: Optional[int] = None,
+    older_than_days: Optional[int] = None,
+) -> int:
+    """Run non-current version prune operation."""
+    config = _load_config(config_path)
+    provider = create_vectordb_provider(config.vectordb)
+
+    try:
+        deleted = provider.prune_old_versions(
+            PruneCriteria(
+                max_versions=max_versions,
+                older_than_days=older_than_days,
+            )
+        )
+    except Exception as exc:
+        print(f"Error: {exc}")
+        return 1
+
+    print(
+        "Prune complete: "
+        f"deleted {deleted:,} non-current chunks "
+        f"(max_versions={max_versions}, older_than_days={older_than_days})."
+    )
     return 0

@@ -11,7 +11,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from lsm.logging import get_logger
 from lsm.config.models import VectorDBConfig
-from .base import BaseVectorDBProvider, VectorDBGetResult, VectorDBQueryResult
+from .base import BaseVectorDBProvider, PruneCriteria, VectorDBGetResult, VectorDBQueryResult
 
 logger = get_logger(__name__)
 
@@ -538,3 +538,9 @@ class PostgreSQLProvider(BaseVectorDBProvider):
                         [json.dumps(meta), vid],
                     )
             conn.commit()
+
+    def prune_old_versions(self, criteria: PruneCriteria) -> int:
+        _ = criteria
+        # Version-prune semantics are currently implemented on SQLite first.
+        # PostgreSQL support will be added with parity work in a later phase.
+        return 0

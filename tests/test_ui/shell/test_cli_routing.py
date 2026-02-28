@@ -38,6 +38,22 @@ def test_ingest_wipe_requires_confirm_flag():
     assert args.confirm is False
 
 
+def test_db_requires_subcommand():
+    parser = build_parser()
+    with pytest.raises(SystemExit):
+        parser.parse_args(["db"])
+
+
+def test_db_prune_parses():
+    parser = build_parser()
+    args = parser.parse_args(["db", "prune", "--max-versions", "3", "--older-than-days", "10"])
+
+    assert args.command == "db"
+    assert args.db_command == "prune"
+    assert args.max_versions == 3
+    assert args.older_than_days == 10
+
+
 def test_query_rejects_interactive_flag():
     parser = build_parser()
     with pytest.raises(SystemExit):

@@ -1,7 +1,12 @@
 """Tests verifying the BaseVectorDBProvider ABC contract."""
 
 from lsm.config.models import VectorDBConfig
-from lsm.vectordb.base import BaseVectorDBProvider, VectorDBGetResult, VectorDBQueryResult
+from lsm.vectordb.base import (
+    BaseVectorDBProvider,
+    PruneCriteria,
+    VectorDBGetResult,
+    VectorDBQueryResult,
+)
 
 
 class DummyProvider(BaseVectorDBProvider):
@@ -50,6 +55,10 @@ class DummyProvider(BaseVectorDBProvider):
 
     def update_metadatas(self, ids, metadatas) -> None:
         return None
+
+    def prune_old_versions(self, criteria: PruneCriteria) -> int:
+        _ = criteria
+        return 0
 
 
 def test_dummy_provider_instantiates(tmp_path) -> None:

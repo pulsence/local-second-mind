@@ -1,7 +1,12 @@
 import pytest
 
 from lsm.config.models import VectorDBConfig
-from lsm.vectordb.base import BaseVectorDBProvider, VectorDBGetResult, VectorDBQueryResult
+from lsm.vectordb.base import (
+    BaseVectorDBProvider,
+    PruneCriteria,
+    VectorDBGetResult,
+    VectorDBQueryResult,
+)
 from lsm.vectordb.factory import (
     PROVIDER_REGISTRY,
     create_vectordb_provider,
@@ -50,6 +55,10 @@ class DummyProvider(BaseVectorDBProvider):
 
     def update_metadatas(self, ids, metadatas) -> None:
         return None
+
+    def prune_old_versions(self, criteria: PruneCriteria) -> int:
+        _ = criteria
+        return 0
 
 
 def test_list_available_providers_contains_sqlite() -> None:

@@ -53,6 +53,14 @@ class VectorDBGetResult:
         return result
 
 
+@dataclass
+class PruneCriteria:
+    """Criteria for pruning non-current chunk versions."""
+
+    max_versions: Optional[int] = None
+    older_than_days: Optional[int] = None
+
+
 class BaseVectorDBProvider(ABC):
     """
     Abstract base class for vector database providers.
@@ -178,4 +186,9 @@ class BaseVectorDBProvider(ABC):
             metadatas: List of metadata dicts (one per ID). Replaces the
                 existing metadata entirely for each vector.
         """
+        pass
+
+    @abstractmethod
+    def prune_old_versions(self, criteria: PruneCriteria) -> int:
+        """Delete non-current chunk versions that match prune criteria."""
         pass
