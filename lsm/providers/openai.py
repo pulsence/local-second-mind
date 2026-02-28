@@ -152,18 +152,23 @@ class OpenAIProvider(BaseLLMProvider):
             retry_on=self._is_retryable_error,
         )
 
-    def _send_message(
+    def send_message(
         self,
-        system: str,
-        user: str,
-        temperature: Optional[float],
-        max_tokens: int,
+        input: str,
+        instruction: Optional[str] = None,
+        prompt: Optional[str] = None,
+        temperature: Optional[float] = None,
+        max_tokens: int = 4096,
+        previous_response_id: Optional[str] = None,
+        prompt_cache_key: Optional[str] = None,
+        prompt_cache_retention: Optional[int] = None,
         **kwargs,
     ) -> str:
+        user = f"{prompt}\n\n{input}" if prompt else input
         request_args: Dict[str, Any] = {
             "model": self.config.model,
             "reasoning": {"effort": kwargs.get("reasoning_effort", "medium")},
-            "instructions": system,
+            "instructions": instruction,
             "input": [{"role": "user", "content": user}],
             "max_output_tokens": max_tokens,
         }
@@ -176,11 +181,10 @@ class OpenAIProvider(BaseLLMProvider):
             if tool_choice:
                 request_args["tool_choice"] = tool_choice
 
-        previous_response_id = kwargs.get("previous_response_id")
+        _ = prompt_cache_retention
         if kwargs.get("enable_server_cache") and previous_response_id:
             request_args["previous_response_id"] = previous_response_id
 
-        prompt_cache_key = kwargs.get("prompt_cache_key")
         if kwargs.get("enable_server_cache") and prompt_cache_key:
             request_args["prompt_cache_key"] = prompt_cache_key
 
@@ -232,21 +236,31 @@ class OpenAIProvider(BaseLLMProvider):
             )
         return (resp.output_text or "").strip()
 
-    def _send_streaming_message(
+    def send_streaming_message(
         self,
-        system: str,
-        user: str,
-        temperature: Optional[float],
-        max_tokens: int,
+        input: str,
+        instruction: Optional[str] = None,
+        prompt: Optional[str] = None,
+        temperature: Optional[float] = None,
+        max_tokens: int = 4096,
+        previous_response_id: Optional[str] = None,
+        prompt_cache_key: Optional[str] = None,
+        prompt_cache_retention: Optional[int] = None,
         **kwargs,
     ):
+        _ = prompt_cache_retention
+        user = f"{prompt}\n\n{input}" if prompt else input
         request_args: Dict[str, Any] = {
             "model": self.config.model,
             "reasoning": {"effort": kwargs.get("reasoning_effort", "medium")},
-            "instructions": system,
+            "instructions": instruction,
             "input": [{"role": "user", "content": user}],
             "max_output_tokens": max_tokens,
         }
+        if kwargs.get("enable_server_cache") and previous_response_id:
+            request_args["previous_response_id"] = previous_response_id
+        if kwargs.get("enable_server_cache") and prompt_cache_key:
+            request_args["prompt_cache_key"] = prompt_cache_key
 
         if (
             temperature is not None

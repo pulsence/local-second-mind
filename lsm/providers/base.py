@@ -81,22 +81,30 @@ class BaseLLMProvider(ABC):
         return False
 
     @abstractmethod
-    def _send_message(
+    def send_message(
         self,
-        system: str,
-        user: str,
-        temperature: Optional[float],
-        max_tokens: int,
-        **kwargs
+        input: str,
+        instruction: Optional[str] = None,
+        prompt: Optional[str] = None,
+        temperature: Optional[float] = None,
+        max_tokens: int = 4096,
+        previous_response_id: Optional[str] = None,
+        prompt_cache_key: Optional[str] = None,
+        prompt_cache_retention: Optional[int] = None,
+        **kwargs,
     ) -> str:
         """
         Send a single non-streaming message to the provider.
 
         Args:
-            system: System instruction content
-            user: User prompt content
+            input: User input payload
+            instruction: System instruction content
+            prompt: Optional provider prompt wrapper/template
             temperature: Sampling temperature
             max_tokens: Maximum output tokens
+            previous_response_id: Optional provider response chain ID
+            prompt_cache_key: Optional cache key for provider-side prompt caching
+            prompt_cache_retention: Optional retention hint for prompt caching
             **kwargs: Provider-specific request fields
 
         Returns:
@@ -105,22 +113,30 @@ class BaseLLMProvider(ABC):
         pass
 
     @abstractmethod
-    def _send_streaming_message(
+    def send_streaming_message(
         self,
-        system: str,
-        user: str,
-        temperature: Optional[float],
-        max_tokens: int,
-        **kwargs
+        input: str,
+        instruction: Optional[str] = None,
+        prompt: Optional[str] = None,
+        temperature: Optional[float] = None,
+        max_tokens: int = 4096,
+        previous_response_id: Optional[str] = None,
+        prompt_cache_key: Optional[str] = None,
+        prompt_cache_retention: Optional[int] = None,
+        **kwargs,
     ) -> Iterable[str]:
         """
         Send a streaming message to the provider.
 
         Args:
-            system: System instruction content
-            user: User prompt content
+            input: User input payload
+            instruction: System instruction content
+            prompt: Optional provider prompt wrapper/template
             temperature: Sampling temperature
             max_tokens: Maximum output tokens
+            previous_response_id: Optional provider response chain ID
+            prompt_cache_key: Optional cache key for provider-side prompt caching
+            prompt_cache_retention: Optional retention hint for prompt caching
             **kwargs: Provider-specific request fields
 
         Yields:
@@ -160,9 +176,9 @@ class BaseLLMProvider(ABC):
         instructions = RERANK_INSTRUCTIONS.format(k=k)
 
         try:
-            raw = self._send_message(
-                system=instructions,
-                user=json.dumps(payload),
+            raw = self.send_message(
+                input=json.dumps(payload),
+                instruction=instructions,
                 temperature=0.2,
                 max_tokens=800,
                 json_schema=RERANK_JSON_SCHEMA,
@@ -216,9 +232,9 @@ class BaseLLMProvider(ABC):
         max_tokens = int(opts.pop("max_tokens", self._default_max_tokens()))
 
         try:
-            answer = self._send_message(
-                system=instructions,
-                user=user_content,
+            answer = self.send_message(
+                input=user_content,
+                instruction=instructions,
                 temperature=temperature,
                 max_tokens=max_tokens,
                 reasoning_effort="medium",
@@ -258,9 +274,9 @@ class BaseLLMProvider(ABC):
 
         try:
             emitted = False
-            for chunk in self._send_streaming_message(
-                system=instructions,
-                user=user_content,
+            for chunk in self.send_streaming_message(
+                input=user_content,
+                instruction=instructions,
                 temperature=temperature,
                 max_tokens=max_tokens,
                 reasoning_effort="medium",
@@ -303,9 +319,9 @@ class BaseLLMProvider(ABC):
         max_tokens = int(min(opts.pop("max_tokens", self._default_max_tokens()), 200))
 
         try:
-            raw = self._send_message(
-                system=instructions,
-                user=user_content,
+            raw = self.send_message(
+                input=user_content,
+                instruction=instructions,
                 temperature=temperature,
                 max_tokens=max_tokens,
                 json_schema=TAGS_JSON_SCHEMA,

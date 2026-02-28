@@ -191,18 +191,24 @@ class OpenRouterProvider(BaseLLMProvider):
             logger.debug("Failed to list OpenRouter models: %s", exc)
             return []
 
-    def _send_message(
+    def send_message(
         self,
-        system: str,
-        user: str,
-        temperature: Optional[float],
-        max_tokens: int,
+        input: str,
+        instruction: Optional[str] = None,
+        prompt: Optional[str] = None,
+        temperature: Optional[float] = None,
+        max_tokens: int = 4096,
+        previous_response_id: Optional[str] = None,
+        prompt_cache_key: Optional[str] = None,
+        prompt_cache_retention: Optional[int] = None,
         **kwargs,
     ) -> str:
+        _ = previous_response_id, prompt_cache_key, prompt_cache_retention
+        user = f"{prompt}\n\n{input}" if prompt else input
         use_cache = bool(kwargs.get("enable_server_cache"))
         messages: List[Dict[str, Any]] = []
-        if system:
-            messages.append(self._build_message("system", system, use_cache=use_cache))
+        if instruction:
+            messages.append(self._build_message("system", instruction, use_cache=use_cache))
         messages.append(self._build_message("user", user, use_cache=use_cache))
 
         request_args: Dict[str, Any] = {
@@ -255,18 +261,24 @@ class OpenRouterProvider(BaseLLMProvider):
             return json.dumps({"response": text.strip(), "tool_calls": tool_calls})
         return text.strip()
 
-    def _send_streaming_message(
+    def send_streaming_message(
         self,
-        system: str,
-        user: str,
-        temperature: Optional[float],
-        max_tokens: int,
+        input: str,
+        instruction: Optional[str] = None,
+        prompt: Optional[str] = None,
+        temperature: Optional[float] = None,
+        max_tokens: int = 4096,
+        previous_response_id: Optional[str] = None,
+        prompt_cache_key: Optional[str] = None,
+        prompt_cache_retention: Optional[int] = None,
         **kwargs,
     ) -> Iterable[str]:
+        _ = previous_response_id, prompt_cache_key, prompt_cache_retention
+        user = f"{prompt}\n\n{input}" if prompt else input
         use_cache = bool(kwargs.get("enable_server_cache"))
         messages: List[Dict[str, Any]] = []
-        if system:
-            messages.append(self._build_message("system", system, use_cache=use_cache))
+        if instruction:
+            messages.append(self._build_message("system", instruction, use_cache=use_cache))
         messages.append(self._build_message("user", user, use_cache=use_cache))
 
         request_args: Dict[str, Any] = {

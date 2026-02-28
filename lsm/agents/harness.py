@@ -983,9 +983,9 @@ class AgentHarness:
             llm_kwargs["tools"] = tool_definitions
             llm_kwargs["tool_choice"] = "auto"
 
-        raw_response = llm_provider._send_message(
-            system=system_prompt,
-            user=user_prompt,
+        raw_response = llm_provider.send_message(
+            input=user_prompt,
+            instruction=system_prompt,
             temperature=temperature,
             max_tokens=max_tokens_value,
             **llm_kwargs,

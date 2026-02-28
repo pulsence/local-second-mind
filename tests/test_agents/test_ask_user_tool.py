@@ -163,8 +163,8 @@ def test_harness_handles_ask_user_clarification_and_waiting_status(
                 json.dumps({"response": "Done", "action": "DONE", "action_arguments": {}}),
             ]
 
-        def _send_message(self, system, user, temperature, max_tokens, **kwargs):
-            _ = system, user, temperature, max_tokens, kwargs
+        def send_message(self, input, instruction=None, prompt=None, temperature=None, max_tokens=4096, previous_response_id=None, prompt_cache_key=None, prompt_cache_retention=None, **kwargs):
+            _ = instruction, input, temperature, max_tokens, kwargs
             return self._responses.pop(0)
 
     monkeypatch.setattr("lsm.agents.harness.create_provider", lambda cfg: FakeProvider())

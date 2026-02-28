@@ -36,10 +36,10 @@ class DummyProvider(BaseLLMProvider):
     def generate_tags(self, text, num_tags=3, existing_tags=None, **kwargs):
         return ["tag1"]
 
-    def _send_message(self, system, user, temperature, max_tokens, **kwargs):
+    def send_message(self, input, instruction=None, prompt=None, temperature=None, max_tokens=4096, previous_response_id=None, prompt_cache_key=None, prompt_cache_retention=None, **kwargs):
         return "answer"
 
-    def _send_streaming_message(self, system, user, temperature, max_tokens, **kwargs):
+    def send_streaming_message(self, input, instruction=None, prompt=None, temperature=None, max_tokens=4096, previous_response_id=None, prompt_cache_key=None, prompt_cache_retention=None, **kwargs):
         yield "answer"
 
 

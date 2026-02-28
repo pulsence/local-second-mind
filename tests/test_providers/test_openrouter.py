@@ -85,7 +85,7 @@ class TestOpenRouterProvider:
             mock_openai.return_value = mock_client
 
             provider = OpenRouterProvider(llm_config)
-            provider._send_message("sys", "user", temperature=0.2, max_tokens=12)
+            provider.send_message(input="user", instruction="sys", temperature=0.2, max_tokens=12)
 
             _, kwargs = mock_client.chat.completions.create.call_args
             extra_body = kwargs.get("extra_body") or {}
@@ -104,9 +104,9 @@ class TestOpenRouterProvider:
             mock_openai.return_value = mock_client
 
             provider = OpenRouterProvider(llm_config)
-            provider._send_message(
-                "system",
-                "user",
+            provider.send_message(
+                input="user",
+                instruction="system",
                 temperature=0.2,
                 max_tokens=12,
                 enable_server_cache=True,
@@ -133,7 +133,7 @@ class TestOpenRouterProvider:
             mock_openai.return_value = mock_client
 
             provider = OpenRouterProvider(llm_config)
-            provider._send_message("sys", "user", temperature=0.2, max_tokens=12)
+            provider.send_message(input="user", instruction="sys", temperature=0.2, max_tokens=12)
 
             assert provider.last_usage is not None
             assert provider.last_usage.get("total_tokens") == 15

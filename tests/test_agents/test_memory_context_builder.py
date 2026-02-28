@@ -168,10 +168,10 @@ def test_harness_injects_memory_standing_context(monkeypatch, tmp_path: Path) ->
             self.last_system_prompt = ""
             self.last_user_prompt = ""
 
-        def _send_message(self, system, user, temperature, max_tokens, **kwargs):
+        def send_message(self, input, instruction=None, prompt=None, temperature=None, max_tokens=4096, previous_response_id=None, prompt_cache_key=None, prompt_cache_retention=None, **kwargs):
             _ = temperature, max_tokens, kwargs
-            self.last_system_prompt = str(system)
-            self.last_user_prompt = str(user)
+            self.last_system_prompt = str(instruction)
+            self.last_user_prompt = str(input)
             return json.dumps({"response": "done", "action": "DONE", "action_arguments": {}})
 
     provider = FakeProvider()

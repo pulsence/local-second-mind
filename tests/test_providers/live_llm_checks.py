@@ -27,7 +27,7 @@ def exercise_live_provider_contract(
     assert health["provider"] == provider.name
     assert health["available"] is True
 
-    direct = provider._send_message(
+    direct = provider.send_message(
         system="You are concise.",
         user="Reply with a short acknowledgment for a live test.",
         temperature=0.0,
@@ -40,7 +40,7 @@ def exercise_live_provider_contract(
         assert provider.last_response_id
 
     streamed = _collect_stream_text(
-        provider._send_streaming_message(
+        provider.send_streaming_message(
             system="You are concise.",
             user="Stream a short acknowledgment for a live test.",
             temperature=0.0,

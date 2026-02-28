@@ -77,16 +77,22 @@ class LocalProvider(BaseLLMProvider):
         message = resp.get("message", {}) if isinstance(resp, dict) else {}
         return (message.get("content") or "").strip()
 
-    def _send_message(
+    def send_message(
         self,
-        system: str,
-        user: str,
-        temperature: Optional[float],
-        max_tokens: int,
+        input: str,
+        instruction: Optional[str] = None,
+        prompt: Optional[str] = None,
+        temperature: Optional[float] = None,
+        max_tokens: int = 4096,
+        previous_response_id: Optional[str] = None,
+        prompt_cache_key: Optional[str] = None,
+        prompt_cache_retention: Optional[int] = None,
         **kwargs,
     ) -> str:
+        _ = previous_response_id, prompt_cache_key, prompt_cache_retention, kwargs
+        user = f"{prompt}\n\n{input}" if prompt else input
         return self._chat(
-            system,
+            instruction or "",
             user,
             temperature=temperature if temperature is not None else self.config.temperature,
             max_tokens=max_tokens,
@@ -130,16 +136,22 @@ class LocalProvider(BaseLLMProvider):
             if data.get("done"):
                 break
 
-    def _send_streaming_message(
+    def send_streaming_message(
         self,
-        system: str,
-        user: str,
-        temperature: Optional[float],
-        max_tokens: int,
+        input: str,
+        instruction: Optional[str] = None,
+        prompt: Optional[str] = None,
+        temperature: Optional[float] = None,
+        max_tokens: int = 4096,
+        previous_response_id: Optional[str] = None,
+        prompt_cache_key: Optional[str] = None,
+        prompt_cache_retention: Optional[int] = None,
         **kwargs,
     ):
+        _ = previous_response_id, prompt_cache_key, prompt_cache_retention, kwargs
+        user = f"{prompt}\n\n{input}" if prompt else input
         yield from self._chat_stream(
-            system,
+            instruction or "",
             user,
             temperature=temperature if temperature is not None else self.config.temperature,
             max_tokens=max_tokens,

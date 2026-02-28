@@ -141,18 +141,28 @@ class AnthropicProvider(BaseLLMProvider):
             "ServiceUnavailableError",
         }
 
-    def _send_message(
+    def send_message(
         self,
-        system: str,
-        user: str,
-        temperature: Optional[float],
-        max_tokens: int,
+        input: str,
+        instruction: Optional[str] = None,
+        prompt: Optional[str] = None,
+        temperature: Optional[float] = None,
+        max_tokens: int = 4096,
+        previous_response_id: Optional[str] = None,
+        prompt_cache_key: Optional[str] = None,
+        prompt_cache_retention: Optional[int] = None,
         **kwargs,
     ) -> str:
-        system_payload: Any = system
+        _ = previous_response_id, prompt_cache_retention
+        user = f"{prompt}\n\n{input}" if prompt else input
+        system_payload: Any = instruction or ""
         if kwargs.get("enable_server_cache"):
             system_payload = [
-                {"type": "text", "text": system, "cache_control": {"type": "ephemeral"}}
+                {"type": "text", "text": instruction or "", "cache_control": {"type": "ephemeral"}}
+            ]
+        if prompt_cache_key and kwargs.get("enable_server_cache"):
+            system_payload = [
+                {"type": "text", "text": instruction or "", "cache_control": {"type": "ephemeral"}}
             ]
 
         tools = kwargs.get("tools")
@@ -192,20 +202,26 @@ class AnthropicProvider(BaseLLMProvider):
             return json.dumps({"response": text, "tool_calls": tool_calls})
         return text or self._extract_text(resp)
 
-    def _send_streaming_message(
+    def send_streaming_message(
         self,
-        system: str,
-        user: str,
-        temperature: Optional[float],
-        max_tokens: int,
+        input: str,
+        instruction: Optional[str] = None,
+        prompt: Optional[str] = None,
+        temperature: Optional[float] = None,
+        max_tokens: int = 4096,
+        previous_response_id: Optional[str] = None,
+        prompt_cache_key: Optional[str] = None,
+        prompt_cache_retention: Optional[int] = None,
         **kwargs,
     ):
+        _ = previous_response_id, prompt_cache_key, prompt_cache_retention, kwargs
+        user = f"{prompt}\n\n{input}" if prompt else input
         try:
             stream = self.client.messages.stream(
                 model=self.model,
                 max_tokens=max_tokens,
                 temperature=temperature,
-                system=system,
+                system=instruction,
                 messages=[{"role": "user", "content": user}],
             )
             with stream as session:
@@ -220,7 +236,7 @@ class AnthropicProvider(BaseLLMProvider):
             model=self.model,
             max_tokens=max_tokens,
             temperature=temperature,
-            system=system,
+            system=instruction,
             messages=[{"role": "user", "content": user}],
             stream=True,
         )

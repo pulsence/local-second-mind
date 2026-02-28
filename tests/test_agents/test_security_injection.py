@@ -78,8 +78,8 @@ def _run_with_response(
         def __init__(self) -> None:
             self.responses = list(responses)
 
-        def _send_message(self, system, user, temperature, max_tokens, **kwargs):
-            _ = system, user, temperature, max_tokens, kwargs
+        def send_message(self, input, instruction=None, prompt=None, temperature=None, max_tokens=4096, previous_response_id=None, prompt_cache_key=None, prompt_cache_retention=None, **kwargs):
+            _ = instruction, input, temperature, max_tokens, kwargs
             return self.responses.pop(0)
 
     monkeypatch.setattr("lsm.agents.harness.create_provider", lambda cfg: FakeProvider())

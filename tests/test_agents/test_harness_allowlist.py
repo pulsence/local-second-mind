@@ -100,9 +100,9 @@ def test_harness_allowlist_filters_llm_tool_context_and_blocks_execution(
         def __init__(self) -> None:
             self.last_system_prompt = ""
 
-        def _send_message(self, system, user, temperature, max_tokens, **kwargs):
-            _ = user, temperature, max_tokens, kwargs
-            self.last_system_prompt = str(system)
+        def send_message(self, input, instruction=None, prompt=None, temperature=None, max_tokens=4096, previous_response_id=None, prompt_cache_key=None, prompt_cache_retention=None, **kwargs):
+            _ = input, temperature, max_tokens, kwargs
+            self.last_system_prompt = str(instruction)
             return json.dumps(
                 {
                     "response": "Try blocked tool",
@@ -159,8 +159,8 @@ def test_harness_creates_workspace_and_persists_context_path(monkeypatch, tmp_pa
         name = "fake"
         model = "fake-model"
 
-        def _send_message(self, system, user, temperature, max_tokens, **kwargs):
-            _ = system, user, temperature, max_tokens, kwargs
+        def send_message(self, input, instruction=None, prompt=None, temperature=None, max_tokens=4096, previous_response_id=None, prompt_cache_key=None, prompt_cache_retention=None, **kwargs):
+            _ = instruction, input, temperature, max_tokens, kwargs
             return json.dumps({"response": "Done", "action": "DONE", "action_arguments": {}})
 
     monkeypatch.setattr("lsm.agents.harness.create_provider", lambda cfg: FakeProvider())
@@ -238,9 +238,9 @@ def test_remote_source_allowlist_restricts_to_allowed_source(
         def __init__(self) -> None:
             self.last_system_prompt = ""
 
-        def _send_message(self, system: str, user: str, temperature: Any, max_tokens: Any, **kwargs: Any) -> str:
-            _ = user, temperature, max_tokens, kwargs
-            self.last_system_prompt = str(system)
+        def send_message(self, input: str, instruction: Any = None, prompt: Any = None, temperature: Any = None, max_tokens: Any = 4096, previous_response_id: Any = None, prompt_cache_key: Any = None, prompt_cache_retention: Any = None, **kwargs: Any) -> str:
+            _ = input, temperature, max_tokens, kwargs
+            self.last_system_prompt = str(instruction)
             return json.dumps({"response": "Done", "action": "DONE", "action_arguments": {}})
 
     provider = FakeProvider()
@@ -280,9 +280,9 @@ def test_remote_source_allowlist_none_exposes_all_sources(
         def __init__(self) -> None:
             self.last_system_prompt = ""
 
-        def _send_message(self, system: str, user: str, temperature: Any, max_tokens: Any, **kwargs: Any) -> str:
-            _ = user, temperature, max_tokens, kwargs
-            self.last_system_prompt = str(system)
+        def send_message(self, input: str, instruction: Any = None, prompt: Any = None, temperature: Any = None, max_tokens: Any = 4096, previous_response_id: Any = None, prompt_cache_key: Any = None, prompt_cache_retention: Any = None, **kwargs: Any) -> str:
+            _ = input, temperature, max_tokens, kwargs
+            self.last_system_prompt = str(instruction)
             return json.dumps({"response": "Done", "action": "DONE", "action_arguments": {}})
 
     provider = FakeProvider()

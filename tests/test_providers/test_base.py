@@ -33,19 +33,19 @@ class ConcreteProvider(BaseLLMProvider):
     def is_available(self) -> bool:
         return True
 
-    def _send_message(self, system, user, temperature, max_tokens, **kwargs):
+    def send_message(self, input, instruction=None, prompt=None, temperature=None, max_tokens=4096, previous_response_id=None, prompt_cache_key=None, prompt_cache_retention=None, **kwargs):
         if self._fail_send:
             raise RuntimeError("send failed")
         self.last_send_args = {
-            "system": system,
-            "user": user,
+            "system": instruction,
+            "user": input,
             "temperature": temperature,
             "max_tokens": max_tokens,
             "kwargs": kwargs,
         }
         return self._send_response
 
-    def _send_streaming_message(self, system, user, temperature, max_tokens, **kwargs):
+    def send_streaming_message(self, input, instruction=None, prompt=None, temperature=None, max_tokens=4096, previous_response_id=None, prompt_cache_key=None, prompt_cache_retention=None, **kwargs):
         for chunk in self._stream_chunks:
             yield chunk
 
@@ -98,10 +98,10 @@ class TestBaseLLMProvider:
             def generate_tags(self, text, num_tags=3, existing_tags=None, **kwargs):
                 return ["tag1", "tag2"]
 
-            def _send_message(self, system, user, temperature, max_tokens, **kwargs):
+            def send_message(self, input, instruction=None, prompt=None, temperature=None, max_tokens=4096, previous_response_id=None, prompt_cache_key=None, prompt_cache_retention=None, **kwargs):
                 return "ok"
 
-            def _send_streaming_message(self, system, user, temperature, max_tokens, **kwargs):
+            def send_streaming_message(self, input, instruction=None, prompt=None, temperature=None, max_tokens=4096, previous_response_id=None, prompt_cache_key=None, prompt_cache_retention=None, **kwargs):
                 yield "ok"
 
         provider = CompleteProvider({})
@@ -139,10 +139,10 @@ class TestBaseLLMProvider:
             def generate_tags(self, text, num_tags=3, existing_tags=None, **kwargs):
                 return ["tag1", "tag2"]
 
-            def _send_message(self, system, user, temperature, max_tokens, **kwargs):
+            def send_message(self, input, instruction=None, prompt=None, temperature=None, max_tokens=4096, previous_response_id=None, prompt_cache_key=None, prompt_cache_retention=None, **kwargs):
                 return "ok"
 
-            def _send_streaming_message(self, system, user, temperature, max_tokens, **kwargs):
+            def send_streaming_message(self, input, instruction=None, prompt=None, temperature=None, max_tokens=4096, previous_response_id=None, prompt_cache_key=None, prompt_cache_retention=None, **kwargs):
                 yield "ok"
 
         provider = CompleteProvider({})
@@ -181,10 +181,10 @@ class TestBaseLLMProvider:
             def generate_tags(self, text, num_tags=3, existing_tags=None, **kwargs):
                 return ["tag1"]
 
-            def _send_message(self, system, user, temperature, max_tokens, **kwargs):
+            def send_message(self, input, instruction=None, prompt=None, temperature=None, max_tokens=4096, previous_response_id=None, prompt_cache_key=None, prompt_cache_retention=None, **kwargs):
                 return "ok"
 
-            def _send_streaming_message(self, system, user, temperature, max_tokens, **kwargs):
+            def send_streaming_message(self, input, instruction=None, prompt=None, temperature=None, max_tokens=4096, previous_response_id=None, prompt_cache_key=None, prompt_cache_retention=None, **kwargs):
                 yield "ok"
 
         provider = CompleteProvider({})
@@ -229,10 +229,10 @@ class TestBaseLLMProvider:
             def generate_tags(self, text, num_tags=3, existing_tags=None, **kwargs):
                 return ["tag1"]
 
-            def _send_message(self, system, user, temperature, max_tokens, **kwargs):
+            def send_message(self, input, instruction=None, prompt=None, temperature=None, max_tokens=4096, previous_response_id=None, prompt_cache_key=None, prompt_cache_retention=None, **kwargs):
                 return "ok"
 
-            def _send_streaming_message(self, system, user, temperature, max_tokens, **kwargs):
+            def send_streaming_message(self, input, instruction=None, prompt=None, temperature=None, max_tokens=4096, previous_response_id=None, prompt_cache_key=None, prompt_cache_retention=None, **kwargs):
                 yield "ok"
 
         provider = CompleteProvider()

@@ -85,8 +85,10 @@ def test_agent_end_to_end_with_stubbed_llm(monkeypatch, tmp_path: Path) -> None:
                 json.dumps({"response": "Done", "action": "DONE", "action_arguments": {}}),
             ]
 
-        def _send_message(self, system, user, temperature, max_tokens, **kwargs):
-            _ = system, user, temperature, max_tokens, kwargs
+        def send_message(self, input, instruction=None, prompt=None, temperature=None, max_tokens=4096, previous_response_id=None, prompt_cache_key=None, prompt_cache_retention=None, **kwargs):
+            system = instruction
+            user = input
+            _ = instruction, input, temperature, max_tokens, kwargs
             return self.responses.pop(0)
 
     monkeypatch.setattr(

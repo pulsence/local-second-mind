@@ -178,14 +178,20 @@ class GeminiProvider(BaseLLMProvider):
             return ""
         return text.strip()
 
-    def _send_message(
+    def send_message(
         self,
-        system: str,
-        user: str,
-        temperature: Optional[float],
-        max_tokens: int,
+        input: str,
+        instruction: Optional[str] = None,
+        prompt: Optional[str] = None,
+        temperature: Optional[float] = None,
+        max_tokens: int = 4096,
+        previous_response_id: Optional[str] = None,
+        prompt_cache_key: Optional[str] = None,
+        prompt_cache_retention: Optional[int] = None,
         **kwargs,
     ) -> str:
+        _ = previous_response_id, prompt_cache_key, prompt_cache_retention
+        user = f"{prompt}\n\n{input}" if prompt else input
         tools = kwargs.get("tools")
         if tools:
             client = self._ensure_client()
@@ -200,7 +206,7 @@ class GeminiProvider(BaseLLMProvider):
                 max_tokens=max_tokens,
                 tools=[genai_types.Tool(function_declarations=declarations)],
                 tool_config=tool_config,
-                system_instruction=system,
+                system_instruction=instruction,
             )
             response = self._with_retry(
                 lambda: client.models.generate_content(
@@ -222,27 +228,33 @@ class GeminiProvider(BaseLLMProvider):
                 )
             return (text or "").strip()
 
-        prompt = f"{system}\n\n{user}"
+        prompt_text = f"{instruction}\n\n{user}" if instruction else user
         return self._generate(
-            prompt,
+            prompt_text,
             temperature=temperature if temperature is not None else 0.0,
             max_tokens=max_tokens,
         )
 
-    def _send_streaming_message(
+    def send_streaming_message(
         self,
-        system: str,
-        user: str,
-        temperature: Optional[float],
-        max_tokens: int,
+        input: str,
+        instruction: Optional[str] = None,
+        prompt: Optional[str] = None,
+        temperature: Optional[float] = None,
+        max_tokens: int = 4096,
+        previous_response_id: Optional[str] = None,
+        prompt_cache_key: Optional[str] = None,
+        prompt_cache_retention: Optional[int] = None,
         **kwargs,
     ):
+        _ = previous_response_id, prompt_cache_key, prompt_cache_retention, kwargs
+        user = f"{prompt}\n\n{input}" if prompt else input
         client = self._ensure_client()
         config = self._build_config(temperature or 0.0, max_tokens)
-        prompt = f"{system}\n\n{user}"
+        prompt_text = f"{instruction}\n\n{user}" if instruction else user
         stream = client.models.generate_content_stream(
             model=self.model,
-            contents=prompt,
+            contents=prompt_text,
             config=config,
         )
         for chunk in stream:

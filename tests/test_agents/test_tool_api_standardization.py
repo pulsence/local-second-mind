@@ -89,10 +89,10 @@ def test_harness_uses_function_calling_tools(monkeypatch, tmp_path: Path) -> Non
             self.received_tools: list[list[dict] | None] = []
             self.received_users: list[str] = []
 
-        def _send_message(self, system, user, temperature, max_tokens, **kwargs):
-            _ = system, temperature, max_tokens
+        def send_message(self, input, instruction=None, prompt=None, temperature=None, max_tokens=4096, previous_response_id=None, prompt_cache_key=None, prompt_cache_retention=None, **kwargs):
+            _ = instruction, temperature, max_tokens
             self.received_tools.append(kwargs.get("tools"))
-            self.received_users.append(str(user))
+            self.received_users.append(str(input))
             return self.responses.pop(0)
 
     provider = FunctionProvider()
@@ -134,10 +134,10 @@ def test_harness_falls_back_to_prompt_tools_for_unsupported_provider(
             self.user_prompts: list[str] = []
             self.kwargs: list[dict] = []
 
-        def _send_message(self, system, user, temperature, max_tokens, **kwargs):
+        def send_message(self, input, instruction=None, prompt=None, temperature=None, max_tokens=4096, previous_response_id=None, prompt_cache_key=None, prompt_cache_retention=None, **kwargs):
             _ = temperature, max_tokens
-            self.system_prompts.append(str(system))
-            self.user_prompts.append(str(user))
+            self.system_prompts.append(str(instruction))
+            self.user_prompts.append(str(input))
             self.kwargs.append(dict(kwargs))
             return self.responses.pop(0)
 

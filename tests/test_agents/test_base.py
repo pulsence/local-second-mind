@@ -388,8 +388,8 @@ class _RecordingProvider:
         self._responses = list(responses or [])
         self.call_count = 0
 
-    def _send_message(self, system, user, temperature, max_tokens, **kwargs):
-        _ = system, user, temperature, max_tokens, kwargs
+    def send_message(self, input, instruction=None, prompt=None, temperature=None, max_tokens=4096, previous_response_id=None, prompt_cache_key=None, prompt_cache_retention=None, **kwargs):
+        _ = instruction, input, temperature, max_tokens, kwargs
         self.call_count += 1
         if self._responses:
             return self._responses.pop(0)
