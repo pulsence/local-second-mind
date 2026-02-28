@@ -159,8 +159,6 @@
       "enabled": true,
       "storage_backend": "auto",
       "_comment_storage_backend": "auto = postgresql when vectordb.provider=postgresql, otherwise sqlite",
-      "_comment_sqlite_path": "Relative sqlite_path values are resolved under agents_folder",
-      "sqlite_path": "memory.sqlite3",
       "postgres_connection_string": null,
       "postgres_table_prefix": "agent_memory",
       "ttl_project_fact_days": 90,

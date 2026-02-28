@@ -24,10 +24,6 @@ class IngestSettingsTab(BaseSettingsTab):
     def compose(self) -> ComposeResult:
         yield Container(
             Static("Ingest Settings", classes="settings-section-title"),
-            self._field("Persist dir", "settings-ingest-persist-dir"),
-            self._field("Collection", "settings-ingest-collection"),
-            self._field("Manifest", "settings-ingest-manifest"),
-            self._field("Chroma flush interval", "settings-ingest-chroma-flush-interval"),
             self._select_field(
                 "Chunking strategy",
                 "settings-ingest-chunking-strategy",
@@ -53,7 +49,6 @@ class IngestSettingsTab(BaseSettingsTab):
                 field_type="switch",
             ),
             self._field("Enable translation", "settings-ingest-enable-translation", field_type="switch"),
-            self._field("Enable versioning", "settings-ingest-enable-versioning", field_type="switch"),
             Static("Roots", classes="settings-subsection-title"),
             Vertical(id="settings-ingest-roots-list"),
             Horizontal(Button("Add Root", id="settings-ingest-root-add"), classes="settings-actions"),
@@ -67,13 +62,6 @@ class IngestSettingsTab(BaseSettingsTab):
             return
 
         self._refresh_roots_fields(config)
-        self._set_input("settings-ingest-persist-dir", str(getattr(ingest, "persist_dir", "")))
-        self._set_input("settings-ingest-collection", str(getattr(ingest, "collection", "")))
-        self._set_input("settings-ingest-manifest", str(getattr(ingest, "manifest", "")))
-        self._set_input(
-            "settings-ingest-chroma-flush-interval",
-            str(getattr(ingest, "chroma_flush_interval", "")),
-        )
         self._set_select_value(
             "settings-ingest-chunking-strategy",
             str(getattr(ingest, "chunking_strategy", "")),
@@ -121,10 +109,6 @@ class IngestSettingsTab(BaseSettingsTab):
             "settings-ingest-enable-translation",
             bool(getattr(ingest, "enable_translation", False)),
         )
-        self._set_switch(
-            "settings-ingest-enable-versioning",
-            bool(getattr(ingest, "enable_versioning", False)),
-        )
 
     def apply_update(self, field_id: str, value: Any, config: Any) -> bool:
         ingest = getattr(config, "ingest", None)
@@ -151,18 +135,6 @@ class IngestSettingsTab(BaseSettingsTab):
                 root.content_type = text or None
             return True
 
-        if field_id == "settings-ingest-persist-dir":
-            ingest.persist_dir = Path(text)
-            return True
-        if field_id == "settings-ingest-collection":
-            ingest.collection = text
-            return True
-        if field_id == "settings-ingest-manifest":
-            ingest.manifest = Path(text)
-            return True
-        if field_id == "settings-ingest-chroma-flush-interval" and text:
-            ingest.chroma_flush_interval = int(text)
-            return True
         if field_id == "settings-ingest-chunking-strategy":
             ingest.chunking_strategy = text
             return True
@@ -213,9 +185,6 @@ class IngestSettingsTab(BaseSettingsTab):
             return True
         if field_id == "settings-ingest-enable-translation":
             ingest.enable_translation = bool(value)
-            return True
-        if field_id == "settings-ingest-enable-versioning":
-            ingest.enable_versioning = bool(value)
             return True
         return False
 

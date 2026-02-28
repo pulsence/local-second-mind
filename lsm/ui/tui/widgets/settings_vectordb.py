@@ -15,9 +15,8 @@ from lsm.ui.tui.widgets.settings_base import BaseSettingsTab
 class VectorDBSettingsTab(BaseSettingsTab):
     """Settings view for vector database configuration fields."""
 
-    _CHROMADB_FIELDS = (
-        "settings-vdb-persist-dir",
-        "settings-vdb-hnsw-space",
+    _SQLITE_FIELDS = (
+        "settings-vdb-path",
     )
 
     _POSTGRES_FIELDS = (
@@ -37,11 +36,10 @@ class VectorDBSettingsTab(BaseSettingsTab):
             self._select_field(
                 "Provider",
                 "settings-vdb-provider",
-                [("chromadb", "chromadb"), ("postgresql", "postgresql")],
+                [("sqlite", "sqlite"), ("postgresql", "postgresql")],
             ),
             self._field("Collection", "settings-vdb-collection"),
-            self._field("Persist dir", "settings-vdb-persist-dir"),
-            self._field("HNSW space", "settings-vdb-hnsw-space"),
+            self._field("Path", "settings-vdb-path"),
             self._field("Connection string", "settings-vdb-connection-string"),
             self._field("Host", "settings-vdb-host"),
             self._field("Port", "settings-vdb-port"),
@@ -63,8 +61,7 @@ class VectorDBSettingsTab(BaseSettingsTab):
         provider = str(getattr(vdb, "provider", ""))
         self._set_select_value("settings-vdb-provider", provider)
         self._set_input("settings-vdb-collection", str(getattr(vdb, "collection", "")))
-        self._set_input("settings-vdb-persist-dir", str(getattr(vdb, "persist_dir", "")))
-        self._set_input("settings-vdb-hnsw-space", str(getattr(vdb, "chroma_hnsw_space", "")))
+        self._set_input("settings-vdb-path", str(getattr(vdb, "path", "")))
         self._set_input(
             "settings-vdb-connection-string",
             self._format_optional(getattr(vdb, "connection_string", None)),
@@ -92,11 +89,8 @@ class VectorDBSettingsTab(BaseSettingsTab):
         if field_id == "settings-vdb-collection":
             vdb.collection = text
             return True
-        if field_id == "settings-vdb-persist-dir":
-            vdb.persist_dir = Path(text)
-            return True
-        if field_id == "settings-vdb-hnsw-space":
-            vdb.chroma_hnsw_space = text
+        if field_id == "settings-vdb-path":
+            vdb.path = Path(text)
             return True
         if field_id == "settings-vdb-connection-string":
             vdb.connection_string = text or None
@@ -127,14 +121,14 @@ class VectorDBSettingsTab(BaseSettingsTab):
 
     def _update_provider_field_visibility(self, provider: str) -> None:
         provider_name = (provider or "").strip().lower()
-        if provider_name == "chromadb":
-            self._set_fields_visible(self._CHROMADB_FIELDS, True)
+        if provider_name == "sqlite":
+            self._set_fields_visible(self._SQLITE_FIELDS, True)
             self._set_fields_visible(self._POSTGRES_FIELDS, False)
         elif provider_name == "postgresql":
-            self._set_fields_visible(self._CHROMADB_FIELDS, False)
+            self._set_fields_visible(self._SQLITE_FIELDS, False)
             self._set_fields_visible(self._POSTGRES_FIELDS, True)
         else:
-            self._set_fields_visible(self._CHROMADB_FIELDS, True)
+            self._set_fields_visible(self._SQLITE_FIELDS, True)
             self._set_fields_visible(self._POSTGRES_FIELDS, True)
 
     def _set_fields_visible(self, field_ids: tuple[str, ...], visible: bool) -> None:

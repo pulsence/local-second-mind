@@ -47,11 +47,11 @@ class TestLSMAppInit:
         # Create a mock config
         mock_config = Mock()
         mock_config.vectordb = Mock()
-        mock_config.vectordb.provider = "chromadb"
+        mock_config.vectordb.provider = "sqlite"
+        mock_config.vectordb.path = Path("/tmp/test")
         mock_config.embed_model = "test-model"
         mock_config.device = "cpu"
         mock_config.collection = "test"
-        mock_config.persist_dir = "/tmp/test"
         mock_config.query = Mock()
         mock_config.query.mode = "grounded"
         mock_config.llm = Mock()
@@ -625,13 +625,12 @@ class TestLSMAppStatusBarIntegration:
         app.watch_total_cost(1.50)
 
 
-def _build_config(tmp_path: Path, provider: str = "chromadb"):
+def _build_config(tmp_path: Path, provider: str = "sqlite"):
     cfg = SimpleNamespace()
-    cfg.vectordb = SimpleNamespace(provider=provider)
+    cfg.vectordb = SimpleNamespace(provider=provider, path=tmp_path / "data")
     cfg.embed_model = "mini-model"
     cfg.device = "cpu"
     cfg.collection = "kb"
-    cfg.persist_dir = str(tmp_path / "chroma")
     cfg.query = SimpleNamespace(mode="grounded")
     cfg.llm = SimpleNamespace(get_query_config=lambda: SimpleNamespace(model="gpt-test"))
     return cfg
@@ -891,29 +890,10 @@ class TestLSMAppBehavior:
         asyncio.run(app._async_init_ingest_context())
         assert app.ingest_provider == "provider"
 
-    def test_async_init_query_context_missing_chroma_dir(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
-        from lsm.ui.tui.app import LSMApp
-
-        app = LSMApp(_build_config(tmp_path, provider="chromadb"))
-
-        async def _to_thread(fn, *args, **kwargs):
-            return fn(*args, **kwargs)
-
-        monkeypatch.setattr("asyncio.to_thread", _to_thread)
-        retrieval_mod = importlib.import_module("lsm.query.retrieval")
-        monkeypatch.setattr(retrieval_mod, "init_embedder", lambda *_args, **_kwargs: "embed")
-
-        with pytest.raises(FileNotFoundError):
-            asyncio.run(app._async_init_query_context())
-
     def test_async_init_query_context_success_and_empty_warning(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
         from lsm.ui.tui.app import LSMApp
 
-        persist_dir = tmp_path / "chroma"
-        persist_dir.mkdir(parents=True)
-        cfg = _build_config(tmp_path, provider="chromadb")
-        cfg.persist_dir = str(persist_dir)
-        app = LSMApp(cfg)
+        app = LSMApp(_build_config(tmp_path))
 
         class _Provider:
             def count(self):

@@ -1078,15 +1078,6 @@ class LSMApp(App):
             else:
                 logger.info("Using background-preloaded embedder")
 
-            # Check persist directory for ChromaDB
-            if self.config.vectordb.provider == "chromadb":
-                persist_dir = Path(self.config.persist_dir)
-                if not persist_dir.exists():
-                    raise FileNotFoundError(
-                        f"ChromaDB directory not found: {persist_dir}. "
-                        "Run ingest first to create the database."
-                    )
-
             # Initialize vector DB provider
             self._query_provider = await asyncio.to_thread(
                 create_vectordb_provider, self.config.vectordb

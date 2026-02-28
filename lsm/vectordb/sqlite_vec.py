@@ -644,6 +644,8 @@ class SQLiteVecProvider(BaseVectorDBProvider):
             "lsm_graph_edges",
             "lsm_embedding_models",
             "lsm_job_status",
+            "lsm_stats_cache",
+            "lsm_remote_cache",
         ]
         missing = []
         for name in required:

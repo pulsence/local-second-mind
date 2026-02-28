@@ -77,10 +77,6 @@ def _attach_status_sink(tab, sink: _StatusSink) -> None:
 def _config() -> Any:
     ingest = SimpleNamespace(
         roots=[SimpleNamespace(path=Path("/docs"), tags=None, content_type=None)],
-        path=Path("/data"),
-        collection="kb",
-        manifest=Path("/data/manifest.json"),
-        chroma_flush_interval=500,
         chunking_strategy="structure",
         chunk_size=800,
         chunk_overlap=120,
@@ -98,7 +94,6 @@ def _config() -> Any:
         enable_ai_tagging=False,
         enable_language_detection=False,
         enable_translation=False,
-        enable_versioning=False,
     )
     query = SimpleNamespace(
         mode="grounded",
@@ -120,10 +115,9 @@ def _config() -> Any:
         enable_llm_server_cache=True,
     )
     vectordb = SimpleNamespace(
-        provider="chromadb",
+        provider="sqlite",
         collection="kb",
         path=Path("/data"),
-        chroma_hnsw_space="cosine",
         connection_string=None,
         host=None,
         port=None,
@@ -361,8 +355,7 @@ def test_vectordb_tab_refresh_updates_and_visibility() -> None:
     widgets = {
         "#settings-vdb-provider": _SelectWidget(),
         "#settings-vdb-collection": _InputWidget(),
-        "#settings-vdb-persist-dir": _InputWidget(),
-        "#settings-vdb-hnsw-space": _InputWidget(),
+        "#settings-vdb-path": _InputWidget(),
         "#settings-vdb-connection-string": _InputWidget(),
         "#settings-vdb-host": _InputWidget(),
         "#settings-vdb-port": _InputWidget(),
@@ -375,13 +368,13 @@ def test_vectordb_tab_refresh_updates_and_visibility() -> None:
     _bind_widgets(tab, widgets)
 
     tab.refresh_fields(cfg)
-    assert widgets["#settings-vdb-provider"].value == "chromadb"
+    assert widgets["#settings-vdb-provider"].value == "sqlite"
     assert widgets["#settings-vdb-connection-string"].parent.display is False
 
     assert tab.apply_update("settings-vdb-provider", "postgresql", cfg) is True
     assert cfg.vectordb.provider == "postgresql"
     assert widgets["#settings-vdb-connection-string"].parent.display is True
-    assert widgets["#settings-vdb-persist-dir"].parent.display is False
+    assert widgets["#settings-vdb-path"].parent.display is False
 
 
 def test_modes_tab_refresh_and_mode_change() -> None:

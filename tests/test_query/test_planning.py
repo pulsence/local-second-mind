@@ -25,7 +25,7 @@ def _config(
         rerank_strategy=rerank_strategy,
         retrieve_k=retrieve_k,
     )
-    ingest = SimpleNamespace(enable_versioning=False)
+    ingest = SimpleNamespace()
     llm = SimpleNamespace(resolve_service=lambda name: None)
     return SimpleNamespace(get_mode_config=lambda: mode, query=query, batch_size=32, ingest=ingest, llm=llm)
 

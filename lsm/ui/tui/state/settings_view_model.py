@@ -526,14 +526,6 @@ class SettingsViewModel:
             cfg.global_settings.batch_size = int(text)
         elif field_id == "settings-global-embedding-dimension":
             cfg.global_settings.embedding_dimension = int(text) if text else None
-        elif field_id == "settings-ingest-persist-dir":
-            cfg.ingest.persist_dir = Path(text)
-        elif field_id == "settings-ingest-collection":
-            cfg.ingest.collection = text
-        elif field_id == "settings-ingest-manifest":
-            cfg.ingest.manifest = Path(text)
-        elif field_id == "settings-ingest-chroma-flush-interval" and text:
-            cfg.ingest.chroma_flush_interval = int(text)
         elif field_id == "settings-ingest-chunking-strategy":
             cfg.ingest.chunking_strategy = text
         elif field_id == "settings-ingest-chunk-size" and text:
@@ -568,8 +560,6 @@ class SettingsViewModel:
             cfg.ingest.enable_language_detection = bool(value)
         elif field_id == "settings-ingest-enable-translation":
             cfg.ingest.enable_translation = bool(value)
-        elif field_id == "settings-ingest-enable-versioning":
-            cfg.ingest.enable_versioning = bool(value)
         elif field_id == "settings-query-mode":
             cfg.query.mode = text
         elif field_id == "settings-query-k" and text:
@@ -610,10 +600,8 @@ class SettingsViewModel:
             cfg.vectordb.provider = text
         elif field_id == "settings-vdb-collection":
             cfg.vectordb.collection = text
-        elif field_id == "settings-vdb-persist-dir":
-            cfg.vectordb.persist_dir = Path(text)
-        elif field_id == "settings-vdb-hnsw-space":
-            cfg.vectordb.chroma_hnsw_space = text
+        elif field_id == "settings-vdb-path":
+            cfg.vectordb.path = Path(text)
         elif field_id == "settings-vdb-connection-string":
             cfg.vectordb.connection_string = text or None
         elif field_id == "settings-vdb-host":

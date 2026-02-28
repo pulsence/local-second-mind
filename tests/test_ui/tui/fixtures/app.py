@@ -6,6 +6,7 @@ minimal attributes that screens expect from ``self.app``.
 
 from __future__ import annotations
 
+from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, Optional
 from unittest.mock import Mock
@@ -54,11 +55,11 @@ def create_startup_mock_config() -> Mock:
     """
     cfg = Mock()
     cfg.vectordb = Mock()
-    cfg.vectordb.provider = "chromadb"
+    cfg.vectordb.provider = "sqlite"
+    cfg.vectordb.path = Path("/tmp/test")
     cfg.embed_model = "test-model"
     cfg.device = "cpu"
     cfg.collection = "test"
-    cfg.persist_dir = "/tmp/test"
     cfg.query = Mock()
     cfg.query.mode = "grounded"
     cfg.llm = Mock()
