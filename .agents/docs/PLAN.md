@@ -17,6 +17,7 @@
 | 2 | Agent Data, Manifest, and Sidecar Consolidation | Completed | [PHASE_2.md](./plan_phases/PHASE_2.md) |
 | 3 | Schema Versioning and DB Completion | Completed | [PHASE_3.md](./plan_phases/PHASE_3.md) |
 | 4 | Migration System | Completed | [PHASE_4.md](./plan_phases/PHASE_4.md) |
+| 4.1 | Database Layer Foundation | Completed | [PHASE_4_1.md](./plan_phases/PHASE_4_1.md) |
 | 5 | LLM Provider Simplification | Pending | [PHASE_5.md](./plan_phases/PHASE_5.md) |
 | 6 | Prompt Ownership Migration and ModeConfig | Pending | [PHASE_6.md](./plan_phases/PHASE_6.md) |
 | 7 | FileGraph Heading Enhancements | Pending | [PHASE_7.md](./plan_phases/PHASE_7.md) |
@@ -46,6 +47,9 @@ Schema version tracking, always-on versioning with prune, and incremental corpus
 
 ### [Phase 4: Migration System](./plan_phases/PHASE_4.md)
 `lsm migrate` CLI for cross-backend and v0.7→v0.8 legacy state migration. Sub-tasks: 4.1–4.3.
+
+### [Phase 4.1: Database Layer Foundation](./plan_phases/PHASE_4_1.md)
+Corrects the `lsm.db` / `lsm.vectordb` boundary: extracts connection management, application schema ownership, and transaction helpers into `lsm.db`; consolidates duplicated resolution logic from subsystems. Sub-tasks: 4.1.1–4.1.4.
 
 ### [Phase 5: LLM Provider Simplification](./plan_phases/PHASE_5.md)
 Providers become pure transport (`send_message`/`send_streaming_message` only). Removes domain methods and Azure provider. Sub-tasks: 5.1–5.4.

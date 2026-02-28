@@ -2,6 +2,16 @@
 
 All notable changes to Local Second Mind are documented here.
 
+## 0.8.1 - 2026-02-28
+
+### Changed
+
+- Extracted database layer foundation into `lsm.db` — connection management (`create_sqlite_connection`, `resolve_db_path`), application schema ownership (`ensure_application_schema`, `APPLICATION_TABLES`), and savepoint-aware transaction helper (`transaction`).
+- Refactored `SQLiteVecProvider` to delegate connection setup, non-vector schema creation, and transaction management to `lsm.db`, keeping only vector-specific DDL (`vec_chunks`, `chunks_fts`, FTS triggers).
+- Consolidated duplicated connection resolution logic from `memory/store.py` (4 functions) and `scheduler.py` (3 methods) into `lsm.db.connection` (`resolve_sqlite_connection`, `resolve_postgres_connection_factory`, `resolve_vectordb_provider_name`).
+- Updated `stats_cache.py` and `remote/storage.py` fallback connections to use `create_sqlite_connection()` for consistent WAL/FK/busy_timeout configuration.
+- Redirected `schema_version._ensure_schema_versions_table()` to `lsm.db.schema.ensure_application_schema()` to eliminate schema DDL duplication.
+
 ## 0.8.0 - 2026-02-28
 
 ### Changed
