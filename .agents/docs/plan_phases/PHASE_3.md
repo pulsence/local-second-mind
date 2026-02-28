@@ -1,6 +1,6 @@
 # Phase 3: Schema Versioning and DB Completion
 
-**Status**: Pending
+**Status**: Completed
 
 Implements schema version tracking in the database and incremental corpus update
 capabilities. After this phase, LSM can detect when the corpus is stale due to config

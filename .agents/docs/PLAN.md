@@ -15,8 +15,8 @@
 |-------|-------|--------|------|
 | 1 | SQLite-vec Provider and Unified Schema | Completed | [PHASE_1.md](./plan_phases/PHASE_1.md) |
 | 2 | Agent Data, Manifest, and Sidecar Consolidation | Completed | [PHASE_2.md](./plan_phases/PHASE_2.md) |
-| 3 | Schema Versioning and DB Completion | Pending | [PHASE_3.md](./plan_phases/PHASE_3.md) |
-| 4 | Migration System | Pending | [PHASE_4.md](./plan_phases/PHASE_4.md) |
+| 3 | Schema Versioning and DB Completion | Completed | [PHASE_3.md](./plan_phases/PHASE_3.md) |
+| 4 | Migration System | Completed | [PHASE_4.md](./plan_phases/PHASE_4.md) |
 | 5 | LLM Provider Simplification | Pending | [PHASE_5.md](./plan_phases/PHASE_5.md) |
 | 6 | Prompt Ownership Migration and ModeConfig | Pending | [PHASE_6.md](./plan_phases/PHASE_6.md) |
 | 7 | FileGraph Heading Enhancements | Pending | [PHASE_7.md](./plan_phases/PHASE_7.md) |

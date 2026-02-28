@@ -1,6 +1,6 @@
 # Phase 4: Migration System
 
-**Status**: Pending
+**Status**: Completed
 
 Implements the `lsm migrate` CLI command for migrating between database backends and
 from v0.7.x legacy state. This is the only migration entry point — no automatic migration
