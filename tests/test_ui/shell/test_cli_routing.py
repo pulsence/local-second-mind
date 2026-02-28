@@ -100,6 +100,25 @@ def test_migrate_parses():
     assert args.batch_size == 500
 
 
+def test_migrate_v07_to_v08_parses():
+    parser = build_parser()
+    args = parser.parse_args(
+        [
+            "migrate",
+            "--from",
+            "v0.7",
+            "--to",
+            "v0.8",
+            "--source-dir",
+            "/tmp/legacy",
+        ]
+    )
+    assert args.command == "migrate"
+    assert args.migration_source == "v0.7"
+    assert args.migration_target == "v0.8"
+    assert args.source_dir == "/tmp/legacy"
+
+
 def test_query_rejects_interactive_flag():
     parser = build_parser()
     with pytest.raises(SystemExit):

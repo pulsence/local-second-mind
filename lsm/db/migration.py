@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
 import re
 import sqlite3
 from contextlib import ExitStack, contextmanager
@@ -13,8 +15,11 @@ from typing import Any, Callable, Dict, Iterable, Mapping, Optional
 
 from lsm import __version__ as LSM_VERSION
 from lsm.config.models import VectorDBConfig
+from lsm.logging import get_logger
 from lsm.vectordb import create_vectordb_provider
 from lsm.vectordb.chromadb import ChromaDBProvider
+
+logger = get_logger(__name__)
 
 ProgressCallback = Callable[[str, int, int, str], None]
 
@@ -258,9 +263,40 @@ def migrate(
     target_enum = _coerce_target(target)
 
     if source_enum == MigrationSource.V07_LEGACY:
-        raise NotImplementedError(
-            "Legacy v0.7 migration path is not available in the framework yet."
-        )
+        target_provider = _provider_from_target(target_enum, target_config)
+        with ExitStack() as stack:
+            target_conn = stack.enter_context(_connection_context(target_provider))
+            if target_conn is None:
+                raise RuntimeError("Migration target does not expose a writable DB connection.")
+            _ensure_aux_tables(target_conn)
+            source_dir = _resolve_v07_source_dir(source_config)
+            imported_counts = _migrate_v07_legacy(
+                source_dir=source_dir,
+                target_conn=target_conn,
+                progress_callback=progress_callback,
+            )
+            _record_derived_schema_version(
+                target_conn=target_conn,
+                runtime_config=target_config,
+                inferred_embedding_dim=None,
+            )
+            expected_counts = {"vector_rows": _count_vector_rows(target_conn)}
+            expected_counts.update(imported_counts)
+            if _table_exists(target_conn, "lsm_schema_versions"):
+                expected_counts["lsm_schema_versions"] = _count_table_rows(
+                    target_conn, "lsm_schema_versions"
+                )
+            _record_validation_counts(target_conn, expected_counts)
+            validation_result = validate_migration(target_conn)
+
+        return {
+            "source": source_enum.value,
+            "target": target_enum.value,
+            "total_vectors": expected_counts["vector_rows"],
+            "migrated_vectors": expected_counts["vector_rows"],
+            "validated_tables": int(validation_result.get("checked", 0)),
+            "legacy_source_dir": str(source_dir),
+        }
 
     source_provider = _provider_from_source(source_enum, source_config)
     target_provider = _provider_from_target(target_enum, target_config)
@@ -871,6 +907,339 @@ def _safe_ident(value: str) -> str:
     if not _VALID_IDENTIFIER.match(candidate):
         raise ValueError(f"Unsafe SQL identifier: {value!r}")
     return candidate
+
+
+def _resolve_v07_source_dir(source_config: Any) -> Path:
+    candidate: Optional[Any] = None
+    if isinstance(source_config, (str, Path)):
+        candidate = source_config
+    elif isinstance(source_config, Mapping):
+        candidate = source_config.get("source_dir") or source_config.get("path")
+    else:
+        candidate = getattr(source_config, "source_dir", None)
+        if candidate is None:
+            candidate = getattr(source_config, "global_folder", None)
+        if candidate is None:
+            global_settings = getattr(source_config, "global_settings", None)
+            if global_settings is not None:
+                candidate = getattr(global_settings, "global_folder", None)
+
+    if candidate is None:
+        raise ValueError(
+            "Legacy migration requires a source directory. "
+            "Pass --source-dir <path> with manifest.json/memories.db/schedules.json."
+        )
+
+    resolved = Path(candidate).expanduser().resolve()
+    if not resolved.exists():
+        raise FileNotFoundError(f"Legacy source directory not found: {resolved}")
+    return resolved
+
+
+def _migrate_v07_legacy(
+    *,
+    source_dir: Path,
+    target_conn: Any,
+    progress_callback: Optional[ProgressCallback],
+) -> Dict[str, int]:
+    _ensure_aux_tables(target_conn)
+    counts: dict[str, int] = {
+        "lsm_manifest": 0,
+        "lsm_agent_memories": 0,
+        "lsm_agent_memory_candidates": 0,
+        "lsm_agent_schedules": 0,
+        "lsm_stats_cache": 0,
+        "lsm_remote_cache": 0,
+    }
+
+    _emit_progress(
+        progress_callback,
+        "legacy",
+        0,
+        0,
+        f"Importing legacy v0.7 state from {source_dir}.",
+    )
+
+    manifest_path = source_dir / "manifest.json"
+    if manifest_path.exists():
+        raw_manifest = _load_json_file(manifest_path)
+        rows: list[dict[str, Any]] = []
+        if isinstance(raw_manifest, Mapping):
+            for source_path, value in raw_manifest.items():
+                if not isinstance(value, Mapping):
+                    continue
+                rows.append(
+                    {
+                        "source_path": str(source_path),
+                        "mtime_ns": value.get("mtime_ns"),
+                        "file_size": value.get("size", value.get("file_size")),
+                        "file_hash": value.get("file_hash"),
+                        "version": int(value.get("version", 1) or 1),
+                        "embedding_model": value.get("embedding_model"),
+                        "schema_version_id": value.get("schema_version_id"),
+                        "updated_at": value.get("updated_at") or _utcnow_iso(),
+                    }
+                )
+        if rows:
+            _upsert_rows(target_conn, "lsm_manifest", "source_path", rows)
+        counts["lsm_manifest"] = len(rows)
+    else:
+        _warn_legacy_missing(manifest_path)
+
+    memories_db_path = source_dir / "memories.db"
+    if memories_db_path.exists():
+        legacy_conn = sqlite3.connect(str(memories_db_path))
+        legacy_conn.row_factory = sqlite3.Row
+        try:
+            memory_table = _first_existing_table(
+                legacy_conn,
+                ("lsm_agent_memories", "memories"),
+            )
+            candidate_table = _first_existing_table(
+                legacy_conn,
+                ("lsm_agent_memory_candidates", "memory_candidates"),
+            )
+
+            memory_rows: list[dict[str, Any]] = []
+            if memory_table is not None:
+                for row in _fetch_table_rows(legacy_conn, memory_table):
+                    memory_rows.append(
+                        {
+                            "id": row.get("id"),
+                            "memory_type": row.get("memory_type", row.get("type", "project_fact")),
+                            "memory_key": row.get("memory_key", row.get("key", "")),
+                            "value_json": _json_text(
+                                row.get("value_json", row.get("value", {})),
+                                default="{}",
+                            ),
+                            "scope": row.get("scope", "project"),
+                            "tags_json": _json_text(
+                                row.get("tags_json", row.get("tags", [])),
+                                default="[]",
+                            ),
+                            "confidence": float(row.get("confidence", 1.0) or 1.0),
+                            "created_at": row.get("created_at") or _utcnow_iso(),
+                            "last_used_at": row.get("last_used_at") or row.get("created_at") or _utcnow_iso(),
+                            "expires_at": row.get("expires_at"),
+                            "source_run_id": row.get("source_run_id", row.get("run_id", "")),
+                        }
+                    )
+                if memory_rows:
+                    _upsert_rows(target_conn, "lsm_agent_memories", "id", memory_rows)
+            counts["lsm_agent_memories"] = len(memory_rows)
+
+            candidate_rows: list[dict[str, Any]] = []
+            if candidate_table is not None:
+                for row in _fetch_table_rows(legacy_conn, candidate_table):
+                    candidate_rows.append(
+                        {
+                            "id": row.get("id"),
+                            "memory_id": row.get("memory_id"),
+                            "provenance": row.get("provenance", ""),
+                            "rationale": row.get("rationale", ""),
+                            "status": row.get("status", "pending"),
+                            "created_at": row.get("created_at") or _utcnow_iso(),
+                            "updated_at": row.get("updated_at") or row.get("created_at") or _utcnow_iso(),
+                        }
+                    )
+                if candidate_rows:
+                    _upsert_rows(
+                        target_conn,
+                        "lsm_agent_memory_candidates",
+                        "id",
+                        candidate_rows,
+                    )
+            counts["lsm_agent_memory_candidates"] = len(candidate_rows)
+        finally:
+            legacy_conn.close()
+    else:
+        _warn_legacy_missing(memories_db_path)
+
+    schedules_path = source_dir / "schedules.json"
+    if schedules_path.exists():
+        raw_schedules = _load_json_file(schedules_path)
+        schedule_rows: list[dict[str, Any]] = []
+        for schedule in _iter_legacy_schedules(raw_schedules):
+            schedule_id = str(
+                schedule.get("schedule_id") or schedule.get("id") or ""
+            ).strip()
+            if not schedule_id:
+                agent_name = str(schedule.get("agent_name") or "agent").strip()
+                schedule_id = f"{agent_name}:{_legacy_hash(json.dumps(schedule, sort_keys=True))}"
+            schedule_rows.append(
+                {
+                    "schedule_id": schedule_id,
+                    "agent_name": str(schedule.get("agent_name") or "unknown"),
+                    "last_run_at": schedule.get("last_run_at"),
+                    "next_run_at": schedule.get("next_run_at") or _utcnow_iso(),
+                    "last_status": str(schedule.get("last_status") or "idle"),
+                    "last_error": schedule.get("last_error"),
+                    "queued_runs": int(schedule.get("queued_runs", 0) or 0),
+                    "updated_at": schedule.get("updated_at") or _utcnow_iso(),
+                }
+            )
+        if schedule_rows:
+            _upsert_rows(target_conn, "lsm_agent_schedules", "schedule_id", schedule_rows)
+        counts["lsm_agent_schedules"] = len(schedule_rows)
+    else:
+        _warn_legacy_missing(schedules_path)
+
+    stats_cache_path = source_dir / "stats_cache.json"
+    if stats_cache_path.exists():
+        raw_stats = _load_json_file(stats_cache_path)
+        stats_rows: list[dict[str, Any]] = []
+        if isinstance(raw_stats, Mapping) and "stats" in raw_stats:
+            stats_rows.append(
+                {
+                    "cache_key": "collection_stats",
+                    "cached_at": float(raw_stats.get("cached_at", 0.0) or 0.0),
+                    "chunk_count": int(raw_stats.get("chunk_count", 0) or 0),
+                    "stats_json": _json_text(raw_stats.get("stats", {}), default="{}"),
+                }
+            )
+        elif isinstance(raw_stats, Mapping):
+            for key, value in raw_stats.items():
+                if not isinstance(value, Mapping):
+                    continue
+                stats_rows.append(
+                    {
+                        "cache_key": str(key),
+                        "cached_at": float(value.get("cached_at", 0.0) or 0.0),
+                        "chunk_count": int(value.get("chunk_count", 0) or 0),
+                        "stats_json": _json_text(value.get("stats", {}), default="{}"),
+                    }
+                )
+        if stats_rows:
+            _upsert_rows(target_conn, "lsm_stats_cache", "cache_key", stats_rows)
+        counts["lsm_stats_cache"] = len(stats_rows)
+    else:
+        _warn_legacy_missing(stats_cache_path)
+
+    remote_rows: list[dict[str, Any]] = []
+    for root in (source_dir / "Downloads", source_dir / "remote"):
+        if not root.exists():
+            continue
+        for path in sorted(root.rglob("*.json")):
+            payload = _load_json_file(path)
+            if not isinstance(payload, Mapping):
+                continue
+            provider = _legacy_provider_name(payload, path)
+            cache_key = _legacy_remote_cache_key(provider=provider, payload=payload, path=path, base_dir=source_dir)
+            created_at = _legacy_created_at(payload, path)
+            expires_at = payload.get("expires_at")
+            remote_rows.append(
+                {
+                    "cache_key": cache_key,
+                    "provider": provider,
+                    "response_json": _json_text(payload, default="{}"),
+                    "created_at": created_at,
+                    "expires_at": str(expires_at) if expires_at is not None else None,
+                }
+            )
+    if remote_rows:
+        _upsert_rows(target_conn, "lsm_remote_cache", "cache_key", remote_rows)
+    counts["lsm_remote_cache"] = len(remote_rows)
+
+    _emit_progress(
+        progress_callback,
+        "legacy",
+        1,
+        1,
+        (
+            "Legacy import complete: "
+            f"manifest={counts['lsm_manifest']}, memories={counts['lsm_agent_memories']}, "
+            f"candidates={counts['lsm_agent_memory_candidates']}, schedules={counts['lsm_agent_schedules']}, "
+            f"stats={counts['lsm_stats_cache']}, remote={counts['lsm_remote_cache']}."
+        ),
+    )
+    return counts
+
+
+def _first_existing_table(conn: Any, names: Iterable[str]) -> Optional[str]:
+    for name in names:
+        if _table_exists(conn, name):
+            return name
+    return None
+
+
+def _iter_legacy_schedules(raw: Any) -> Iterable[Mapping[str, Any]]:
+    if isinstance(raw, list):
+        for item in raw:
+            if isinstance(item, Mapping):
+                yield item
+        return
+
+    if isinstance(raw, Mapping):
+        schedules = raw.get("schedules")
+        if isinstance(schedules, list):
+            for item in schedules:
+                if isinstance(item, Mapping):
+                    yield item
+            return
+        for key, value in raw.items():
+            if isinstance(value, Mapping):
+                payload = dict(value)
+                payload.setdefault("schedule_id", str(key))
+                yield payload
+
+
+def _legacy_provider_name(payload: Mapping[str, Any], path: Path) -> str:
+    provider = str(payload.get("provider") or path.parent.name or "unknown_provider")
+    cleaned = re.sub(r"[^A-Za-z0-9._-]+", "_", provider.strip())
+    return cleaned or "unknown_provider"
+
+
+def _legacy_remote_cache_key(
+    *,
+    provider: str,
+    payload: Mapping[str, Any],
+    path: Path,
+    base_dir: Path,
+) -> str:
+    query = payload.get("query")
+    if isinstance(query, str) and query.strip():
+        return f"query:{provider}:{_legacy_hash(query)}"
+    feed_url = payload.get("feed_url")
+    if isinstance(feed_url, str) and feed_url.strip():
+        return f"feed:rss:{_legacy_hash(feed_url)}"
+    rel = str(path.relative_to(base_dir))
+    return f"legacy:{_legacy_hash(rel)}"
+
+
+def _legacy_created_at(payload: Mapping[str, Any], path: Path) -> str:
+    saved_at = payload.get("saved_at")
+    if isinstance(saved_at, (int, float)):
+        return datetime.fromtimestamp(float(saved_at), tz=timezone.utc).isoformat()
+    created_at = payload.get("created_at")
+    if isinstance(created_at, str) and created_at.strip():
+        return created_at
+    return datetime.fromtimestamp(path.stat().st_mtime, tz=timezone.utc).isoformat()
+
+
+def _legacy_hash(value: str) -> str:
+    return hashlib.sha256(str(value).encode("utf-8")).hexdigest()[:24]
+
+
+def _load_json_file(path: Path) -> Any:
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return None
+
+
+def _json_text(value: Any, *, default: str) -> str:
+    if isinstance(value, str):
+        stripped = value.strip()
+        if stripped:
+            return stripped
+    try:
+        return json.dumps(value, ensure_ascii=True)
+    except Exception:
+        return default
+
+
+def _warn_legacy_missing(path: Path) -> None:
+    logger.warning("Legacy migration skipped missing file: %s", path)
 
 
 def _utcnow_iso() -> str:

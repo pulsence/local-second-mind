@@ -336,7 +336,13 @@ def run_migrate_cli(
             connection_string=source_connection_string,
         )
     elif source_value == "v0.7":
-        source_payload = {"source_dir": source_dir}
+        if target_value not in {"sqlite"}:
+            print("Error: legacy v0.7 migration only supports --to v0.8/sqlite.")
+            return 2
+        default_source_dir = source_dir
+        if default_source_dir is None:
+            default_source_dir = str(getattr(config.global_settings, "global_folder", "") or "")
+        source_payload = {"source_dir": default_source_dir}
     else:
         print(f"Error: unsupported migration source '{migration_source}'.")
         return 2

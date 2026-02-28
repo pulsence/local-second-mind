@@ -1,0 +1,12 @@
+{
+  "provider": "legacy_provider",
+  "query": "ancient philosophy",
+  "saved_at": 1704067200,
+  "results": [
+    {
+      "title": "Sample Result",
+      "url": "https://example.org/result",
+      "snippet": "Legacy cache payload"
+    }
+  ]
+}

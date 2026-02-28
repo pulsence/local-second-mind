@@ -1,0 +1,18 @@
+{
+  "/legacy/doc_a.md": {
+    "mtime_ns": 1001,
+    "size": 123,
+    "file_hash": "legacy-hash-a",
+    "version": 1,
+    "embedding_model": "sentence-transformers/all-MiniLM-L6-v2",
+    "updated_at": "2026-01-01T00:00:00+00:00"
+  },
+  "/legacy/doc_b.md": {
+    "mtime_ns": 1002,
+    "size": 456,
+    "file_hash": "legacy-hash-b",
+    "version": 2,
+    "embedding_model": "sentence-transformers/all-MiniLM-L6-v2",
+    "updated_at": "2026-01-01T00:00:00+00:00"
+  }
+}

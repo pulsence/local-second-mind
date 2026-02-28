@@ -225,3 +225,31 @@ def test_run_migrate_cli_success_and_error(monkeypatch: pytest.MonkeyPatch, caps
     bad_out = capsys.readouterr().out
     assert bad_code == 1
     assert "Error: migration failed" in bad_out
+
+
+def test_run_migrate_cli_v07_path_validation(monkeypatch: pytest.MonkeyPatch, capsys) -> None:
+    @dataclass
+    class _ConfigStub:
+        vectordb: VectorDBConfig
+        ingest: object
+        global_settings: object
+
+    cfg = _ConfigStub(
+        vectordb=VectorDBConfig(provider="sqlite", path=Path(".lsm"), collection="kb"),
+        ingest=SimpleNamespace(chunking_strategy="structure", chunk_size=1800, chunk_overlap=200),
+        global_settings=SimpleNamespace(
+            embed_model="test-model",
+            embedding_dimension=384,
+            global_folder=Path("/tmp/legacy-state"),
+        ),
+    )
+    monkeypatch.setattr(shell_cli, "_load_config", lambda p: cfg)
+
+    bad_code = shell_cli.run_migrate_cli(
+        "config.json",
+        migration_source="v0.7",
+        migration_target="postgresql",
+    )
+    bad_out = capsys.readouterr().out
+    assert bad_code == 2
+    assert "legacy v0.7 migration only supports" in bad_out
