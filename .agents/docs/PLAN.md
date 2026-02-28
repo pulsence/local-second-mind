@@ -18,9 +18,9 @@
 | 3 | Schema Versioning and DB Completion | Completed | [PHASE_3.md](./plan_phases/PHASE_3.md) |
 | 4 | Migration System | Completed | [PHASE_4.md](./plan_phases/PHASE_4.md) |
 | 4.1 | Database Layer Foundation | Completed | [PHASE_4_1.md](./plan_phases/PHASE_4_1.md) |
-| 5 | LLM Provider Simplification | Pending | [PHASE_5.md](./plan_phases/PHASE_5.md) |
-| 6 | Prompt Ownership Migration and ModeConfig | Pending | [PHASE_6.md](./plan_phases/PHASE_6.md) |
-| 7 | FileGraph Heading Enhancements | Pending | [PHASE_7.md](./plan_phases/PHASE_7.md) |
+| 5 | LLM Provider Simplification | Completed | [PHASE_5.md](./plan_phases/PHASE_5.md) |
+| 6 | Prompt Ownership Migration and ModeConfig | Completed | [PHASE_6.md](./plan_phases/PHASE_6.md) |
+| 7 | FileGraph Heading Enhancements | Completed | [PHASE_7.md](./plan_phases/PHASE_7.md) |
 | 8 | RetrievalPipeline Core | Pending | [PHASE_8.md](./plan_phases/PHASE_8.md) |
 | 9 | Evaluation Harness | Pending | [PHASE_9.md](./plan_phases/PHASE_9.md) |
 | 10 | Retrieval Profiles and Hybrid RRF | Pending | [PHASE_10.md](./plan_phases/PHASE_10.md) |

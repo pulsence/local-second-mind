@@ -1,6 +1,6 @@
 # Phase 5: LLM Provider Simplification
 
-**Status**: Pending
+**Status**: Completed
 
 Transforms LLM providers into pure transport. Removes domain methods (`synthesize`,
 `rerank`, `generate_tags`) from `BaseLLMProvider`. Makes `_send_message()` /

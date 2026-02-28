@@ -1,19 +1,19 @@
-﻿# Ingest Pipeline Architecture
+# Ingest Pipeline Architecture
 
 This document describes how LSM ingests documents into the local vector store.
 
 ## Goals
 
-- Parse heterogeneous file types into text.
-- Chunk text into stable, overlapping segments.
+- Parse heterogeneous file types into normalized text.
+- Chunk text into stable, structure-aware segments.
 - Embed chunks locally.
-- Store vectors and metadata in ChromaDB.
-- Track incremental updates with a manifest.
+- Persist vectors and metadata in the unified SQLite/PostgreSQL storage layer.
+- Track incremental and versioned ingest state in database tables.
 
 ## High-Level Flow
 
 ```
-roots -> scan -> parse -> normalize -> chunk -> embed -> write -> manifest
+roots -> scan -> parse -> normalize -> chunk -> embed -> write -> schema/version tracking
 ```
 
 ## Core Components
@@ -21,141 +21,134 @@ roots -> scan -> parse -> normalize -> chunk -> embed -> write -> manifest
 ### File Discovery
 
 - Implemented in `lsm/ingest/fs.py`.
-- Recursively scans each `roots` directory.
+- Recursively scans each configured ingest root.
 - Applies `extensions` allowlist and `exclude_dirs` filter.
-- Emits filesystem paths for processing.
+- Emits `(file_path, root_config)` tuples, enabling per-root metadata/overrides.
 
 ### Parsing
 
 - Implemented in `lsm/ingest/parsers.py`.
 - Supported formats: `.txt`, `.md`, `.rst`, `.pdf`, `.docx`, `.html`, `.htm`.
-- Extracts metadata where possible:
-  - PDF: author, title, creation dates
-  - DOCX: core properties (author, title, keywords)
+- Extracts metadata where available:
+  - PDF: author/title/dates and optional OCR fallback
+  - DOCX: core properties and page-break-aware text extraction
   - Markdown: YAML frontmatter
-  - HTML: title, author, description
-
-### OCR Support
-
-- Optional in `parse_pdf()` when `enable_ocr` is true.
-- Uses PyMuPDF to render pages and pytesseract for OCR.
-- OCR is only used for pages that appear image-based.
+  - HTML: title/author/description and heading-preserving text conversion
 
 ### Chunking
 
-Two chunking strategies are available, controlled by `chunking_strategy` in
-`IngestConfig`:
+Chunking strategy is selected by `ingest.chunking_strategy`.
 
-#### Structure-Aware Chunking (default, `"structure"`)
+#### Structure-Aware Chunking (`"structure"`, default)
 
 - Implemented in `lsm/ingest/structure_chunking.py`.
-- Respects document structure: headings, paragraphs, and sentence boundaries.
-- **Never splits a sentence** across two chunks.
-- **Never mixes paragraphs** — each chunk contains complete paragraphs or
-  whole-sentence groups from a single paragraph.
-- **Never mixes headings** — heading boundaries start new chunks and the heading
-  text is stored in chunk metadata.
-- Overlap is achieved by repeating trailing sentences from the previous chunk
-  (configurable via `chunk_overlap` as a proportion of `chunk_size`).
-- Detects headings: Markdown `#` headings and bold-only lines (`**Heading**`).
+- Preserves structure and metadata:
+  - sentence boundaries
+  - heading context
+  - paragraph/page offsets
+- Supports heading depth controls:
+  - `ingest.max_heading_depth` (global)
+  - `ingest.roots[].max_heading_depth` (per-root override)
+- Supports adaptive FileGraph-driven splitting:
+  - `ingest.intelligent_heading_depth`
+  - uses section-size-aware recursion to decide whether child headings become boundaries
+  - falls back to regex/paragraph heading detection when no FileGraph is available
+- Emits both:
+  - `heading` (flat string)
+  - `heading_path` (root-to-leaf heading hierarchy)
 
 #### Fixed-Size Chunking (`"fixed"`)
 
 - Implemented in `lsm/ingest/chunking.py`.
-- Simple character-based sliding window with overlap.
-- Default `chunk_size`: 1800 characters.
-- Default `chunk_overlap`: 200 characters.
-- Tracks start and end character offsets per chunk.
+- Character-window chunking with overlap.
+- Tracks positional offsets but does not use heading-aware boundary logic.
+
+### FileGraph Integration
+
+- FileGraph builders are in `lsm/utils/file_graph.py`.
+- Ingest builds text-aligned graphs for supported structure formats:
+  - `build_markdown_graph`
+  - `build_html_graph`
+  - `build_docx_graph`
+  - `build_text_graph`
+- Graphs are used by structure chunking for:
+  - intelligent boundary selection
+  - full `heading_path` metadata construction
 
 ### Page Number Tracking
 
-- PDF and DOCX parsers return `PageSegment` objects preserving page boundaries.
-- PDF pages are tracked via PyMuPDF's page-by-page extraction.
-- DOCX page breaks are detected via `<w:lastRenderedPageBreak/>` and
-  `<w:br w:type="page"/>` elements in the document XML.
-- When a chunk spans multiple pages, metadata stores the range as
-  `"START-END"` (e.g., `"3-4"`).
-- Non-paginated formats (MD, HTML, TXT) omit page number metadata.
+- PDF and DOCX parsers return `PageSegment` records.
+- Structure chunking maps chunk character offsets back to page ranges.
+- Metadata stores `page_number` as either a single page or range (`"3"`, `"3-4"`).
 
 ### Embedding
 
 - Uses `sentence-transformers` locally.
-- The model and device are configured in `IngestConfig`.
-- Embeddings are normalized to match query-time similarity.
+- Embeddings are generated in GPU-friendly batches.
+- Embeddings are normalized for query-time similarity usage.
 
 ### Storage
 
-- Implemented in `lsm/ingest/chroma_store.py`.
-- Vectors are written in batches to ChromaDB.
-- Chunk IDs are derived from `source_path`, `file_hash`, and chunk index.
+- Vector DB provider abstraction: `lsm/vectordb/base.py`.
+- Default provider: `lsm/vectordb/sqlite_vec.py` (SQLite + sqlite-vec).
+- Application schema tables are owned by `lsm.db.schema`.
+- Chunk writes include both content and metadata fields (`heading`, `heading_path`, offsets, version fields, etc.).
 
-### Manifest
+### Manifest and Schema Versioning
 
-- Stored at `manifest` (default `.ingest/manifest.json`).
-- Tracks `mtime_ns`, `size`, and `file_hash` for each file.
-- Enables fast skip of unchanged files.
+- Manifest state is database-backed (`lsm_manifest`), not JSON sidecar files.
+- Schema/version provenance is tracked in `lsm_schema_versions`.
+- Incremental ingest uses mtime/size/hash fast-path checks plus schema compatibility checks.
+- Re-ingest versions are tracked via `version` and `is_current` metadata.
 
 ## Pipeline Execution Details
 
-The ingest pipeline in `lsm/ingest/pipeline.py` uses a threaded architecture:
+`lsm/ingest/pipeline.py` uses a threaded architecture:
 
-- Thread pool for parsing (CPU and I/O bound).
-- Single embedding worker (GPU-friendly batching).
-- Single writer thread (exclusive Chroma ownership).
+- parse thread pool (I/O + CPU parse work)
+- single embedding worker (batch-optimized)
+- single writer thread (serialized DB/vector writes)
 
-Data flow:
+Write behavior:
 
-1. Files are scanned and compared against the manifest.
-2. Unchanged files are skipped early.
-3. Changed files are parsed and chunked.
-4. Chunk batches are embedded on the worker.
-5. Embeddings are written to Chroma in flush batches.
-6. The manifest is updated only after successful writes.
+- staged chunks are flushed in batches
+- manifest updates are applied only after successful writes
+- SQLite path supports transactional chunk + manifest consistency
 
 ## Error Handling
 
-- `skip_errors` controls whether parsing failures abort the run.
-- Page-level PDF errors are recorded in `ingest_error_report.json`.
-- Empty or unparsable files are skipped but logged.
+- `skip_errors` controls whether parse failures are fatal.
+- Per-page parse errors are captured in `ingest_error_report.json`.
+- Empty/unparsable documents are skipped with error reporting in result summaries.
 
 ## Metadata Stored per Chunk
 
-Each chunk includes:
+Each chunk can include:
 
-- `source_path`
-- `source_name`
-- `ext`
-- `mtime_ns`
-- `file_hash`
-- `chunk_index`
-- `ingested_at`
-- `start_char` / `end_char` / `chunk_length`
-- `heading` — most recent heading above the chunk (structure chunking only)
-- `paragraph_index` — index of the first paragraph in the chunk (structure chunking only)
-- `page_number` — page number or range e.g. `"3"` or `"3-4"` (PDF/DOCX only)
-- Optional metadata (title, author, tags)
-
-## Incremental Updates
-
-The manifest enables three fast checks:
-
-1. If `mtime` and `size` match, skip hashing.
-2. If file hash matches, update manifest and skip re-embedding.
-3. If hash differs, re-ingest the file and replace its chunks.
+- `source_path`, `source_name`, `ext`
+- `mtime_ns`, `file_hash`, `chunk_index`, `ingested_at`
+- `start_char`, `end_char`, `chunk_length`
+- `heading` (flat heading)
+- `heading_path` (JSON array hierarchy)
+- `paragraph_index`
+- `page_number`
+- optional document metadata (title/author/tags/content_type)
+- versioning metadata (`version`, `is_current`)
 
 ## AI Tagging Integration
 
-- AI tagging is supported via `lsm/ingest/tagging.py`.
-- Tags are stored in chunk metadata.
-- Tagging can be triggered in the TUI Ingest tab via `/tag`.
+- Implemented in `lsm/ingest/tagging.py`.
+- Uses provider transport calls (`send_message`) with ingest-owned prompt/schema assets.
+- Tags are merged into chunk metadata.
 
-## Ingest Commands (TUI)
+## Ingest Commands
 
-The TUI Ingest tab provides management commands for:
+Primary command paths include:
 
-- collection stats and exploration
-- re-ingest (`/build`)
-- tagging (`/tag`)
-- wiping the collection (`/wipe`)
+- `lsm ingest build`
+- `lsm ingest build --force-reingest-changed-config`
+- `lsm ingest build --force-file-pattern <glob>`
+- `lsm db complete`
+- `lsm db prune`
 
-See `.agents/docs/architecture/api-reference/REPL.md` for commands.
+See `.agents/docs/architecture/api-reference/REPL.md` for shell/TUI command details.

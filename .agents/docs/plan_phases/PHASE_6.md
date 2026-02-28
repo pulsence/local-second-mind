@@ -1,6 +1,6 @@
 # Phase 6: Prompt Ownership Migration and ModeConfig
 
-**Status**: Pending
+**Status**: Completed
 
 Moves domain-specific prompt templates from `providers/helpers.py` to the pipeline stages
 and config objects that own the domain logic. Updates `ModeConfig` with `synthesis_instructions`

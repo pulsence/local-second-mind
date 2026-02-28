@@ -20,6 +20,11 @@ All notable changes to Local Second Mind are documented here.
 - Moved synthesis instructions out of provider helpers into `lsm/query/prompts.py` and updated built-in mode presets (`grounded`, `insight`, `hybrid`) to own instruction defaults.
 - Moved LLM rerank prompt assets and parsing to `lsm/query/stages/llm_rerank.py`; moved tag-generation prompt assets to `lsm/ingest/tagging.py`.
 - Reduced `lsm/providers/helpers.py` to provider-generic utilities only (`parse_json_payload`, `UnsupportedParamTracker`).
+- Added structure chunking heading controls: global `ingest.max_heading_depth`, per-root `roots[].max_heading_depth`, and adaptive `ingest.intelligent_heading_depth`.
+- Integrated FileGraph-aware heading boundary selection for structure chunking, including recursive child-heading splits for oversized sections and regex fallback when no graph is available.
+- Added `heading_path` hierarchy metadata on structured chunks and persisted it in chunk metadata (`lsm_chunks.heading_path`) while retaining flat `heading` for indexing.
+- Added public text/markdown/docx/html FileGraph builders for ingest-time graph construction from parsed content.
+- Added `Candidate.heading_path` accessor for normalized heading hierarchy access in query/session workflows.
 
 ## 0.8.0 - 2026-02-28
 

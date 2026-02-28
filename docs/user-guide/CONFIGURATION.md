@@ -104,6 +104,8 @@ Ingest settings live under the `"ingest"` key and map to `IngestConfig`.
 | `chunk_size` | int | `1800` | Characters per chunk. |
 | `chunk_overlap` | int | `200` | Overlap between chunks. |
 | `chunking_strategy` | string | `structure` | Chunking mode: `structure` or `fixed`. |
+| `max_heading_depth` | int? | `null` | Max heading level treated as a chunk boundary in structure mode. |
+| `intelligent_heading_depth` | bool | `false` | Enable FileGraph-guided adaptive heading boundaries in structure mode. |
 | `enable_ocr` | bool | `false` | OCR for image-based PDFs. |
 | `enable_ai_tagging` | bool | `false` | Run LLM tagging during ingest. Tagging model is configured via `llms.services.tagging`. |
 | `tags_per_chunk` | int | `3` | Tags to generate per chunk. |
@@ -114,6 +116,29 @@ Ingest settings live under the `"ingest"` key and map to `IngestConfig`.
 | `translation_target` | string | `en` | Translation target language (ISO-639-1). |
 | `max_files` | int? | `null` | Optional cap on files processed per ingest run. |
 | `max_seconds` | int? | `null` | Optional wall-clock limit for an ingest run. |
+
+### Per-Root Heading Override
+
+`ingest.roots` can be either strings or objects. Root objects support a
+per-root override for heading boundary depth:
+
+```json
+"ingest": {
+  "max_heading_depth": 2,
+  "roots": [
+    "C:\\Users\\User\\Documents",
+    {
+      "path": "D:\\Writings",
+      "max_heading_depth": 3
+    }
+  ]
+}
+```
+
+Precedence rule:
+
+- If `roots[].max_heading_depth` is set, it overrides `ingest.max_heading_depth`
+  for files under that root.
 
 Default extensions include: `.txt`, `.md`, `.rst`, `.pdf`, `.docx`, `.html`, `.htm`.
 

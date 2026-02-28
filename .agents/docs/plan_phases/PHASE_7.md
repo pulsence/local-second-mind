@@ -1,6 +1,6 @@
 # Phase 7: FileGraph Heading Enhancements
 
-**Status**: Pending
+**Status**: Completed
 
 Adds configurable heading depth, intelligent heading selection via FileGraph, and
 `heading_path` metadata. This phase is independent of the retrieval pipeline and can
