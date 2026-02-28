@@ -174,6 +174,25 @@ def test_config_to_raw_includes_max_heading_depth_fields(tmp_path: Path) -> None
     assert serialized["ingest"]["roots"][0]["max_heading_depth"] == 4
 
 
+def test_build_config_reads_intelligent_heading_depth(tmp_path: Path) -> None:
+    raw = _base_raw(tmp_path)
+    raw["ingest"]["intelligent_heading_depth"] = True
+
+    config = build_config_from_raw(raw, tmp_path / "config.json")
+
+    assert config.ingest.intelligent_heading_depth is True
+
+
+def test_config_to_raw_includes_intelligent_heading_depth(tmp_path: Path) -> None:
+    raw = _base_raw(tmp_path)
+    raw["ingest"]["intelligent_heading_depth"] = True
+
+    config = build_config_from_raw(raw, tmp_path / "config.json")
+    serialized = config_to_raw(config)
+
+    assert serialized["ingest"]["intelligent_heading_depth"] is True
+
+
 def test_build_config_reads_global_settings(tmp_path: Path) -> None:
     raw = _base_raw(tmp_path)
     raw["global"]["embed_model"] = "custom-model"

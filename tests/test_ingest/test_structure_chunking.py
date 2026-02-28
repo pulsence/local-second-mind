@@ -23,6 +23,7 @@ from lsm.ingest.structure_chunking import (
     structure_chunk_text,
     structured_chunks_to_positions,
 )
+from lsm.utils.file_graph import build_markdown_graph
 
 
 # ------------------------------------------------------------------
@@ -396,6 +397,88 @@ for knowledge management systems."""
         headings = {c.heading for c in chunks if c.heading}
         assert "Introduction" in headings or "Background" in headings
 
+    def test_intelligent_heading_depth_splits_large_sections_at_subheadings(self):
+        text = (
+            "# Root\n\n"
+            + ("Intro sentence. " * 80)
+            + "\n\n## Child A\n\n"
+            + ("Child A sentence. " * 40)
+            + "\n\n## Child B\n\n"
+            + ("Child B sentence. " * 40)
+        )
+        graph = build_markdown_graph(Path("doc.md"), text)
+        chunks = structure_chunk_text(
+            text,
+            chunk_size=260,
+            overlap=0.0,
+            file_graph=graph,
+            intelligent_heading_depth=True,
+        )
+        headings = {c.heading for c in chunks if c.heading}
+        assert "Child A" in headings
+        assert "Child B" in headings
+
+    def test_intelligent_heading_depth_keeps_small_parent_section_whole(self):
+        text = (
+            "# Root\n\n"
+            "Short intro.\n\n"
+            "## Child A\n\n"
+            "Brief child.\n\n"
+            "## Child B\n\n"
+            "Brief child two."
+        )
+        graph = build_markdown_graph(Path("doc.md"), text)
+        chunks = structure_chunk_text(
+            text,
+            chunk_size=5000,
+            overlap=0.0,
+            file_graph=graph,
+            intelligent_heading_depth=True,
+        )
+        headings = {c.heading for c in chunks if c.heading}
+        assert "Root" in headings
+        assert "Child A" not in headings
+        assert "Child B" not in headings
+        assert any("## Child A" in c.text for c in chunks)
+
+    def test_intelligent_heading_depth_recurses_nested_headings(self):
+        text = (
+            "# H1\n\n"
+            + ("Root sentence. " * 60)
+            + "\n\n## H2\n\n"
+            + ("Level 2 sentence. " * 60)
+            + "\n\n### H3\n\n"
+            + ("Level 3 sentence. " * 60)
+        )
+        graph = build_markdown_graph(Path("doc.md"), text)
+        chunks = structure_chunk_text(
+            text,
+            chunk_size=240,
+            overlap=0.0,
+            file_graph=graph,
+            intelligent_heading_depth=True,
+        )
+        headings = {c.heading for c in chunks if c.heading}
+        assert "H2" in headings
+        assert "H3" in headings
+
+    def test_intelligent_heading_depth_falls_back_without_file_graph(self):
+        text = (
+            "# Root\n\n"
+            "Root paragraph.\n\n"
+            "## Child\n\n"
+            "Child paragraph."
+        )
+        chunks = structure_chunk_text(
+            text,
+            chunk_size=5000,
+            overlap=0.0,
+            file_graph=None,
+            intelligent_heading_depth=True,
+        )
+        headings = {c.heading for c in chunks if c.heading}
+        assert "Child" in headings
+
 
 # ------------------------------------------------------------------
 # Real corpus scenarios
@@ -700,3 +783,41 @@ class TestPipelineIntegration:
             if p.get("heading") is not None
         ]
         assert "L3" in headings
+
+    def test_parse_and_chunk_job_uses_intelligent_heading_depth_with_file_graph(self, tmp_path):
+        """Pipeline uses FileGraph-based intelligent heading selection when enabled."""
+        from lsm.ingest.pipeline import parse_and_chunk_job
+
+        md_file = tmp_path / "smart_depth.md"
+        md_file.write_text(
+            "# Root\n\n"
+            "Short intro.\n\n"
+            "## Child A\n\n"
+            "Brief child.\n\n"
+            "## Child B\n\n"
+            "Brief child two.",
+            encoding="utf-8",
+        )
+
+        result = parse_and_chunk_job(
+            fp=md_file,
+            source_path=str(md_file),
+            mtime_ns=md_file.stat().st_mtime_ns,
+            size=md_file.stat().st_size,
+            fhash="abc123",
+            had_prev=False,
+            chunk_size=5000,
+            chunk_overlap=0,
+            chunking_strategy="structure",
+            intelligent_heading_depth=True,
+        )
+
+        assert result.ok
+        headings = [
+            p.get("heading")
+            for p in (result.chunk_positions or [])
+            if p.get("heading") is not None
+        ]
+        assert "Root" in headings
+        assert "Child A" not in headings
+        assert "Child B" not in headings

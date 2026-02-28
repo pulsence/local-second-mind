@@ -30,6 +30,12 @@ from lsm.ingest.utils import (
     format_time,
     make_chunk_id,
 )
+from lsm.utils.file_graph import (
+    build_docx_graph,
+    build_html_graph,
+    build_markdown_graph,
+    build_text_graph,
+)
 from lsm.db.completion import detect_completion_mode, get_stale_files
 from lsm.db.schema_version import (
     SchemaVersionMismatchError,
@@ -57,6 +63,7 @@ def parse_and_chunk_job(
     chunking_strategy: str = "structure",
     max_heading_depth: Optional[int] = None,
     root_max_heading_depth: Optional[int] = None,
+    intelligent_heading_depth: bool = False,
     enable_language_detection: bool = False,
     enable_translation: bool = False,
     translation_target: str = "en",
@@ -84,6 +91,8 @@ def parse_and_chunk_job(
             chunking, 'fixed' for simple sliding-window chunking.
         max_heading_depth: Global heading depth limit for structure chunking.
         root_max_heading_depth: Optional per-root override for heading depth.
+        intelligent_heading_depth: Enable FileGraph-driven adaptive heading
+            boundaries when available.
         enable_language_detection: Detect document language and store in metadata.
         enable_translation: Translate non-target-language chunks via LLM.
         translation_target: Target language code for translation (ISO 639-1).
@@ -165,6 +174,21 @@ def parse_and_chunk_job(
                 if root_max_heading_depth is not None
                 else max_heading_depth
             )
+            file_graph = None
+            if intelligent_heading_depth:
+                ext = fp.suffix.lower()
+                try:
+                    if ext == ".md":
+                        file_graph = build_markdown_graph(fp, raw_text)
+                    elif ext in {".html", ".htm"}:
+                        file_graph = build_html_graph(fp, raw_text)
+                    elif ext == ".docx":
+                        file_graph = build_docx_graph(fp, raw_text)
+                    elif ext in {".txt", ".rst"}:
+                        file_graph = build_text_graph(fp, raw_text)
+                except Exception:
+                    file_graph = None
+
             # Convert overlap from absolute chars to a ratio for structure chunking
             overlap_ratio = chunk_overlap / chunk_size if chunk_size > 0 else 0.0
             structured = structure_chunk_text(
@@ -173,6 +197,8 @@ def parse_and_chunk_job(
                 overlap=overlap_ratio,
                 page_segments=page_segments,
                 max_heading_depth=effective_max_heading_depth,
+                file_graph=file_graph,
+                intelligent_heading_depth=intelligent_heading_depth,
                 track_positions=True,
             )
             chunks, positions = structured_chunks_to_positions(structured)
@@ -279,6 +305,7 @@ def ingest(
     chunk_overlap: int = 200,
     chunking_strategy: str = "structure",
     max_heading_depth: Optional[int] = None,
+    intelligent_heading_depth: bool = False,
     progress_callback: Optional[Callable[[str, int, int, str], None]] = None,
     enable_language_detection: bool = False,
     enable_translation: bool = False,
@@ -889,6 +916,7 @@ def ingest(
                         chunking_strategy,
                         max_heading_depth,
                         root_cfg.max_heading_depth,
+                        intelligent_heading_depth,
                         enable_language_detection,
                         enable_translation,
                         translation_target,

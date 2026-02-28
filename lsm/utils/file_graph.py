@@ -1320,6 +1320,41 @@ def get_line_hashes(path: Path | str, *, size: int = LINE_HASH_CHARS) -> List[st
     return compute_line_hashes(lines, size=size)
 
 
+def build_text_graph(path: Path | str, text: str) -> FileGraph:
+    """Build a heading-aware FileGraph from normalized text content."""
+    file_path = Path(path)
+    normalized = _normalize_text(text or "")
+    content_hash = compute_content_hash(normalized.encode("utf-8"))
+    return _build_text_graph(file_path, normalized, content_hash)
+
+
+def build_markdown_graph(path: Path | str, text: str) -> FileGraph:
+    """Build a FileGraph for markdown-like content."""
+    return build_text_graph(path, text)
+
+
+def build_docx_graph(path: Path | str, text: str) -> FileGraph:
+    """Build a FileGraph for parsed DOCX text content."""
+    return build_text_graph(path, text)
+
+
+def build_html_graph(path: Path | str, html_or_text: str) -> FileGraph:
+    """Build a FileGraph for HTML input with text fallback.
+
+    If HTML markup is not present (for example parsed text output), falls back
+    to text-graph construction to preserve alignment with chunking input text.
+    """
+    file_path = Path(path)
+    normalized = _normalize_text(html_or_text or "")
+    content_hash = compute_content_hash(normalized.encode("utf-8"))
+    if "<" in normalized and ">" in normalized:
+        try:
+            return _build_html_graph(file_path, normalized, content_hash)
+        except Exception:
+            pass
+    return _build_text_graph(file_path, normalized, content_hash)
+
+
 def build_graph_outline(
     graph: FileGraph,
     *,

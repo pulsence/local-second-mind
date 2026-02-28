@@ -90,6 +90,9 @@ class IngestConfig:
     When None, all heading depths are treated as boundaries.
     """
 
+    intelligent_heading_depth: bool = False
+    """Enable FileGraph-driven adaptive heading boundary selection."""
+
     enable_ocr: bool = False
     """Enable OCR for image-based PDFs."""
 

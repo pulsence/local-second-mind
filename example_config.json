@@ -26,6 +26,7 @@
     "chunk_overlap": 200,
     "chunking_strategy": "structure",
     "max_heading_depth": null,
+    "intelligent_heading_depth": false,
     "enable_ocr": false,
     "enable_ai_tagging": false,
     "tags_per_chunk": 3,

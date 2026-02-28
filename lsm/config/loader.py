@@ -379,6 +379,9 @@ def build_ingest_config(raw: Dict[str, Any], config_path: Path) -> IngestConfig:
             if ingest_raw.get("max_heading_depth") is not None
             else None
         ),
+        intelligent_heading_depth=bool(
+            ingest_raw.get("intelligent_heading_depth", IngestConfig.intelligent_heading_depth)
+        ),
         enable_ocr=bool(ingest_raw.get("enable_ocr", False)),
         enable_ai_tagging=bool(ingest_raw.get("enable_ai_tagging", False)),
         tags_per_chunk=int(ingest_raw.get("tags_per_chunk", 3)),
@@ -1413,6 +1416,7 @@ def config_to_raw(config: LSMConfig) -> Dict[str, Any]:
             "chunk_overlap": config.ingest.chunk_overlap,
             "chunking_strategy": config.ingest.chunking_strategy,
             "max_heading_depth": config.ingest.max_heading_depth,
+            "intelligent_heading_depth": config.ingest.intelligent_heading_depth,
             "enable_ocr": config.ingest.enable_ocr,
             "enable_ai_tagging": config.ingest.enable_ai_tagging,
             "tags_per_chunk": config.ingest.tags_per_chunk,
