@@ -7,7 +7,7 @@ from lsm.vectordb.base import VectorDBGetResult, VectorDBQueryResult
 
 def _provider(tmp_path) -> ChromaDBProvider:
     return ChromaDBProvider(
-        VectorDBConfig(provider="chromadb", persist_dir=tmp_path / ".chroma", collection="kb")
+        VectorDBConfig(provider="chromadb", path=tmp_path / ".chroma", collection="kb")
     )
 
 

@@ -53,7 +53,7 @@ class DummyProvider(BaseVectorDBProvider):
 
 
 def test_dummy_provider_instantiates(tmp_path) -> None:
-    cfg = VectorDBConfig(provider="dummy", persist_dir=tmp_path / ".db", collection="kb")
+    cfg = VectorDBConfig(provider="dummy", path=tmp_path / "db", collection="kb")
     provider = DummyProvider(cfg)
     assert provider.name == "dummy"
     assert provider.is_available() is True
@@ -62,7 +62,7 @@ def test_dummy_provider_instantiates(tmp_path) -> None:
 
 
 def test_dummy_provider_get_returns_empty(tmp_path) -> None:
-    cfg = VectorDBConfig(provider="dummy", persist_dir=tmp_path / ".db", collection="kb")
+    cfg = VectorDBConfig(provider="dummy", path=tmp_path / "db", collection="kb")
     provider = DummyProvider(cfg)
     result = provider.get()
     assert result.ids == []
@@ -71,7 +71,7 @@ def test_dummy_provider_get_returns_empty(tmp_path) -> None:
 
 
 def test_dummy_provider_query_returns_empty(tmp_path) -> None:
-    cfg = VectorDBConfig(provider="dummy", persist_dir=tmp_path / ".db", collection="kb")
+    cfg = VectorDBConfig(provider="dummy", path=tmp_path / "db", collection="kb")
     provider = DummyProvider(cfg)
     result = provider.query([0.1, 0.2], top_k=5)
     assert result.ids == []

@@ -15,7 +15,7 @@ class TestMigrateChromadbToPostgres:
         from lsm.vectordb.migrations.chromadb_to_postgres import migrate_chromadb_to_postgres
         from pathlib import Path
 
-        cfg = VectorDBConfig(provider="chromadb", persist_dir=Path("/tmp"))
+        cfg = VectorDBConfig(provider="chromadb", path=Path("/tmp"))
         with pytest.raises(ValueError, match="must be 'postgresql'"):
             migrate_chromadb_to_postgres(Path("/tmp"), "kb", cfg)
 

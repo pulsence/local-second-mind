@@ -382,7 +382,7 @@ def test_fetch_remote_sources_timeout_is_handled(monkeypatch):
             providers=[LLMProviderConfig(provider_name="openai", api_key="test")],
             services={"query": LLMServiceConfig(provider="openai", model="gpt-5.2")},
         ),
-        vectordb=VectorDBConfig(persist_dir=Path("/tmp/.chroma"), collection="test"),
+        vectordb=VectorDBConfig(path=Path("/tmp/.chroma"), collection="test"),
         remote_providers=[
             RemoteProviderConfig(name="slow", type="fake", timeout=1),
         ],
@@ -423,7 +423,7 @@ def test_fetch_remote_sources_uses_provider_cache_when_enabled(monkeypatch):
             providers=[LLMProviderConfig(provider_name="openai", api_key="test")],
             services={"query": LLMServiceConfig(provider="openai", model="gpt-5.2")},
         ),
-        vectordb=VectorDBConfig(persist_dir=Path("/tmp/.chroma"), collection="test"),
+        vectordb=VectorDBConfig(path=Path("/tmp/.chroma"), collection="test"),
         remote_providers=[
             RemoteProviderConfig(
                 name="wiki",
@@ -475,7 +475,7 @@ def test_fetch_remote_sources_saves_cache_on_miss(monkeypatch):
             providers=[LLMProviderConfig(provider_name="openai", api_key="test")],
             services={"query": LLMServiceConfig(provider="openai", model="gpt-5.2")},
         ),
-        vectordb=VectorDBConfig(persist_dir=Path("/tmp/.chroma"), collection="test"),
+        vectordb=VectorDBConfig(path=Path("/tmp/.chroma"), collection="test"),
         remote_providers=[
             RemoteProviderConfig(
                 name="wiki",
@@ -525,7 +525,7 @@ def test_fetch_remote_sources_passes_provider_specific_options(monkeypatch):
             providers=[LLMProviderConfig(provider_name="openai", api_key="test")],
             services={"query": LLMServiceConfig(provider="openai", model="gpt-5.2")},
         ),
-        vectordb=VectorDBConfig(persist_dir=Path("/tmp/.chroma"), collection="test"),
+        vectordb=VectorDBConfig(path=Path("/tmp/.chroma"), collection="test"),
         remote_providers=[
             RemoteProviderConfig(
                 name="openalex",

@@ -29,7 +29,7 @@ def _base_config() -> LSMConfig:
             providers=[LLMProviderConfig(provider_name="openai", api_key="test")],
             services={"query": LLMServiceConfig(provider="openai", model="gpt-5.2")},
         ),
-        vectordb=VectorDBConfig(persist_dir=Path("/tmp/.chroma"), collection="test"),
+        vectordb=VectorDBConfig(path=Path("/tmp/.chroma"), collection="test"),
         remote_providers=[
             RemoteProviderConfig(name="openalex", type="openalex"),
             RemoteProviderConfig(name="crossref", type="crossref"),

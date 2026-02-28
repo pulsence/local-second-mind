@@ -14,7 +14,7 @@ from .base import BaseVectorDBProvider
 logger = get_logger(__name__)
 
 PROVIDER_REGISTRY: Dict[str, str | Type[BaseVectorDBProvider]] = {
-    "chromadb": "lsm.vectordb.chromadb:ChromaDBProvider",
+    "sqlite": "lsm.vectordb.sqlite_vec:SQLiteVecProvider",
     "postgresql": "lsm.vectordb.postgresql:PostgreSQLProvider",
 }
 
@@ -37,7 +37,13 @@ def create_vectordb_provider(config: VectorDBConfig) -> BaseVectorDBProvider:
     Returns:
         Initialized provider instance
     """
-    provider_name = (config.provider or "chromadb").lower()
+    provider_name = (config.provider or "sqlite").lower()
+
+    if provider_name == "chromadb":
+        raise ValueError(
+            "ChromaDB is no longer a production provider in v0.8.0. "
+            "Run migration tooling and switch config.vectordb.provider to 'sqlite' or 'postgresql'."
+        )
 
     if provider_name not in PROVIDER_REGISTRY:
         available = ", ".join(PROVIDER_REGISTRY.keys())

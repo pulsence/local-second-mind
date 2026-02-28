@@ -52,14 +52,14 @@ class DummyProvider(BaseVectorDBProvider):
         return None
 
 
-def test_list_available_providers_contains_chromadb() -> None:
-    assert "chromadb" in list_available_providers()
+def test_list_available_providers_contains_sqlite() -> None:
+    assert "sqlite" in list_available_providers()
 
 
 def test_create_provider_from_registered_class(monkeypatch, tmp_path) -> None:
     monkeypatch.setitem(PROVIDER_REGISTRY, "dummy", DummyProvider)
     provider = create_vectordb_provider(
-        VectorDBConfig(provider="dummy", persist_dir=tmp_path / ".db", collection="c")
+        VectorDBConfig(provider="dummy", path=tmp_path / "db", collection="c")
     )
     assert isinstance(provider, DummyProvider)
 
@@ -67,7 +67,23 @@ def test_create_provider_from_registered_class(monkeypatch, tmp_path) -> None:
 def test_create_provider_rejects_unknown_provider(tmp_path) -> None:
     with pytest.raises(ValueError, match="Unsupported vector DB provider"):
         create_vectordb_provider(
-            VectorDBConfig(provider="missing", persist_dir=tmp_path / ".db", collection="c")
+            VectorDBConfig(provider="missing", path=tmp_path / "db", collection="c")
+        )
+
+
+def test_create_provider_sqlite_returns_sqlite_provider(tmp_path) -> None:
+    from lsm.vectordb.sqlite_vec import SQLiteVecProvider
+
+    provider = create_vectordb_provider(
+        VectorDBConfig(provider="sqlite", path=tmp_path / "db", collection="c")
+    )
+    assert isinstance(provider, SQLiteVecProvider)
+
+
+def test_create_provider_rejects_chromadb_with_migration_message(tmp_path) -> None:
+    with pytest.raises(ValueError, match="no longer a production provider"):
+        create_vectordb_provider(
+            VectorDBConfig(provider="chromadb", path=tmp_path / "db", collection="c")
         )
 
 

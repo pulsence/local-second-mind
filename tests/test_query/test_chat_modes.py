@@ -47,7 +47,7 @@ def _make_config(
             query_cache_size=10,
             enable_llm_server_cache=llm_server_cache_enabled,
         ),
-        vectordb=VectorDBConfig(persist_dir=tmp_path / ".chroma", collection="kb"),
+        vectordb=VectorDBConfig(path=tmp_path / ".chroma", collection="kb"),
         global_settings=GlobalConfig(global_folder=tmp_path / "global"),
         config_path=tmp_path / "config.json",
     )
