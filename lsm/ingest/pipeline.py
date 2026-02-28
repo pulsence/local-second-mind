@@ -24,6 +24,10 @@ from lsm.ingest.utils import (
     format_time,
     make_chunk_id,
 )
+from lsm.db.schema_version import (
+    check_schema_compatibility,
+    record_schema_version,
+)
 from lsm.vectordb import BaseVectorDBProvider, create_vectordb_provider
 from lsm.config.models import LLMConfig, RootConfig, VectorDBConfig
 
@@ -304,6 +308,22 @@ def ingest(
     else:
         emit("init", 0, 0, f"Auto-detected embedding dimension: {actual_dim}")
 
+    schema_version_id: Optional[int] = None
+    if manifest_connection is not None:
+        schema_config = {
+            "embedding_model": embed_model_name,
+            "embedding_dim": actual_dim,
+            "chunking_strategy": chunking_strategy,
+            "chunk_size": chunk_size,
+            "chunk_overlap": chunk_overlap,
+        }
+        check_schema_compatibility(
+            manifest_connection,
+            schema_config,
+            raise_on_mismatch=True,
+        )
+        schema_version_id = record_schema_version(manifest_connection, schema_config)
+
     if force_reingest:
         manifest = {}
         if manifest_connection is not None:
@@ -468,6 +488,8 @@ def ingest(
                 "size": job.size,
                 "file_hash": job.file_hash,
                 "version": job.version,
+                "embedding_model": embed_model_name,
+                "schema_version_id": schema_version_id,
                 "updated_at": now_iso(),
             }
             pending_manifest_updates[job.source_path] = manifest_entry
@@ -665,6 +687,8 @@ def ingest(
                         "size": size,
                         "file_hash": fhash,
                         "version": int(prev.get("version", 1)) if prev else 1,
+                        "embedding_model": embed_model_name,
+                        "schema_version_id": schema_version_id,
                         "updated_at": now_iso(),
                     }
                     skipped += 1
