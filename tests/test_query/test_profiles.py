@@ -174,7 +174,10 @@ class TestDenseOnlyProfile:
 
     def test_unknown_profile_defaults_to_dense(self):
         db = FakeVectorDB(candidates=_sample_candidates(3))
-        config = _make_config(profile="hyde_hybrid")
+        config = _make_config(profile="dense_only")
+        # Simulate an unrecognized profile by patching after config creation
+        config.get_mode_config().retrieval_profile = "some_future_profile"
+        config.query.retrieval_profile = "some_future_profile"
         pipeline = RetrievalPipeline(db, FakeEmbedder(), config, FakeLLMProvider())
         request = QueryRequest(question="test query")
         package = pipeline.build_sources(request)

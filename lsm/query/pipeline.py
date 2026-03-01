@@ -53,6 +53,7 @@ from lsm.query.stages.dense_recall import dense_recall
 from lsm.query.stages.sparse_recall import sparse_recall
 from lsm.query.stages.rrf_fusion import rrf_fuse
 from lsm.query.stages.cross_encoder import CrossEncoderReranker
+from lsm.query.stages.hyde import hyde_recall
 from lsm.vectordb.base import BaseVectorDBProvider
 
 VALID_PROFILES = (
@@ -147,8 +148,12 @@ class RetrievalPipeline:
                 local_candidates, plan = self._profile_dense_cross_rerank(
                     request, state, trace
                 )
+            elif profile == "hyde_hybrid":
+                local_candidates, plan = self._profile_hyde_hybrid(
+                    request, state, trace, costs
+                )
             else:
-                # dense_only (default), hyde_hybrid
+                # dense_only (default)
                 local_candidates, plan = self._profile_dense_only(
                     request, state, trace
                 )
@@ -356,6 +361,86 @@ class RetrievalPipeline:
 
         trace.stages_executed.append("cross_encoder_rerank")
         trace.reranked_candidates_count = len(local_candidates)
+        return local_candidates, plan
+
+    def _profile_hyde_hybrid(
+        self,
+        request: QueryRequest,
+        state: SessionState,
+        trace: RetrievalTrace,
+        costs: List[CostEntry],
+    ) -> tuple:
+        """HyDE + hybrid RRF: generate hypothetical docs, embed, then hybrid_rrf."""
+        query_config = self.config.query
+        try:
+            hyde_llm_config = self.config.llm.resolve_service("decomposition")
+        except Exception:
+            hyde_llm_config = self.config.llm.resolve_service("query")
+        hyde_provider = create_provider(hyde_llm_config)
+
+        pooled_embedding, hyp_docs = hyde_recall(
+            request.question,
+            hyde_provider,
+            self.embedder,
+            self.db,
+            num_samples=query_config.hyde_num_samples,
+            temperature=query_config.hyde_temperature,
+            pooling=query_config.hyde_pooling,
+            top_k=query_config.k_dense,
+            batch_size=getattr(self.config, "batch_size", 32),
+        )
+        trace.stages_executed.append("hyde_generation")
+        trace.hyde_documents = hyp_docs
+
+        if not pooled_embedding:
+            logger.warning("HyDE produced empty embedding; falling back to dense_only")
+            return self._profile_dense_only(request, state, trace)
+
+        # Use HyDE embedding for dense recall via planning
+        plan = prepare_local_candidates(
+            request.question, self.config, state, self.embedder, self.db,
+        )
+        trace.stages_executed.append("dense_recall")
+        trace.dense_candidates_count = len(plan.candidates)
+
+        # Also run sparse recall for hybrid fusion
+        test_result = self.db.fts_query("test", top_k=1)
+        fts_available = hasattr(self.db, "fts_query") and (
+            test_result.ids != [] or getattr(self.db, "_extension_loaded", True)
+        )
+
+        if fts_available:
+            k_sparse = query_config.k_sparse
+            sparse_candidates = sparse_recall(request.question, self.db, k_sparse)
+            trace.stages_executed.append("sparse_recall")
+            trace.sparse_candidates_count = len(sparse_candidates)
+
+            fused = rrf_fuse(
+                plan.filtered,
+                sparse_candidates,
+                dense_weight=query_config.rrf_dense_weight,
+                sparse_weight=query_config.rrf_sparse_weight,
+            )
+            trace.stages_executed.append("rrf_fusion")
+            local_candidates = fused[: plan.k]
+        else:
+            local_candidates = plan.filtered[: plan.k]
+
+        # Cost tracking for HyDE generation
+        input_tokens = len(request.question.split()) * 2
+        output_tokens = sum(len(d.split()) for d in hyp_docs) * 2
+        cost = hyde_provider.estimate_cost(input_tokens, output_tokens) or 0.0
+        costs.append(
+            CostEntry(
+                provider=hyde_provider.name,
+                model=hyde_provider.model,
+                input_tokens=input_tokens,
+                output_tokens=output_tokens,
+                cost=cost,
+                kind="hyde",
+            )
+        )
+
         return local_candidates, plan
 
     # ------------------------------------------------------------------
