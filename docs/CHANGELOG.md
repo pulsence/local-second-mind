@@ -34,6 +34,10 @@ All notable changes to Local Second Mind are documented here.
 
 ### Added
 
+- Multi-vector representation: ingest-time LLM summaries at section and file granularity (`enable_section_summaries`, `enable_file_summaries` in `IngestConfig`). Summaries are embedded alongside chunks with `node_type` distinguishing granularity (`chunk`, `section_summary`, `file_summary`).
+- Multi-vector retrieval profile (`multi_vector`): queries at chunk, section, and file levels with cross-granularity RRF fusion (weights: chunk=0.6, section=0.25, file=0.15). Section/file matches without chunk-level representation are expanded to top-k chunks from the same source.
+- Cluster-aware retrieval: `lsm cluster build` assigns k-means or HDBSCAN clusters to embeddings, stores centroids in `lsm_cluster_centroids`. When `cluster_enabled=True`, query-time pre-filters to top-N clusters before KNN.
+- New `QueryConfig` fields: `cluster_enabled`, `cluster_algorithm`, `cluster_k`, `cluster_top_n`.
 - Retrieval evaluation harness (`lsm/eval/`) with BEIR-format dataset support, standard IR metrics (recall@k, MRR, nDCG@k, diversity@k, latency stats), baseline save/load/compare, and bundled synthetic dataset (55 queries, 52 documents).
 - CLI commands: `lsm eval retrieval --profile <profile>`, `lsm eval save-baseline --name <name>`, `lsm eval list-baselines`.
 - Five retrieval profiles (`dense_only`, `hybrid_rrf`, `hyde_hybrid`, `dense_cross_rerank`, `llm_rerank`) with profile routing in `RetrievalPipeline.build_sources()`.

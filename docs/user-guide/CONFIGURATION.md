@@ -116,6 +116,8 @@ Ingest settings live under the `"ingest"` key and map to `IngestConfig`.
 | `translation_target` | string | `en` | Translation target language (ISO-639-1). |
 | `max_files` | int? | `null` | Optional cap on files processed per ingest run. |
 | `max_seconds` | int? | `null` | Optional wall-clock limit for an ingest run. |
+| `enable_section_summaries` | bool | `false` | Generate LLM summaries per heading section and embed as `section_summary` nodes. |
+| `enable_file_summaries` | bool | `false` | Generate LLM summaries per file and embed as `file_summary` nodes. |
 
 ### Per-Root Heading Override
 
@@ -355,14 +357,19 @@ The `query` section controls retrieval and reranking behavior.
 | `query_cache_size` | int | `100` | Max entries in local query cache. |
 | `chat_mode` | string | `single` | Response mode: `single` or `chat`. |
 | `enable_llm_server_cache` | bool | `true` | Enable provider-side prompt/session cache reuse for chat follow-up turns. |
+| `cluster_enabled` | bool | `false` | Enable cluster-aware retrieval (pre-filter by top clusters). |
+| `cluster_algorithm` | string | `kmeans` | Clustering algorithm: `kmeans` or `hdbscan`. |
+| `cluster_k` | int | `50` | Number of clusters for k-means. Must be >= 2. |
+| `cluster_top_n` | int | `5` | Number of top clusters to search at query time. Must be >= 1. |
 
 Retrieval profiles:
 
 - `dense_only` — Vector similarity search only. Fastest, no FTS dependency.
 - `hybrid_rrf` — Dense + sparse (BM25/FTS5) + Reciprocal Rank Fusion. Best recall for keyword+semantic queries. Falls back to `dense_only` if FTS5 is unavailable.
 - `llm_rerank` — Dense retrieval + LLM-based reranking. Highest quality but higher latency and cost. Requires a `ranking` service in `llms.services`.
-- `hyde_hybrid` — HyDE embedding + hybrid_rrf (Phase 11, placeholder).
-- `dense_cross_rerank` — Dense + cross-encoder reranking (Phase 11, placeholder).
+- `multi_vector` — Multi-granularity retrieval across chunk, section, and file levels with cross-level RRF fusion. Requires section/file summaries to be enabled during ingest.
+- `hyde_hybrid` — HyDE embedding + hybrid_rrf. Generates hypothetical answers via LLM and uses pooled embeddings for retrieval.
+- `dense_cross_rerank` — Dense + cross-encoder reranking. Uses a cross-encoder model for precise relevance scoring.
 
 The `k_dense` and `k_sparse` parameters control the candidate pool size for each stage.
 The `rrf_dense_weight` and `rrf_sparse_weight` parameters control the relative importance
