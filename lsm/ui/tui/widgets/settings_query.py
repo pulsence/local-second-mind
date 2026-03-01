@@ -30,6 +30,7 @@ class QuerySettingsTab(BaseSettingsTab):
                     ("hyde_hybrid", "hyde_hybrid"),
                     ("dense_cross_rerank", "dense_cross_rerank"),
                     ("llm_rerank", "llm_rerank"),
+                    ("multi_vector", "multi_vector"),
                 ],
             ),
             self._field("k dense", "settings-query-k-dense"),

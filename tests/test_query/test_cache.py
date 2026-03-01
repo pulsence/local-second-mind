@@ -3,6 +3,7 @@ from __future__ import annotations
 import time
 
 from lsm.query.cache import QueryCache
+from lsm.query import api as query_api
 
 
 def test_query_cache_set_get_and_build_key_stability() -> None:
@@ -36,3 +37,16 @@ def test_query_cache_lru_eviction() -> None:
     assert cache.get(k2) is None
     assert cache.get(k1) == 1
     assert cache.get(k3) == 3
+
+
+def test_clear_query_caches_clears_all_registered_entries() -> None:
+    query_api._QUERY_CACHES.clear()
+    cache = QueryCache(ttl_seconds=60, max_size=5)
+    key = cache.build_key("q", "grounded", {}, 12, 6)
+    cache.set(key, {"answer": "ok"})
+    query_api._QUERY_CACHES[123] = cache
+
+    removed = query_api.clear_query_caches()
+
+    assert removed == 1
+    assert query_api._QUERY_CACHES == {}

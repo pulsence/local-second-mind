@@ -323,6 +323,33 @@ def _get_query_cache(config: LSMConfig) -> QueryCache | None:
     return cache
 
 
+def clear_query_caches(config: Optional[LSMConfig] = None) -> int:
+    """Clear in-memory query result caches.
+
+    Args:
+        config: Optional config to clear only that cache instance. If omitted,
+            clears all registered query caches.
+
+    Returns:
+        Number of cached entries removed.
+    """
+    if config is not None:
+        cache = _QUERY_CACHES.get(id(config))
+        if cache is None:
+            return 0
+        removed = len(getattr(cache, "_store", {}))
+        cache.clear()
+        _QUERY_CACHES.pop(id(config), None)
+        return int(removed)
+
+    removed = 0
+    for cache in list(_QUERY_CACHES.values()):
+        removed += len(getattr(cache, "_store", {}))
+        cache.clear()
+    _QUERY_CACHES.clear()
+    return int(removed)
+
+
 def _maybe_auto_save_chat(config: LSMConfig, state: SessionState) -> None:
     """Auto-save chat transcript if enabled."""
     if config.query.chat_mode != "chat":

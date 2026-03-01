@@ -20,6 +20,7 @@ VALID_PROFILES = (
     "hyde_hybrid",
     "dense_cross_rerank",
     "llm_rerank",
+    "multi_vector",
 )
 
 

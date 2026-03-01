@@ -161,6 +161,34 @@ def build_parser() -> argparse.ArgumentParser:
     )
 
     # -------------------------------------------------------------------------
+    # Cache maintenance subcommand
+    # -------------------------------------------------------------------------
+    cache_parser = subparsers.add_parser(
+        "cache",
+        help="Cache maintenance commands",
+        description="Clear reranker and/or in-memory query caches.",
+    )
+    cache_subparsers = cache_parser.add_subparsers(
+        dest="cache_command",
+        title="cache commands",
+        required=True,
+    )
+    cache_clear_parser = cache_subparsers.add_parser(
+        "clear",
+        help="Clear reranker and/or query caches",
+    )
+    cache_clear_parser.add_argument(
+        "--reranker",
+        action="store_true",
+        help="Clear only the lsm_reranker_cache table",
+    )
+    cache_clear_parser.add_argument(
+        "--query",
+        action="store_true",
+        help="Clear only in-memory query result cache",
+    )
+
+    # -------------------------------------------------------------------------
     # Migration subcommand
     # -------------------------------------------------------------------------
     migrate_parser = subparsers.add_parser(
@@ -428,6 +456,10 @@ def main(argv: list[str] | None = None) -> int:
             logger.info("Starting db command")
             from lsm.ui.shell.cli import run_db
             return run_db(args)
+        if args.command == "cache":
+            logger.info("Starting cache command")
+            from lsm.ui.shell.cli import run_cache
+            return run_cache(args, config)
         if args.command == "migrate":
             logger.info("Starting migrate command")
             from lsm.ui.shell.cli import run_migrate

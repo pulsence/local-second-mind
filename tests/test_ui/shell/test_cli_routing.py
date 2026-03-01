@@ -74,6 +74,22 @@ def test_db_complete_parses():
     assert args.force_file_pattern == "*.pdf"
 
 
+def test_cache_requires_subcommand():
+    parser = build_parser()
+    with pytest.raises(SystemExit):
+        parser.parse_args(["cache"])
+
+
+def test_cache_clear_parses():
+    parser = build_parser()
+    args = parser.parse_args(["cache", "clear", "--reranker"])
+
+    assert args.command == "cache"
+    assert args.cache_command == "clear"
+    assert args.reranker is True
+    assert args.query is False
+
+
 def test_migrate_parses():
     parser = build_parser()
     args = parser.parse_args(

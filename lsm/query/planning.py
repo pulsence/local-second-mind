@@ -128,6 +128,7 @@ def prepare_local_candidates(
     embedder,
     collection,
     extra_filters: Optional[Dict[str, Any]] = None,
+    query_embedding: Optional[List[float]] = None,
 ) -> LocalQueryPlan:
     """
     Prepare local candidates for query execution or cost estimation.
@@ -152,8 +153,11 @@ def prepare_local_candidates(
             metadata_filter=None,
         )
 
-    batch_size = config.batch_size
-    query_vector = embed_text(embedder, question, batch_size=batch_size)
+    if query_embedding is None:
+        batch_size = config.batch_size
+        query_vector = embed_text(embedder, question, batch_size=batch_size)
+    else:
+        query_vector = query_embedding
 
     path_contains = state.path_contains
     ext_allow = state.ext_allow

@@ -52,6 +52,9 @@ from lsm.query.session import Candidate, SessionState
 from lsm.query.stages.dense_recall import dense_recall
 from lsm.query.stages.sparse_recall import sparse_recall
 from lsm.query.stages.rrf_fusion import rrf_fuse
+from lsm.query.stages.dedup import deduplicate_candidates
+from lsm.query.stages.diversity import mmr_select, per_section_cap
+from lsm.query.stages.temporal import apply_temporal_boost
 from lsm.query.stages.cross_encoder import CrossEncoderReranker
 from lsm.query.stages.hyde import hyde_recall
 from lsm.query.stages.multi_vector import multi_vector_recall
@@ -214,6 +217,15 @@ class RetrievalPipeline:
                 except Exception as exc:
                     logger.warning("Graph expansion failed: %s", exc)
 
+            # --- Post-retrieval ranking stages ---
+            if local_candidates:
+                local_candidates = self._apply_post_retrieval_stages(
+                    request=request,
+                    candidates=local_candidates,
+                    trace=trace,
+                    final_k=plan.k if plan is not None else local_policy.k,
+                )
+
             if progress_callback:
                 progress_callback("retrieval", 1, 1, "Local retrieval complete")
 
@@ -282,7 +294,7 @@ class RetrievalPipeline:
         self._populate_dense_score_breakdown(dense_candidates)
         trace.stages_executed.append("dense_recall")
         trace.dense_candidates_count = len(plan.candidates)
-        local_candidates = dense_candidates[: min(plan.k, len(dense_candidates))]
+        local_candidates = dense_candidates
         return local_candidates, plan
 
     def _profile_multi_vector(
@@ -300,7 +312,10 @@ class RetrievalPipeline:
             batch_size=getattr(self.config, "batch_size", 32),
         )
 
-        k = self.config.query.k
+        k = max(
+            self.config.query.k,
+            int(getattr(self.config.query, "k_dense", self.config.query.k) or self.config.query.k),
+        )
         filters = extra_filters or {}
 
         candidates = multi_vector_recall(
@@ -325,7 +340,7 @@ class RetrievalPipeline:
         trace.stages_executed.append("multi_vector_recall")
         trace.dense_candidates_count = len(candidates)
 
-        local_candidates = candidates[:k]
+        local_candidates = candidates
         return local_candidates, plan
 
     def _profile_hybrid_rrf(
@@ -371,9 +386,7 @@ class RetrievalPipeline:
         trace.stages_executed.append("rrf_fusion")
         trace.fused_candidates_count = len(fused)
 
-        # Trim to k
-        k = plan.k
-        local_candidates = fused[:k]
+        local_candidates = fused
         return local_candidates, plan
 
     def _profile_llm_rerank(
@@ -399,7 +412,10 @@ class RetrievalPipeline:
             {"text": c.text, "metadata": c.meta, "distance": c.distance}
             for c in plan.filtered
         ]
-        k_rerank = min(plan.k, len(plan.filtered))
+        k_rerank = min(
+            max(plan.k, int(getattr(self.config.query, "k_dense", plan.k) or plan.k)),
+            len(plan.filtered),
+        )
         reranked = llm_rerank_candidates(
             request.question, rerank_dicts, k=k_rerank, provider=ranking_provider
         )
@@ -455,8 +471,16 @@ class RetrievalPipeline:
             "cross-encoder/ms-marco-MiniLM-L-6-v2",
         )
         device = getattr(self.config, "device", "cpu")
-        reranker = CrossEncoderReranker(model_name=model_name, device=device)
-        k = min(plan.k, len(plan.filtered))
+        cache_conn = getattr(self.db, "connection", getattr(self.db, "_conn", None))
+        reranker = CrossEncoderReranker(
+            model_name=model_name,
+            device=device,
+            cache_conn=cache_conn,
+        )
+        k = min(
+            max(plan.k, int(getattr(self.config.query, "k_dense", plan.k) or plan.k)),
+            len(plan.filtered),
+        )
         local_candidates = reranker.rerank(request.question, plan.filtered, top_k=k)
 
         trace.stages_executed.append("cross_encoder_rerank")
@@ -497,19 +521,21 @@ class RetrievalPipeline:
             logger.warning("HyDE produced empty embedding; falling back to dense_only")
             return self._profile_dense_only(request, state, trace, extra_filters=extra_filters)
 
-        # Use HyDE embedding for dense recall via planning
+        # Use the pooled HyDE embedding for dense recall.
         plan = prepare_local_candidates(
             request.question, self.config, state, self.embedder, self.db,
             extra_filters=extra_filters,
+            query_embedding=pooled_embedding,
         )
+        dense_candidates = plan.filtered[
+            : max(1, int(getattr(self.config.query, "k_dense", plan.k) or plan.k))
+        ]
+        self._populate_dense_score_breakdown(dense_candidates)
         trace.stages_executed.append("dense_recall")
         trace.dense_candidates_count = len(plan.candidates)
 
         # Also run sparse recall for hybrid fusion
-        test_result = self.db.fts_query("test", top_k=1)
-        fts_available = hasattr(self.db, "fts_query") and (
-            test_result.ids != [] or getattr(self.db, "_extension_loaded", True)
-        )
+        fts_available = self._is_sparse_recall_available()
 
         if fts_available:
             k_sparse = query_config.k_sparse
@@ -518,15 +544,15 @@ class RetrievalPipeline:
             trace.sparse_candidates_count = len(sparse_candidates)
 
             fused = rrf_fuse(
-                plan.filtered,
+                dense_candidates,
                 sparse_candidates,
                 dense_weight=query_config.rrf_dense_weight,
                 sparse_weight=query_config.rrf_sparse_weight,
             )
             trace.stages_executed.append("rrf_fusion")
-            local_candidates = fused[: plan.k]
+            local_candidates = fused
         else:
-            local_candidates = plan.filtered[: plan.k]
+            local_candidates = dense_candidates
 
         # Cost tracking for HyDE generation
         input_tokens = len(request.question.split()) * 2
@@ -815,6 +841,106 @@ class RetrievalPipeline:
                 )
             )
         return citations
+
+    def _apply_post_retrieval_stages(
+        self,
+        request: QueryRequest,
+        candidates: List[Candidate],
+        trace: RetrievalTrace,
+        final_k: int,
+    ) -> List[Candidate]:
+        """Apply dedup, temporal ranking, MMR, and section caps."""
+        result = list(candidates)
+
+        # 1) MinHash near-duplicate suppression.
+        if result:
+            dedup_t0 = time.monotonic()
+            threshold = float(getattr(self.config.query, "dedup_threshold", 0.8))
+            result = deduplicate_candidates(result, threshold=threshold)
+            trace.stages_executed.append("minhash_dedup")
+            trace.timings.append(
+                StageTimings(
+                    stage="minhash_dedup",
+                    duration_ms=(time.monotonic() - dedup_t0) * 1000,
+                )
+            )
+
+        # 2) Optional temporal boost.
+        if result and bool(getattr(self.config.query, "temporal_boost_enabled", False)):
+            temporal_t0 = time.monotonic()
+            result = apply_temporal_boost(
+                result,
+                boost_days=int(getattr(self.config.query, "temporal_boost_days", 30)),
+                boost_factor=float(
+                    getattr(self.config.query, "temporal_boost_factor", 1.5)
+                ),
+            )
+            trace.stages_executed.append("temporal_boost")
+            trace.timings.append(
+                StageTimings(
+                    stage="temporal_boost",
+                    duration_ms=(time.monotonic() - temporal_t0) * 1000,
+                )
+            )
+
+        # 3) MMR diversity selection and per-section cap.
+        final_k = max(1, int(final_k))
+        if result:
+            mmr_t0 = time.monotonic()
+            try:
+                query_vec = self.embedder.encode(
+                    [request.question],
+                    batch_size=getattr(self.config, "batch_size", 32),
+                    show_progress_bar=False,
+                    normalize_embeddings=True,
+                )[0]
+                query_embedding = (
+                    query_vec.tolist() if hasattr(query_vec, "tolist") else list(query_vec)
+                )
+                candidate_texts = [c.text or "" for c in result]
+                candidate_vecs = self.embedder.encode(
+                    candidate_texts,
+                    batch_size=getattr(self.config, "batch_size", 32),
+                    show_progress_bar=False,
+                    normalize_embeddings=True,
+                )
+                for cand, emb in zip(result, candidate_vecs):
+                    cand.embedding = emb.tolist() if hasattr(emb, "tolist") else list(emb)
+            except Exception as exc:
+                logger.debug("MMR embedding preparation failed: %s", exc)
+                query_embedding = None
+
+            result = mmr_select(
+                result,
+                query_embedding=query_embedding,
+                lambda_param=float(getattr(self.config.query, "mmr_lambda", 0.7)),
+                k=min(len(result), max(final_k, int(getattr(self.config.query, "k_dense", final_k) or final_k))),
+            )
+            trace.stages_executed.append("mmr_diversity")
+            trace.timings.append(
+                StageTimings(
+                    stage="mmr_diversity",
+                    duration_ms=(time.monotonic() - mmr_t0) * 1000,
+                )
+            )
+
+            max_per_section = getattr(self.config.query, "max_per_section", None)
+            if max_per_section is not None:
+                cap_t0 = time.monotonic()
+                result = per_section_cap(
+                    result,
+                    max_per_section=int(max_per_section),
+                    heading_depth=2,
+                )
+                trace.stages_executed.append("per_section_cap")
+                trace.timings.append(
+                    StageTimings(
+                        stage="per_section_cap",
+                        duration_ms=(time.monotonic() - cap_t0) * 1000,
+                    )
+                )
+
+        return result[: min(final_k, len(result))]
 
     @staticmethod
     def _populate_dense_score_breakdown(candidates: List[Candidate]) -> None:

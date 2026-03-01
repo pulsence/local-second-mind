@@ -24,12 +24,12 @@
 | 8 | RetrievalPipeline Core | Completed | [PHASE_8.md](./plan_phases/PHASE_8.md) |
 | 9 | Evaluation Harness | Completed | [PHASE_9.md](./plan_phases/PHASE_9.md) |
 | 10 | Retrieval Profiles and Hybrid RRF | Completed | [PHASE_10.md](./plan_phases/PHASE_10.md) |
-| 11 | Cross-Encoder, LLM Reranking, and HyDE | Pending | [PHASE_11.md](./plan_phases/PHASE_11.md) |
-| 12 | Diversity, Dedup, and Temporal Ranking | Pending | [PHASE_12.md](./plan_phases/PHASE_12.md) |
-| 13 | Agent Pipeline Tools | Pending | [PHASE_13.md](./plan_phases/PHASE_13.md) |
-| 14 | Phase 2 — Multi-Vector and Clustering | Pending | [PHASE_14.md](./plan_phases/PHASE_14.md) |
-| 15 | Phase 3 — Graph, Multi-Hop, and Fine-Tuning | Pending | [PHASE_15.md](./plan_phases/PHASE_15.md) |
-| 16 | PostgreSQL Parity and Cross-Cutting | Pending | [PHASE_16.md](./plan_phases/PHASE_16.md) |
+| 11 | Cross-Encoder, LLM Reranking, and HyDE | Completed | [PHASE_11.md](./plan_phases/PHASE_11.md) |
+| 12 | Diversity, Dedup, and Temporal Ranking | Completed | [PHASE_12.md](./plan_phases/PHASE_12.md) |
+| 13 | Agent Pipeline Tools | Completed | [PHASE_13.md](./plan_phases/PHASE_13.md) |
+| 14 | Phase 2 — Multi-Vector and Clustering | Completed | [PHASE_14.md](./plan_phases/PHASE_14.md) |
+| 15 | Phase 3 — Graph, Multi-Hop, and Fine-Tuning | Completed | [PHASE_15.md](./plan_phases/PHASE_15.md) |
+| 16 | PostgreSQL Parity and Cross-Cutting | Completed | [PHASE_16.md](./plan_phases/PHASE_16.md) |
 | 17 | Final Code Review and Release | Pending | [PHASE_17.md](./plan_phases/PHASE_17.md) |
 
 ---

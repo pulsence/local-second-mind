@@ -78,6 +78,20 @@ def run_migrate(args) -> int:
     )
 
 
+def run_cache(args, config: LSMConfig) -> int:
+    """Run cache maintenance commands."""
+    command = getattr(args, "cache_command", None)
+    if command == "clear":
+        return run_cache_clear_cli(
+            config,
+            clear_reranker=bool(getattr(args, "reranker", False)),
+            clear_query=bool(getattr(args, "query", False)),
+        )
+
+    print("Missing cache subcommand. Use `lsm cache --help` for options.")
+    return 2
+
+
 def _load_config(config_path: str | Path) -> LSMConfig:
     """Load and validate configuration."""
     cfg_path = Path(config_path).expanduser().resolve()
@@ -373,6 +387,58 @@ def run_migrate_cli(
         f"{result.get('migrated_vectors', 0):,}/{result.get('total_vectors', 0):,} vectors, "
         f"validated tables={result.get('validated_tables', 0)}."
     )
+    return 0
+
+
+def run_cache_clear_cli(
+    config: LSMConfig,
+    *,
+    clear_reranker: bool = False,
+    clear_query: bool = False,
+) -> int:
+    """Clear reranker and/or in-memory query caches."""
+    if not clear_reranker and not clear_query:
+        clear_reranker = True
+        clear_query = True
+
+    removed_reranker = 0
+    removed_query = 0
+
+    if clear_query:
+        from lsm.query.api import clear_query_caches
+
+        removed_query = clear_query_caches(config)
+
+    if clear_reranker:
+        provider = create_vectordb_provider(config.vectordb)
+        conn = getattr(provider, "connection", getattr(provider, "_conn", None))
+        if conn is None:
+            print("Error: Reranker cache clear requires a backend with direct SQL access.")
+            return 1
+        try:
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS lsm_reranker_cache (
+                    cache_key TEXT PRIMARY KEY,
+                    score REAL,
+                    created_at TEXT
+                )
+                """
+            )
+            row = conn.execute(
+                "SELECT COUNT(*) FROM lsm_reranker_cache"
+            ).fetchone()
+            removed_reranker = int(row[0]) if row else 0
+            conn.execute("DELETE FROM lsm_reranker_cache")
+            conn.commit()
+        except Exception as exc:
+            print(f"Error clearing reranker cache: {exc}")
+            return 1
+
+    if clear_reranker:
+        print(f"Cleared reranker cache entries: {removed_reranker}")
+    if clear_query:
+        print(f"Cleared query cache entries: {removed_query}")
     return 0
 
 
