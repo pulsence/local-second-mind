@@ -1,135 +1,88 @@
-# Phase 17: Final Code Review and Release
+# Phase 17: Debug Phase
 
 **Status**: Pending
 
-Comprehensive code review, integration testing, documentation finalization, and release
-preparation.
+Pre-release debug phase for resolving implementation gaps and bugs identified during the
+Phase 11–16 review, plus any additional issues surfaced by the user.
 
 ---
 
-## 17.1: Comprehensive Code Review
+## 17.1: Issues Identified During Phase 11–16 Review
 
-**Tasks**:
-- Review all changes for backwards compatibility issues — ensure no unintended regressions
-- Review for deprecated code, dead code, or legacy compatibility shims — remove them
-- Review all SQL queries for injection risks — parameterized queries only
-- Review all new modules for proper error handling and logging
-- Review import graph — no circular dependencies
-- Review test suite:
-  - No mocks or stubs on database operations
-  - No auto-pass tests
-  - Test structure matches project module structure
-  - All new features have unit + integration tests
-- Review security:
-  - FTS5 queries use parameterized queries
-  - sqlite-vec queries use `?` placeholders
-  - Cross-encoder inputs are sanitized
-  - Graph traversal depth is bounded
-  - Agent tools validate permissions correctly
+The following issues were cataloged during a comprehensive review of phases 11–16. Each
+item includes severity, affected phase, location, and description.
 
-- Commit and push changes for this sub-phase.
-**Files**: All modified files from all phases
+### Phase 12 Issues
 
-**Success criteria**: No dead code, no injection risks, no circular dependencies, no
-auto-pass tests.
+| # | Severity | Issue | Location |
+|---|----------|-------|----------|
+| 12-A | Medium | Simhash not computed during ingest — `simhash` column exists in schema (`lsm/db/schema.py:64`) but `lsm/ingest/pipeline.py` never imports `compute_minhash` or stores the value. Dedup works at query time (on-the-fly), but the pre-computed optimization path is incomplete. | `lsm/ingest/pipeline.py` |
+| 12-B | Low | `docs/user-guide/CONFIGURATION.md` missing documentation for Phase 12 config fields: `dedup_threshold`, `mmr_lambda`, `max_per_section`, `temporal_boost_enabled`, `temporal_boost_days`, `temporal_boost_factor`. | `docs/user-guide/CONFIGURATION.md` |
 
----
+### Phase 13 Issues
 
-## 17.2: Integration Testing
+| # | Severity | Issue | Location |
+|---|----------|-------|----------|
+| 13-A | Medium | Run summary (`_write_run_summary()`) does not include context-level tracking metadata (context labels seen, per-label iteration counts, per-label conversation/response IDs). Phase 13.2 explicitly required this. | `lsm/agents/harness.py:1119-1175` |
+| 13-B | Low | `docs/user-guide/AGENTS.md` and `.agents/docs/architecture/development/AGENTS.md` still show only `query_knowledge_base` — new pipeline tools (`query_context`, `execute_context`, `query_and_synthesize`) not documented. | `docs/user-guide/AGENTS.md`, `.agents/docs/architecture/development/AGENTS.md` |
 
-**Tasks**:
-- Run end-to-end integration tests:
-  - Full ingest → query → answer cycle with SQLite provider
-  - Full ingest → query → answer cycle with PostgreSQL provider
-  - Migration between providers preserves all data
-  - All five retrieval profiles produce results
-  - Agent tools work through full pipeline
-  - Agent multi-turn query chain uses returned `response_id` / `conversation_id`
-  - Agent `_run_phase()` / `run_bounded()` multi-context runs preserve independent
-    `context_label` + conversation-chain state
-  - Multi-hop retrieval produces answers
-  - Eval harness runs against real corpus
-  - TUI chat flow preserves and advances conversation chaining across turns
-  - Mode/model switch resets conversation chain deterministically
-  - TUI Help screen shows updated `WHAT'S NEW` content for v0.8.0
-- Run performance tests and assert against SLO targets from §6.8:
-  - TUI startup SLA
-  - Retrieval stage p95 ≤ 500ms (at 100k chunks, 384 dims)
-  - End-to-end query p95 ≤ 1.5s for local interactive use
-  - Query latency at 10k, 50k, 100k chunks
-  - Ingest throughput
-- Run all existing tests: `pytest tests/ -v --cov=lsm --cov-report=html`
+### Phase 14 Issues
 
-- Commit and push changes for this sub-phase.
-**Files**:
-- `tests/test_integration/` — end-to-end tests
-- `tests/performance/` — performance tests
+| # | Severity | Issue | Location |
+|---|----------|-------|----------|
+| 14-A | Medium | Optional dependencies `umap-learn` and `hdbscan` not declared in `pyproject.toml` optional-dependencies. Code handles missing HDBSCAN gracefully but installation guidance is absent. | `pyproject.toml` |
+| 14-B | Medium | `lsm cluster visualize` CLI command not implemented. Phase 14.2 specifies UMAP HTML plot export. | `lsm/__main__.py` |
 
-**Success criteria**: All integration tests pass. Performance is within documented SLO
-targets. Coverage report generated.
+### Phase 15 Issues
+
+| # | Severity | Issue | Location |
+|---|----------|-------|----------|
+| 15-A | Medium | `lsm graph build-links` CLI command not implemented. Should build thematic links offline using cosine similarity above threshold between chunk embeddings. | `lsm/__main__.py` |
+| 15-B | Low | `finetune_enabled: bool = False` not added to `GlobalConfig`. Phase 16.2 TUI startup advisories depend on this config trigger. | `lsm/config/models/global_config.py` |
+
+### Phase 16 Issues
+
+| # | Severity | Issue | Location |
+|---|----------|-------|----------|
+| 16-A | High | TUI startup advisories broken for PostgreSQL — `_check_startup_advisories()` accesses `.connection` property which doesn't exist on `PostgreSQLProvider` (has `._pool` instead). Silent failure. | `lsm/ui/tui/app.py:352-354` |
+| 16-B | High | `job_status.py` `check_job_advisories()` signature accepts `sqlite3.Connection` only — incompatible with PostgreSQL `psycopg2` connections. | `lsm/db/job_status.py:29` |
+| 16-C | Major | Missing PostgreSQL parity tests: no FTS tests, no graph tests, no prune tests. Phase 16.1 success criteria requires PostgreSQL provider to pass the same interface tests as SQLite-vec. | `tests/test_vectordb/test_postgresql.py` |
+| 16-D | Medium | CLI post-ingest advisories not implemented. Phase 16.2 specifies "Also emit advisories after `lsm ingest` on CLI path." | `lsm/ui/shell/cli.py`, `lsm/__main__.py` |
 
 ---
 
-## 17.3: Architecture Documentation Update
+## 17.2: User-Reported Debug Errors
 
-**Tasks**:
-- Update all `.agents/docs/architecture/` files to reflect v0.8.0 changes:
-  - `development/OVERVIEW.md` — updated system map
-  - `development/INGEST.md` — FileGraph integration, multi-vector, graph construction
-  - `development/QUERY.md` — RetrievalPipeline, profiles, stages
-  - `development/PROVIDERS.md` — simplified provider interface
-  - `development/MODES.md` — updated ModeConfig
-  - `development/AGENTS.md` — new pipeline tools, DB-backed memory/schedules
-  - `packages/lsm.vectordb.md` — SQLite-vec provider, removed ChromaDB
-  - `packages/lsm.query.md` — pipeline, stages, types
-  - `packages/lsm.ingest.md` — heading enhancements, graph builder, multi-vector
-  - `packages/lsm.providers.md` — simplified interface
-  - `api-reference/CONFIG.md` — all config changes
-  - `api-reference/PROVIDERS.md` — new send_message signature
-- Update `ARCHITECTURE.md` top-level overview
-
-- Commit and push changes for this sub-phase.
-**Files**: All architecture docs listed above
-
-**Success criteria**: Architecture docs accurately reflect v0.8.0 codebase.
+_This section is reserved for additional issues identified by the user during manual
+testing and review. Items will be added here before implementation begins._
 
 ---
 
-## 17.4: Release Preparation
+## 17.3: Fix Implementation
 
 **Tasks**:
-- Finalize `docs/CHANGELOG.md` with complete v0.8.0 entry
-- Update version in `pyproject.toml` to `0.8.0`
-- Update `README.md`
-- Verify `example_config.json` is complete and correct
-- Verify `.env.example` is complete
-- Update TUI release notes in `lsm/ui/tui/screens/help.py`:
-  - Refresh `WHAT'S NEW` entries for v0.8.0 feature highlights
-  - Keep entries synchronized with release notes/changelog language
-- Update `tests/test_ui/tui/test_screens.py` to validate v0.8.0 `WHAT'S NEW` content
-- Update `docs/user-guide/AGENTS.md`:
-  - Add a `Tools Access` subsection for each agent
-  - Enumerate the exact tools each agent can invoke and any scope limits
-- Create upgrade guide for v0.7.x → v0.8.0 users:
-  - Config file changes required
-  - `lsm migrate` instructions
-  - Breaking changes summary
-- Run final full test suite: `pytest tests/ -v`
+- Triage all items from 17.1 and 17.2
+- Implement fixes for all accepted items
+- Add or update tests for each fix
+- Run full test suite after each fix batch
 
 - Commit and push changes for this sub-phase.
-**Files**:
-- `docs/CHANGELOG.md`
-- `pyproject.toml`
-- `README.md`
-- `example_config.json`
-- `.env.example`
-- `lsm/ui/tui/screens/help.py`
-- `tests/test_ui/tui/test_screens.py`
-- `docs/user-guide/AGENTS.md`
 
-**Success criteria**: All tests pass. Version bumped. Changelog complete. Upgrade guide
-written. TUI `WHAT'S NEW` reflects v0.8.0. `AGENTS.md` documents per-agent tool access.
-Ready for release.
+**Success criteria**: All accepted issues resolved. Full test suite passes. No regressions.
+
+---
+
+## 17.4: Debug Phase Review
+
+**Tasks**:
+- Verify all fixes are correct and complete
+- Run full test suite: `.venv-wsl/bin/python -m pytest tests/ -v`
+- Confirm no new issues introduced
+
+- Commit and push changes for this sub-phase.
+
+**Success criteria**: Clean test suite. All debug items resolved or explicitly deferred
+to a future release.
 
 ---
 

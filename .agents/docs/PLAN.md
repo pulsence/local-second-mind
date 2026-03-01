@@ -30,7 +30,8 @@
 | 14 | Phase 2 — Multi-Vector and Clustering | Completed | [PHASE_14.md](./plan_phases/PHASE_14.md) |
 | 15 | Phase 3 — Graph, Multi-Hop, and Fine-Tuning | Completed | [PHASE_15.md](./plan_phases/PHASE_15.md) |
 | 16 | PostgreSQL Parity and Cross-Cutting | Completed | [PHASE_16.md](./plan_phases/PHASE_16.md) |
-| 17 | Final Code Review and Release | Pending | [PHASE_17.md](./plan_phases/PHASE_17.md) |
+| 17 | Debug Phase | Pending | [PHASE_17.md](./plan_phases/PHASE_17.md) |
+| 18 | Final Code Review and Release | Pending | [PHASE_18.md](./plan_phases/PHASE_18.md) |
 
 ---
 
@@ -87,8 +88,11 @@ Graph construction at ingest, graph-augmented retrieval, multi-hop strategies, a
 ### [Phase 16: PostgreSQL Parity and Cross-Cutting](./plan_phases/PHASE_16.md)
 PostgreSQL provider parity, TUI startup advisories, documentation, and scale guidance. Sub-tasks: 16.1–16.4.
 
-### [Phase 17: Final Code Review and Release](./plan_phases/PHASE_17.md)
-Comprehensive review, integration testing, architecture docs, and release preparation. Sub-tasks: 17.1–17.4.
+### [Phase 17: Debug Phase](./plan_phases/PHASE_17.md)
+Pre-release debug phase for resolving implementation gaps and bugs identified during the Phase 11–16 review, plus user-reported issues. Sub-tasks: 17.1–17.4.
+
+### [Phase 18: Final Code Review and Release](./plan_phases/PHASE_18.md)
+Comprehensive review, integration testing, architecture docs, and release preparation. Sub-tasks: 18.1–18.4.
 
 ---
 
