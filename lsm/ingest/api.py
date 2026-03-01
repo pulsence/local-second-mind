@@ -127,6 +127,14 @@ def run_ingest(
         except Exception:
             translation_llm = config.llm.resolve_service("default")
 
+    # Resolve summarization LLM config if summaries are enabled
+    summary_llm = None
+    if config.ingest.enable_section_summaries or config.ingest.enable_file_summaries:
+        try:
+            summary_llm = config.llm.resolve_service("summarization")
+        except Exception:
+            summary_llm = config.llm.resolve_service("default")
+
     result = ingest(
         roots=config.ingest.roots,
         chroma_flush_interval=None,
@@ -157,6 +165,9 @@ def run_ingest(
         force_reingest=force,
         force_reingest_changed_config=force_reingest_changed_config,
         force_file_pattern=force_file_pattern,
+        enable_section_summaries=config.ingest.enable_section_summaries,
+        enable_file_summaries=config.ingest.enable_file_summaries,
+        summary_llm_config=summary_llm,
     )
 
     # Invalidate stats cache after ingest

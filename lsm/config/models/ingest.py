@@ -117,6 +117,12 @@ class IngestConfig:
     translation_target: str = "en"
     """Target language for translation (ISO 639-1 code)."""
 
+    enable_section_summaries: bool = False
+    """Generate LLM summaries for each heading section and embed as section_summary nodes."""
+
+    enable_file_summaries: bool = False
+    """Generate LLM summaries for each file and embed as file_summary nodes."""
+
     max_files: Optional[int] = None
     """Maximum number of files to process in a single ingest run. None = no limit."""
 

@@ -71,6 +71,9 @@ def parse_and_chunk_job(
     root_tags: Optional[List[str]] = None,
     content_type: Optional[str] = None,
     folder_tags: Optional[List[str]] = None,
+    enable_section_summaries: bool = False,
+    enable_file_summaries: bool = False,
+    summary_llm_config: Optional[LLMConfig] = None,
 ) -> ParseResult:
     """
     Parse a file, extract metadata, chunk the text, and track positions.
@@ -246,6 +249,46 @@ def parse_and_chunk_job(
                 doc_metadata["translated_from"] = detected_lang
                 chunks = translated_chunks
 
+        # Generate multi-vector summaries if enabled
+        if (enable_section_summaries or enable_file_summaries) and summary_llm_config is not None:
+            from lsm.ingest.summarization import (
+                generate_section_summaries,
+                generate_file_summary,
+                make_summary_chunk_id,
+            )
+
+            if enable_section_summaries:
+                section_summaries = generate_section_summaries(
+                    raw_text=raw_text,
+                    chunk_positions=positions,
+                    source_path=source_path,
+                    llm_config=summary_llm_config,
+                )
+                for i, sc in enumerate(section_summaries):
+                    chunks.append(sc.text)
+                    pos_entry = {
+                        "node_type": "section_summary",
+                        "heading": (sc.metadata or {}).get("heading"),
+                        "heading_path": (sc.metadata or {}).get("heading_path"),
+                    }
+                    if positions is None:
+                        positions = []
+                    positions.append(pos_entry)
+
+            if enable_file_summaries:
+                file_summary = generate_file_summary(
+                    raw_text=raw_text,
+                    chunk_positions=positions,
+                    source_path=source_path,
+                    llm_config=summary_llm_config,
+                )
+                if file_summary is not None:
+                    chunks.append(file_summary.text)
+                    pos_entry = {"node_type": "file_summary"}
+                    if positions is None:
+                        positions = []
+                    positions.append(pos_entry)
+
         return ParseResult(
             source_path=source_path,
             fp=fp,
@@ -318,6 +361,9 @@ def ingest(
     force_reingest_changed_config: bool = False,
     force_file_pattern: Optional[str] = None,
     provider: Optional[BaseVectorDBProvider] = None,
+    enable_section_summaries: bool = False,
+    enable_file_summaries: bool = False,
+    summary_llm_config: Optional[LLMConfig] = None,
 ) -> Dict[str, Any]:
     """
     Run ingest pipeline.
@@ -591,6 +637,9 @@ def ingest(
                                 meta["page_number"] = str(pos["page_start"])
                             else:
                                 meta["page_number"] = f"{pos['page_start']}-{pos['page_end']}"
+                        # Multi-vector node type from summary chunks
+                        if pos.get("node_type") is not None:
+                            meta["node_type"] = pos["node_type"]
 
                     # Versioning metadata is always set in v0.8.0.
                     meta["is_current"] = True
@@ -932,6 +981,9 @@ def ingest(
                         root_cfg.tags,
                         root_cfg.content_type,
                         f_tags or None,
+                        enable_section_summaries,
+                        enable_file_summaries,
+                        summary_llm_config,
                     )
                 )
                 # Store version on the future so embed worker can pick it up
