@@ -48,7 +48,7 @@ class GeneralAgent(BaseAgent):
         "append_file",
         "create_folder",
         "edit_file",
-        "query_knowledge_base",
+        "query_and_synthesize",
         "extract_snippets",
         "source_map",
     }

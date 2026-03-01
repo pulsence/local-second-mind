@@ -122,7 +122,7 @@ def test_writing_agent_phases_execute_in_order(tmp_path: Path) -> None:
     assert "REVIEW" in phase_messages[2]
 
 
-def test_writing_agent_outline_phase_uses_query_knowledge_base(tmp_path: Path) -> None:
+def test_writing_agent_outline_phase_uses_query_and_synthesize(tmp_path: Path) -> None:
     agent = _build_agent(tmp_path)
 
     with patch.object(BaseAgent, "_run_phase", side_effect=[
@@ -133,7 +133,7 @@ def test_writing_agent_outline_phase_uses_query_knowledge_base(tmp_path: Path) -
         agent.run(AgentContext(messages=[{"role": "user", "content": "Topic"}]))
 
     calls = mock_phase.call_args_list
-    assert calls[0].kwargs.get("tool_names") == ["query_knowledge_base"]
+    assert calls[0].kwargs.get("tool_names") == ["query_and_synthesize"]
 
 
 def test_writing_agent_draft_and_review_use_no_tools(tmp_path: Path) -> None:

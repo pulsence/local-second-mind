@@ -112,7 +112,14 @@ class BaseAgent(ABC):
     remote_source_allowlist: Optional[set[str]] = None
     _always_available_tools: set[str] = {"ask_user"}
     _BUILTIN_QUERY_TOOL_NAMES: frozenset = frozenset(
-        {"query_knowledge_base", "query_llm", "query_remote_chain"}
+        {
+            "query_knowledge_base",
+            "query_context",
+            "execute_context",
+            "query_and_synthesize",
+            "query_llm",
+            "query_remote_chain",
+        }
     )
 
     def __init__(self, name: Optional[str] = None, description: Optional[str] = None) -> None:

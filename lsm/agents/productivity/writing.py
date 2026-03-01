@@ -17,7 +17,7 @@ from ..tools.sandbox import ToolSandbox
 
 WRITING_SYSTEM_PROMPT = (
     "You are a writing agent. Your workflow has three phases: "
-    "OUTLINE (use query_knowledge_base to gather evidence and produce a grounded outline), "
+    "OUTLINE (use query_and_synthesize to gather evidence and produce a grounded outline), "
     "DRAFT (use the outline to write the full grounded deliverable in markdown), and "
     "REVIEW (revise the draft for clarity and factual grounding, return final markdown only). "
     "Follow phase instructions carefully and respond in the format requested."
@@ -46,7 +46,7 @@ class WritingAgent(BaseAgent):
     description = "Generate grounded written deliverables from the knowledge base."
     risk_posture = "writes_workspace"
     tool_allowlist = {
-        "query_knowledge_base",
+        "query_and_synthesize",
         "read_file",
         "read_folder",
         "write_file",
@@ -104,9 +104,9 @@ class WritingAgent(BaseAgent):
             system_prompt=WRITING_SYSTEM_PROMPT,
             user_message=(
                 f"Phase: OUTLINE. Topic: '{topic}'. "
-                "Use query_knowledge_base to gather evidence and produce a grounded outline."
+                "Use query_and_synthesize to gather evidence and produce a grounded outline."
             ),
-            tool_names=["query_knowledge_base"],
+            tool_names=["query_and_synthesize"],
             max_iterations=3,
             context_label="outline",
         )

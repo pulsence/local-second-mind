@@ -19,6 +19,9 @@ from .hash_file import HashFileTool
 from .edit_file import EditFileTool
 from .load_url import LoadURLTool
 from .query_knowledge_base import QueryKnowledgeBaseTool
+from .query_context import QueryContextTool
+from .execute_context import ExecuteContextTool
+from .query_and_synthesize import QueryAndSynthesizeTool
 from .query_llm import QueryLLMTool
 from .query_remote import QueryRemoteTool
 from .query_remote_chain import QueryRemoteChainTool
@@ -42,6 +45,7 @@ if TYPE_CHECKING:
     from lsm.config.models import LSMConfig
     from lsm.vectordb.base import BaseVectorDBProvider
     from lsm.agents.memory import BaseMemoryStore
+    from lsm.query.pipeline import RetrievalPipeline
 
 __all__ = [
     "BaseTool",
@@ -60,6 +64,9 @@ __all__ = [
     "EditFileTool",
     "LoadURLTool",
     "QueryKnowledgeBaseTool",
+    "QueryContextTool",
+    "ExecuteContextTool",
+    "QueryAndSynthesizeTool",
     "QueryLLMTool",
     "QueryRemoteTool",
     "QueryRemoteChainTool",
@@ -91,6 +98,7 @@ def create_default_tool_registry(
     embedder=None,
     batch_size: int = 32,
     memory_store: Optional["BaseMemoryStore"] = None,
+    pipeline: Optional["RetrievalPipeline"] = None,
 ) -> ToolRegistry:
     """
     Build a tool registry with built-in default tools.
@@ -101,6 +109,7 @@ def create_default_tool_registry(
         embedder: Optional embedding model instance.
         batch_size: Embedding batch size for query tool.
         memory_store: Optional pre-initialized memory store backend.
+        pipeline: Optional RetrievalPipeline for pipeline-backed tools.
 
     Returns:
         Populated ToolRegistry instance.
@@ -126,17 +135,24 @@ def create_default_tool_registry(
         registry.register(SimilaritySearchTool(collection=collection))
     if collection is not None and embedder is not None:
         registry.register(
-            QueryKnowledgeBaseTool(
-                config=config,
-                embedder=embedder,
-                collection=collection,
-            )
-        )
-        registry.register(
             ExtractSnippetsTool(
                 collection=collection,
                 embedder=embedder,
                 batch_size=batch_size,
+            )
+        )
+    # Pipeline-backed tools (preferred over query_knowledge_base)
+    if pipeline is not None:
+        registry.register(QueryContextTool(pipeline=pipeline))
+        registry.register(ExecuteContextTool(pipeline=pipeline))
+        registry.register(QueryAndSynthesizeTool(pipeline=pipeline))
+    elif collection is not None and embedder is not None:
+        # Fallback: register legacy tool when pipeline not available
+        registry.register(
+            QueryKnowledgeBaseTool(
+                config=config,
+                embedder=embedder,
+                collection=collection,
             )
         )
     agents_cfg = getattr(config, "agents", None)

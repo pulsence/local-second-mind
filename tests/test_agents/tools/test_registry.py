@@ -55,7 +55,27 @@ class _FakeEmbedder:
     pass
 
 
-def test_registry_contains_query_knowledge_base(tmp_path: Path) -> None:
+class _FakePipeline:
+    pass
+
+
+def test_pipeline_tools_registered_when_pipeline_provided(tmp_path: Path) -> None:
+    config = build_config_from_raw(_base_raw(tmp_path), tmp_path / "config.json")
+    registry = create_default_tool_registry(
+        config,
+        collection=_FakeCollection(),
+        embedder=_FakeEmbedder(),
+        pipeline=_FakePipeline(),
+    )
+    tool_names = {tool.name for tool in registry.list_tools()}
+    assert "query_context" in tool_names
+    assert "execute_context" in tool_names
+    assert "query_and_synthesize" in tool_names
+    # query_knowledge_base should NOT be registered when pipeline is provided
+    assert "query_knowledge_base" not in tool_names
+
+
+def test_pipeline_tools_not_registered_when_pipeline_is_none(tmp_path: Path) -> None:
     config = build_config_from_raw(_base_raw(tmp_path), tmp_path / "config.json")
     registry = create_default_tool_registry(
         config,
@@ -63,6 +83,10 @@ def test_registry_contains_query_knowledge_base(tmp_path: Path) -> None:
         embedder=_FakeEmbedder(),
     )
     tool_names = {tool.name for tool in registry.list_tools()}
+    assert "query_context" not in tool_names
+    assert "execute_context" not in tool_names
+    assert "query_and_synthesize" not in tool_names
+    # Legacy fallback: query_knowledge_base registered without pipeline
     assert "query_knowledge_base" in tool_names
 
 

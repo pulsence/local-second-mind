@@ -19,7 +19,7 @@ from ..tools.sandbox import ToolSandbox
 SYNTHESIS_SYSTEM_PROMPT = (
     "You are a synthesis agent. Your workflow has three phases: "
     "PLAN (determine scope: query, format bullets/outline/narrative/qa, and target length), "
-    "EVIDENCE (use tools to gather relevant information: read_folder, query_knowledge_base, "
+    "EVIDENCE (use tools to gather relevant information: read_folder, query_and_synthesize, "
     "extract_snippets, source_map, read_file), and "
     "SYNTHESIZE (produce a concise grounded markdown synthesis, tighten it for concision, "
     "and verify that it covers the core evidence). "
@@ -52,7 +52,7 @@ class SynthesisAgent(BaseAgent):
     risk_posture = "writes_workspace"
     tool_allowlist = {
         "read_folder",
-        "query_knowledge_base",
+        "query_and_synthesize",
         "read_file",
         "write_file",
         "extract_snippets",
@@ -121,7 +121,7 @@ class SynthesisAgent(BaseAgent):
         evidence_result = self._run_phase(
             user_message=(
                 f"Phase: EVIDENCE. Topic: '{topic}'. "
-                "Use the available tools (read_folder, query_knowledge_base, "
+                "Use the available tools (read_folder, query_and_synthesize, "
                 "extract_snippets, source_map, read_file) to gather relevant "
                 "evidence for synthesis."
             ),

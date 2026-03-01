@@ -150,8 +150,8 @@ def test_query_llm_tool_uses_provider_factory(monkeypatch, tmp_path: Path) -> No
     raw = _base_raw(tmp_path)
     config = build_config_from_raw(raw, tmp_path / "config.json")
     tool = QueryLLMTool(config.llm)
-    result = tool.execute({"prompt": "hi", "context": "ctx", "mode": "grounded"})
-    assert result == "provider-result"
+    result = json.loads(tool.execute({"prompt": "hi", "context": "ctx", "mode": "grounded"}))
+    assert result["answer"] == "provider-result"
     assert captured["input"] == "hi|ctx"
     assert captured["instruction"] == "instr:grounded"
 

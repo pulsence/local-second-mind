@@ -58,7 +58,14 @@ class AgentHarness:
 
     _ALWAYS_AVAILABLE_TOOLS = {"ask_user"}
     _BUILTIN_QUERY_TOOL_NAMES = frozenset(
-        {"query_knowledge_base", "query_llm", "query_remote_chain"}
+        {
+            "query_knowledge_base",
+            "query_context",
+            "execute_context",
+            "query_and_synthesize",
+            "query_llm",
+            "query_remote_chain",
+        }
     )
 
     def __init__(

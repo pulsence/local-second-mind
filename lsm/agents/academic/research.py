@@ -49,7 +49,7 @@ class ResearchAgent(BaseAgent):
         "Decomposes a topic, gathers evidence via tools, and writes a structured outline."
     )
     tool_allowlist = {
-        "query_knowledge_base",
+        "query_and_synthesize",
         "query_remote_chain",
     }
     risk_posture = "network"
@@ -126,10 +126,10 @@ class ResearchAgent(BaseAgent):
             result = self._run_phase(
                 user_message=(
                     f"Phase: RESEARCH. Subtopic: '{subtopic}'. "
-                    "Use query_knowledge_base to gather relevant information. "
+                    "Use query_and_synthesize to gather relevant information. "
                     "Summarise your findings in markdown bullet points."
                 ),
-                tool_names=["query_knowledge_base"],
+                tool_names=["query_and_synthesize"],
                 max_iterations=3,
                 context_label=f"subtopic:{subtopic}",
             )

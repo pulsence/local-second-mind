@@ -143,7 +143,10 @@ class AssistantAgent(BaseAgent):
         denials = 0
         exec_tools = {"bash", "powershell"}
         network_tools = {"query_remote_chain", "query_llm", "load_url"}
-        builtin_query_tools = {"query_knowledge_base", "query_llm", "query_remote_chain"}
+        builtin_query_tools = {
+            "query_knowledge_base", "query_context", "execute_context",
+            "query_and_synthesize", "query_llm", "query_remote_chain",
+        }
         flagged_tools: set[str] = set()
 
         for summary in run_summaries:

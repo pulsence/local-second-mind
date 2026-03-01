@@ -51,7 +51,7 @@ class CuratorAgent(BaseAgent):
         "read_folder",
         "file_metadata",
         "hash_file",
-        "query_knowledge_base",
+        "query_and_synthesize",
         "similarity_search",
         "write_file",
     }
@@ -655,7 +655,7 @@ class CuratorAgent(BaseAgent):
         if not query:
             return []
         output = self._run_tool(
-            "query_knowledge_base",
+            "query_and_synthesize",
             {"query": query, "top_k": 10, "max_chars": 500},
         )
         parsed = self._parse_json(output)
