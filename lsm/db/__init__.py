@@ -8,6 +8,7 @@ from .connection import (
     resolve_sqlite_connection,
     resolve_vectordb_provider_name,
 )
+from .health import DBHealthReport, check_db_health
 from .migration import (
     MigrationSource,
     MigrationTarget,
@@ -33,6 +34,8 @@ __all__ = [
     "resolve_vectordb_provider_name",
     "detect_completion_mode",
     "get_stale_files",
+    "DBHealthReport",
+    "check_db_health",
     "APPLICATION_TABLES",
     "ensure_application_schema",
     "get_application_tables",

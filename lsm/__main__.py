@@ -471,6 +471,23 @@ def main(argv: list[str] | None = None) -> int:
     from lsm.config import load_config_from_file
     config = load_config_from_file(cfg_path)
 
+    # Database health check (skip for migrate command — it handles its own state)
+    if args.command and args.command != "migrate":
+        try:
+            from lsm.db.health import check_db_health
+
+            health = check_db_health(config)
+            if health.status != "ok":
+                if health.blocking:
+                    print(f"Database issue: {health.details}")
+                    if health.suggested_action:
+                        print(f"Suggested action: {health.suggested_action}")
+                    return 1
+                else:
+                    logger.warning(f"Database advisory: {health.details}")
+        except Exception:
+            logger.debug("Startup DB health check failed", exc_info=True)
+
     # TUI interface if no command specified
     if not args.command:
         logger.info("Starting TUI interface")

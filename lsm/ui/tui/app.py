@@ -343,7 +343,29 @@ class LSMApp(App):
             logger.exception("Background: failed to load embedding model")
 
     def _check_startup_advisories(self) -> None:
-        """Check for offline job advisories and display via notify."""
+        """Check for offline job advisories and DB health, display via notify."""
+        # --- Database health check ---
+        try:
+            from lsm.db.health import check_db_health
+
+            health = check_db_health(self.config)
+            if health.status != "ok":
+                severity = "warning" if health.blocking else "information"
+                message = health.details
+                if health.suggested_action:
+                    message += f"\n{health.suggested_action}"
+                self.call_from_thread(
+                    self.notify,
+                    message,
+                    severity=severity,
+                    timeout=12 if health.blocking else 8,
+                )
+                if health.blocking:
+                    return  # skip job advisories if DB is unhealthy
+        except Exception:
+            logger.debug("Startup DB health check failed", exc_info=True)
+
+        # --- Job advisories ---
         try:
             from lsm.db.job_status import check_job_advisories
             from lsm.vectordb import create_vectordb_provider
