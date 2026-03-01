@@ -7,6 +7,7 @@ from __future__ import annotations
 import json
 import re
 from contextlib import contextmanager
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
 from lsm.logging import get_logger
@@ -540,7 +541,326 @@ class PostgreSQLProvider(BaseVectorDBProvider):
             conn.commit()
 
     def prune_old_versions(self, criteria: PruneCriteria) -> int:
-        _ = criteria
-        # Version-prune semantics are currently implemented on SQLite first.
-        # PostgreSQL support will be added with parity work in a later phase.
-        return 0
+        """Delete non-current chunk versions matching prune criteria."""
+        max_versions = (
+            int(criteria.max_versions) if criteria.max_versions is not None else None
+        )
+        older_than_days = (
+            int(criteria.older_than_days) if criteria.older_than_days is not None else None
+        )
+
+        if max_versions is not None and max_versions < 1:
+            raise ValueError("max_versions must be >= 1 when provided")
+        if older_than_days is not None and older_than_days < 0:
+            raise ValueError("older_than_days must be >= 0 when provided")
+
+        with self._get_conn() as conn:
+            if not self._table_exists(conn):
+                return 0
+
+            table_ident = sql.Identifier(self._table_name)
+            with conn.cursor() as cur:
+                # Get non-current rows
+                cur.execute(
+                    sql.SQL(
+                        "SELECT id, metadata FROM {table} WHERE "
+                        "(metadata->>'is_current')::int = 0"
+                    ).format(table=table_ident),
+                )
+                rows = cur.fetchall()
+
+            if not rows:
+                return 0
+
+            keep_versions_by_source: dict[str, set[int]] = {}
+            if max_versions is not None:
+                versions_by_source: dict[str, set[int]] = {}
+                for row in rows:
+                    meta = row[1] or {}
+                    source_path = str(meta.get("source_path", ""))
+                    version = int(meta.get("version", 0))
+                    versions_by_source.setdefault(source_path, set()).add(version)
+                for sp, versions in versions_by_source.items():
+                    keep_versions_by_source[sp] = set(
+                        sorted(versions, reverse=True)[:max_versions]
+                    )
+
+            cutoff: Optional[datetime] = None
+            if older_than_days is not None:
+                cutoff = datetime.now(timezone.utc) - timedelta(days=older_than_days)
+
+            to_delete: List[str] = []
+            for row in rows:
+                meta = row[1] or {}
+                source_path = str(meta.get("source_path", ""))
+                version = int(meta.get("version", 0))
+                ingested_at_str = meta.get("ingested_at")
+
+                if max_versions is not None:
+                    kept = keep_versions_by_source.get(source_path, set())
+                    if version in kept:
+                        continue
+
+                if cutoff is not None:
+                    if ingested_at_str:
+                        try:
+                            ingested_at = datetime.fromisoformat(ingested_at_str)
+                            if ingested_at > cutoff:
+                                continue
+                        except (ValueError, TypeError):
+                            continue
+                    else:
+                        continue
+
+                to_delete.append(str(row[0]))
+
+            if not to_delete:
+                return 0
+
+            with conn.cursor() as cur:
+                cur.execute(
+                    sql.SQL("DELETE FROM {table} WHERE id = ANY(%s)").format(
+                        table=table_ident
+                    ),
+                    [to_delete],
+                )
+            conn.commit()
+        return len(to_delete)
+
+    # ------------------------------------------------------------------
+    # Full-text search
+    # ------------------------------------------------------------------
+
+    def _ensure_fts(self, conn) -> None:
+        """Create tsvector column and GIN index for full-text search."""
+        table_ident = sql.Identifier(self._table_name)
+        tsvec_idx = sql.Identifier(f"{self._table_name}_fts_idx")
+        with conn.cursor() as cur:
+            # Add tsvector column if missing
+            cur.execute(
+                sql.SQL(
+                    "ALTER TABLE {table} ADD COLUMN IF NOT EXISTS "
+                    "tsv tsvector GENERATED ALWAYS AS "
+                    "(to_tsvector('english', coalesce(text, ''))) STORED"
+                ).format(table=table_ident),
+            )
+            cur.execute(
+                sql.SQL(
+                    "CREATE INDEX IF NOT EXISTS {idx} ON {table} USING gin(tsv)"
+                ).format(idx=tsvec_idx, table=table_ident),
+            )
+        conn.commit()
+
+    def fts_query(self, text: str, top_k: int) -> VectorDBQueryResult:
+        """Run a BM25/ts_rank full-text search using PostgreSQL tsvector."""
+        if not text or not text.strip() or top_k <= 0:
+            return VectorDBQueryResult(ids=[], documents=[], metadatas=[], distances=[])
+
+        with self._get_conn() as conn:
+            if not self._table_exists(conn):
+                return VectorDBQueryResult(ids=[], documents=[], metadatas=[], distances=[])
+
+            self._ensure_fts(conn)
+
+            # Sanitize: use plainto_tsquery for safe query parsing
+            table_ident = sql.Identifier(self._table_name)
+            with conn.cursor() as cur:
+                cur.execute(
+                    sql.SQL(
+                        """
+                        SELECT id, text, metadata,
+                               -ts_rank(tsv, plainto_tsquery('english', %s)) AS rank
+                        FROM {table}
+                        WHERE tsv @@ plainto_tsquery('english', %s)
+                        ORDER BY rank
+                        LIMIT %s
+                        """
+                    ).format(table=table_ident),
+                    (text, text, top_k),
+                )
+                rows = cur.fetchall()
+
+        if not rows:
+            return VectorDBQueryResult(ids=[], documents=[], metadatas=[], distances=[])
+
+        ids = [str(row[0]) for row in rows]
+        documents = [str(row[1] or "") for row in rows]
+        metadatas = [row[2] or {} for row in rows]
+        distances = [float(row[3]) for row in rows]
+
+        return VectorDBQueryResult(
+            ids=ids, documents=documents, metadatas=metadatas, distances=distances,
+        )
+
+    # ------------------------------------------------------------------
+    # Graph methods
+    # ------------------------------------------------------------------
+
+    def _ensure_graph_tables(self, conn) -> None:
+        """Create graph node/edge tables if they don't exist."""
+        with conn.cursor() as cur:
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS lsm_graph_nodes (
+                    node_id      TEXT PRIMARY KEY,
+                    node_type    TEXT,
+                    label        TEXT,
+                    source_path  TEXT,
+                    heading_path TEXT
+                )
+            """)
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS lsm_graph_edges (
+                    id        SERIAL PRIMARY KEY,
+                    src_id    TEXT NOT NULL,
+                    dst_id    TEXT NOT NULL,
+                    edge_type TEXT,
+                    weight    REAL DEFAULT 1.0
+                )
+            """)
+            cur.execute("""
+                CREATE INDEX IF NOT EXISTS idx_graph_edges_src
+                ON lsm_graph_edges (src_id)
+            """)
+            cur.execute("""
+                CREATE INDEX IF NOT EXISTS idx_graph_edges_dst
+                ON lsm_graph_edges (dst_id)
+            """)
+        conn.commit()
+
+    def graph_insert_nodes(self, nodes: List[Dict[str, Any]]) -> None:
+        """Insert graph nodes (upsert)."""
+        if not nodes:
+            return
+        with self._get_conn() as conn:
+            self._ensure_graph_tables(conn)
+            with conn.cursor() as cur:
+                for node in nodes:
+                    cur.execute(
+                        """
+                        INSERT INTO lsm_graph_nodes
+                            (node_id, node_type, label, source_path, heading_path)
+                        VALUES (%s, %s, %s, %s, %s)
+                        ON CONFLICT (node_id) DO UPDATE SET
+                            node_type = EXCLUDED.node_type,
+                            label = EXCLUDED.label,
+                            source_path = EXCLUDED.source_path,
+                            heading_path = EXCLUDED.heading_path
+                        """,
+                        (
+                            node["node_id"],
+                            node.get("node_type", ""),
+                            node.get("label", ""),
+                            node.get("source_path", ""),
+                            node.get("heading_path"),
+                        ),
+                    )
+            conn.commit()
+
+    def graph_insert_edges(self, edges: List[Dict[str, Any]]) -> None:
+        """Insert graph edges."""
+        if not edges:
+            return
+        with self._get_conn() as conn:
+            self._ensure_graph_tables(conn)
+            with conn.cursor() as cur:
+                for edge in edges:
+                    cur.execute(
+                        """
+                        INSERT INTO lsm_graph_edges (src_id, dst_id, edge_type, weight)
+                        VALUES (%s, %s, %s, %s)
+                        """,
+                        (
+                            edge["src_id"],
+                            edge["dst_id"],
+                            edge.get("edge_type", ""),
+                            edge.get("weight", 1.0),
+                        ),
+                    )
+            conn.commit()
+
+    def graph_traverse(
+        self,
+        start_ids: List[str],
+        max_hops: int = 2,
+        edge_types: Optional[List[str]] = None,
+    ) -> List[str]:
+        """Traverse knowledge graph using recursive CTE."""
+        if not start_ids:
+            return []
+
+        with self._get_conn() as conn:
+            self._ensure_graph_tables(conn)
+
+            # Build parameterized query
+            placeholders = ", ".join(["%s"] * len(start_ids))
+
+            if edge_types:
+                et_placeholders = ", ".join(["%s"] * len(edge_types))
+                query = f"""
+                    WITH RECURSIVE reachable(node_id, depth) AS (
+                        SELECT node_id, 0 FROM lsm_graph_nodes
+                        WHERE node_id IN ({placeholders})
+                        UNION
+                        SELECT e.dst_id, r.depth + 1
+                        FROM reachable r
+                        JOIN lsm_graph_edges e ON e.src_id = r.node_id
+                        WHERE r.depth < %s
+                        AND e.edge_type IN ({et_placeholders})
+                        UNION
+                        SELECT e.src_id, r.depth + 1
+                        FROM reachable r
+                        JOIN lsm_graph_edges e ON e.dst_id = r.node_id
+                        WHERE r.depth < %s
+                        AND e.edge_type IN ({et_placeholders})
+                    )
+                    SELECT DISTINCT node_id FROM reachable
+                """
+                params = (
+                    list(start_ids)
+                    + [max_hops] + list(edge_types)
+                    + [max_hops] + list(edge_types)
+                )
+            else:
+                query = f"""
+                    WITH RECURSIVE reachable(node_id, depth) AS (
+                        SELECT node_id, 0 FROM lsm_graph_nodes
+                        WHERE node_id IN ({placeholders})
+                        UNION
+                        SELECT e.dst_id, r.depth + 1
+                        FROM reachable r
+                        JOIN lsm_graph_edges e ON e.src_id = r.node_id
+                        WHERE r.depth < %s
+                        UNION
+                        SELECT e.src_id, r.depth + 1
+                        FROM reachable r
+                        JOIN lsm_graph_edges e ON e.dst_id = r.node_id
+                        WHERE r.depth < %s
+                    )
+                    SELECT DISTINCT node_id FROM reachable
+                """
+                params = list(start_ids) + [max_hops, max_hops]
+
+            with conn.cursor() as cur:
+                cur.execute(query, params)
+                rows = cur.fetchall()
+
+        return [str(row[0]) for row in rows]
+
+    # ------------------------------------------------------------------
+    # Embedding model registry helper tables
+    # ------------------------------------------------------------------
+
+    def _ensure_embedding_models_table(self, conn) -> None:
+        """Create embedding models table if it doesn't exist."""
+        with conn.cursor() as cur:
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS lsm_embedding_models (
+                    model_id   TEXT PRIMARY KEY,
+                    base_model TEXT,
+                    path       TEXT,
+                    dimension  INTEGER,
+                    created_at TEXT,
+                    is_active  INTEGER DEFAULT 0
+                )
+            """)
+        conn.commit()
