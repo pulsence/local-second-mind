@@ -66,6 +66,9 @@ All notable changes to Local Second Mind are documented here.
 - Embedding fine-tuning package (`lsm/finetune/`): contrastive learning with heading-content pairs using `MultipleNegativesRankingLoss`. Model registry (`lsm_embedding_models`) for tracking fine-tuned models with active model state.
 - CLI commands: `lsm finetune train`, `lsm finetune list`, `lsm finetune activate`.
 - New `QueryConfig` fields: `graph_expansion_enabled`, `graph_expansion_hops`.
+- PostgreSQL provider parity: `fts_query()` via native `tsvector`/`tsquery` with `ts_rank`, graph methods (`graph_insert_nodes`, `graph_insert_edges`, `graph_traverse`) with recursive CTE, `prune_old_versions()` with version/age criteria, embedding models table DDL.
+- TUI startup advisories (`lsm/db/job_status.py`): non-blocking notifications for stale cluster builds (>20% corpus growth) and missing fine-tuned embedding models. Displayed via `notify()` during background initialization.
+- Scale guidance in `docs/user-guide/VECTOR_DATABASES.md`: SQLite thresholds (250k, 1M), PostgreSQL migration triggers, memory estimation formula, privacy labels for all features.
 
 ### Removed
 
