@@ -31,7 +31,7 @@ fields in the config file. The top-level keys are:
 | --- | --- | --- |
 | `global` | `GlobalConfig` | Shared settings (embedding model, device, batch size, global folder) |
 | `ingest` | `IngestConfig` | Ingestion pipeline settings |
-| `vectordb` | `VectorDBConfig` | Vector database provider settings |
+| `db` | `DBConfig` | Database provider settings (with nested `vector` submodel) |
 | `llms` | `LLMRegistryConfig` | LLM providers, tiers, and services |
 | `query` | `QueryConfig` | Retrieval and reranking settings |
 | `modes` | `list[ModeConfig]` | Query mode definitions |
@@ -154,53 +154,60 @@ Legacy ingest fields removed in v0.8.0 (config load error if present):
 - `ingest.chroma_flush_interval`
 - `ingest.enable_versioning` (versioning is always enabled)
 
-## Vector DB Configuration
+## Database Configuration
 
-Vector DB settings live under `vectordb`.
+Database settings live under the `db` section. Vector-specific settings are
+nested under `db.vector`.
 
 | Key | Type | Default | Purpose |
 | --- | --- | --- | --- |
-| `provider` | string | `sqlite` | Vector DB backend (`sqlite` or `postgresql`). |
-| `path` | path | `.lsm` | Directory containing `lsm.db` for sqlite backend. |
-| `collection` | string | `local_kb` | Logical collection/namespace name. |
+| `table_prefix` | string | `lsm_` | Prefix for all application tables. |
+| `path` | path | `Data` | Directory containing `lsm.db` for sqlite backend. |
 | `connection_string` | string? | `null` | PostgreSQL DSN (preferred for postgres backend). |
 | `host` | string? | `null` | PostgreSQL host (alt to `connection_string`). |
 | `port` | int? | `null` | PostgreSQL port. |
 | `database` | string? | `null` | PostgreSQL database. |
 | `user` | string? | `null` | PostgreSQL user. |
 | `password` | string? | `null` | PostgreSQL password. |
-| `index_type` | string | `hnsw` | pgvector index type (`hnsw` or `ivfflat`). |
-| `pool_size` | int | `5` | PostgreSQL connection pool size. |
+| `vector.provider` | string | `sqlite` | Vector DB backend (`sqlite` or `postgresql`). |
+| `vector.collection` | string | `local_kb` | Logical collection/namespace name. |
+| `vector.index_type` | string | `hnsw` | pgvector index type (`hnsw` or `ivfflat`). |
+| `vector.pool_size` | int | `5` | PostgreSQL connection pool size. |
 
 Example (SQLite + sqlite-vec, default):
 
 ```json
-"vectordb": {
-  "provider": "sqlite",
-  "path": ".lsm",
-  "collection": "local_kb"
+"db": {
+  "table_prefix": "lsm_",
+  "path": "Data",
+  "vector": {
+    "provider": "sqlite",
+    "collection": "local_kb"
+  }
 }
 ```
 
 Example (PostgreSQL + pgvector):
 
 ```json
-"vectordb": {
-  "provider": "postgresql",
+"db": {
+  "path": "Data",
   "connection_string": "postgresql://user:pass@localhost:5432/lsm",
-  "collection": "local_kb",
-  "index_type": "hnsw",
-  "pool_size": 10
+  "vector": {
+    "provider": "postgresql",
+    "collection": "local_kb",
+    "index_type": "hnsw",
+    "pool_size": 10
+  }
 }
 ```
 
-Legacy vectordb fields removed in v0.8.0 (config load error if present):
+The old `"vectordb"` config key is no longer supported. Rename it to `"db"` and
+move `provider`, `collection`, `index_type`, and `pool_size` under a `"vector"`
+sub-object.
 
-- `vectordb.persist_dir` (use `vectordb.path`)
-- `vectordb.chroma_hnsw_space`
-
-ChromaDB is migration-only in v0.8.0 and is not accepted as a production
-`vectordb.provider` value.
+ChromaDB is migration-only and is not accepted as a production `db.vector.provider`
+value.
 
 ## Database Maintenance Commands
 
@@ -653,7 +660,7 @@ an API key.
 
 ## Path Resolution Rules
 
-- `vectordb.persist_dir`, `ingest.persist_dir`, and `ingest.manifest` are
+- `db.path`, `ingest.persist_dir`, and `ingest.manifest` are
   resolved relative to the config file.
 - `agents.agents_folder` is resolved relative to `global.global_folder` when
   provided as a relative path.
@@ -724,10 +731,12 @@ an API key.
   "ingest": {
     "roots": ["C:/Users/You/Documents"]
   },
-  "vectordb": {
-    "provider": "chromadb",
-    "persist_dir": ".chroma",
-    "collection": "local_kb"
+  "db": {
+    "path": "Data",
+    "vector": {
+      "provider": "sqlite",
+      "collection": "local_kb"
+    }
   },
   "modes": [
     {

@@ -7,17 +7,21 @@ SQLite + sqlite-vec, with PostgreSQL + pgvector available for larger deployments
 Configuration Overview
 ----------------------
 
-Vector DB settings live under the `vectordb` section.
+Database settings live under the `db` section, with vector-specific settings
+nested under `db.vector`.
 
 Example (SQLite + sqlite-vec, default)
 --------------------------------------
 
 ```json
 {
-  "vectordb": {
-    "provider": "sqlite",
-    "path": "data",
-    "collection": "local_kb"
+  "db": {
+    "table_prefix": "lsm_",
+    "path": "Data",
+    "vector": {
+      "provider": "sqlite",
+      "collection": "local_kb"
+    }
   }
 }
 ```
@@ -27,12 +31,15 @@ Example (PostgreSQL + pgvector)
 
 ```json
 {
-  "vectordb": {
-    "provider": "postgresql",
+  "db": {
+    "path": "Data",
     "connection_string": "postgresql://user:pass@localhost:5432/lsm_vectors",
-    "collection": "local_kb",
-    "index_type": "hnsw",
-    "pool_size": 10
+    "vector": {
+      "provider": "postgresql",
+      "collection": "local_kb",
+      "index_type": "hnsw",
+      "pool_size": 10
+    }
   }
 }
 ```
@@ -45,7 +52,7 @@ SQLite + sqlite-vec
 
 - Default provider and fully supported in v0.8.0+.
 - Stores vectors, metadata, full-text index (FTS5), manifest, graph, and agent state in a single `lsm.db`.
-- Uses `vectordb.path` as the directory containing `lsm.db`.
+- Uses `db.path` as the directory containing `lsm.db`.
 - Deployment defaults: WAL journal mode, 5-second busy_timeout, FK enforcement.
 
 PostgreSQL + pgvector
@@ -100,6 +107,48 @@ Migrate to PostgreSQL when:
 - HNSW index type is recommended for best recall/speed trade-off.
 
 Use `lsm migrate` to move data between providers.
+
+Migration & Enrichment
+-----------------------
+
+### Migration Commands
+
+```
+lsm migrate                                  # Auto-detect source, migrate, enrich
+lsm migrate --from-db chroma --to-db sqlite  # Explicit backend migration
+lsm migrate --from-version v0.7 --to-db sqlite --source-dir /path/to/legacy
+lsm migrate --resume                         # Resume interrupted migration
+lsm migrate --enrich                         # Enrich existing database (no copy)
+lsm migrate --skip-enrich                    # Copy only, skip enrichment
+```
+
+### Post-Migration Enrichment
+
+When migrating from an older version, chunks may lack metadata fields added
+by newer ingest pipeline phases. The enrichment pipeline backfills these:
+
+- **Tier 1** (automatic, in-place): simhash fingerprints, version/is_current
+  defaults, node_type defaults, root/folder tags from current config.
+- **Tier 2** (automatic if source files available): heading_path hierarchy,
+  start_char/end_char positions, graph nodes/edges.
+- **Tier 2b** (automatic if clustering enabled): cluster_id/cluster_size
+  rebuild from existing embeddings.
+- **Tier 3** (advisory): chunk boundary changes or missing section/file
+  summaries. Run `lsm ingest --force-reingest-changed-config` after migration.
+
+Enrichment runs automatically after backend migration unless `--skip-enrich`
+is passed. Use `--enrich` to run enrichment standalone on an existing database.
+
+### Database Health Check
+
+LSM checks database health at startup (TUI and CLI). Detected issues:
+
+- **missing**: No database file (first run, non-blocking).
+- **legacy_detected**: `.chroma/` directory found, migration recommended.
+- **mismatch**: Schema version differs from current config.
+- **corrupt**: Database unreachable or missing required tables.
+- **partial_migration**: Interrupted migration detected. Use `--resume`.
+- **stale_chunks**: Chunks need enrichment (non-blocking).
 
 Privacy Labels
 --------------

@@ -2,6 +2,30 @@
 
 All notable changes to Local Second Mind are documented here.
 
+## 0.8.2 - 2026-03-01
+
+### Changed
+
+- Restructured config key from `"vectordb"` to `"db"` with nested `"vector"` submodel for vector-specific settings (`provider`, `collection`, `index_type`, `pool_size`). The `DBConfig` dataclass now owns database-level settings (`table_prefix`, `path`, connection fields).
+- Replaced all hardcoded `lsm_` table name strings with a centralized `TableNames` registry (`lsm/db/tables.py`), enabling configurable `table_prefix`.
+- Restructured migration CLI: `--from`/`--to` replaced with `--from-db`/`--to-db`/`--from-version`/`--to-version`. Added `--resume`, `--enrich`, `--skip-enrich` flags.
+
+### Added
+
+- Database health check at startup (TUI and CLI). Detects schema mismatches, missing databases, legacy providers, partial migrations, and stale chunks with actionable guidance.
+- One-shot migration auto-detection: `lsm migrate` with no args detects source backend and version from filesystem heuristics.
+- Migration progress tracking with `lsm_migration_progress` table. Each copy and enrichment stage is checkpointed for resume support.
+- Resume support for interrupted migrations (`--resume` flag). Skips completed stages, re-runs failed/in-progress stages.
+- Schema evolution during migration: target database gets all current-version tables and columns after data copy.
+- Post-migration chunk enrichment pipeline (`lsm/db/enrichment.py`):
+  - Tier 1: simhash backfill, version/is_current/node_type defaults, tag enrichment from config.
+  - Tier 2: heading_path, start_char/end_char/chunk_length, graph node/edge backfill from source files.
+  - Tier 2b: cluster_id/cluster_size rebuild from existing embeddings when clustering is enabled.
+  - Tier 3: advisory for chunk boundary drift and missing section/file summaries.
+- `--enrich` flag for standalone enrichment on existing database without backend copy.
+- `--skip-enrich` flag to suppress post-migration enrichment.
+- `detect_stale_chunks()` for querying what enrichment is needed per tier.
+
 ## 0.8.1 - 2026-02-28
 
 ### Changed
