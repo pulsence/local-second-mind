@@ -300,3 +300,116 @@ class TestPostgreSQLHealth:
 
         health = provider.health_check()
         assert health["status"] == "missing_dependencies"
+
+
+class TestPostgreSQLPrune:
+    """Tests for prune_old_versions() — PostgreSQL parity."""
+
+    def test_prune_returns_zero_when_no_table(self, provider, mocker):
+        from lsm.vectordb.base import PruneCriteria
+
+        mock_conn = MagicMock()
+        mocker.patch.object(provider, "_table_exists", return_value=False)
+        with patch.object(provider, "_get_conn") as ctx:
+            ctx.return_value.__enter__ = lambda s: mock_conn
+            ctx.return_value.__exit__ = MagicMock(return_value=False)
+            result = provider.prune_old_versions(PruneCriteria())
+
+        assert result == 0
+
+    def test_prune_validates_max_versions(self, provider):
+        from lsm.vectordb.base import PruneCriteria
+
+        with pytest.raises(ValueError, match="max_versions must be >= 1"):
+            provider.prune_old_versions(PruneCriteria(max_versions=0))
+
+    def test_prune_validates_older_than_days(self, provider):
+        from lsm.vectordb.base import PruneCriteria
+
+        with pytest.raises(ValueError, match="older_than_days must be >= 0"):
+            provider.prune_old_versions(PruneCriteria(older_than_days=-1))
+
+
+class TestPostgreSQLGraphInsert:
+    """Tests for graph_insert_nodes/edges — PostgreSQL parity."""
+
+    def test_graph_insert_nodes_empty(self, provider, mocker):
+        mocker.patch.object(provider, "_get_conn")
+        provider.graph_insert_nodes([])
+        # Should not try to get a connection
+
+    def test_graph_insert_nodes_creates_tables_and_inserts(self, provider, mocker):
+        mock_conn = MagicMock()
+        mock_cursor = MagicMock()
+        mock_conn.cursor.return_value.__enter__ = lambda s: mock_cursor
+        mock_conn.cursor.return_value.__exit__ = MagicMock(return_value=False)
+
+        with patch.object(provider, "_get_conn") as ctx:
+            ctx.return_value.__enter__ = lambda s: mock_conn
+            ctx.return_value.__exit__ = MagicMock(return_value=False)
+            provider.graph_insert_nodes([
+                {"node_id": "n1", "node_type": "file", "label": "test.md", "source_path": "test.md"},
+            ])
+
+        # Should have executed CREATE TABLE (graph tables) + INSERT
+        assert mock_cursor.execute.call_count >= 1
+        mock_conn.commit.assert_called()
+
+    def test_graph_insert_edges_empty(self, provider, mocker):
+        mocker.patch.object(provider, "_get_conn")
+        provider.graph_insert_edges([])
+
+    def test_graph_insert_edges_inserts_data(self, provider, mocker):
+        mock_conn = MagicMock()
+        mock_cursor = MagicMock()
+        mock_conn.cursor.return_value.__enter__ = lambda s: mock_cursor
+        mock_conn.cursor.return_value.__exit__ = MagicMock(return_value=False)
+
+        with patch.object(provider, "_get_conn") as ctx:
+            ctx.return_value.__enter__ = lambda s: mock_conn
+            ctx.return_value.__exit__ = MagicMock(return_value=False)
+            provider.graph_insert_edges([
+                {"src_id": "n1", "dst_id": "n2", "edge_type": "contains", "weight": 1.0},
+            ])
+
+        assert mock_cursor.execute.call_count >= 1
+        mock_conn.commit.assert_called()
+
+
+class TestPostgreSQLGraphTraverse:
+    """Tests for graph_traverse() — PostgreSQL parity."""
+
+    def test_traverse_empty_start(self, provider):
+        result = provider.graph_traverse([])
+        assert result == []
+
+    def test_traverse_returns_reachable_nodes(self, provider, mocker):
+        mock_conn = MagicMock()
+        mock_cursor = MagicMock()
+        mock_cursor.fetchall.return_value = [("n1",), ("n2",), ("n3",)]
+        mock_conn.cursor.return_value.__enter__ = lambda s: mock_cursor
+        mock_conn.cursor.return_value.__exit__ = MagicMock(return_value=False)
+
+        with patch.object(provider, "_get_conn") as ctx:
+            ctx.return_value.__enter__ = lambda s: mock_conn
+            ctx.return_value.__exit__ = MagicMock(return_value=False)
+            result = provider.graph_traverse(["n1"], max_hops=2)
+
+        assert set(result) == {"n1", "n2", "n3"}
+        mock_cursor.execute.assert_called()
+
+    def test_traverse_with_edge_types(self, provider, mocker):
+        mock_conn = MagicMock()
+        mock_cursor = MagicMock()
+        mock_cursor.fetchall.return_value = [("n1",), ("n2",)]
+        mock_conn.cursor.return_value.__enter__ = lambda s: mock_cursor
+        mock_conn.cursor.return_value.__exit__ = MagicMock(return_value=False)
+
+        with patch.object(provider, "_get_conn") as ctx:
+            ctx.return_value.__enter__ = lambda s: mock_conn
+            ctx.return_value.__exit__ = MagicMock(return_value=False)
+            result = provider.graph_traverse(
+                ["n1"], max_hops=1, edge_types=["contains"]
+            )
+
+        assert set(result) == {"n1", "n2"}

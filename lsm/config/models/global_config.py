@@ -82,6 +82,9 @@ class GlobalConfig:
     tui_density_mode: Literal["auto", "compact", "comfortable"] = "auto"
     """TUI layout density mode: auto, compact, or comfortable."""
 
+    finetune_enabled: bool = False
+    """Whether embedding fine-tuning features are enabled."""
+
     mcp_servers: List[MCPServerConfig] = field(default_factory=list)
     """Configured MCP servers for tool discovery and execution."""
 

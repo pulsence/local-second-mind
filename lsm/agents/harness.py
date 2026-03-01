@@ -1168,11 +1168,31 @@ class AgentHarness:
             "constraints": self._extract_constraints(
                 self._extract_topic(self.context) if self.context is not None else ""
             ),
+            "context_tracking": self._build_context_tracking_summary(),
         }
         summary_path.parent.mkdir(parents=True, exist_ok=True)
         summary_path.write_text(json.dumps(summary, indent=2), encoding="utf-8")
         self.state.add_artifact(str(summary_path))
         return summary_path
+
+    def _build_context_tracking_summary(self) -> Dict[str, Any]:
+        """Build per-context-label tracking metadata for the run summary."""
+        labels_seen = [
+            label for label in self._context_histories if label is not None
+        ]
+        per_label: Dict[str, Dict[str, Any]] = {}
+        for label, history in self._context_histories.items():
+            key = label if label is not None else "__default__"
+            chain = self._context_chain_state.get(label, {})
+            per_label[key] = {
+                "iterations": len(history),
+                "conversation_id": chain.get("conversation_id"),
+                "response_id": chain.get("response_id"),
+            }
+        return {
+            "context_labels_seen": labels_seen,
+            "per_label": per_label,
+        }
 
     def _write_agent_log(self) -> Optional[Path]:
         if not self.state.log_entries:

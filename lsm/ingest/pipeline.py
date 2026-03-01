@@ -12,6 +12,7 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 from pathlib import Path
 
 from lsm.ingest.chunking import chunk_text
+from lsm.ingest.dedup_hash import compute_simhash
 from lsm.ingest.fs import iter_files, collect_folder_tags
 from lsm.ingest.manifest import (
     get_next_version,
@@ -669,6 +670,9 @@ def ingest(
                         # Multi-vector node type from summary chunks
                         if pos.get("node_type") is not None:
                             meta["node_type"] = pos["node_type"]
+
+                    # Simhash for near-duplicate detection
+                    meta["simhash"] = compute_simhash(chunk)
 
                     # Versioning metadata is always set in v0.8.0.
                     meta["is_current"] = True

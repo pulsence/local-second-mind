@@ -295,12 +295,15 @@ def build_global_config(raw: Dict[str, Any], config_path: Path | None = None) ->
         else:
             raise ValueError("global.mcp_servers entries must be objects")
 
+    finetune_enabled = bool(global_raw.get("finetune_enabled", GlobalConfig.finetune_enabled))
+
     return GlobalConfig(
         global_folder=global_folder,
         embed_model=global_raw.get("embed_model", GlobalConfig.embed_model),
         device=global_raw.get("device", GlobalConfig.device),
         batch_size=int(global_raw.get("batch_size", GlobalConfig.batch_size)),
         embedding_dimension=embedding_dimension,
+        finetune_enabled=finetune_enabled,
         tui_density_mode=str(tui_density_mode_raw).lower(),
         mcp_servers=mcp_servers,
     )
@@ -1410,6 +1413,7 @@ def config_to_raw(config: LSMConfig) -> Dict[str, Any]:
             "device": gs.device,
             "batch_size": gs.batch_size,
             "embedding_dimension": gs.embedding_dimension,
+            "finetune_enabled": gs.finetune_enabled,
             "tui_density_mode": gs.tui_density_mode,
             "mcp_servers": mcp_servers or None,
         },

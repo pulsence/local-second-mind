@@ -349,11 +349,19 @@ class LSMApp(App):
             from lsm.vectordb import create_vectordb_provider
 
             provider = create_vectordb_provider(self.config.vectordb)
-            conn = getattr(provider, "connection", None)
-            if conn is None:
-                return
 
-            advisories = check_job_advisories(conn, self.config)
+            # Get a connection from either SQLite or PostgreSQL provider
+            conn = getattr(provider, "connection", None)
+            if conn is not None:
+                advisories = check_job_advisories(conn, self.config)
+            else:
+                # PostgreSQL: use pool-based context manager
+                get_conn = getattr(provider, "_get_conn", None)
+                if get_conn is None:
+                    return
+                with get_conn() as pg_conn:
+                    advisories = check_job_advisories(pg_conn, self.config)
+
             for adv in advisories:
                 self.call_from_thread(
                     self.notify,

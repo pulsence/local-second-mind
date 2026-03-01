@@ -105,6 +105,29 @@ def _load_config(config_path: str | Path) -> LSMConfig:
     return load_config_from_file(cfg_path)
 
 
+def _print_post_ingest_advisories(config: LSMConfig) -> None:
+    """Check and print post-ingest advisories on CLI path."""
+    try:
+        from lsm.db.job_status import check_job_advisories
+
+        provider = create_vectordb_provider(config.vectordb)
+        conn = getattr(provider, "connection", None)
+        if conn is not None:
+            advisories = check_job_advisories(conn, config)
+        else:
+            get_conn = getattr(provider, "_get_conn", None)
+            if get_conn is None:
+                return
+            with get_conn() as pg_conn:
+                advisories = check_job_advisories(pg_conn, config)
+
+        for adv in advisories:
+            print(f"\n[advisory] {adv.message}")
+            print(f"  Run: {adv.action}")
+    except Exception:
+        logger.debug("Post-ingest advisory check failed", exc_info=True)
+
+
 def run_build_cli(
     config_path: str | Path,
     force: bool = False,
@@ -147,6 +170,10 @@ def run_build_cli(
     )
 
     logger.info("Ingest completed successfully")
+
+    # Post-ingest advisories
+    _print_post_ingest_advisories(config)
+
     return 0
 
 
@@ -436,6 +463,11 @@ def run_cluster(args, config: LSMConfig) -> int:
             algorithm=getattr(args, "algorithm", None),
             k=getattr(args, "k", None),
         )
+    if command == "visualize":
+        return run_cluster_visualize_cli(
+            config,
+            output=getattr(args, "output", "clusters.html"),
+        )
 
     print("Missing cluster subcommand. Use `lsm cluster --help` for options.")
     return 2
@@ -472,6 +504,100 @@ def run_cluster_build_cli(
         f"Clustering complete: {result['n_clusters']} clusters, "
         f"{result['n_chunks']} chunks, algorithm={result['algorithm']}"
     )
+    return 0
+
+
+def run_cluster_visualize_cli(
+    config: LSMConfig,
+    output: str = "clusters.html",
+) -> int:
+    """Export a UMAP HTML plot of cluster distributions."""
+    try:
+        import numpy as np
+    except ImportError:
+        print("Error: numpy is required for cluster visualization.")
+        return 1
+    try:
+        import umap  # noqa: F401
+    except ImportError:
+        print(
+            "Error: umap-learn is required for cluster visualization.\n"
+            "Install with: pip install 'lsm[clustering]'"
+        )
+        return 1
+
+    provider = create_vectordb_provider(config.vectordb)
+    conn = getattr(provider, "connection", None)
+    if conn is None:
+        print("Error: Cluster visualization requires SQLite backend with direct connection access.")
+        return 1
+
+    print("Loading embeddings and cluster assignments...")
+    try:
+        rows = conn.execute(
+            "SELECT c.chunk_id, c.cluster_id, v.embedding "
+            "FROM lsm_chunks c "
+            "JOIN vec_chunks v ON c.chunk_id = v.chunk_id "
+            "WHERE c.is_current = 1 AND c.cluster_id IS NOT NULL"
+        ).fetchall()
+    except Exception as exc:
+        print(f"Error loading data: {exc}")
+        return 1
+
+    if not rows:
+        print("No clustered chunks found. Run `lsm cluster build` first.")
+        return 1
+
+    from struct import unpack
+
+    chunk_ids = [r[0] for r in rows]
+    cluster_ids = [int(r[1]) for r in rows]
+    embeddings = []
+    for r in rows:
+        raw = r[2]
+        dim = len(raw) // 4
+        embeddings.append(list(unpack(f"{dim}f", raw)))
+    embeddings_np = np.array(embeddings, dtype=np.float32)
+
+    print(f"Running UMAP on {len(chunk_ids)} chunks...")
+    reducer = umap.UMAP(n_components=2, random_state=42)
+    coords = reducer.fit_transform(embeddings_np)
+
+    # Generate HTML with inline scatter plot
+    unique_clusters = sorted(set(cluster_ids))
+    colors = [
+        f"hsl({int(360 * i / max(len(unique_clusters), 1))}, 70%, 50%)"
+        for i in range(len(unique_clusters))
+    ]
+    cluster_color = {cid: colors[i] for i, cid in enumerate(unique_clusters)}
+
+    points_js = ",".join(
+        f'{{x:{coords[i][0]:.4f},y:{coords[i][1]:.4f},c:{cluster_ids[i]}}}'
+        for i in range(len(chunk_ids))
+    )
+
+    html = f"""<!DOCTYPE html>
+<html><head><title>LSM Cluster Visualization</title>
+<style>body{{font-family:sans-serif;margin:20px}}canvas{{border:1px solid #ccc}}</style>
+</head><body>
+<h2>LSM Cluster Visualization ({len(chunk_ids)} chunks, {len(unique_clusters)} clusters)</h2>
+<canvas id="plot" width="800" height="600"></canvas>
+<script>
+var data=[{points_js}];
+var colors={{{",".join(f"{cid}:'{c}'" for cid, c in cluster_color.items())}}};
+var canvas=document.getElementById('plot'),ctx=canvas.getContext('2d');
+var xs=data.map(d=>d.x),ys=data.map(d=>d.y);
+var xmin=Math.min(...xs),xmax=Math.max(...xs),ymin=Math.min(...ys),ymax=Math.max(...ys);
+var pad=40,w=canvas.width-2*pad,h=canvas.height-2*pad;
+data.forEach(function(d){{
+  var px=pad+(d.x-xmin)/(xmax-xmin)*w,py=pad+(d.y-ymin)/(ymax-ymin)*h;
+  ctx.beginPath();ctx.arc(px,py,3,0,2*Math.PI);
+  ctx.fillStyle=colors[d.c]||'#999';ctx.fill();
+}});
+</script></body></html>"""
+
+    Path(output).write_text(html, encoding="utf-8")
+    print(f"Cluster visualization saved to {output}")
     return 0
 
 
@@ -595,4 +721,105 @@ def run_finetune_activate_cli(config: LSMConfig, model_id: str) -> int:
 
     set_active_model(conn, model_id)
     print(f"Activated model: {model_id}")
+    return 0
+
+
+def run_graph(args, config: LSMConfig) -> int:
+    """Run graph management commands."""
+    command = getattr(args, "graph_command", None)
+    if command == "build-links":
+        return run_graph_build_links_cli(
+            config,
+            threshold=getattr(args, "threshold", 0.8),
+            batch_size=getattr(args, "batch_size", 500),
+        )
+
+    print("Missing graph subcommand. Use `lsm graph --help` for options.")
+    return 2
+
+
+def run_graph_build_links_cli(
+    config: LSMConfig,
+    threshold: float = 0.8,
+    batch_size: int = 500,
+) -> int:
+    """Build thematic links between chunks using embedding cosine similarity."""
+    try:
+        import numpy as np
+    except ImportError:
+        print("Error: numpy is required for graph link building.")
+        return 1
+
+    provider = create_vectordb_provider(config.vectordb)
+    conn = getattr(provider, "connection", None)
+    if conn is None:
+        print("Error: Graph link building requires SQLite backend with direct connection access.")
+        return 1
+
+    print(f"Building thematic links: threshold={threshold}, batch_size={batch_size}")
+
+    # Load all current chunk embeddings
+    try:
+        from struct import unpack
+
+        rows = conn.execute(
+            "SELECT c.chunk_id, v.embedding "
+            "FROM lsm_chunks c "
+            "JOIN vec_chunks v ON c.chunk_id = v.chunk_id "
+            "WHERE c.is_current = 1"
+        ).fetchall()
+    except Exception as exc:
+        print(f"Error loading embeddings: {exc}")
+        return 1
+
+    if not rows:
+        print("No chunks found. Run `lsm ingest build` first.")
+        return 1
+
+    chunk_ids = [r[0] for r in rows]
+    embeddings = []
+    for r in rows:
+        raw = r[1]
+        dim = len(raw) // 4
+        embeddings.append(list(unpack(f"{dim}f", raw)))
+    emb_matrix = np.array(embeddings, dtype=np.float32)
+
+    # Normalize for cosine similarity
+    norms = np.linalg.norm(emb_matrix, axis=1, keepdims=True)
+    norms[norms == 0] = 1.0
+    emb_matrix = emb_matrix / norms
+
+    print(f"Comparing {len(chunk_ids)} chunks in batches of {batch_size}...")
+    edges_created = 0
+
+    for i in range(0, len(chunk_ids), batch_size):
+        batch_end = min(i + batch_size, len(chunk_ids))
+        batch = emb_matrix[i:batch_end]
+
+        # Compare this batch against all chunks after it to avoid duplicates
+        for j in range(i, len(chunk_ids), batch_size):
+            compare_end = min(j + batch_size, len(chunk_ids))
+            compare = emb_matrix[j:compare_end]
+
+            sim = batch @ compare.T
+
+            for bi in range(batch.shape[0]):
+                for ci in range(compare.shape[0]):
+                    global_i = i + bi
+                    global_j = j + ci
+                    if global_i >= global_j:
+                        continue  # skip self and already-seen pairs
+                    if sim[bi, ci] >= threshold:
+                        src_id = chunk_ids[global_i]
+                        dst_id = chunk_ids[global_j]
+                        conn.execute(
+                            "INSERT OR IGNORE INTO lsm_graph_edges "
+                            "(src_id, dst_id, edge_type, weight) "
+                            "VALUES (?, ?, 'thematic', ?)",
+                            (src_id, dst_id, float(sim[bi, ci])),
+                        )
+                        edges_created += 1
+
+    conn.commit()
+    print(f"Link building complete: {edges_created} thematic edges created.")
     return 0

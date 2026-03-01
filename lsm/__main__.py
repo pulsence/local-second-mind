@@ -343,6 +343,45 @@ def build_parser() -> argparse.ArgumentParser:
         help="Number of clusters for k-means (default: from config or 50)",
     )
 
+    cluster_visualize_parser = cluster_subparsers.add_parser(
+        "visualize",
+        help="Export a UMAP HTML plot of cluster distributions",
+    )
+    cluster_visualize_parser.add_argument(
+        "--output",
+        default="clusters.html",
+        help="Output HTML file path (default: clusters.html)",
+    )
+
+    # --- graph command ---
+    graph_parser = subparsers.add_parser(
+        "graph",
+        help="Knowledge graph commands",
+        description="Build and manage the knowledge graph.",
+    )
+    graph_subparsers = graph_parser.add_subparsers(
+        dest="graph_command",
+        title="graph commands",
+        required=True,
+    )
+
+    graph_build_links_parser = graph_subparsers.add_parser(
+        "build-links",
+        help="Build thematic links between chunks using embedding similarity",
+    )
+    graph_build_links_parser.add_argument(
+        "--threshold",
+        type=float,
+        default=0.8,
+        help="Cosine similarity threshold for creating edges (default: 0.8)",
+    )
+    graph_build_links_parser.add_argument(
+        "--batch-size",
+        type=int,
+        default=500,
+        help="Batch size for embedding comparison (default: 500)",
+    )
+
     # --- finetune command ---
     finetune_parser = subparsers.add_parser(
         "finetune",
@@ -471,6 +510,10 @@ def main(argv: list[str] | None = None) -> int:
             logger.info("Starting finetune command")
             from lsm.ui.shell.cli import run_finetune
             return run_finetune(args, config)
+        if args.command == "graph":
+            logger.info("Starting graph command")
+            from lsm.ui.shell.cli import run_graph
+            return run_graph(args, config)
 
         else:
             # Should not reach here with required=True in subparsers

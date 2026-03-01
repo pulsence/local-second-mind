@@ -37,6 +37,10 @@ dependencies = [
 migration = [
   "chromadb",
 ]
+clustering = [
+  "hdbscan>=0.8.33",
+  "umap-learn>=0.5",
+]
 dev = [
   "pytest>=7.0",
   "pytest-cov>=4.0",

@@ -3,6 +3,9 @@ Startup advisory checks for offline jobs.
 
 Inspects lsm_job_status and corpus state to emit actionable messages
 when configured jobs are stale or not yet run.
+
+Supports both SQLite (sqlite3.Connection) and PostgreSQL (psycopg2)
+connections via DB-API 2.0 cursor-based operations.
 """
 
 from __future__ import annotations
@@ -25,8 +28,24 @@ class Advisory:
     action: str  # CLI command to resolve
 
 
+def _ph(conn: Any) -> str:
+    """Return the SQL parameter placeholder for the connection type."""
+    if isinstance(conn, sqlite3.Connection):
+        return "?"
+    return "%s"
+
+
+def _fetchone(conn: Any, query: str, params: tuple = ()) -> Optional[tuple]:
+    """Execute a query and fetch one row, compatible with both backends."""
+    if isinstance(conn, sqlite3.Connection):
+        return conn.execute(query, params).fetchone()
+    cur = conn.cursor()
+    cur.execute(query, params)
+    return cur.fetchone()
+
+
 def check_job_advisories(
-    conn: sqlite3.Connection,
+    conn: Any,
     config: Any = None,
 ) -> List[Advisory]:
     """Check for stale or missing offline jobs.
@@ -35,7 +54,7 @@ def check_job_advisories(
     messages for jobs that should be run.
 
     Args:
-        conn: SQLite connection with application tables.
+        conn: Database connection (sqlite3 or psycopg2).
         config: Optional LSMConfig for checking enabled features.
 
     Returns:
@@ -52,26 +71,26 @@ def check_job_advisories(
     return advisories
 
 
-def _get_corpus_size(conn: sqlite3.Connection) -> int:
+def _get_corpus_size(conn: Any) -> int:
     """Get current corpus size (active chunks)."""
     try:
-        row = conn.execute(
-            "SELECT COUNT(*) FROM lsm_chunks WHERE is_current = 1"
-        ).fetchone()
+        row = _fetchone(conn, "SELECT COUNT(*) FROM lsm_chunks WHERE is_current = 1")
         return int(row[0]) if row else 0
     except Exception:
         return 0
 
 
 def _get_job_status(
-    conn: sqlite3.Connection, job_name: str
+    conn: Any, job_name: str
 ) -> Optional[dict]:
     """Get a job's status record."""
     try:
-        row = conn.execute(
-            "SELECT status, completed_at, corpus_size FROM lsm_job_status WHERE job_name = ?",
+        ph = _ph(conn)
+        row = _fetchone(
+            conn,
+            f"SELECT status, completed_at, corpus_size FROM lsm_job_status WHERE job_name = {ph}",
             (job_name,),
-        ).fetchone()
+        )
         if row is None:
             return None
         return {
@@ -84,7 +103,7 @@ def _get_job_status(
 
 
 def _check_cluster_status(
-    conn: sqlite3.Connection, config: Any
+    conn: Any, config: Any
 ) -> List[Advisory]:
     """Check if clustering needs to be run or updated."""
     advisories: List[Advisory] = []
@@ -132,16 +151,17 @@ def _check_cluster_status(
 
 
 def _check_finetune_status(
-    conn: sqlite3.Connection, config: Any
+    conn: Any, config: Any
 ) -> List[Advisory]:
     """Check if embedding fine-tuning should be run."""
     advisories: List[Advisory] = []
 
     # Check for active fine-tuned model
     try:
-        row = conn.execute(
-            "SELECT COUNT(*) FROM lsm_embedding_models WHERE is_active = 1"
-        ).fetchone()
+        row = _fetchone(
+            conn,
+            "SELECT COUNT(*) FROM lsm_embedding_models WHERE is_active = 1",
+        )
         has_active = int(row[0]) > 0 if row else False
     except Exception:
         # Table might not exist
@@ -163,7 +183,7 @@ def _check_finetune_status(
 
 
 def record_job_status(
-    conn: sqlite3.Connection,
+    conn: Any,
     job_name: str,
     status: str = "completed",
     corpus_size: Optional[int] = None,
@@ -171,7 +191,7 @@ def record_job_status(
     """Record a job's completion status.
 
     Args:
-        conn: SQLite connection.
+        conn: Database connection (sqlite3 or psycopg2).
         job_name: Job identifier (e.g., 'cluster_build').
         status: Job status string.
         corpus_size: Current corpus size at completion time.
@@ -179,11 +199,20 @@ def record_job_status(
     from datetime import datetime, timezone
 
     now = datetime.now(timezone.utc).isoformat()
+    ph = _ph(conn)
 
-    conn.execute(
-        """INSERT OR REPLACE INTO lsm_job_status
-           (job_name, status, completed_at, corpus_size)
-           VALUES (?, ?, ?, ?)""",
-        (job_name, status, now, corpus_size),
+    upsert_sql = (
+        f"INSERT INTO lsm_job_status (job_name, status, completed_at, corpus_size) "
+        f"VALUES ({ph}, {ph}, {ph}, {ph}) "
+        f"ON CONFLICT (job_name) DO UPDATE SET "
+        f"status = EXCLUDED.status, completed_at = EXCLUDED.completed_at, "
+        f"corpus_size = EXCLUDED.corpus_size"
     )
+
+    if isinstance(conn, sqlite3.Connection):
+        conn.execute(upsert_sql, (job_name, status, now, corpus_size))
+    else:
+        cur = conn.cursor()
+        cur.execute(upsert_sql, (job_name, status, now, corpus_size))
+
     conn.commit()

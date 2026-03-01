@@ -352,6 +352,12 @@ The `query` section controls retrieval and reranking behavior.
 | `path_contains` | list[string]? | null | Filter: substring(s) in path. |
 | `ext_allow` | list[string]? | null | Filter: allow extensions. |
 | `ext_deny` | list[string]? | null | Filter: deny extensions. |
+| `dedup_threshold` | float | `0.8` | MinHash Jaccard threshold for near-duplicate suppression. Lower values are more aggressive. |
+| `mmr_lambda` | float | `0.7` | MMR trade-off: 1.0 = pure relevance, 0.0 = pure diversity. |
+| `max_per_section` | int? | null | Max candidates per heading section group. `null` = no cap. |
+| `temporal_boost_enabled` | bool | `false` | Apply recency boost to recently modified documents. |
+| `temporal_boost_days` | int | `30` | Window in days for temporal recency boost. |
+| `temporal_boost_factor` | float | `1.5` | Boost multiplier for recent documents (distance divided by this factor). |
 | `chat_mode` | string | `single` | Response mode: `single` or `chat`. |
 | `enable_llm_server_cache` | bool | `true` | Enable provider-side prompt/session cache reuse for chat follow-up turns. |
 | `cluster_enabled` | bool | `false` | Enable cluster-aware retrieval (pre-filter by top clusters). |
