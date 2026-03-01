@@ -193,6 +193,36 @@ class BaseVectorDBProvider(ABC):
         """Delete non-current chunk versions that match prune criteria."""
         pass
 
+    def graph_insert_nodes(self, nodes: List[Dict[str, Any]]) -> None:
+        """Insert graph nodes into the knowledge graph.
+
+        Each dict should have: node_id, node_type, label, source_path,
+        and optionally heading_path.
+
+        Default is a no-op for providers that don't support graphs.
+        """
+
+    def graph_insert_edges(self, edges: List[Dict[str, Any]]) -> None:
+        """Insert graph edges into the knowledge graph.
+
+        Each dict should have: src_id, dst_id, edge_type, and optionally weight.
+
+        Default is a no-op for providers that don't support graphs.
+        """
+
+    def graph_traverse(
+        self,
+        start_ids: List[str],
+        max_hops: int = 2,
+        edge_types: Optional[List[str]] = None,
+    ) -> List[str]:
+        """Traverse the knowledge graph from start nodes.
+
+        Returns chunk/node IDs reachable within max_hops. Default returns
+        an empty list for providers that don't support graphs.
+        """
+        return []
+
     def fts_query(self, text: str, top_k: int) -> VectorDBQueryResult:
         """Run a full-text search query and return BM25-ranked results.
 

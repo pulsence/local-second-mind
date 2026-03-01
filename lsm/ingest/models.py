@@ -75,6 +75,12 @@ class ParseResult:
     version: int = 1
     """Chunk version number for versioning support."""
 
+    graph_nodes: Optional[List[Dict[str, Any]]] = None
+    """Graph nodes extracted from document structure and links."""
+
+    graph_edges: Optional[List[Dict[str, Any]]] = None
+    """Graph edges extracted from document structure and links."""
+
 
 @dataclass
 class WriteJob:
@@ -117,3 +123,9 @@ class WriteJob:
 
     version: int = 1
     """Chunk version number for versioning support."""
+
+    graph_nodes: Optional[List[Dict[str, Any]]] = None
+    """Graph nodes for this file."""
+
+    graph_edges: Optional[List[Dict[str, Any]]] = None
+    """Graph edges for this file."""

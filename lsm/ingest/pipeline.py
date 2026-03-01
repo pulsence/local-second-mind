@@ -289,6 +289,33 @@ def parse_and_chunk_job(
                         positions = []
                     positions.append(pos_entry)
 
+        # Build knowledge graph nodes/edges from file graph and links
+        graph_nodes_out = None
+        graph_edges_out = None
+        try:
+            from lsm.ingest.graph_builder import build_graph_from_file_graph
+
+            g_nodes, g_edges = build_graph_from_file_graph(
+                file_graph=file_graph if chunking_strategy == "structure" else None,
+                source_path=source_path,
+                raw_text=raw_text,
+            )
+            if g_nodes:
+                graph_nodes_out = [
+                    {"node_id": n.node_id, "node_type": n.node_type,
+                     "label": n.label, "source_path": n.source_path,
+                     "heading_path": n.heading_path}
+                    for n in g_nodes
+                ]
+            if g_edges:
+                graph_edges_out = [
+                    {"src_id": e.src_id, "dst_id": e.dst_id,
+                     "edge_type": e.edge_type, "weight": e.weight}
+                    for e in g_edges
+                ]
+        except Exception:
+            pass  # Graph building is best-effort
+
         return ParseResult(
             source_path=source_path,
             fp=fp,
@@ -303,6 +330,8 @@ def parse_and_chunk_job(
             chunk_positions=positions,
             parse_errors=parse_errors,
             page_segments=page_segments,
+            graph_nodes=graph_nodes_out,
+            graph_edges=graph_edges_out,
         )
 
     except Exception as e:
@@ -662,6 +691,16 @@ def ingest(
                 }
                 pending_manifest_updates[job.source_path] = manifest_entry
 
+                # Insert graph nodes/edges if available
+                if not dry_run and (job.graph_nodes or job.graph_edges):
+                    try:
+                        if job.graph_nodes:
+                            provider.graph_insert_nodes(job.graph_nodes)
+                        if job.graph_edges:
+                            provider.graph_insert_edges(job.graph_edges)
+                    except Exception:
+                        pass  # Graph insertion is best-effort
+
                 # Flush when we hit threshold
                 if len(to_add_ids) >= flush_threshold:
                     flush()
@@ -730,6 +769,8 @@ def ingest(
                     metadata=pr.metadata,
                     chunk_positions=pr.chunk_positions,
                     version=pr.version,
+                    graph_nodes=pr.graph_nodes,
+                    graph_edges=pr.graph_edges,
                 )
                 write_q.put(wj)
 

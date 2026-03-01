@@ -393,6 +393,111 @@ class SQLiteVecProvider(BaseVectorDBProvider):
             distances=result_dists,
         )
 
+    # ------------------------------------------------------------------
+    # Graph operations
+    # ------------------------------------------------------------------
+    def graph_insert_nodes(self, nodes):
+        """Insert graph nodes into lsm_graph_nodes (upsert)."""
+        if not nodes:
+            return
+        for node in nodes:
+            self._conn.execute(
+                """INSERT OR REPLACE INTO lsm_graph_nodes
+                   (node_id, node_type, label, source_path, heading_path)
+                   VALUES (?, ?, ?, ?, ?)""",
+                (
+                    node["node_id"],
+                    node.get("node_type", ""),
+                    node.get("label", ""),
+                    node.get("source_path", ""),
+                    node.get("heading_path"),
+                ),
+            )
+        self._conn.commit()
+
+    def graph_insert_edges(self, edges):
+        """Insert graph edges into lsm_graph_edges."""
+        if not edges:
+            return
+        for edge in edges:
+            self._conn.execute(
+                """INSERT INTO lsm_graph_edges (src_id, dst_id, edge_type, weight)
+                   VALUES (?, ?, ?, ?)""",
+                (
+                    edge["src_id"],
+                    edge["dst_id"],
+                    edge.get("edge_type", ""),
+                    edge.get("weight", 1.0),
+                ),
+            )
+        self._conn.commit()
+
+    def graph_traverse(self, start_ids, max_hops=2, edge_types=None):
+        """Traverse knowledge graph using recursive CTE.
+
+        Returns node IDs reachable from start_ids within max_hops.
+        """
+        if not start_ids:
+            return []
+
+        placeholders = ", ".join(["?"] * len(start_ids))
+
+        edge_filter = ""
+        params = list(start_ids) + [max_hops]
+        if edge_types:
+            et_placeholders = ", ".join(["?"] * len(edge_types))
+            edge_filter = f" AND e.edge_type IN ({et_placeholders})"
+            params = list(start_ids) + list(edge_types) + [max_hops]
+
+        # Build CTE query with edge_type filter injected
+        if edge_types:
+            sql = f"""
+                WITH RECURSIVE reachable(node_id, depth) AS (
+                    SELECT node_id, 0 FROM lsm_graph_nodes
+                    WHERE node_id IN ({placeholders})
+                    UNION
+                    SELECT e.dst_id, r.depth + 1
+                    FROM reachable r
+                    JOIN lsm_graph_edges e ON e.src_id = r.node_id
+                    WHERE r.depth < ?
+                    AND e.edge_type IN ({et_placeholders})
+                    UNION
+                    SELECT e.src_id, r.depth + 1
+                    FROM reachable r
+                    JOIN lsm_graph_edges e ON e.dst_id = r.node_id
+                    WHERE r.depth < ?
+                    AND e.edge_type IN ({et_placeholders})
+                )
+                SELECT DISTINCT node_id FROM reachable
+            """
+            params = (
+                list(start_ids)
+                + [max_hops] + list(edge_types)
+                + [max_hops] + list(edge_types)
+            )
+        else:
+            sql = f"""
+                WITH RECURSIVE reachable(node_id, depth) AS (
+                    SELECT node_id, 0 FROM lsm_graph_nodes
+                    WHERE node_id IN ({placeholders})
+                    UNION
+                    SELECT e.dst_id, r.depth + 1
+                    FROM reachable r
+                    JOIN lsm_graph_edges e ON e.src_id = r.node_id
+                    WHERE r.depth < ?
+                    UNION
+                    SELECT e.src_id, r.depth + 1
+                    FROM reachable r
+                    JOIN lsm_graph_edges e ON e.dst_id = r.node_id
+                    WHERE r.depth < ?
+                )
+                SELECT DISTINCT node_id FROM reachable
+            """
+            params = list(start_ids) + [max_hops, max_hops]
+
+        rows = self._conn.execute(sql, params).fetchall()
+        return [row[0] for row in rows]
+
     def fts_query(self, text: str, top_k: int) -> VectorDBQueryResult:
         """Run a BM25 full-text search against the chunks_fts table.
 
