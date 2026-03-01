@@ -10,6 +10,7 @@ import pytest
 from lsm.db.job_status import (
     Advisory,
     _check_cluster_status,
+    _check_graph_status,
     _check_finetune_status,
     _get_corpus_size,
     _get_job_status,
@@ -50,6 +51,14 @@ def conn():
             created_at TEXT,
             is_active INTEGER DEFAULT 0
         );
+
+        CREATE TABLE IF NOT EXISTS lsm_graph_edges (
+            edge_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            src_id TEXT,
+            dst_id TEXT,
+            edge_type TEXT,
+            weight REAL DEFAULT 1.0
+        );
     """)
     return db
 
@@ -63,9 +72,19 @@ def _insert_chunks(conn, count):
     conn.commit()
 
 
-def _make_config(cluster_enabled=False):
+def _make_config(
+    cluster_enabled: bool = False,
+    graph_enabled: bool = False,
+    finetune_enabled: bool = True,
+):
     return SimpleNamespace(
-        query=SimpleNamespace(cluster_enabled=cluster_enabled),
+        query=SimpleNamespace(
+            cluster_enabled=cluster_enabled,
+            graph_expansion_enabled=graph_enabled,
+        ),
+        global_settings=SimpleNamespace(
+            finetune_enabled=finetune_enabled,
+        ),
     )
 
 
@@ -196,6 +215,42 @@ class TestCheckFinetuneStatus:
         result = _check_finetune_status(conn, None)
         assert result == []
 
+    def test_no_advisory_when_feature_disabled(self, conn):
+        _insert_chunks(conn, 200)
+        config = _make_config(finetune_enabled=False)
+        result = _check_finetune_status(conn, config)
+        assert result == []
+
+
+# ------------------------------------------------------------------
+# Tests: check_graph_status
+# ------------------------------------------------------------------
+
+
+class TestCheckGraphStatus:
+    def test_no_advisory_when_disabled(self, conn):
+        config = _make_config(graph_enabled=False)
+        result = _check_graph_status(conn, config)
+        assert result == []
+
+    def test_advisory_when_enabled_and_no_thematic_edges(self, conn):
+        _insert_chunks(conn, 25)
+        config = _make_config(graph_enabled=True)
+        result = _check_graph_status(conn, config)
+        assert len(result) == 1
+        assert result[0].action == "lsm graph build-links"
+
+    def test_no_advisory_when_thematic_edges_exist(self, conn):
+        _insert_chunks(conn, 25)
+        conn.execute(
+            "INSERT INTO lsm_graph_edges (src_id, dst_id, edge_type, weight) "
+            "VALUES ('a', 'b', 'thematic', 0.9)"
+        )
+        conn.commit()
+        config = _make_config(graph_enabled=True)
+        result = _check_graph_status(conn, config)
+        assert result == []
+
 
 # ------------------------------------------------------------------
 # Tests: check_job_advisories (integration)
@@ -221,9 +276,20 @@ class TestCheckJobAdvisories:
         _insert_chunks(conn, 200)
         record_job_status(conn, "cluster_build", corpus_size=200)
         conn.execute(
+            "INSERT INTO lsm_graph_edges (src_id, dst_id, edge_type, weight) "
+            "VALUES ('a', 'b', 'thematic', 0.9)"
+        )
+        conn.execute(
             "INSERT INTO lsm_embedding_models (model_id, is_active) VALUES ('m1', 1)",
         )
         conn.commit()
-        config = _make_config(cluster_enabled=True)
+        config = _make_config(cluster_enabled=True, graph_enabled=True)
         result = check_job_advisories(conn, config)
         assert result == []
+
+    def test_combines_graph_advisory_when_graph_enabled(self, conn):
+        _insert_chunks(conn, 50)
+        config = _make_config(graph_enabled=True)
+        result = check_job_advisories(conn, config)
+        actions = {a.action for a in result}
+        assert "lsm graph build-links" in actions

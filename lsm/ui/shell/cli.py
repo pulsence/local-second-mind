@@ -85,6 +85,7 @@ def run_cache(args, config: LSMConfig) -> int:
         return run_cache_clear_cli(
             config,
             clear_reranker=bool(getattr(args, "reranker", False)),
+            clear_query=bool(getattr(args, "query", False)),
         )
 
     print("Missing cache subcommand. Use `lsm cache --help` for options.")
@@ -420,10 +421,22 @@ def run_cache_clear_cli(
     config: LSMConfig,
     *,
     clear_reranker: bool = False,
+    clear_query: bool = False,
 ) -> int:
-    """Clear reranker cache."""
-    if not clear_reranker:
+    """Clear reranker and/or in-memory query caches."""
+    if not clear_reranker and not clear_query:
         clear_reranker = True
+        clear_query = True
+
+    cleared_query = 0
+    if clear_query:
+        from lsm.query.api import clear_query_caches
+
+        cleared_query = clear_query_caches(config=config)
+
+    if not clear_reranker:
+        print(f"Cleared query cache entries: {cleared_query}")
+        return 0
 
     provider = create_vectordb_provider(config.vectordb)
     conn = getattr(provider, "connection", getattr(provider, "_conn", None))
@@ -451,6 +464,8 @@ def run_cache_clear_cli(
         return 1
 
     print(f"Cleared reranker cache entries: {removed}")
+    if clear_query:
+        print(f"Cleared query cache entries: {cleared_query}")
     return 0
 
 
@@ -480,6 +495,7 @@ def run_cluster_build_cli(
 ) -> int:
     """Build cluster assignments for all current embeddings."""
     from lsm.db.clustering import build_clusters
+    from lsm.db.job_status import record_job_status
 
     algorithm = algorithm or config.query.cluster_algorithm
     k = k or config.query.cluster_k
@@ -504,6 +520,14 @@ def run_cluster_build_cli(
         f"Clustering complete: {result['n_clusters']} clusters, "
         f"{result['n_chunks']} chunks, algorithm={result['algorithm']}"
     )
+    try:
+        record_job_status(
+            conn,
+            "cluster_build",
+            corpus_size=int(result.get("n_chunks", 0)),
+        )
+    except Exception:
+        logger.debug("Failed to record cluster_build job status", exc_info=True)
     return 0
 
 
@@ -631,6 +655,7 @@ def run_finetune_train_cli(
     """Extract training pairs from corpus and fine-tune embedding model."""
     from lsm.finetune.embedding import extract_training_pairs, finetune_embedding_model
     from lsm.finetune.registry import register_model, set_active_model
+    from lsm.db.job_status import record_job_status
 
     provider = create_vectordb_provider(config.vectordb)
     conn = getattr(provider, "connection", None)
@@ -676,6 +701,16 @@ def run_finetune_train_cli(
     print(f"  Dimension: {entry.dimension}")
     print(f"  Training pairs: {result['num_pairs']}")
     print(f"  Status: active")
+
+    try:
+        row = conn.execute(
+            "SELECT COUNT(*) FROM lsm_chunks WHERE is_current = 1"
+        ).fetchone()
+        corpus_size = int(row[0]) if row else None
+        record_job_status(conn, "finetune_embedding", corpus_size=corpus_size)
+    except Exception:
+        logger.debug("Failed to record finetune_embedding job status", exc_info=True)
+
     return 0
 
 
@@ -822,4 +857,14 @@ def run_graph_build_links_cli(
 
     conn.commit()
     print(f"Link building complete: {edges_created} thematic edges created.")
+    try:
+        from lsm.db.job_status import record_job_status
+
+        record_job_status(
+            conn,
+            "graph_build_links",
+            corpus_size=len(chunk_ids),
+        )
+    except Exception:
+        logger.debug("Failed to record graph_build_links job status", exc_info=True)
     return 0

@@ -82,11 +82,12 @@ def test_cache_requires_subcommand():
 
 def test_cache_clear_parses():
     parser = build_parser()
-    args = parser.parse_args(["cache", "clear", "--reranker"])
+    args = parser.parse_args(["cache", "clear", "--reranker", "--query"])
 
     assert args.command == "cache"
     assert args.cache_command == "clear"
     assert args.reranker is True
+    assert args.query is True
 
 
 def test_migrate_parses():

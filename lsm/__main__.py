@@ -175,12 +175,17 @@ def build_parser() -> argparse.ArgumentParser:
     )
     cache_clear_parser = cache_subparsers.add_parser(
         "clear",
-        help="Clear reranker cache",
+        help="Clear reranker and/or query caches",
     )
     cache_clear_parser.add_argument(
         "--reranker",
         action="store_true",
         help="Clear the lsm_reranker_cache table",
+    )
+    cache_clear_parser.add_argument(
+        "--query",
+        action="store_true",
+        help="Clear in-memory query result cache entries",
     )
 
     # -------------------------------------------------------------------------

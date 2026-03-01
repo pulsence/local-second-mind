@@ -64,6 +64,7 @@ def check_job_advisories(
 
     try:
         advisories.extend(_check_cluster_status(conn, config))
+        advisories.extend(_check_graph_status(conn, config))
         advisories.extend(_check_finetune_status(conn, config))
     except Exception as exc:
         logger.debug("Advisory check failed: %s", exc)
@@ -156,6 +157,18 @@ def _check_finetune_status(
     """Check if embedding fine-tuning should be run."""
     advisories: List[Advisory] = []
 
+    # Check whether fine-tuning advisories are enabled.
+    finetune_enabled = True
+    if config is not None:
+        try:
+            gs = getattr(config, "global_settings", None)
+            if gs is not None and hasattr(gs, "finetune_enabled"):
+                finetune_enabled = bool(gs.finetune_enabled)
+        except Exception:
+            pass
+    if not finetune_enabled:
+        return advisories
+
     # Check for active fine-tuned model
     try:
         row = _fetchone(
@@ -178,6 +191,46 @@ def _check_finetune_status(
                 ),
                 action="lsm finetune train",
             ))
+
+    return advisories
+
+
+def _check_graph_status(conn: Any, config: Any) -> List[Advisory]:
+    """Check whether thematic graph links were built when graph expansion is enabled."""
+    advisories: List[Advisory] = []
+
+    graph_enabled = False
+    if config is not None:
+        try:
+            graph_enabled = bool(getattr(config.query, "graph_expansion_enabled", False))
+        except Exception:
+            graph_enabled = False
+
+    if not graph_enabled:
+        return advisories
+
+    try:
+        row = _fetchone(
+            conn,
+            "SELECT COUNT(*) FROM lsm_graph_edges WHERE edge_type = 'thematic'",
+        )
+        thematic_edges = int(row[0]) if row else 0
+    except Exception:
+        # Missing table or backend mismatch: skip silently.
+        return advisories
+
+    if thematic_edges <= 0:
+        corpus_size = _get_corpus_size(conn)
+        advisories.append(
+            Advisory(
+                level="info",
+                message=(
+                    "Graph expansion is enabled but thematic links have not been built"
+                    f" ({corpus_size} chunks in corpus)."
+                ),
+                action="lsm graph build-links",
+            )
+        )
 
     return advisories
 
