@@ -527,6 +527,12 @@ def build_query_config(raw: Dict[str, Any]) -> QueryConfig:
         hyde_num_samples=int(query_section.get("hyde_num_samples", 2)),
         hyde_temperature=float(query_section.get("hyde_temperature", 0.2)),
         hyde_pooling=str(query_section.get("hyde_pooling", "mean")),
+        dedup_threshold=float(query_section.get("dedup_threshold", 0.8)),
+        mmr_lambda=float(query_section.get("mmr_lambda", 0.7)),
+        max_per_section=query_section.get("max_per_section"),
+        temporal_boost_enabled=bool(query_section.get("temporal_boost_enabled", False)),
+        temporal_boost_days=int(query_section.get("temporal_boost_days", 30)),
+        temporal_boost_factor=float(query_section.get("temporal_boost_factor", 1.5)),
     )
 
     return config
@@ -1459,6 +1465,12 @@ def config_to_raw(config: LSMConfig) -> Dict[str, Any]:
             "hyde_num_samples": config.query.hyde_num_samples,
             "hyde_temperature": config.query.hyde_temperature,
             "hyde_pooling": config.query.hyde_pooling,
+            "dedup_threshold": config.query.dedup_threshold,
+            "mmr_lambda": config.query.mmr_lambda,
+            "max_per_section": config.query.max_per_section,
+            "temporal_boost_enabled": config.query.temporal_boost_enabled,
+            "temporal_boost_days": config.query.temporal_boost_days,
+            "temporal_boost_factor": config.query.temporal_boost_factor,
         },
         "modes": modes or None,
         "notes": {

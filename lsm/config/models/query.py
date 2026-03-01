@@ -89,6 +89,24 @@ class QueryConfig:
     hyde_pooling: str = "mean"
     """Embedding pooling strategy for HyDE: 'mean' or 'max'."""
 
+    dedup_threshold: float = 0.8
+    """MinHash Jaccard threshold for near-duplicate suppression."""
+
+    mmr_lambda: float = 0.7
+    """MMR trade-off: 1.0 = pure relevance, 0.0 = pure diversity."""
+
+    max_per_section: Optional[int] = None
+    """Max candidates per heading section group. None = no cap."""
+
+    temporal_boost_enabled: bool = False
+    """Apply recency boost to recently modified documents."""
+
+    temporal_boost_days: int = 30
+    """Window in days for temporal recency boost."""
+
+    temporal_boost_factor: float = 1.5
+    """Boost multiplier for recent documents."""
+
     def __post_init__(self):
         """Compute derived values."""
         self.chat_mode = (self.chat_mode or "single").strip().lower()
