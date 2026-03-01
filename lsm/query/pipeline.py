@@ -55,6 +55,7 @@ from lsm.query.stages.rrf_fusion import rrf_fuse
 from lsm.query.stages.cross_encoder import CrossEncoderReranker
 from lsm.query.stages.hyde import hyde_recall
 from lsm.query.stages.multi_vector import multi_vector_recall
+from lsm.query.stages.graph_expansion import expand_via_graph
 from lsm.vectordb.base import BaseVectorDBProvider
 
 VALID_PROFILES = (
@@ -194,6 +195,25 @@ class RetrievalPipeline:
                     duration_ms=(time.monotonic() - stage_t0) * 1000,
                 )
             )
+            # --- Graph expansion (post-retrieval) ---
+            if self.config.query.graph_expansion_enabled and local_candidates:
+                try:
+                    graph_t0 = time.monotonic()
+                    local_candidates = expand_via_graph(
+                        local_candidates,
+                        self.db,
+                        max_hops=self.config.query.graph_expansion_hops,
+                    )
+                    trace.stages_executed.append("graph_expansion")
+                    trace.timings.append(
+                        StageTimings(
+                            stage="graph_expansion",
+                            duration_ms=(time.monotonic() - graph_t0) * 1000,
+                        )
+                    )
+                except Exception as exc:
+                    logger.warning("Graph expansion failed: %s", exc)
+
             if progress_callback:
                 progress_callback("retrieval", 1, 1, "Local retrieval complete")
 

@@ -64,6 +64,9 @@ class ScoreBreakdown:
     temporal_boost: Optional[float] = None
     """Temporal recency boost factor."""
 
+    graph_expansion_score: Optional[float] = None
+    """Score from graph-augmented retrieval expansion."""
+
     def to_dict(self) -> Dict[str, Any]:
         return {
             k: v
@@ -75,6 +78,7 @@ class ScoreBreakdown:
                 "fused_score": self.fused_score,
                 "rerank_score": self.rerank_score,
                 "temporal_boost": self.temporal_boost,
+                "graph_expansion_score": self.graph_expansion_score,
             }.items()
             if v is not None
         }

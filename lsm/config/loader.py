@@ -539,6 +539,8 @@ def build_query_config(raw: Dict[str, Any]) -> QueryConfig:
         cluster_algorithm=str(query_section.get("cluster_algorithm", "kmeans")),
         cluster_k=int(query_section.get("cluster_k", 50)),
         cluster_top_n=int(query_section.get("cluster_top_n", 5)),
+        graph_expansion_enabled=bool(query_section.get("graph_expansion_enabled", False)),
+        graph_expansion_hops=int(query_section.get("graph_expansion_hops", 2)),
     )
 
     return config
@@ -1483,6 +1485,8 @@ def config_to_raw(config: LSMConfig) -> Dict[str, Any]:
             "cluster_algorithm": config.query.cluster_algorithm,
             "cluster_k": config.query.cluster_k,
             "cluster_top_n": config.query.cluster_top_n,
+            "graph_expansion_enabled": config.query.graph_expansion_enabled,
+            "graph_expansion_hops": config.query.graph_expansion_hops,
         },
         "modes": modes or None,
         "notes": {

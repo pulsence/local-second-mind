@@ -388,6 +388,8 @@ class TestMultiVectorProfile:
             cluster_algorithm="kmeans",
             cluster_k=50,
             cluster_top_n=5,
+            graph_expansion_enabled=False,
+            graph_expansion_hops=2,
         )
         llm_service = SimpleNamespace(
             temperature=0.7, max_tokens=1000, model="fake-model",

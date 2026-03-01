@@ -15,6 +15,7 @@ VALID_PROFILES = (
     "hyde_hybrid",
     "dense_cross_rerank",
     "llm_rerank",
+    "multi_vector",
 )
 
 
@@ -119,6 +120,12 @@ class QueryConfig:
     cluster_top_n: int = 5
     """Number of top clusters to search during retrieval."""
 
+    graph_expansion_enabled: bool = False
+    """Enable graph-augmented retrieval (expands candidates via knowledge graph)."""
+
+    graph_expansion_hops: int = 2
+    """Maximum hops for graph expansion traversal."""
+
     def __post_init__(self):
         """Compute derived values."""
         self.chat_mode = (self.chat_mode or "single").strip().lower()
@@ -162,3 +169,8 @@ class QueryConfig:
 
         if self.cluster_top_n < 1:
             raise ValueError(f"cluster_top_n must be >= 1, got {self.cluster_top_n}")
+
+        if self.graph_expansion_hops < 1:
+            raise ValueError(
+                f"graph_expansion_hops must be >= 1, got {self.graph_expansion_hops}"
+            )

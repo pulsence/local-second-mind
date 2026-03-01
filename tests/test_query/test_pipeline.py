@@ -48,6 +48,8 @@ def _make_config(
         cluster_algorithm="kmeans",
         cluster_k=50,
         cluster_top_n=5,
+        graph_expansion_enabled=False,
+        graph_expansion_hops=2,
     )
 
     from lsm.config.models.modes import GROUNDED_MODE, INSIGHT_MODE, HYBRID_MODE
