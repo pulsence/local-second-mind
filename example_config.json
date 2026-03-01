@@ -253,8 +253,7 @@
       "source_policy": {
         "local": {
           "min_relevance": 0.20,
-          "k": 15,
-
+          "k": 15
         },
         "remote": {
           "enabled": true,
@@ -309,8 +308,7 @@
       "source_policy": {
         "local": {
           "min_relevance": 0.20,
-          "k": 15,
-
+          "k": 15
         },
         "remote": {
           "enabled": true,

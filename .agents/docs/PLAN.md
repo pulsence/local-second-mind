@@ -89,7 +89,7 @@ Graph construction at ingest, graph-augmented retrieval, multi-hop strategies, a
 PostgreSQL provider parity, TUI startup advisories, documentation, and scale guidance. Sub-tasks: 16.1–16.4.
 
 ### [Phase 17: Debug Phase](./plan_phases/PHASE_17.md)
-Pre-release debug phase for resolving implementation gaps and bugs identified during the Phase 11–16 review, plus user-reported issues. Sub-tasks: 17.1–17.4.
+Pre-release debug phase for resolving implementation gaps and bugs identified during the Phase 11–16 review, plus user-reported issues. Sub-tasks: 17.1–17.11.
 
 ### [Phase 18: Final Code Review and Release](./plan_phases/PHASE_18.md)
 Comprehensive review, integration testing, architecture docs, and release preparation. Sub-tasks: 18.1–18.4.

@@ -176,6 +176,10 @@
   - Default to most restrictive
 - Add Tool to read user and .agent documentation
 
+## v0.9.4: Citation Extraction
+- Need to identify author, date, page, etc. for chunks/sources for proper
+  citations can be generated from a chunk.
+
 ## v0.10.0: Extra Control Paths
 - Add ability to send email/txt notifications
 - Add ability to create RSS Feed from for example the News Agent

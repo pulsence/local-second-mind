@@ -17,19 +17,15 @@ model from `sentence-transformers`.
 **Tasks**:
 - Add `sentence-transformers` as an optional dependency in `pyproject.toml`
 - Create `lsm/query/stages/cross_encoder.py`:
-  - `CrossEncoderReranker.__init__(model_name, device, cache_conn)`:
+  - `CrossEncoderReranker.__init__(model_name, device)`:
     - Lazy model download on first use
     - Honour `device` from `GlobalConfig`
   - `rerank(query, candidates, top_k)` → reranked candidates with `rerank_score`
-  - Cache integration: check `lsm_reranker_cache` before computing, store after
-  - Cache key: `hash(query, chunk_id, model_version)`
 - Update `RetrievalPipeline.build_sources()`:
   - `dense_cross_rerank` profile: dense recall → cross-encoder reranking
   - Graceful degradation: if model not available → use dense results + log warning
 - Add config fields to `QueryConfig`:
   - `cross_encoder_model: str = "cross-encoder/ms-marco-MiniLM-L-6-v2"`
-- Add CLI command: `lsm cache clear [--reranker] [--query]` for manual invalidation
-  of the `lsm_reranker_cache` table and/or query result cache (§5.7)
 - Run eval: `lsm eval retrieval --profile dense_cross_rerank --compare dense_only`
 
 - Commit and push changes for this sub-phase.
@@ -40,12 +36,11 @@ model from `sentence-transformers`.
 - `lsm/config/models/query.py` — cross-encoder config
 - `tests/test_query/test_cross_encoder.py`:
   - Test: reranking changes candidate order
-  - Test: cache hit avoids model inference
   - Test: GPU device parameter is honoured
   - Test: graceful degradation without model
 
 **Success criteria**: Cross-encoder reranking improves retrieval quality (measured via eval
-harness). Cache reduces repeated computation. Graceful degradation works.
+harness). Graceful degradation works.
 
 ---
 
@@ -119,7 +114,6 @@ for retrieval. Trace contains hypothetical documents. Graceful degradation works
 ## 11.4: Phase 11 Code Review and Changelog
 
 **Tasks**:
-- Review cross-encoder cache key uniqueness
 - Review HyDE fallback path
 - Review eval results for all three new profiles
 - Run full test suite: `pytest tests/ -v`
