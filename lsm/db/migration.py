@@ -260,11 +260,15 @@ def migrate(
     *,
     batch_size: int = 1000,
     table_names: TableNames | None = None,
+    resume: bool = False,
 ) -> Dict[str, Any]:
     """Migrate vectors + auxiliary state between supported backends."""
+    import uuid
+
     tn = table_names or DEFAULT_TABLE_NAMES
     source_enum = _coerce_source(source)
     target_enum = _coerce_target(target)
+    run_id = str(uuid.uuid4())
 
     if source_enum == MigrationSource.V07_LEGACY:
         target_provider = _provider_from_target(target_enum, target_config)
@@ -308,13 +312,29 @@ def migrate(
     source_provider = _provider_from_source(source_enum, source_config)
     target_provider = _provider_from_target(target_enum, target_config)
 
+    # Determine completed stages for resume
+    completed_stages: set[str] = set()
+    if resume:
+        with _connection_context(target_provider) as tc:
+            if tc is not None:
+                prev_run = _get_latest_run_id(tc, tn)
+                if prev_run:
+                    run_id = prev_run  # reuse the run id
+                    completed_stages = _get_completed_stages(tc, prev_run, tn)
+
     _emit_progress(progress_callback, "migrate", 0, 0, "Copying vectors and chunk metadata.")
-    migrated, total, inferred_dim = _copy_vectors(
-        source_provider=source_provider,
-        target_provider=target_provider,
-        batch_size=max(1, int(batch_size)),
-        progress_callback=progress_callback,
-    )
+    if "copy_vectors" not in completed_stages:
+        migrated, total, inferred_dim = _copy_vectors(
+            source_provider=source_provider,
+            target_provider=target_provider,
+            batch_size=max(1, int(batch_size)),
+            progress_callback=progress_callback,
+        )
+    else:
+        _emit_progress(progress_callback, "migrate", 0, 0, "Skipping copy_vectors (already completed).")
+        total = source_provider.count()
+        migrated = total
+        inferred_dim = None
 
     validation_checked = 0
     with ExitStack() as stack:
@@ -323,6 +343,12 @@ def migrate(
 
         if target_conn is not None:
             _ensure_aux_tables(target_conn, tn)
+            _ensure_migration_progress_table(target_conn, tn)
+
+            # Track copy_vectors stage
+            if "copy_vectors" not in completed_stages:
+                sid = _begin_stage(target_conn, run_id, "copy_vectors", source_enum.value, target_enum.value, tn)
+                _complete_stage(target_conn, sid, rows=migrated, tn=tn)
 
         vector_key = (
             _vector_validation_key(target_provider, target_conn, tn)
@@ -331,20 +357,44 @@ def migrate(
         )
         expected_counts: dict[str, int] = {vector_key: int(total)}
         if source_conn is not None and target_conn is not None:
-            expected_counts.update(
-                _copy_auxiliary_state(
-                    source_conn=source_conn,
-                    target_conn=target_conn,
-                    progress_callback=progress_callback,
-                    tn=tn,
-                )
-            )
+            # Track auxiliary state copy with per-table stages
+            aux_stage = "copy_auxiliary"
+            if aux_stage not in completed_stages:
+                sid = _begin_stage(target_conn, run_id, aux_stage, source_enum.value, target_enum.value, tn)
+                try:
+                    expected_counts.update(
+                        _copy_auxiliary_state(
+                            source_conn=source_conn,
+                            target_conn=target_conn,
+                            progress_callback=progress_callback,
+                            tn=tn,
+                        )
+                    )
+                    _complete_stage(target_conn, sid, tn=tn)
+                except Exception as exc:
+                    _fail_stage(target_conn, sid, str(exc), tn=tn)
+                    raise
+            else:
+                _emit_progress(progress_callback, "migrate", 0, 0, "Skipping auxiliary copy (already completed).")
+
             _record_derived_schema_version(
                 target_conn=target_conn,
                 runtime_config=target_config,
                 inferred_embedding_dim=inferred_dim,
                 tn=tn,
             )
+
+            # Schema evolution — ensure all current tables/columns exist
+            evolve_stage = "schema_evolution"
+            if evolve_stage not in completed_stages:
+                sid = _begin_stage(target_conn, run_id, evolve_stage, source_enum.value, target_enum.value, tn)
+                try:
+                    _evolve_schema(target_conn, tn)
+                    _complete_stage(target_conn, sid, tn=tn)
+                except Exception as exc:
+                    _fail_stage(target_conn, sid, str(exc), tn=tn)
+                    raise
+
             if _table_exists(target_conn, tn.schema_versions):
                 expected_counts[tn.schema_versions] = _count_table_rows(
                     target_conn, tn.schema_versions
@@ -714,6 +764,196 @@ def _emit_progress(
     except TypeError:
         pass
     callback(stage, int(current), int(total), message)  # re-raise consistent error
+
+
+# ---------------------------------------------------------------------------
+# Migration progress tracking
+# ---------------------------------------------------------------------------
+
+_MIGRATION_PROGRESS_DDL_SQLITE = """
+CREATE TABLE IF NOT EXISTS {table} (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    migration_run TEXT NOT NULL,
+    started_at TEXT NOT NULL,
+    completed_at TEXT,
+    source_type TEXT NOT NULL,
+    target_type TEXT NOT NULL,
+    stage TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'pending',
+    rows_processed INTEGER DEFAULT 0,
+    error_message TEXT
+)
+"""
+
+
+def _ensure_migration_progress_table(
+    conn: Any,
+    tn: TableNames = DEFAULT_TABLE_NAMES,
+) -> None:
+    """Create the migration_progress table if it does not exist."""
+    ddl = _MIGRATION_PROGRESS_DDL_SQLITE.format(table=tn.migration_progress)
+    _execute(conn, ddl)
+    _commit(conn)
+
+
+def _begin_stage(
+    conn: Any,
+    run_id: str,
+    stage: str,
+    source_type: str,
+    target_type: str,
+    tn: TableNames = DEFAULT_TABLE_NAMES,
+) -> int:
+    """Record the start of a migration stage. Returns the row id."""
+    _ensure_migration_progress_table(conn, tn)
+    now = datetime.now(timezone.utc).isoformat()
+    cursor = _execute(
+        conn,
+        f"INSERT INTO {tn.migration_progress} "
+        f"(migration_run, started_at, source_type, target_type, stage, status) "
+        f"VALUES (?, ?, ?, ?, ?, 'in_progress')",
+        (run_id, now, source_type, target_type, stage),
+    )
+    _commit(conn)
+    return cursor.lastrowid
+
+
+def _complete_stage(
+    conn: Any,
+    stage_id: int,
+    rows: int = 0,
+    tn: TableNames = DEFAULT_TABLE_NAMES,
+) -> None:
+    """Mark a migration stage as completed."""
+    now = datetime.now(timezone.utc).isoformat()
+    _execute(
+        conn,
+        f"UPDATE {tn.migration_progress} "
+        f"SET status = 'completed', completed_at = ?, rows_processed = ? "
+        f"WHERE id = ?",
+        (now, rows, stage_id),
+    )
+    _commit(conn)
+
+
+def _fail_stage(
+    conn: Any,
+    stage_id: int,
+    error: str,
+    tn: TableNames = DEFAULT_TABLE_NAMES,
+) -> None:
+    """Mark a migration stage as failed with an error message."""
+    now = datetime.now(timezone.utc).isoformat()
+    _execute(
+        conn,
+        f"UPDATE {tn.migration_progress} "
+        f"SET status = 'failed', completed_at = ?, error_message = ? "
+        f"WHERE id = ?",
+        (now, error, stage_id),
+    )
+    _commit(conn)
+
+
+def _get_completed_stages(
+    conn: Any,
+    run_id: str,
+    tn: TableNames = DEFAULT_TABLE_NAMES,
+) -> set[str]:
+    """Get stage names that completed in a given migration run."""
+    _ensure_migration_progress_table(conn, tn)
+    rows = _execute(
+        conn,
+        f"SELECT stage FROM {tn.migration_progress} "
+        f"WHERE migration_run = ? AND status = 'completed'",
+        (run_id,),
+    ).fetchall()
+    return {row[0] for row in rows}
+
+
+def _get_latest_run_id(
+    conn: Any,
+    tn: TableNames = DEFAULT_TABLE_NAMES,
+) -> Optional[str]:
+    """Get the most recent migration_run id."""
+    _ensure_migration_progress_table(conn, tn)
+    row = _execute(
+        conn,
+        f"SELECT migration_run FROM {tn.migration_progress} "
+        f"ORDER BY id DESC LIMIT 1",
+    ).fetchone()
+    return row[0] if row else None
+
+
+# ---------------------------------------------------------------------------
+# Schema evolution
+# ---------------------------------------------------------------------------
+
+def _evolve_schema(
+    conn: Any,
+    tn: TableNames = DEFAULT_TABLE_NAMES,
+) -> None:
+    """Ensure target DB has all current-version tables and columns.
+
+    Runs column-level evolution first (so new columns exist for indexes),
+    then calls ensure_application_schema() for any new tables and indexes.
+    """
+    from lsm.db.schema import ensure_application_schema
+
+    # Column-level evolution first (adds missing columns to existing tables)
+    dialect = _dialect(conn)
+    if dialect == "sqlite":
+        _evolve_sqlite_columns(conn, tn)
+    _commit(conn)
+
+    # Now safe to create tables/indexes that reference the new columns
+    try:
+        ensure_application_schema(conn, table_names=tn)
+    except Exception:
+        logger.debug("Schema evolution: ensure_application_schema partial failure", exc_info=True)
+    _commit(conn)
+
+
+def _evolve_sqlite_columns(conn: Any, tn: TableNames) -> None:
+    """Add missing columns to existing SQLite tables.
+
+    SQLite does not support ADD COLUMN IF NOT EXISTS, so we check
+    PRAGMA table_info() first.
+    """
+    from lsm.db.schema import ensure_application_schema
+
+    # Get the expected schema by creating a temp in-memory DB
+    import sqlite3 as _sqlite3
+
+    ref_conn = _sqlite3.connect(":memory:")
+    ensure_application_schema(ref_conn, table_names=tn)
+
+    for table_name in tn.application_tables():
+        try:
+            existing_cols = {
+                row[1]
+                for row in conn.execute(f"PRAGMA table_info({table_name})").fetchall()
+            }
+        except Exception:
+            continue  # table doesn't exist, ensure_application_schema handles creation
+
+        try:
+            ref_cols = {
+                row[1]: row[2]  # name -> type
+                for row in ref_conn.execute(f"PRAGMA table_info({table_name})").fetchall()
+            }
+        except Exception:
+            continue
+
+        for col_name, col_type in ref_cols.items():
+            if col_name not in existing_cols:
+                try:
+                    conn.execute(
+                        f"ALTER TABLE {table_name} ADD COLUMN {col_name} {col_type}"
+                    )
+                except Exception:
+                    pass  # column may have been added concurrently
+
+    ref_conn.close()
 
 
 @contextmanager

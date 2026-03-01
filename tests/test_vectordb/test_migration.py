@@ -8,6 +8,7 @@ import pytest
 
 from lsm.config.models import VectorDBConfig
 from lsm.db import migration as migration_mod
+from lsm.db.tables import DEFAULT_TABLE_NAMES
 from lsm.vectordb.base import VectorDBGetResult
 
 
@@ -397,3 +398,117 @@ class TestAutoDetectMigration:
         config = SimpleNamespace(db=SimpleNamespace(provider="postgresql"))
         result = migration_mod.auto_detect_migration(tmp_path, config)
         assert result["to_db"] == "postgresql"
+
+
+# ---------------------------------------------------------------------------
+# Phase 17.6: Migration Progress Tracking, Resume & Schema Evolution
+# ---------------------------------------------------------------------------
+
+class TestMigrationProgressTracking:
+    """Test _begin_stage, _complete_stage, _fail_stage helpers."""
+
+    def test_stage_lifecycle_pending_to_completed(self):
+        conn = _aux_connection()
+        tn = DEFAULT_TABLE_NAMES
+        migration_mod._ensure_migration_progress_table(conn, tn)
+
+        sid = migration_mod._begin_stage(conn, "run-1", "copy_vectors", "sqlite", "sqlite", tn)
+        assert sid is not None
+
+        # Verify in_progress
+        row = conn.execute(
+            f"SELECT status FROM {tn.migration_progress} WHERE id = ?", (sid,)
+        ).fetchone()
+        assert row[0] == "in_progress"
+
+        migration_mod._complete_stage(conn, sid, rows=42, tn=tn)
+        row = conn.execute(
+            f"SELECT status, rows_processed FROM {tn.migration_progress} WHERE id = ?", (sid,)
+        ).fetchone()
+        assert row[0] == "completed"
+        assert row[1] == 42
+
+    def test_failed_stage_records_error(self):
+        conn = _aux_connection()
+        tn = DEFAULT_TABLE_NAMES
+        migration_mod._ensure_migration_progress_table(conn, tn)
+
+        sid = migration_mod._begin_stage(conn, "run-2", "copy_manifest", "sqlite", "sqlite", tn)
+        migration_mod._fail_stage(conn, sid, "disk full", tn=tn)
+
+        row = conn.execute(
+            f"SELECT status, error_message FROM {tn.migration_progress} WHERE id = ?", (sid,)
+        ).fetchone()
+        assert row[0] == "failed"
+        assert "disk full" in row[1]
+
+
+class TestMigrationResume:
+    """Test resume skips completed stages."""
+
+    def test_get_completed_stages(self):
+        conn = _aux_connection()
+        tn = DEFAULT_TABLE_NAMES
+        migration_mod._ensure_migration_progress_table(conn, tn)
+
+        sid1 = migration_mod._begin_stage(conn, "run-r1", "copy_vectors", "sqlite", "sqlite", tn)
+        migration_mod._complete_stage(conn, sid1, tn=tn)
+
+        sid2 = migration_mod._begin_stage(conn, "run-r1", "copy_manifest", "sqlite", "sqlite", tn)
+        migration_mod._fail_stage(conn, sid2, "error", tn=tn)
+
+        completed = migration_mod._get_completed_stages(conn, "run-r1", tn)
+        assert "copy_vectors" in completed
+        assert "copy_manifest" not in completed
+
+    def test_get_latest_run_id(self):
+        conn = _aux_connection()
+        tn = DEFAULT_TABLE_NAMES
+        migration_mod._ensure_migration_progress_table(conn, tn)
+
+        migration_mod._begin_stage(conn, "run-a", "copy_vectors", "sqlite", "sqlite", tn)
+        migration_mod._begin_stage(conn, "run-b", "copy_manifest", "sqlite", "sqlite", tn)
+
+        latest = migration_mod._get_latest_run_id(conn, tn)
+        assert latest == "run-b"
+
+
+class TestSchemaEvolution:
+    """Test _evolve_schema creates new tables and adds missing columns."""
+
+    def test_creates_new_tables(self):
+        conn = _aux_connection()
+        tn = DEFAULT_TABLE_NAMES
+        # Start with a bare DB — evolve should create all application tables
+        migration_mod._evolve_schema(conn, tn)
+
+        # Check that at least chunks and manifest tables exist
+        tables = {
+            row[0] for row in conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table'"
+            ).fetchall()
+        }
+        assert tn.chunks in tables
+        assert tn.manifest in tables
+
+    def test_adds_missing_columns(self):
+        conn = sqlite3.connect(":memory:")
+        conn.row_factory = sqlite3.Row
+        tn = DEFAULT_TABLE_NAMES
+        # Create a chunks table with minimal columns
+        conn.execute(f"""
+            CREATE TABLE {tn.chunks} (
+                chunk_id TEXT PRIMARY KEY,
+                source_path TEXT NOT NULL,
+                chunk_text TEXT NOT NULL
+            )
+        """)
+        conn.commit()
+
+        migration_mod._evolve_schema(conn, tn)
+
+        # Check that new columns were added
+        cols = {row[1] for row in conn.execute(f"PRAGMA table_info({tn.chunks})").fetchall()}
+        assert "simhash" in cols
+        assert "node_type" in cols
+        assert "ext" in cols
