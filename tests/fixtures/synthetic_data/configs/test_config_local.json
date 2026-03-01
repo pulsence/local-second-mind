@@ -8,7 +8,7 @@
                    "roots":  [
                                  "tests/fixtures/synthetic_data/documents"
                              ],
-                   "path":  "tests/.tmp/chroma_local",
+                   "path":  "tests/.tmp/data_local",
                    "collection":  "synthetic_local",
                    "manifest":  "tests/.tmp/manifest_local.json",
                    "chunk_size":  1200,
@@ -25,9 +25,9 @@
                    "override_excludes":  false
                },
     "db":  {
-                 "path":  "tests/.tmp/chroma_local",
+                 "path":  "tests/.tmp/data_local",
                  "vector":  {
-                                "provider":  "chromadb",
+                                "provider":  "sqlite",
                                 "collection":  "synthetic_local"
                             }
              },

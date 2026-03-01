@@ -101,7 +101,7 @@ def test_run_build_cli_overrides_and_progress(monkeypatch: pytest.MonkeyPatch, c
 
 def test_run_tag_cli(monkeypatch: pytest.MonkeyPatch, capsys) -> None:
     cfg = SimpleNamespace(
-        db=SimpleNamespace(provider="chromadb"),
+        db=SimpleNamespace(provider="sqlite"),
         llm=SimpleNamespace(
             get_tagging_config=lambda: SimpleNamespace(model="gpt-test", provider="openai")
         ),

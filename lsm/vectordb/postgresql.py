@@ -77,14 +77,14 @@ class PostgreSQLProvider(BaseVectorDBProvider):
 
     @staticmethod
     def _normalize_filters(filters: Dict[str, Any]) -> Dict[str, Any]:
-        """Normalize ChromaDB-style operator filters to simple equality.
+        """Normalize operator-style filters to simple equality.
 
         Converts ``{"key": {"$eq": "value"}}`` to ``{"key": "value"}`` for
         JSONB containment queries. Simple ``{"key": "value"}`` passes through
         unchanged.
 
         Args:
-            filters: Raw filter dict, possibly with ChromaDB operators.
+            filters: Raw filter dict, possibly with operator-style keys.
 
         Returns:
             Normalized filter dict suitable for JSONB ``@>`` containment.

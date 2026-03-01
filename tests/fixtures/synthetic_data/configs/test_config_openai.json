@@ -8,7 +8,7 @@
                    "roots":  [
                                  "tests/fixtures/synthetic_data/documents"
                              ],
-                   "path":  "tests/.tmp/chroma",
+                   "path":  "tests/.tmp/data",
                    "collection":  "synthetic_openai",
                    "manifest":  "tests/.tmp/manifest_openai.json",
                    "chunk_size":  1400,
@@ -25,9 +25,9 @@
                    "override_excludes":  false
                },
     "db":  {
-                 "path":  "tests/.tmp/chroma",
+                 "path":  "tests/.tmp/data",
                  "vector":  {
-                                "provider":  "chromadb",
+                                "provider":  "sqlite",
                                 "collection":  "synthetic_openai"
                             }
              },

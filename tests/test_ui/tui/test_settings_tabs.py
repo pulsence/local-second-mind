@@ -246,7 +246,6 @@ def test_ingest_tab_dynamic_roots_and_buttons() -> None:
         "#settings-ingest-persist-dir": _InputWidget(),
         "#settings-ingest-collection": _InputWidget(),
         "#settings-ingest-manifest": _InputWidget(),
-        "#settings-ingest-chroma-flush-interval": _InputWidget(),
         "#settings-ingest-chunking-strategy": _SelectWidget(),
         "#settings-ingest-chunk-size": _InputWidget(),
         "#settings-ingest-chunk-overlap": _InputWidget(),

@@ -467,9 +467,9 @@ class TestResolveNotesDir:
                 },
             },
             "db": {
-                "path": str(tmp_path / ".chroma"),
+                "path": str(tmp_path / "data"),
                 "vector": {
-                    "provider": "chromadb",
+                    "provider": "sqlite",
                     "collection": "test_collection",
                 },
             },

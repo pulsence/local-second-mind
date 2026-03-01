@@ -137,7 +137,7 @@ def run_ingest(
 
     result = ingest(
         roots=config.ingest.roots,
-        chroma_flush_interval=None,
+        flush_interval=None,
         embed_model_name=config.embed_model,
         device=config.device,
         batch_size=config.batch_size,

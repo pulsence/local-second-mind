@@ -2,7 +2,7 @@
 Context building utilities for query execution.
 
 Provides helper functions for building query context from various sources:
-- Local knowledge base (ChromaDB)
+- Local knowledge base (vector database)
 - Remote sources (web search, APIs)
 - Combined context with proper citation labels
 """

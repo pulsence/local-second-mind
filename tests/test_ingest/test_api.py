@@ -15,7 +15,7 @@ class FakeVectorDBProvider:
     def __init__(
         self,
         *,
-        name: str = "chromadb",
+        name: str = "sqlite",
         chunk_count: int = 0,
         stats: dict | None = None,
         deleted_count: int = 0,
@@ -60,21 +60,21 @@ def test_get_collection_info_uses_provider_stats(ingest_config, monkeypatch) -> 
     assert info.chunk_count == 7
 
 
-def test_get_collection_info_chromadb_path(ingest_config, monkeypatch) -> None:
+def test_get_collection_info_provider_path(ingest_config, monkeypatch) -> None:
     provider = FakeVectorDBProvider(
-        name="chromadb",
+        name="sqlite",
         chunk_count=3,
-        stats={"name": "kb", "count": 3, "provider": "chromadb"},
+        stats={"name": "kb", "count": 3, "provider": "sqlite"},
     )
     monkeypatch.setattr("lsm.ingest.api.create_vectordb_provider", lambda _cfg: provider)
 
     info = get_collection_info(ingest_config)
 
-    assert info == CollectionInfo(name="kb", chunk_count=3, provider="chromadb")
+    assert info == CollectionInfo(name="kb", chunk_count=3, provider="sqlite")
 
 
 def test_get_collection_stats_reports_progress(ingest_config, monkeypatch) -> None:
-    provider = FakeVectorDBProvider(name="chromadb", chunk_count=10)
+    provider = FakeVectorDBProvider(name="sqlite", chunk_count=10)
     progress_recorder = ProgressRecorder()
     monkeypatch.setattr("lsm.ingest.api.create_vectordb_provider", lambda _cfg: provider)
 
@@ -160,7 +160,7 @@ def test_run_ingest_maps_result_and_force_resets_manifest(ingest_config, monkeyp
     assert captured_kwargs["progress_callback"] is progress_callback
     assert captured_kwargs["force_reingest"] is True
     assert captured_kwargs["manifest_path"] is None
-    assert captured_kwargs["chroma_flush_interval"] is None
+    assert captured_kwargs["flush_interval"] is None
 
 
 def test_wipe_collection_deletes_all(ingest_config, monkeypatch) -> None:

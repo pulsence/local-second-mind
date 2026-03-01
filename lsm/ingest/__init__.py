@@ -5,7 +5,7 @@ Responsibilities:
 - File discovery
 - Parsing and chunking
 - Embedding
-- Persistence to Chroma
+- Persistence to vector database
 - Manifest tracking
 
 Public API:

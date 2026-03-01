@@ -8,7 +8,7 @@ import lsm.ui.tui.commands.ingest as ingest_cmd
 
 
 class _Provider:
-    def __init__(self, name: str = "chromadb", count_value: int = 0):
+    def __init__(self, name: str = "sqlite", count_value: int = 0):
         self.name = name
         self._count = count_value
 
@@ -27,7 +27,7 @@ class _Provider:
 
 def _config() -> SimpleNamespace:
     return SimpleNamespace(
-        db=SimpleNamespace(provider="chromadb", collection="kb"),
+        db=SimpleNamespace(provider="sqlite", collection="kb"),
         llm=SimpleNamespace(
             get_tagging_config=lambda: SimpleNamespace(model="gpt-test", provider="openai")
         ),
@@ -124,11 +124,11 @@ def test_run_tag_success_and_error(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def test_format_info(monkeypatch: pytest.MonkeyPatch) -> None:
     cfg = _config()
-    provider = _Provider(name="chromadb")
+    provider = _Provider(name="sqlite")
     monkeypatch.setattr(
         ingest_cmd,
         "api_get_collection_info",
-        lambda _cfg: SimpleNamespace(name="kb", chunk_count=4, provider="chromadb"),
+        lambda _cfg: SimpleNamespace(name="kb", chunk_count=4, provider="sqlite"),
     )
     text = ingest_cmd.format_info(provider, cfg)
     assert "COLLECTION INFO" in text
@@ -227,13 +227,13 @@ def test_format_vectordb_helpers(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(ingest_cmd, "list_available_providers", lambda: [])
     assert "No vector DB providers registered." in ingest_cmd.format_vectordb_providers(cfg)
 
-    monkeypatch.setattr(ingest_cmd, "list_available_providers", lambda: ["chromadb", "postgresql"])
-    monkeypatch.setattr(ingest_cmd, "create_vectordb_provider", lambda _cfg: _Provider(name="chromadb"))
+    monkeypatch.setattr(ingest_cmd, "list_available_providers", lambda: ["sqlite", "postgresql"])
+    monkeypatch.setattr(ingest_cmd, "create_vectordb_provider", lambda _cfg: _Provider(name="sqlite"))
     providers_text = ingest_cmd.format_vectordb_providers(cfg)
     assert "AVAILABLE VECTOR DB PROVIDERS" in providers_text
     assert "ACTIVE" in providers_text
 
-    monkeypatch.setattr(ingest_cmd, "create_vectordb_provider", lambda _cfg: _Provider(name="chromadb"))
+    monkeypatch.setattr(ingest_cmd, "create_vectordb_provider", lambda _cfg: _Provider(name="sqlite"))
     status = ingest_cmd.format_vectordb_status(cfg)
     assert "VECTOR DB STATUS" in status
     assert "Status:   ok" in status

@@ -6,13 +6,13 @@
                    "roots":  [
                                  "tests/fixtures/synthetic_data/documents"
                              ],
-                   "path":  "tests/.tmp/chroma_minimal",
+                   "path":  "tests/.tmp/data_minimal",
                    "collection":  "synthetic_minimal"
                },
     "db":  {
-                 "path":  "tests/.tmp/chroma_minimal",
+                 "path":  "tests/.tmp/data_minimal",
                  "vector":  {
-                                "provider":  "chromadb",
+                                "provider":  "sqlite",
                                 "collection":  "synthetic_minimal"
                             }
              },

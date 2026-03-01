@@ -18,7 +18,7 @@ def _base_raw(tmp_path: Path) -> dict:
         "global": {"global_folder": str(tmp_path / "global")},
         "ingest": {
             "roots": [str(tmp_path / "docs")],
-            "path": str(tmp_path / ".chroma"),
+            "path": str(tmp_path / "data"),
             "collection": "local_kb",
         },
         "llms": {
@@ -26,9 +26,9 @@ def _base_raw(tmp_path: Path) -> dict:
             "services": {"default": {"provider": "openai", "model": "gpt-5.2"}},
         },
         "db": {
-            "path": str(tmp_path / ".chroma"),
+            "path": str(tmp_path / "data"),
             "vector": {
-                "provider": "chromadb",
+                "provider": "sqlite",
                 "collection": "local_kb",
             },
         },

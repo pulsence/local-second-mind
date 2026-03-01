@@ -21,7 +21,7 @@ class LocalSourcePolicy:
     """
     Configuration for local knowledge base retrieval.
 
-    Controls how chunks are retrieved from the local ChromaDB collection.
+    Controls how chunks are retrieved from the local knowledge base.
     """
 
     enabled: bool = True

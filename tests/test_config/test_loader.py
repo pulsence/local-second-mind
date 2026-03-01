@@ -278,7 +278,7 @@ def test_config_to_raw_uses_global_and_ingest_sections(tmp_path: Path) -> None:
     assert "roots" in serialized["ingest"]
     assert "chunk_size" in serialized["ingest"]
     assert "manifest" not in serialized["ingest"]
-    assert "chroma_flush_interval" not in serialized["ingest"]
+    assert "flush_interval" not in serialized["ingest"]
     assert "enable_versioning" not in serialized["ingest"]
 
     # No flat top-level ingest/global fields

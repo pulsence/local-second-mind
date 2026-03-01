@@ -362,7 +362,7 @@ def _resolve_runtime_artifact_dir(vectordb_config: DBConfig) -> Path:
 
 def ingest(
     roots: List[RootConfig],
-    chroma_flush_interval: Optional[int],
+    flush_interval: Optional[int],
     embed_model_name: str,
     device: str,
     batch_size: int,
@@ -531,7 +531,7 @@ def ingest(
     }
 
     REPORT_EVERY_SECONDS = 1.0
-    flush_threshold = max(64, int(chroma_flush_interval or (batch_size * 8)))
+    flush_threshold = max(64, int(flush_interval or (batch_size * 8)))
     try:
         from lsm.vectordb.sqlite_vec import SQLiteVecProvider  # local import to avoid hard dependency in tests
 
@@ -544,7 +544,7 @@ def ingest(
         and is_sqlite_provider
     )
 
-    # ---- Writer thread (sole Chroma owner) ----
+    # ---- Writer thread (sole DB owner) ----
     def writer_thread():
         nonlocal written_chunks, writer_error
 

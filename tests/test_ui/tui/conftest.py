@@ -57,7 +57,7 @@ def tui_app_factory():
         if config is None:
             config = Mock()
             config.db = Mock()
-            config.db.provider = "chromadb"
+            config.db.provider = "sqlite"
             config.embed_model = "test-model"
             config.device = "cpu"
             config.global_settings = SimpleNamespace(tui_density_mode="auto")

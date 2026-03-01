@@ -28,13 +28,13 @@ class Candidate:
     """
 
     cid: str
-    """Chunk ID from ChromaDB."""
+    """Chunk ID from the vector database."""
 
     text: str
     """Chunk text content."""
 
     meta: Dict[str, Any]
-    """Metadata from ChromaDB (source_path, chunk_index, etc.)."""
+    """Metadata from the vector database (source_path, chunk_index, etc.)."""
 
     distance: Optional[float] = None
     """Distance score from vector search (lower is better)."""

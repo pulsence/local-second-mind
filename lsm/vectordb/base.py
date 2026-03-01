@@ -74,7 +74,7 @@ class BaseVectorDBProvider(ABC):
     @property
     @abstractmethod
     def name(self) -> str:
-        """Provider name (e.g., 'chromadb', 'postgresql')."""
+        """Provider name (e.g., 'sqlite', 'postgresql')."""
         pass
 
     @property
@@ -115,7 +115,7 @@ class BaseVectorDBProvider(ABC):
         Args:
             ids: Specific vector IDs to retrieve.
             filters: Metadata filter dict. Simple ``{"key": "value"}`` means
-                equality. ChromaDB-style ``{"key": {"$eq": "value"}}`` is also
+                equality. Operator-style ``{"key": {"$eq": "value"}}`` is also
                 accepted and normalized by providers that need it.
             limit: Maximum number of results to return.
             offset: Number of results to skip (for pagination).

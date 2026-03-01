@@ -35,7 +35,7 @@ def _base_raw(tmp_path: Path, *, provider: str, model: str, api_key: str) -> dic
         "global": {"global_folder": str(tmp_path / "global")},
         "ingest": {
             "roots": [str(tmp_path / "docs")],
-            "path": str(tmp_path / ".chroma"),
+            "path": str(tmp_path / "data"),
             "collection": "local_kb",
         },
         "llms": {
@@ -43,9 +43,9 @@ def _base_raw(tmp_path: Path, *, provider: str, model: str, api_key: str) -> dic
             "services": {"default": {"provider": provider, "model": model}},
         },
         "db": {
-            "path": str(tmp_path / ".chroma"),
+            "path": str(tmp_path / "data"),
             "vector": {
-                "provider": "chromadb",
+                "provider": "sqlite",
                 "collection": "local_kb",
             },
         },

@@ -113,10 +113,7 @@ across multiple modules.
 Fields:
 
 - `roots: list[Path]` (required)
-- `persist_dir: Path = .chroma`
 - `collection: str = local_kb`
-- `chroma_flush_interval: int = 2000`
-- `manifest: Path = .ingest/manifest.json`
 - `extensions: list[str] | None`
 - `override_extensions: bool = false`
 - `exclude_dirs: list[str] | None`

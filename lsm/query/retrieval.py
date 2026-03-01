@@ -273,7 +273,7 @@ def compute_relevance(candidates: List[Candidate]) -> float:
     """
     Compute best relevance score from candidates.
 
-    Converts ChromaDB distance (lower is better) to relevance (higher is better).
+    Converts vector distance (lower is better) to relevance (higher is better).
     For cosine distance: relevance ≈ 1 - distance
 
     Args:
