@@ -92,10 +92,10 @@ API keys go in `.env`, never in config files:
 
 - **Virtual environment:** Run project commands with `.venv-win\Scripts\python` (Windows PowerShell) to ensure dependencies match the project environment.
 - **Config loading:** Raw dict -> dataclass construction -> validation
-- **Config structure:** Zero flat top-level fields. All settings nested under section objects: `"global"`, `"ingest"`, `"vectordb"`, `"llms"`, `"query"`, `"modes"`, `"notes"`, `"remote_providers"`, `"agents"`.
+- **Config structure:** Zero flat top-level fields. All settings nested under section objects: `"global"`, `"ingest"`, `"db"`, `"llms"`, `"query"`, `"modes"`, `"notes"`, `"remote_providers"`, `"agents"`.
 - **Global config:** `embed_model`, `device`, `batch_size`, `global_folder` live in `GlobalConfig` (read from `"global"` section).
 - **Ingest config:** All ingest-only fields (`roots`, `manifest`, `chunk_size`, etc.) read from `"ingest"` section.
-- **Vector DB config:** Use `vectordb.persist_dir` and `vectordb.collection`; top-level fallback fields are removed.
+- **Vector DB config:** Use `db.path` and `db.collection`; top-level fallback fields are removed.
 - **Agent memory config:** `agents.memory.storage_backend` controls backend selection (`auto`, `sqlite`, `postgresql`).
 - **Agent harness memory injection:** `AgentHarness` can build standing memory context before each LLM call.
 - **Agent run summaries:** `AgentHarness` emits run summaries with tool usage, approvals/denials, artifacts, outcome, duration, and token usage.

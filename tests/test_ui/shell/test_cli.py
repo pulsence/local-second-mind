@@ -47,8 +47,13 @@ def test_run_migrate_dispatch(monkeypatch: pytest.MonkeyPatch) -> None:
     code = shell_cli.run_migrate(
         SimpleNamespace(
             config="c",
-            migration_source="sqlite",
-            migration_target="sqlite",
+            from_db="sqlite",
+            to_db="sqlite",
+            from_version=None,
+            to_version=None,
+            resume=False,
+            enrich=False,
+            skip_enrich=False,
             source_path=None,
             source_collection=None,
             source_connection_string=None,
@@ -205,8 +210,8 @@ def test_run_migrate_cli_success_and_error(monkeypatch: pytest.MonkeyPatch, caps
 
     ok_code = shell_cli.run_migrate_cli(
         "config.json",
-        migration_source="sqlite",
-        migration_target="sqlite",
+        from_db="sqlite",
+        to_db="sqlite",
     )
     ok_out = capsys.readouterr().out
     assert ok_code == 0
@@ -219,8 +224,8 @@ def test_run_migrate_cli_success_and_error(monkeypatch: pytest.MonkeyPatch, caps
     )
     bad_code = shell_cli.run_migrate_cli(
         "config.json",
-        migration_source="sqlite",
-        migration_target="sqlite",
+        from_db="sqlite",
+        to_db="sqlite",
     )
     bad_out = capsys.readouterr().out
     assert bad_code == 1
@@ -247,8 +252,8 @@ def test_run_migrate_cli_v07_path_validation(monkeypatch: pytest.MonkeyPatch, ca
 
     bad_code = shell_cli.run_migrate_cli(
         "config.json",
-        migration_source="v0.7",
-        migration_target="postgresql",
+        from_version="v0.7",
+        to_db="postgresql",
     )
     bad_out = capsys.readouterr().out
     assert bad_code == 2

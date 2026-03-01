@@ -353,9 +353,6 @@ def run_migrate_cli(
     target_collection: Optional[str] = None,
     target_connection_string: Optional[str] = None,
     batch_size: int = 1000,
-    # Legacy compat
-    migration_source: Optional[str] = None,
-    migration_target: Optional[str] = None,
 ) -> int:
     """Run backend migration command."""
     if enrich and skip_enrich:
@@ -371,20 +368,6 @@ def run_migrate_cli(
     # Standalone enrichment mode: enrich existing database, no backend copy
     if enrich:
         return _run_standalone_enrichment(config)
-
-    # Legacy argument compat: --from/--to → --from-db/--to-db
-    if migration_source and not from_db:
-        source_lower = migration_source.strip().lower()
-        if source_lower == "v0.7":
-            from_version = "v0.7"
-        else:
-            from_db = source_lower
-    if migration_target and not to_db:
-        target_lower = migration_target.strip().lower()
-        if target_lower == "v0.8":
-            to_db = "sqlite"
-        else:
-            to_db = target_lower
 
     # Auto-detect when no explicit source specified
     if not from_db and not from_version:

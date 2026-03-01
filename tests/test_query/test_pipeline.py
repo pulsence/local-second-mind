@@ -87,7 +87,7 @@ def _make_config(
         ),
         batch_size=32,
         get_mode_config=lambda name=None: modes.get(name or mode, GROUNDED_MODE),
-        db=SimpleNamespace(path=".lsm", persist_dir=".lsm", collection="test"),
+        db=SimpleNamespace(path=".lsm", collection="test"),
         remote_providers=None,
         chats=SimpleNamespace(enabled=False, auto_save=False, dir="chats"),
         get_active_remote_providers=lambda **kw: [],

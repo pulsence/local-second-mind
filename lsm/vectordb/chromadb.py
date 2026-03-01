@@ -37,7 +37,7 @@ class ChromaDBProvider(BaseVectorDBProvider):
             ) from exc
 
         self._client = chromadb.PersistentClient(
-            path=str(self.config.persist_dir),
+            path=str(self.config.path),
             settings=Settings(anonymized_telemetry=False),
         )
         self._collection = self._client.get_or_create_collection(

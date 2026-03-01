@@ -287,11 +287,6 @@ class LSMConfig:
         return None
 
     @property
-    def persist_dir(self) -> Path:
-        """Compatibility alias for db path."""
-        return self.db.path
-
-    @property
     def collection(self) -> str:
         """Shortcut to db collection name."""
         return self.db.collection

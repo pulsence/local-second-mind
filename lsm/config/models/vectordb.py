@@ -98,15 +98,6 @@ class DBConfig:
     def pool_size(self, value: int) -> None:
         self.vector.pool_size = value
 
-    @property
-    def persist_dir(self) -> Path:
-        """Backward-compatible alias for ``path``."""
-        return self.path
-
-    @persist_dir.setter
-    def persist_dir(self, value: Path | str) -> None:
-        self.path = Path(value)
-
     def validate(self) -> None:
         import re
 
