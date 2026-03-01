@@ -81,6 +81,19 @@ loader, but new configs should use `local_policy` / `remote_policy` /
 - `enabled`: allow use of model training knowledge
 - `require_label`: require explicit labeling when model knowledge is used
 
+## Retrieval Profiles
+
+Each mode uses a `retrieval_profile` that controls how candidates are retrieved:
+
+| Profile | Description |
+| --- | --- |
+| `dense_only` | Vector similarity search only. Fastest, no FTS dependency. |
+| `hybrid_rrf` | Dense + sparse (BM25/FTS5) + Reciprocal Rank Fusion. Best recall for keyword+semantic queries. Falls back to `dense_only` if FTS5 is unavailable. |
+| `llm_rerank` | Dense retrieval + LLM-based reranking. Highest quality but higher latency and cost. |
+| `multi_vector` | Multi-granularity retrieval across chunk, section, and file levels with RRF fusion. Requires section/file summaries enabled during ingest. |
+| `hyde_hybrid` | HyDE embedding + hybrid_rrf. Generates hypothetical answers via LLM for retrieval. |
+| `dense_cross_rerank` | Dense + cross-encoder reranking. Uses a cross-encoder model for precise relevance scoring. |
+
 ## Mode Selection
 
 Modes are selected by:

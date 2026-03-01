@@ -40,7 +40,9 @@
     "exclude_dirs": [".cache", "node_modules", "__pycache__"],
     "override_excludes": false,
     "max_files": null,
-    "max_seconds": null
+    "max_seconds": null,
+    "enable_section_summaries": false,
+    "enable_file_summaries": false
   },
 
   "_comment_storage": "Vector database configuration (sqlite or postgresql)",
@@ -103,7 +105,21 @@
     "enable_query_cache": false,
     "query_cache_ttl": 3600,
     "query_cache_size": 100,
-    "enable_llm_server_cache": true
+    "enable_llm_server_cache": true,
+
+    "_comment_advanced": "Advanced retrieval features",
+    "dedup_threshold": 0.85,
+    "mmr_lambda": 0.5,
+    "max_per_section": null,
+    "temporal_boost_enabled": false,
+    "temporal_boost_days": 30,
+    "temporal_boost_factor": 1.5,
+    "cluster_enabled": false,
+    "cluster_algorithm": "kmeans",
+    "cluster_k": 50,
+    "cluster_top_n": 5,
+    "graph_expansion_enabled": false,
+    "graph_expansion_hops": 2
   },
 
   "_comment_notes": "Global notes configuration (applies across all modes)",
