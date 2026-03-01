@@ -12,6 +12,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Dict, List, Optional
 
+from lsm.db.tables import TableNames, DEFAULT_TABLE_NAMES
 from lsm.logging import get_logger
 
 logger = get_logger(__name__)

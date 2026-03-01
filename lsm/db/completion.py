@@ -8,6 +8,7 @@ from typing import Any, Mapping, Optional
 
 from lsm.config.models.ingest import RootConfig
 from lsm.db.schema_version import check_schema_compatibility
+from lsm.db.tables import TableNames, DEFAULT_TABLE_NAMES
 from lsm.ingest.fs import iter_files
 from lsm.ingest.utils import canonical_path
 
@@ -65,13 +66,21 @@ def _configured_excludes(config: Any) -> set[str]:
     return {str(name).strip() for name in values or [] if str(name).strip()}
 
 
-def _manifest_source_paths(conn: sqlite3.Connection) -> set[str]:
-    rows = conn.execute("SELECT source_path FROM lsm_manifest").fetchall()
+def _manifest_source_paths(
+    conn: sqlite3.Connection,
+    table_names: TableNames | None = None,
+) -> set[str]:
+    tn = table_names or DEFAULT_TABLE_NAMES
+    rows = conn.execute(f"SELECT source_path FROM {tn.manifest}").fetchall()
     return {str(row[0]) for row in rows if row and row[0]}
 
 
-def _manifest_exts(conn: sqlite3.Connection) -> set[str]:
-    rows = conn.execute("SELECT source_path FROM lsm_manifest").fetchall()
+def _manifest_exts(
+    conn: sqlite3.Connection,
+    table_names: TableNames | None = None,
+) -> set[str]:
+    tn = table_names or DEFAULT_TABLE_NAMES
+    rows = conn.execute(f"SELECT source_path FROM {tn.manifest}").fetchall()
     exts = set()
     for row in rows:
         if not row or not row[0]:
@@ -92,15 +101,20 @@ def _discover_source_paths(config: Any) -> set[str]:
     return discovered
 
 
-def _detect_metadata_enrichment(conn: sqlite3.Connection, config: Any) -> bool:
+def _detect_metadata_enrichment(
+    conn: sqlite3.Connection,
+    config: Any,
+    table_names: TableNames | None = None,
+) -> bool:
+    tn = table_names or DEFAULT_TABLE_NAMES
     roots = _resolve_roots(config)
     if not roots:
         return False
     try:
         rows = conn.execute(
-            """
+            f"""
             SELECT source_path, root_tags, content_type
-            FROM lsm_chunks
+            FROM {tn.chunks}
             WHERE is_current = 1
             """
         ).fetchall()
@@ -136,10 +150,15 @@ def _detect_metadata_enrichment(conn: sqlite3.Connection, config: Any) -> bool:
     return False
 
 
-def detect_completion_mode(conn: sqlite3.Connection, config: Any) -> Optional[CompletionMode]:
+def detect_completion_mode(
+    conn: sqlite3.Connection,
+    config: Any,
+    table_names: TableNames | None = None,
+) -> Optional[CompletionMode]:
     """Detect completion mode required for current runtime config."""
+    tn = table_names or DEFAULT_TABLE_NAMES
     schema_config = _schema_config_from_runtime(config)
-    compatible, diff = check_schema_compatibility(conn, schema_config, raise_on_mismatch=False)
+    compatible, diff = check_schema_compatibility(conn, schema_config, raise_on_mismatch=False, table_names=tn)
 
     if not compatible:
         if "embedding_model" in diff or "embedding_dim" in diff:
@@ -148,27 +167,33 @@ def detect_completion_mode(conn: sqlite3.Connection, config: Any) -> Optional[Co
 
     configured_exts = _configured_exts(config)
     if configured_exts:
-        known_exts = _manifest_exts(conn)
+        known_exts = _manifest_exts(conn, table_names=tn)
         discovered = _discover_source_paths(config)
         missing_exts = configured_exts - known_exts
         if missing_exts and any(Path(path).suffix.lower() in missing_exts for path in discovered):
             return "extension_completion"
 
-    if _detect_metadata_enrichment(conn, config):
+    if _detect_metadata_enrichment(conn, config, table_names=tn):
         return "metadata_enrichment"
 
     return None
 
 
-def get_stale_files(conn: sqlite3.Connection, config: Any, mode: CompletionMode) -> list[str]:
+def get_stale_files(
+    conn: sqlite3.Connection,
+    config: Any,
+    mode: CompletionMode,
+    table_names: TableNames | None = None,
+) -> list[str]:
     """Return source paths that should be re-processed for completion mode."""
-    manifest_paths = _manifest_source_paths(conn)
+    tn = table_names or DEFAULT_TABLE_NAMES
+    manifest_paths = _manifest_source_paths(conn, table_names=tn)
 
     if mode in {"embedding_upgrade", "chunk_boundary_update"}:
         return sorted(manifest_paths)
 
     if mode == "extension_completion":
-        known_exts = _manifest_exts(conn)
+        known_exts = _manifest_exts(conn, table_names=tn)
         configured_exts = _configured_exts(config)
         newly_enabled_exts = configured_exts - known_exts
         if not newly_enabled_exts:
@@ -183,9 +208,9 @@ def get_stale_files(conn: sqlite3.Connection, config: Any, mode: CompletionMode)
     if mode == "metadata_enrichment":
         try:
             rows = conn.execute(
-                """
+                f"""
                 SELECT DISTINCT source_path
-                FROM lsm_chunks
+                FROM {tn.chunks}
                 WHERE is_current = 1
                   AND (root_tags IS NULL OR root_tags = '' OR content_type IS NULL OR content_type = '')
                 """

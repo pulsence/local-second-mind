@@ -21,6 +21,7 @@ from lsm.db.connection import (
     resolve_sqlite_connection,
     resolve_vectordb_provider_name,
 )
+from lsm.db.tables import TableNames, DEFAULT_TABLE_NAMES
 from lsm.logging import get_logger
 from lsm.vectordb import BaseVectorDBProvider, create_vectordb_provider
 
@@ -147,6 +148,7 @@ class AgentScheduler:
         self._postgres_conn_factory: Optional[Callable[[], Any]] = None
         self._owned_sqlite_connection = False
         self._owned_provider: Optional[BaseVectorDBProvider] = None
+        self._tn = DEFAULT_TABLE_NAMES
 
         self._initialize_persistence()
         self._ensure_schedule_state_schema()
@@ -298,8 +300,8 @@ class AgentScheduler:
         if self._persistence_backend == "sqlite":
             assert self._sqlite_conn is not None
             self._sqlite_conn.execute(
-                """
-                CREATE TABLE IF NOT EXISTS lsm_agent_schedules (
+                f"""
+                CREATE TABLE IF NOT EXISTS {self._tn.agent_schedules} (
                     schedule_id TEXT PRIMARY KEY,
                     agent_name TEXT NOT NULL,
                     last_run_at TEXT,
@@ -312,9 +314,9 @@ class AgentScheduler:
                 """
             )
             self._sqlite_conn.execute(
-                """
-                CREATE INDEX IF NOT EXISTS idx_lsm_agent_schedules_next_run
-                ON lsm_agent_schedules(next_run_at);
+                f"""
+                CREATE INDEX IF NOT EXISTS idx_{self._tn.agent_schedules}_next_run
+                ON {self._tn.agent_schedules}(next_run_at);
                 """
             )
             self._sqlite_conn.commit()
@@ -326,8 +328,8 @@ class AgentScheduler:
                 try:
                     with conn.cursor() as cur:
                         cur.execute(
-                            """
-                            CREATE TABLE IF NOT EXISTS lsm_agent_schedules (
+                            f"""
+                            CREATE TABLE IF NOT EXISTS {self._tn.agent_schedules} (
                                 schedule_id TEXT PRIMARY KEY,
                                 agent_name TEXT NOT NULL,
                                 last_run_at TIMESTAMPTZ,
@@ -340,9 +342,9 @@ class AgentScheduler:
                             """
                         )
                         cur.execute(
-                            """
-                            CREATE INDEX IF NOT EXISTS idx_lsm_agent_schedules_next_run
-                            ON lsm_agent_schedules(next_run_at);
+                            f"""
+                            CREATE INDEX IF NOT EXISTS idx_{self._tn.agent_schedules}_next_run
+                            ON {self._tn.agent_schedules}(next_run_at);
                             """
                         )
                     conn.commit()
@@ -401,7 +403,7 @@ class AgentScheduler:
         if self._persistence_backend == "sqlite":
             assert self._sqlite_conn is not None
             rows = self._sqlite_conn.execute(
-                """
+                f"""
                 SELECT
                     schedule_id,
                     last_run_at,
@@ -409,7 +411,7 @@ class AgentScheduler:
                     last_status,
                     last_error,
                     queued_runs
-                FROM lsm_agent_schedules
+                FROM {self._tn.agent_schedules}
                 """
             ).fetchall()
             for row in rows:
@@ -424,7 +426,7 @@ class AgentScheduler:
             with self._postgres_conn_factory() as conn:
                 with conn.cursor() as cur:
                     cur.execute(
-                        """
+                        f"""
                         SELECT
                             schedule_id,
                             last_run_at,
@@ -432,7 +434,7 @@ class AgentScheduler:
                             last_status,
                             last_error,
                             queued_runs
-                        FROM lsm_agent_schedules
+                        FROM {self._tn.agent_schedules}
                         """
                     )
                     columns = [desc[0] for desc in (cur.description or [])]
@@ -468,8 +470,8 @@ class AgentScheduler:
                 self._sqlite_conn.execute("BEGIN")
                 for row in rows:
                     self._sqlite_conn.execute(
-                        """
-                        INSERT INTO lsm_agent_schedules (
+                        f"""
+                        INSERT INTO {self._tn.agent_schedules} (
                             schedule_id,
                             agent_name,
                             last_run_at,
@@ -503,15 +505,15 @@ class AgentScheduler:
                 if schedule_ids:
                     placeholders = ", ".join(["?"] * len(schedule_ids))
                     self._sqlite_conn.execute(
-                        f"DELETE FROM lsm_agent_schedules WHERE schedule_id NOT IN ({placeholders})",
+                        f"DELETE FROM {self._tn.agent_schedules} WHERE schedule_id NOT IN ({placeholders})",
                         schedule_ids,
                     )
                 else:
-                    self._sqlite_conn.execute("DELETE FROM lsm_agent_schedules")
+                    self._sqlite_conn.execute(f"DELETE FROM {self._tn.agent_schedules}")
                 self._sqlite_conn.commit()
             except Exception:
                 self._sqlite_conn.rollback()
-                logger.exception("Failed to persist scheduler state to lsm_agent_schedules")
+                logger.exception("Failed to persist scheduler state to %s", self._tn.agent_schedules)
             return
 
         if self._persistence_backend == "postgresql":
@@ -521,8 +523,8 @@ class AgentScheduler:
                     with conn.cursor() as cur:
                         for row in rows:
                             cur.execute(
-                                """
-                                INSERT INTO lsm_agent_schedules (
+                                f"""
+                                INSERT INTO {self._tn.agent_schedules} (
                                     schedule_id,
                                     agent_name,
                                     last_run_at,
@@ -555,14 +557,14 @@ class AgentScheduler:
 
                         if schedule_ids:
                             cur.execute(
-                                "DELETE FROM lsm_agent_schedules WHERE NOT (schedule_id = ANY(%s))",
+                                f"DELETE FROM {self._tn.agent_schedules} WHERE NOT (schedule_id = ANY(%s))",
                                 (schedule_ids,),
                             )
                         else:
-                            cur.execute("DELETE FROM lsm_agent_schedules")
+                            cur.execute(f"DELETE FROM {self._tn.agent_schedules}")
                     conn.commit()
             except Exception:
-                logger.exception("Failed to persist scheduler state to lsm_agent_schedules")
+                logger.exception("Failed to persist scheduler state to %s", self._tn.agent_schedules)
             return
 
         raise ValueError("Scheduler persistence backend is not initialized.")

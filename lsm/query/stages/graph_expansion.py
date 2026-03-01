@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Dict, List, Optional, Set
 
+from lsm.db.tables import DEFAULT_TABLE_NAMES
 from lsm.query.pipeline_types import ScoreBreakdown
 from lsm.query.session import Candidate
 
@@ -83,7 +84,7 @@ def expand_via_graph(
     try:
         placeholders = ", ".join(["?"] * len(reachable_ids))
         rows = conn.execute(
-            f"SELECT DISTINCT source_path FROM lsm_graph_nodes "
+            f"SELECT DISTINCT source_path FROM {DEFAULT_TABLE_NAMES.graph_nodes} "
             f"WHERE node_id IN ({placeholders}) AND source_path != ''",
             reachable_ids,
         ).fetchall()

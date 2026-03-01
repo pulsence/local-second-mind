@@ -5,11 +5,17 @@ import sqlite3
 from pathlib import Path
 from typing import Any, Dict, Optional
 
+from lsm.db.tables import TableNames, DEFAULT_TABLE_NAMES
 
-def _ensure_manifest_table(connection: sqlite3.Connection) -> None:
+
+def _ensure_manifest_table(
+    connection: sqlite3.Connection,
+    table_names: TableNames | None = None,
+) -> None:
+    tn = table_names or DEFAULT_TABLE_NAMES
     connection.execute(
-        """
-        CREATE TABLE IF NOT EXISTS lsm_manifest (
+        f"""
+        CREATE TABLE IF NOT EXISTS {tn.manifest} (
             source_path TEXT PRIMARY KEY,
             mtime_ns INTEGER,
             file_size INTEGER,
@@ -23,7 +29,7 @@ def _ensure_manifest_table(connection: sqlite3.Connection) -> None:
     )
     try:
         connection.execute(
-            "CREATE INDEX IF NOT EXISTS idx_lsm_manifest_updated_at ON lsm_manifest(updated_at);"
+            f"CREATE INDEX IF NOT EXISTS idx_{tn.manifest}_updated_at ON {tn.manifest}(updated_at);"
         )
     except sqlite3.OperationalError:
         # Existing legacy tables may not have updated_at; skip index creation.
@@ -35,11 +41,13 @@ def load_manifest(
     path: Optional[Path] = None,
     *,
     connection: Optional[sqlite3.Connection] = None,
+    table_names: TableNames | None = None,
 ) -> Dict[str, Dict[str, Any]]:
+    tn = table_names or DEFAULT_TABLE_NAMES
     if connection is not None:
-        _ensure_manifest_table(connection)
+        _ensure_manifest_table(connection, table_names=tn)
         cursor = connection.execute(
-            """
+            f"""
             SELECT
                 source_path,
                 mtime_ns,
@@ -49,7 +57,7 @@ def load_manifest(
                 embedding_model,
                 schema_version_id,
                 updated_at
-            FROM lsm_manifest
+            FROM {tn.manifest}
             """
         )
         columns = [item[0] for item in (cursor.description or [])]
@@ -95,17 +103,19 @@ def save_manifest(
     manifest: Dict[str, Dict[str, Any]],
     *,
     connection: Optional[sqlite3.Connection] = None,
+    table_names: TableNames | None = None,
 ) -> None:
+    tn = table_names or DEFAULT_TABLE_NAMES
     if connection is not None:
-        _ensure_manifest_table(connection)
+        _ensure_manifest_table(connection, table_names=tn)
         connection.execute("BEGIN")
         try:
             for source_path, entry in manifest.items():
                 if not isinstance(entry, dict):
                     continue
                 connection.execute(
-                    """
-                    INSERT INTO lsm_manifest (
+                    f"""
+                    INSERT INTO {tn.manifest} (
                         source_path,
                         mtime_ns,
                         file_size,
@@ -140,11 +150,11 @@ def save_manifest(
             if source_paths:
                 placeholders = ", ".join(["?"] * len(source_paths))
                 connection.execute(
-                    f"DELETE FROM lsm_manifest WHERE source_path NOT IN ({placeholders})",
+                    f"DELETE FROM {tn.manifest} WHERE source_path NOT IN ({placeholders})",
                     source_paths,
                 )
             else:
-                connection.execute("DELETE FROM lsm_manifest")
+                connection.execute(f"DELETE FROM {tn.manifest}")
 
             connection.commit()
             return
@@ -166,15 +176,17 @@ def upsert_manifest_entries(
     entries: Dict[str, Dict[str, Any]],
     *,
     commit: bool = False,
+    table_names: TableNames | None = None,
 ) -> None:
     """Upsert a subset of manifest entries without deleting other rows."""
-    _ensure_manifest_table(connection)
+    tn = table_names or DEFAULT_TABLE_NAMES
+    _ensure_manifest_table(connection, table_names=tn)
     for source_path, entry in entries.items():
         if not isinstance(entry, dict):
             continue
         connection.execute(
-            """
-            INSERT INTO lsm_manifest (
+            f"""
+            INSERT INTO {tn.manifest} (
                 source_path,
                 mtime_ns,
                 file_size,
@@ -213,12 +225,14 @@ def get_next_version(
     source_path: str,
     *,
     connection: Optional[sqlite3.Connection] = None,
+    table_names: TableNames | None = None,
 ) -> int:
+    tn = table_names or DEFAULT_TABLE_NAMES
     if connection is not None:
-        _ensure_manifest_table(connection)
+        _ensure_manifest_table(connection, table_names=tn)
         try:
             cursor = connection.execute(
-                "SELECT COALESCE(MAX(version), 0) FROM lsm_manifest WHERE source_path = ?",
+                f"SELECT COALESCE(MAX(version), 0) FROM {tn.manifest} WHERE source_path = ?",
                 (source_path,),
             )
             row = cursor.fetchone()

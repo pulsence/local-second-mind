@@ -10,6 +10,7 @@ from __future__ import annotations
 import hashlib
 from typing import Any, Dict, List, Optional
 
+from lsm.db.tables import TableNames, DEFAULT_TABLE_NAMES
 from lsm.logging import get_logger
 from lsm.query.pipeline_types import ScoreBreakdown
 from lsm.query.session import Candidate
@@ -37,10 +38,12 @@ class CrossEncoderReranker:
         model_name: str = DEFAULT_CROSS_ENCODER_MODEL,
         device: str = "cpu",
         cache_conn: Optional[Any] = None,
+        table_names: TableNames | None = None,
     ) -> None:
         self.model_name = model_name
         self.device = device
         self.cache_conn = cache_conn
+        self._tn = table_names or DEFAULT_TABLE_NAMES
         self._model: Any = None
         self._cache_ready: bool = False
 
@@ -160,8 +163,8 @@ class CrossEncoderReranker:
             return
         try:
             self.cache_conn.execute(
-                """
-                CREATE TABLE IF NOT EXISTS lsm_reranker_cache (
+                f"""
+                CREATE TABLE IF NOT EXISTS {self._tn.reranker_cache} (
                     cache_key TEXT PRIMARY KEY,
                     score REAL,
                     created_at TEXT
@@ -190,7 +193,7 @@ class CrossEncoderReranker:
             rows = self.cache_conn.execute(
                 f"""
                 SELECT cache_key, score
-                FROM lsm_reranker_cache
+                FROM {self._tn.reranker_cache}
                 WHERE cache_key IN ({placeholders})
                 """,
                 keys,
@@ -207,8 +210,8 @@ class CrossEncoderReranker:
             return
         try:
             self.cache_conn.executemany(
-                """
-                INSERT OR REPLACE INTO lsm_reranker_cache (cache_key, score, created_at)
+                f"""
+                INSERT OR REPLACE INTO {self._tn.reranker_cache} (cache_key, score, created_at)
                 VALUES (?, ?, datetime('now'))
                 """,
                 [(k, float(v)) for k, v in scores.items()],

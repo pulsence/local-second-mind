@@ -22,6 +22,8 @@ from lsm.db.connection import (
 )
 from lsm.vectordb import BaseVectorDBProvider, create_vectordb_provider
 
+from lsm.db.tables import TableNames, DEFAULT_TABLE_NAMES
+
 from .models import Memory, MemoryCandidate, now_utc
 
 PSYCOPG2_AVAILABLE = False
@@ -30,8 +32,8 @@ RealDictCursor = None
 Json = None
 
 
-SQLITE_MEMORIES_TABLE = "lsm_agent_memories"
-SQLITE_CANDIDATES_TABLE = "lsm_agent_memory_candidates"
+SQLITE_MEMORIES_TABLE = DEFAULT_TABLE_NAMES.agent_memories
+SQLITE_CANDIDATES_TABLE = DEFAULT_TABLE_NAMES.agent_memory_candidates
 
 
 def _ensure_postgres_dependencies() -> None:
@@ -179,12 +181,14 @@ class SQLiteMemoryStore(BaseMemoryStore):
         memory_config: MemoryConfig,
         *,
         owns_connection: bool = False,
+        table_names: TableNames | None = None,
     ) -> None:
         super().__init__(memory_config)
         self._conn = connection
         self._owns_connection = bool(owns_connection)
-        self.memories_table = SQLITE_MEMORIES_TABLE
-        self.candidates_table = SQLITE_CANDIDATES_TABLE
+        tn = table_names or DEFAULT_TABLE_NAMES
+        self.memories_table = tn.agent_memories
+        self.candidates_table = tn.agent_memory_candidates
         self._conn.row_factory = sqlite3.Row
         self._conn.execute("PRAGMA foreign_keys = ON")
         self._ensure_schema()

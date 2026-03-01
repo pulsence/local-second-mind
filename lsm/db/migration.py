@@ -15,6 +15,7 @@ from typing import Any, Callable, Dict, Iterable, Mapping, Optional
 
 from lsm import __version__ as LSM_VERSION
 from lsm.config.models import VectorDBConfig
+from lsm.db.tables import DEFAULT_TABLE_NAMES, TableNames
 from lsm.logging import get_logger
 from lsm.vectordb import create_vectordb_provider
 
@@ -51,198 +52,200 @@ class AuxiliaryTableSpec:
     postgres_ddl: str
 
 
-_AUX_TABLE_SPECS: tuple[AuxiliaryTableSpec, ...] = (
-    AuxiliaryTableSpec(
-        name="lsm_schema_versions",
-        primary_key="id",
-        sqlite_ddl="""
-            CREATE TABLE IF NOT EXISTS lsm_schema_versions (
-                id                INTEGER PRIMARY KEY,
-                manifest_version  INTEGER,
-                lsm_version       TEXT,
-                embedding_model   TEXT,
-                embedding_dim     INTEGER,
-                chunking_strategy TEXT,
-                chunk_size        INTEGER,
-                chunk_overlap     INTEGER,
-                created_at        TEXT,
-                last_ingest_at    TEXT
-            )
-        """,
-        postgres_ddl="""
-            CREATE TABLE IF NOT EXISTS lsm_schema_versions (
-                id                BIGINT PRIMARY KEY,
-                manifest_version  BIGINT,
-                lsm_version       TEXT,
-                embedding_model   TEXT,
-                embedding_dim     BIGINT,
-                chunking_strategy TEXT,
-                chunk_size        BIGINT,
-                chunk_overlap     BIGINT,
-                created_at        TEXT,
-                last_ingest_at    TEXT
-            )
-        """,
-    ),
-    AuxiliaryTableSpec(
-        name="lsm_manifest",
-        primary_key="source_path",
-        sqlite_ddl="""
-            CREATE TABLE IF NOT EXISTS lsm_manifest (
-                source_path       TEXT PRIMARY KEY,
-                mtime_ns          INTEGER,
-                file_size         INTEGER,
-                file_hash         TEXT,
-                version           INTEGER,
-                embedding_model   TEXT,
-                schema_version_id INTEGER,
-                updated_at        TEXT
-            )
-        """,
-        postgres_ddl="""
-            CREATE TABLE IF NOT EXISTS lsm_manifest (
-                source_path       TEXT PRIMARY KEY,
-                mtime_ns          BIGINT,
-                file_size         BIGINT,
-                file_hash         TEXT,
-                version           BIGINT,
-                embedding_model   TEXT,
-                schema_version_id BIGINT,
-                updated_at        TEXT
-            )
-        """,
-    ),
-    AuxiliaryTableSpec(
-        name="lsm_agent_memories",
-        primary_key="id",
-        sqlite_ddl="""
-            CREATE TABLE IF NOT EXISTS lsm_agent_memories (
-                id               TEXT PRIMARY KEY,
-                memory_type      TEXT NOT NULL,
-                memory_key       TEXT NOT NULL,
-                value_json       TEXT NOT NULL,
-                scope            TEXT NOT NULL,
-                tags_json        TEXT NOT NULL,
-                confidence       REAL NOT NULL,
-                created_at       TEXT NOT NULL,
-                last_used_at     TEXT NOT NULL,
-                expires_at       TEXT NULL,
-                source_run_id    TEXT NOT NULL
-            )
-        """,
-        postgres_ddl="""
-            CREATE TABLE IF NOT EXISTS lsm_agent_memories (
-                id               TEXT PRIMARY KEY,
-                memory_type      TEXT NOT NULL,
-                memory_key       TEXT NOT NULL,
-                value_json       TEXT NOT NULL,
-                scope            TEXT NOT NULL,
-                tags_json        TEXT NOT NULL,
-                confidence       DOUBLE PRECISION NOT NULL,
-                created_at       TEXT NOT NULL,
-                last_used_at     TEXT NOT NULL,
-                expires_at       TEXT NULL,
-                source_run_id    TEXT NOT NULL
-            )
-        """,
-    ),
-    AuxiliaryTableSpec(
-        name="lsm_agent_memory_candidates",
-        primary_key="id",
-        sqlite_ddl="""
-            CREATE TABLE IF NOT EXISTS lsm_agent_memory_candidates (
-                id            TEXT PRIMARY KEY,
-                memory_id     TEXT NOT NULL UNIQUE,
-                provenance    TEXT NOT NULL,
-                rationale     TEXT NOT NULL,
-                status        TEXT NOT NULL,
-                created_at    TEXT NOT NULL,
-                updated_at    TEXT NOT NULL
-            )
-        """,
-        postgres_ddl="""
-            CREATE TABLE IF NOT EXISTS lsm_agent_memory_candidates (
-                id            TEXT PRIMARY KEY,
-                memory_id     TEXT NOT NULL UNIQUE,
-                provenance    TEXT NOT NULL,
-                rationale     TEXT NOT NULL,
-                status        TEXT NOT NULL,
-                created_at    TEXT NOT NULL,
-                updated_at    TEXT NOT NULL
-            )
-        """,
-    ),
-    AuxiliaryTableSpec(
-        name="lsm_agent_schedules",
-        primary_key="schedule_id",
-        sqlite_ddl="""
-            CREATE TABLE IF NOT EXISTS lsm_agent_schedules (
-                schedule_id   TEXT PRIMARY KEY,
-                agent_name    TEXT NOT NULL,
-                last_run_at   TEXT,
-                next_run_at   TEXT NOT NULL,
-                last_status   TEXT DEFAULT 'idle',
-                last_error    TEXT,
-                queued_runs   INTEGER DEFAULT 0,
-                updated_at    TEXT NOT NULL
-            )
-        """,
-        postgres_ddl="""
-            CREATE TABLE IF NOT EXISTS lsm_agent_schedules (
-                schedule_id   TEXT PRIMARY KEY,
-                agent_name    TEXT NOT NULL,
-                last_run_at   TEXT,
-                next_run_at   TEXT NOT NULL,
-                last_status   TEXT DEFAULT 'idle',
-                last_error    TEXT,
-                queued_runs   BIGINT DEFAULT 0,
-                updated_at    TEXT NOT NULL
-            )
-        """,
-    ),
-    AuxiliaryTableSpec(
-        name="lsm_stats_cache",
-        primary_key="cache_key",
-        sqlite_ddl="""
-            CREATE TABLE IF NOT EXISTS lsm_stats_cache (
-                cache_key      TEXT PRIMARY KEY,
-                cached_at      REAL NOT NULL,
-                chunk_count    INTEGER NOT NULL,
-                stats_json     TEXT NOT NULL
-            )
-        """,
-        postgres_ddl="""
-            CREATE TABLE IF NOT EXISTS lsm_stats_cache (
-                cache_key      TEXT PRIMARY KEY,
-                cached_at      DOUBLE PRECISION NOT NULL,
-                chunk_count    BIGINT NOT NULL,
-                stats_json     TEXT NOT NULL
-            )
-        """,
-    ),
-    AuxiliaryTableSpec(
-        name="lsm_remote_cache",
-        primary_key="cache_key",
-        sqlite_ddl="""
-            CREATE TABLE IF NOT EXISTS lsm_remote_cache (
-                cache_key      TEXT PRIMARY KEY,
-                provider       TEXT NOT NULL,
-                response_json  TEXT NOT NULL,
-                created_at     TEXT NOT NULL,
-                expires_at     TEXT
-            )
-        """,
-        postgres_ddl="""
-            CREATE TABLE IF NOT EXISTS lsm_remote_cache (
-                cache_key      TEXT PRIMARY KEY,
-                provider       TEXT NOT NULL,
-                response_json  TEXT NOT NULL,
-                created_at     TEXT NOT NULL,
-                expires_at     TEXT
-            )
-        """,
-    ),
-)
+def _build_aux_table_specs(tn: TableNames) -> tuple[AuxiliaryTableSpec, ...]:
+    """Build auxiliary table specs using resolved table names."""
+    return (
+        AuxiliaryTableSpec(
+            name=tn.schema_versions,
+            primary_key="id",
+            sqlite_ddl=f"""
+                CREATE TABLE IF NOT EXISTS {tn.schema_versions} (
+                    id                INTEGER PRIMARY KEY,
+                    manifest_version  INTEGER,
+                    lsm_version       TEXT,
+                    embedding_model   TEXT,
+                    embedding_dim     INTEGER,
+                    chunking_strategy TEXT,
+                    chunk_size        INTEGER,
+                    chunk_overlap     INTEGER,
+                    created_at        TEXT,
+                    last_ingest_at    TEXT
+                )
+            """,
+            postgres_ddl=f"""
+                CREATE TABLE IF NOT EXISTS {tn.schema_versions} (
+                    id                BIGINT PRIMARY KEY,
+                    manifest_version  BIGINT,
+                    lsm_version       TEXT,
+                    embedding_model   TEXT,
+                    embedding_dim     BIGINT,
+                    chunking_strategy TEXT,
+                    chunk_size        BIGINT,
+                    chunk_overlap     BIGINT,
+                    created_at        TEXT,
+                    last_ingest_at    TEXT
+                )
+            """,
+        ),
+        AuxiliaryTableSpec(
+            name=tn.manifest,
+            primary_key="source_path",
+            sqlite_ddl=f"""
+                CREATE TABLE IF NOT EXISTS {tn.manifest} (
+                    source_path       TEXT PRIMARY KEY,
+                    mtime_ns          INTEGER,
+                    file_size         INTEGER,
+                    file_hash         TEXT,
+                    version           INTEGER,
+                    embedding_model   TEXT,
+                    schema_version_id INTEGER,
+                    updated_at        TEXT
+                )
+            """,
+            postgres_ddl=f"""
+                CREATE TABLE IF NOT EXISTS {tn.manifest} (
+                    source_path       TEXT PRIMARY KEY,
+                    mtime_ns          BIGINT,
+                    file_size         BIGINT,
+                    file_hash         TEXT,
+                    version           BIGINT,
+                    embedding_model   TEXT,
+                    schema_version_id BIGINT,
+                    updated_at        TEXT
+                )
+            """,
+        ),
+        AuxiliaryTableSpec(
+            name=tn.agent_memories,
+            primary_key="id",
+            sqlite_ddl=f"""
+                CREATE TABLE IF NOT EXISTS {tn.agent_memories} (
+                    id               TEXT PRIMARY KEY,
+                    memory_type      TEXT NOT NULL,
+                    memory_key       TEXT NOT NULL,
+                    value_json       TEXT NOT NULL,
+                    scope            TEXT NOT NULL,
+                    tags_json        TEXT NOT NULL,
+                    confidence       REAL NOT NULL,
+                    created_at       TEXT NOT NULL,
+                    last_used_at     TEXT NOT NULL,
+                    expires_at       TEXT NULL,
+                    source_run_id    TEXT NOT NULL
+                )
+            """,
+            postgres_ddl=f"""
+                CREATE TABLE IF NOT EXISTS {tn.agent_memories} (
+                    id               TEXT PRIMARY KEY,
+                    memory_type      TEXT NOT NULL,
+                    memory_key       TEXT NOT NULL,
+                    value_json       TEXT NOT NULL,
+                    scope            TEXT NOT NULL,
+                    tags_json        TEXT NOT NULL,
+                    confidence       DOUBLE PRECISION NOT NULL,
+                    created_at       TEXT NOT NULL,
+                    last_used_at     TEXT NOT NULL,
+                    expires_at       TEXT NULL,
+                    source_run_id    TEXT NOT NULL
+                )
+            """,
+        ),
+        AuxiliaryTableSpec(
+            name=tn.agent_memory_candidates,
+            primary_key="id",
+            sqlite_ddl=f"""
+                CREATE TABLE IF NOT EXISTS {tn.agent_memory_candidates} (
+                    id            TEXT PRIMARY KEY,
+                    memory_id     TEXT NOT NULL UNIQUE,
+                    provenance    TEXT NOT NULL,
+                    rationale     TEXT NOT NULL,
+                    status        TEXT NOT NULL,
+                    created_at    TEXT NOT NULL,
+                    updated_at    TEXT NOT NULL
+                )
+            """,
+            postgres_ddl=f"""
+                CREATE TABLE IF NOT EXISTS {tn.agent_memory_candidates} (
+                    id            TEXT PRIMARY KEY,
+                    memory_id     TEXT NOT NULL UNIQUE,
+                    provenance    TEXT NOT NULL,
+                    rationale     TEXT NOT NULL,
+                    status        TEXT NOT NULL,
+                    created_at    TEXT NOT NULL,
+                    updated_at    TEXT NOT NULL
+                )
+            """,
+        ),
+        AuxiliaryTableSpec(
+            name=tn.agent_schedules,
+            primary_key="schedule_id",
+            sqlite_ddl=f"""
+                CREATE TABLE IF NOT EXISTS {tn.agent_schedules} (
+                    schedule_id   TEXT PRIMARY KEY,
+                    agent_name    TEXT NOT NULL,
+                    last_run_at   TEXT,
+                    next_run_at   TEXT NOT NULL,
+                    last_status   TEXT DEFAULT 'idle',
+                    last_error    TEXT,
+                    queued_runs   INTEGER DEFAULT 0,
+                    updated_at    TEXT NOT NULL
+                )
+            """,
+            postgres_ddl=f"""
+                CREATE TABLE IF NOT EXISTS {tn.agent_schedules} (
+                    schedule_id   TEXT PRIMARY KEY,
+                    agent_name    TEXT NOT NULL,
+                    last_run_at   TEXT,
+                    next_run_at   TEXT NOT NULL,
+                    last_status   TEXT DEFAULT 'idle',
+                    last_error    TEXT,
+                    queued_runs   BIGINT DEFAULT 0,
+                    updated_at    TEXT NOT NULL
+                )
+            """,
+        ),
+        AuxiliaryTableSpec(
+            name=tn.stats_cache,
+            primary_key="cache_key",
+            sqlite_ddl=f"""
+                CREATE TABLE IF NOT EXISTS {tn.stats_cache} (
+                    cache_key      TEXT PRIMARY KEY,
+                    cached_at      REAL NOT NULL,
+                    chunk_count    INTEGER NOT NULL,
+                    stats_json     TEXT NOT NULL
+                )
+            """,
+            postgres_ddl=f"""
+                CREATE TABLE IF NOT EXISTS {tn.stats_cache} (
+                    cache_key      TEXT PRIMARY KEY,
+                    cached_at      DOUBLE PRECISION NOT NULL,
+                    chunk_count    BIGINT NOT NULL,
+                    stats_json     TEXT NOT NULL
+                )
+            """,
+        ),
+        AuxiliaryTableSpec(
+            name=tn.remote_cache,
+            primary_key="cache_key",
+            sqlite_ddl=f"""
+                CREATE TABLE IF NOT EXISTS {tn.remote_cache} (
+                    cache_key      TEXT PRIMARY KEY,
+                    provider       TEXT NOT NULL,
+                    response_json  TEXT NOT NULL,
+                    created_at     TEXT NOT NULL,
+                    expires_at     TEXT
+                )
+            """,
+            postgres_ddl=f"""
+                CREATE TABLE IF NOT EXISTS {tn.remote_cache} (
+                    cache_key      TEXT PRIMARY KEY,
+                    provider       TEXT NOT NULL,
+                    response_json  TEXT NOT NULL,
+                    created_at     TEXT NOT NULL,
+                    expires_at     TEXT
+                )
+            """,
+        ),
+    )
 
 _VALIDATION_TABLE = "lsm_migration_validation"
 _VALID_IDENTIFIER = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
@@ -256,8 +259,10 @@ def migrate(
     progress_callback: Optional[ProgressCallback] = None,
     *,
     batch_size: int = 1000,
+    table_names: TableNames | None = None,
 ) -> Dict[str, Any]:
     """Migrate vectors + auxiliary state between supported backends."""
+    tn = table_names or DEFAULT_TABLE_NAMES
     source_enum = _coerce_source(source)
     target_enum = _coerce_target(target)
 
@@ -267,24 +272,26 @@ def migrate(
             target_conn = stack.enter_context(_connection_context(target_provider))
             if target_conn is None:
                 raise RuntimeError("Migration target does not expose a writable DB connection.")
-            _ensure_aux_tables(target_conn)
+            _ensure_aux_tables(target_conn, tn)
             source_dir = _resolve_v07_source_dir(source_config)
             imported_counts = _migrate_v07_legacy(
                 source_dir=source_dir,
                 target_conn=target_conn,
                 progress_callback=progress_callback,
+                tn=tn,
             )
             _record_derived_schema_version(
                 target_conn=target_conn,
                 runtime_config=target_config,
                 inferred_embedding_dim=None,
+                tn=tn,
             )
-            vector_key = _vector_validation_key(target_provider, target_conn)
-            expected_counts = {vector_key: _count_vector_rows(target_conn, vector_key)}
+            vector_key = _vector_validation_key(target_provider, target_conn, tn)
+            expected_counts = {vector_key: _count_vector_rows(target_conn, vector_key, tn)}
             expected_counts.update(imported_counts)
-            if _table_exists(target_conn, "lsm_schema_versions"):
-                expected_counts["lsm_schema_versions"] = _count_table_rows(
-                    target_conn, "lsm_schema_versions"
+            if _table_exists(target_conn, tn.schema_versions):
+                expected_counts[tn.schema_versions] = _count_table_rows(
+                    target_conn, tn.schema_versions
                 )
             _record_validation_counts(target_conn, expected_counts)
             validation_result = validate_migration(target_conn)
@@ -315,10 +322,10 @@ def migrate(
         target_conn = stack.enter_context(_connection_context(target_provider))
 
         if target_conn is not None:
-            _ensure_aux_tables(target_conn)
+            _ensure_aux_tables(target_conn, tn)
 
         vector_key = (
-            _vector_validation_key(target_provider, target_conn)
+            _vector_validation_key(target_provider, target_conn, tn)
             if target_conn is not None
             else "vector_rows"
         )
@@ -329,16 +336,18 @@ def migrate(
                     source_conn=source_conn,
                     target_conn=target_conn,
                     progress_callback=progress_callback,
+                    tn=tn,
                 )
             )
             _record_derived_schema_version(
                 target_conn=target_conn,
                 runtime_config=target_config,
                 inferred_embedding_dim=inferred_dim,
+                tn=tn,
             )
-            if _table_exists(target_conn, "lsm_schema_versions"):
-                expected_counts["lsm_schema_versions"] = _count_table_rows(
-                    target_conn, "lsm_schema_versions"
+            if _table_exists(target_conn, tn.schema_versions):
+                expected_counts[tn.schema_versions] = _count_table_rows(
+                    target_conn, tn.schema_versions
                 )
             _record_validation_counts(target_conn, expected_counts)
             validation_result = validate_migration(target_conn)
@@ -441,11 +450,12 @@ def _copy_auxiliary_state(
     source_conn: Any,
     target_conn: Any,
     progress_callback: Optional[ProgressCallback],
+    tn: TableNames = DEFAULT_TABLE_NAMES,
 ) -> Dict[str, int]:
     counts: dict[str, int] = {}
-    _ensure_aux_tables(target_conn)
+    _ensure_aux_tables(target_conn, tn)
 
-    for spec in _AUX_TABLE_SPECS:
+    for spec in _build_aux_table_specs(tn):
         if not _table_exists(source_conn, spec.name):
             continue
         rows = _fetch_table_rows(source_conn, spec.name)
@@ -468,13 +478,14 @@ def _record_derived_schema_version(
     target_conn: Any,
     runtime_config: Any,
     inferred_embedding_dim: Optional[int],
+    tn: TableNames = DEFAULT_TABLE_NAMES,
 ) -> None:
-    _ensure_aux_tables(target_conn)
+    _ensure_aux_tables(target_conn, tn)
     payload = _derive_schema_payload(runtime_config, inferred_embedding_dim)
 
     rows = _fetch_query_rows(
         target_conn,
-        """
+        f"""
         SELECT
             lsm_version,
             embedding_model,
@@ -482,7 +493,7 @@ def _record_derived_schema_version(
             chunking_strategy,
             chunk_size,
             chunk_overlap
-        FROM lsm_schema_versions
+        FROM {tn.schema_versions}
         ORDER BY id DESC
         LIMIT 1
         """,
@@ -502,7 +513,7 @@ def _record_derived_schema_version(
     now = _utcnow_iso()
     rows_to_insert = [
         {
-            "id": _next_schema_version_id(target_conn),
+            "id": _next_schema_version_id(target_conn, tn),
             "manifest_version": None,
             "lsm_version": payload["lsm_version"],
             "embedding_model": payload["embedding_model"],
@@ -514,7 +525,7 @@ def _record_derived_schema_version(
             "last_ingest_at": now,
         }
     ]
-    _upsert_rows(target_conn, "lsm_schema_versions", "id", rows_to_insert)
+    _upsert_rows(target_conn, tn.schema_versions, "id", rows_to_insert)
 
 
 def _record_validation_counts(target_conn: Any, counts: Mapping[str, int]) -> None:
@@ -723,9 +734,9 @@ def _connection_context(provider: Any):
     yield None
 
 
-def _ensure_aux_tables(conn: Any) -> None:
+def _ensure_aux_tables(conn: Any, tn: TableNames = DEFAULT_TABLE_NAMES) -> None:
     dialect = _dialect(conn)
-    for spec in _AUX_TABLE_SPECS:
+    for spec in _build_aux_table_specs(tn):
         ddl = spec.sqlite_ddl if dialect == "sqlite" else spec.postgres_ddl
         _execute(conn, ddl)
     _ensure_validation_table(conn)
@@ -860,7 +871,9 @@ def _count_table_rows(conn: Any, table_name: str) -> int:
     return int(row[0] or 0)
 
 
-def _count_vector_rows_for_key(conn: Any, key: Optional[str]) -> int:
+def _count_vector_rows_for_key(
+    conn: Any, key: Optional[str], tn: TableNames = DEFAULT_TABLE_NAMES
+) -> int:
     preferred_table: Optional[str] = None
     if key and ":" in key:
         _prefix, table_name = key.split(":", 1)
@@ -872,8 +885,8 @@ def _count_vector_rows_for_key(conn: Any, key: Optional[str]) -> int:
             return _count_table_rows(conn, preferred_table)
         return 0
 
-    if _table_exists(conn, "lsm_chunks"):
-        row = _execute(conn, "SELECT COUNT(*) FROM lsm_chunks").fetchone()
+    if _table_exists(conn, tn.chunks):
+        row = _execute(conn, f"SELECT COUNT(*) FROM {tn.chunks}").fetchone()
         return int(row[0] or 0) if row is not None else 0
 
     if _dialect(conn) == "postgresql":
@@ -895,13 +908,17 @@ def _count_vector_rows_for_key(conn: Any, key: Optional[str]) -> int:
     return 0
 
 
-def _count_vector_rows(conn: Any, key: Optional[str] = None) -> int:
-    return _count_vector_rows_for_key(conn, key)
+def _count_vector_rows(
+    conn: Any, key: Optional[str] = None, tn: TableNames = DEFAULT_TABLE_NAMES
+) -> int:
+    return _count_vector_rows_for_key(conn, key, tn)
 
 
-def _vector_validation_key(target_provider: Any, target_conn: Any) -> str:
-    if _table_exists(target_conn, "lsm_chunks"):
-        return "vector_rows:lsm_chunks"
+def _vector_validation_key(
+    target_provider: Any, target_conn: Any, tn: TableNames = DEFAULT_TABLE_NAMES
+) -> str:
+    if _table_exists(target_conn, tn.chunks):
+        return f"vector_rows:{tn.chunks}"
 
     table_name = getattr(target_provider, "_table_name", None)
     if isinstance(table_name, str):
@@ -916,8 +933,10 @@ def _vector_validation_key(target_provider: Any, target_conn: Any) -> str:
     return "vector_rows"
 
 
-def _next_schema_version_id(conn: Any) -> int:
-    row = _execute(conn, "SELECT COALESCE(MAX(id), 0) FROM lsm_schema_versions").fetchone()
+def _next_schema_version_id(conn: Any, tn: TableNames = DEFAULT_TABLE_NAMES) -> int:
+    row = _execute(
+        conn, f"SELECT COALESCE(MAX(id), 0) FROM {tn.schema_versions}"
+    ).fetchone()
     current = int(row[0] or 0) if row is not None else 0
     return current + 1
 
@@ -980,15 +999,16 @@ def _migrate_v07_legacy(
     source_dir: Path,
     target_conn: Any,
     progress_callback: Optional[ProgressCallback],
+    tn: TableNames = DEFAULT_TABLE_NAMES,
 ) -> Dict[str, int]:
-    _ensure_aux_tables(target_conn)
+    _ensure_aux_tables(target_conn, tn)
     counts: dict[str, int] = {
-        "lsm_manifest": 0,
-        "lsm_agent_memories": 0,
-        "lsm_agent_memory_candidates": 0,
-        "lsm_agent_schedules": 0,
-        "lsm_stats_cache": 0,
-        "lsm_remote_cache": 0,
+        tn.manifest: 0,
+        tn.agent_memories: 0,
+        tn.agent_memory_candidates: 0,
+        tn.agent_schedules: 0,
+        tn.stats_cache: 0,
+        tn.remote_cache: 0,
     }
 
     _emit_progress(
@@ -1020,8 +1040,8 @@ def _migrate_v07_legacy(
                     }
                 )
         if rows:
-            _upsert_rows(target_conn, "lsm_manifest", "source_path", rows)
-        counts["lsm_manifest"] = len(rows)
+            _upsert_rows(target_conn, tn.manifest, "source_path", rows)
+        counts[tn.manifest] = len(rows)
     else:
         _warn_legacy_missing(manifest_path)
 
@@ -1032,11 +1052,11 @@ def _migrate_v07_legacy(
         try:
             memory_table = _first_existing_table(
                 legacy_conn,
-                ("lsm_agent_memories", "memories"),
+                (tn.agent_memories, "memories"),
             )
             candidate_table = _first_existing_table(
                 legacy_conn,
-                ("lsm_agent_memory_candidates", "memory_candidates"),
+                (tn.agent_memory_candidates, "memory_candidates"),
             )
 
             memory_rows: list[dict[str, Any]] = []
@@ -1064,8 +1084,8 @@ def _migrate_v07_legacy(
                         }
                     )
                 if memory_rows:
-                    _upsert_rows(target_conn, "lsm_agent_memories", "id", memory_rows)
-            counts["lsm_agent_memories"] = len(memory_rows)
+                    _upsert_rows(target_conn, tn.agent_memories, "id", memory_rows)
+            counts[tn.agent_memories] = len(memory_rows)
 
             candidate_rows: list[dict[str, Any]] = []
             if candidate_table is not None:
@@ -1084,11 +1104,11 @@ def _migrate_v07_legacy(
                 if candidate_rows:
                     _upsert_rows(
                         target_conn,
-                        "lsm_agent_memory_candidates",
+                        tn.agent_memory_candidates,
                         "id",
                         candidate_rows,
                     )
-            counts["lsm_agent_memory_candidates"] = len(candidate_rows)
+            counts[tn.agent_memory_candidates] = len(candidate_rows)
         finally:
             legacy_conn.close()
     else:
@@ -1118,8 +1138,8 @@ def _migrate_v07_legacy(
                 }
             )
         if schedule_rows:
-            _upsert_rows(target_conn, "lsm_agent_schedules", "schedule_id", schedule_rows)
-        counts["lsm_agent_schedules"] = len(schedule_rows)
+            _upsert_rows(target_conn, tn.agent_schedules, "schedule_id", schedule_rows)
+        counts[tn.agent_schedules] = len(schedule_rows)
     else:
         _warn_legacy_missing(schedules_path)
 
@@ -1149,8 +1169,8 @@ def _migrate_v07_legacy(
                     }
                 )
         if stats_rows:
-            _upsert_rows(target_conn, "lsm_stats_cache", "cache_key", stats_rows)
-        counts["lsm_stats_cache"] = len(stats_rows)
+            _upsert_rows(target_conn, tn.stats_cache, "cache_key", stats_rows)
+        counts[tn.stats_cache] = len(stats_rows)
     else:
         _warn_legacy_missing(stats_cache_path)
 
@@ -1176,8 +1196,8 @@ def _migrate_v07_legacy(
                 }
             )
     if remote_rows:
-        _upsert_rows(target_conn, "lsm_remote_cache", "cache_key", remote_rows)
-    counts["lsm_remote_cache"] = len(remote_rows)
+        _upsert_rows(target_conn, tn.remote_cache, "cache_key", remote_rows)
+    counts[tn.remote_cache] = len(remote_rows)
 
     _emit_progress(
         progress_callback,
@@ -1186,9 +1206,9 @@ def _migrate_v07_legacy(
         1,
         (
             "Legacy import complete: "
-            f"manifest={counts['lsm_manifest']}, memories={counts['lsm_agent_memories']}, "
-            f"candidates={counts['lsm_agent_memory_candidates']}, schedules={counts['lsm_agent_schedules']}, "
-            f"stats={counts['lsm_stats_cache']}, remote={counts['lsm_remote_cache']}."
+            f"manifest={counts[tn.manifest]}, memories={counts[tn.agent_memories]}, "
+            f"candidates={counts[tn.agent_memory_candidates]}, schedules={counts[tn.agent_schedules]}, "
+            f"stats={counts[tn.stats_cache]}, remote={counts[tn.remote_cache]}."
         ),
     )
     return counts

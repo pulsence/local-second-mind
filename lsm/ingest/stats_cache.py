@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any, Dict, Optional
 
 from lsm.db.connection import create_sqlite_connection, resolve_db_path
+from lsm.db.tables import TableNames, DEFAULT_TABLE_NAMES
 from lsm.logging import get_logger
 
 logger = get_logger(__name__)
@@ -29,12 +30,14 @@ class StatsCache:
         connection: Optional[sqlite3.Connection] = None,
         db_path: Optional[Path] = None,
         cache_key: str = "collection_stats",
+        table_names: TableNames | None = None,
     ) -> None:
         self._cache_path = cache_path
         self._max_age_seconds = int(max_age_seconds)
         self._cache_key = str(cache_key or "collection_stats")
         self._connection = connection
         self._owns_connection = False
+        self._table_names = table_names or DEFAULT_TABLE_NAMES
 
         if self._connection is None and db_path is not None:
             resolved = resolve_db_path(Path(db_path))
@@ -61,8 +64,8 @@ class StatsCache:
         if self._connection is None:
             return
         self._connection.execute(
-            """
-            CREATE TABLE IF NOT EXISTS lsm_stats_cache (
+            f"""
+            CREATE TABLE IF NOT EXISTS {self._table_names.stats_cache} (
                 cache_key TEXT PRIMARY KEY,
                 cached_at REAL NOT NULL,
                 chunk_count INTEGER NOT NULL,
@@ -71,7 +74,7 @@ class StatsCache:
             """
         )
         self._connection.execute(
-            "CREATE INDEX IF NOT EXISTS idx_lsm_stats_cache_cached_at ON lsm_stats_cache(cached_at)"
+            f"CREATE INDEX IF NOT EXISTS idx_{self._table_names.stats_cache}_cached_at ON {self._table_names.stats_cache}(cached_at)"
         )
         self._connection.commit()
 
@@ -79,9 +82,9 @@ class StatsCache:
         """Load cached stats envelope."""
         if self._connection is not None:
             row = self._connection.execute(
-                """
+                f"""
                 SELECT cached_at, chunk_count, stats_json
-                FROM lsm_stats_cache
+                FROM {self._table_names.stats_cache}
                 WHERE cache_key = ?
                 """,
                 (self._cache_key,),
@@ -119,8 +122,8 @@ class StatsCache:
         }
         if self._connection is not None:
             self._connection.execute(
-                """
-                INSERT INTO lsm_stats_cache(cache_key, cached_at, chunk_count, stats_json)
+                f"""
+                INSERT INTO {self._table_names.stats_cache}(cache_key, cached_at, chunk_count, stats_json)
                 VALUES (?, ?, ?, ?)
                 ON CONFLICT(cache_key) DO UPDATE SET
                     cached_at = excluded.cached_at,
@@ -167,7 +170,7 @@ class StatsCache:
     def invalidate(self) -> None:
         if self._connection is not None:
             self._connection.execute(
-                "DELETE FROM lsm_stats_cache WHERE cache_key = ?",
+                f"DELETE FROM {self._table_names.stats_cache} WHERE cache_key = ?",
                 (self._cache_key,),
             )
             self._connection.commit()

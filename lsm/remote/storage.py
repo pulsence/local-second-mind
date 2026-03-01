@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from lsm.db.connection import create_sqlite_connection, resolve_db_path
+from lsm.db.tables import TableNames, DEFAULT_TABLE_NAMES
 from lsm.logging import get_logger
 from lsm.paths import get_global_folder
 
@@ -70,23 +71,29 @@ def _open_cache_connection(
     *,
     db_connection: Optional[sqlite3.Connection],
     vectordb_path: Optional[str | Path],
+    table_names: TableNames | None = None,
 ) -> tuple[Optional[sqlite3.Connection], Optional[Path], bool]:
+    tn = table_names or DEFAULT_TABLE_NAMES
     if db_connection is not None:
-        _ensure_remote_cache_table(db_connection)
+        _ensure_remote_cache_table(db_connection, table_names=tn)
         return db_connection, None, False
     if vectordb_path is None:
         return None, None, False
     db_path = resolve_db_path(Path(vectordb_path).expanduser())
     db_path.parent.mkdir(parents=True, exist_ok=True)
     conn = create_sqlite_connection(db_path)
-    _ensure_remote_cache_table(conn)
+    _ensure_remote_cache_table(conn, table_names=tn)
     return conn, db_path, True
 
 
-def _ensure_remote_cache_table(connection: sqlite3.Connection) -> None:
+def _ensure_remote_cache_table(
+    connection: sqlite3.Connection,
+    table_names: TableNames | None = None,
+) -> None:
+    tn = table_names or DEFAULT_TABLE_NAMES
     connection.execute(
-        """
-        CREATE TABLE IF NOT EXISTS lsm_remote_cache (
+        f"""
+        CREATE TABLE IF NOT EXISTS {tn.remote_cache} (
             cache_key TEXT PRIMARY KEY,
             provider TEXT NOT NULL,
             response_json TEXT NOT NULL,
@@ -96,10 +103,10 @@ def _ensure_remote_cache_table(connection: sqlite3.Connection) -> None:
         """
     )
     connection.execute(
-        "CREATE INDEX IF NOT EXISTS idx_lsm_remote_cache_provider ON lsm_remote_cache(provider)"
+        f"CREATE INDEX IF NOT EXISTS idx_{tn.remote_cache}_provider ON {tn.remote_cache}(provider)"
     )
     connection.execute(
-        "CREATE INDEX IF NOT EXISTS idx_lsm_remote_cache_expires_at ON lsm_remote_cache(expires_at)"
+        f"CREATE INDEX IF NOT EXISTS idx_{tn.remote_cache}_expires_at ON {tn.remote_cache}(expires_at)"
     )
     connection.commit()
 
@@ -107,11 +114,13 @@ def _ensure_remote_cache_table(connection: sqlite3.Connection) -> None:
 def _load_db_payload(
     connection: sqlite3.Connection,
     cache_key: str,
+    table_names: TableNames | None = None,
 ) -> Optional[tuple[Dict[str, Any], Optional[datetime], Optional[datetime]]]:
+    tn = table_names or DEFAULT_TABLE_NAMES
     row = connection.execute(
-        """
+        f"""
         SELECT response_json, created_at, expires_at
-        FROM lsm_remote_cache
+        FROM {tn.remote_cache}
         WHERE cache_key = ?
         """,
         (cache_key,),
@@ -134,15 +143,17 @@ def _save_db_payload(
     provider: str,
     payload: Dict[str, Any],
     cache_ttl_seconds: Optional[int],
+    table_names: TableNames | None = None,
 ) -> None:
+    tn = table_names or DEFAULT_TABLE_NAMES
     now = _now_utc()
     created_at = now.isoformat()
     expires_at: Optional[str] = None
     if cache_ttl_seconds is not None and int(cache_ttl_seconds) > 0:
         expires_at = (now + timedelta(seconds=int(cache_ttl_seconds))).isoformat()
     connection.execute(
-        """
-        INSERT INTO lsm_remote_cache(
+        f"""
+        INSERT INTO {tn.remote_cache}(
             cache_key, provider, response_json, created_at, expires_at
         )
         VALUES (?, ?, ?, ?, ?)
@@ -233,7 +244,7 @@ def load_cached_results(
             now = _now_utc()
             if expires_at is not None and now > expires_at:
                 connection.execute(
-                    "DELETE FROM lsm_remote_cache WHERE cache_key = ?",
+                    f"DELETE FROM {DEFAULT_TABLE_NAMES.remote_cache} WHERE cache_key = ?",
                     (_query_cache_key(provider_name, query),),
                 )
                 connection.commit()

@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 from typing import Any, Mapping, Optional, Tuple
 
 from lsm import __version__ as LSM_VERSION
+from lsm.db.tables import TableNames, DEFAULT_TABLE_NAMES
 
 
 SCHEMA_COMPARISON_FIELDS: tuple[str, ...] = (
@@ -71,11 +72,15 @@ def _normalize_schema_config(config: Any) -> dict[str, Any]:
     }
 
 
-def get_active_schema_version(conn: sqlite3.Connection) -> Optional[dict[str, Any]]:
+def get_active_schema_version(
+    conn: sqlite3.Connection,
+    table_names: TableNames | None = None,
+) -> Optional[dict[str, Any]]:
     """Return the most recent schema version row."""
+    tn = table_names or DEFAULT_TABLE_NAMES
     _ensure_schema_versions_table(conn)
     row = conn.execute(
-        """
+        f"""
         SELECT
             id,
             manifest_version,
@@ -87,14 +92,14 @@ def get_active_schema_version(conn: sqlite3.Connection) -> Optional[dict[str, An
             chunk_overlap,
             created_at,
             last_ingest_at
-        FROM lsm_schema_versions
+        FROM {tn.schema_versions}
         ORDER BY id DESC
         LIMIT 1
         """
     ).fetchone()
     if row is None:
         return None
-    columns = [item[0] for item in (conn.execute("SELECT * FROM lsm_schema_versions LIMIT 1").description or [])]
+    columns = [item[0] for item in (conn.execute(f"SELECT * FROM {tn.schema_versions} LIMIT 1").description or [])]
     if columns:
         # Preserve compatibility for sqlite3.Row and tuple-style rows.
         if isinstance(row, sqlite3.Row):
@@ -104,14 +109,19 @@ def get_active_schema_version(conn: sqlite3.Connection) -> Optional[dict[str, An
     return dict(row) if isinstance(row, sqlite3.Row) else None
 
 
-def record_schema_version(conn: sqlite3.Connection, config: Any) -> int:
+def record_schema_version(
+    conn: sqlite3.Connection,
+    config: Any,
+    table_names: TableNames | None = None,
+) -> int:
     """Insert a new schema version row and return its primary key."""
+    tn = table_names or DEFAULT_TABLE_NAMES
     _ensure_schema_versions_table(conn)
     normalized = _normalize_schema_config(config)
     now = _now_iso()
     cursor = conn.execute(
-        """
-        INSERT INTO lsm_schema_versions (
+        f"""
+        INSERT INTO {tn.schema_versions} (
             manifest_version,
             lsm_version,
             embedding_model,
@@ -144,10 +154,12 @@ def check_schema_compatibility(
     config: Any,
     *,
     raise_on_mismatch: bool = False,
+    table_names: TableNames | None = None,
 ) -> Tuple[bool, dict[str, dict[str, Any]]]:
     """Compare current config to active schema row."""
+    tn = table_names or DEFAULT_TABLE_NAMES
     _ensure_schema_versions_table(conn)
-    active = get_active_schema_version(conn)
+    active = get_active_schema_version(conn, table_names=tn)
     if active is None:
         return True, {}
 

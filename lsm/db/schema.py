@@ -13,36 +13,33 @@ from __future__ import annotations
 
 import sqlite3
 
-# Canonical list of application tables created by ensure_application_schema.
-# Used by health-check routines and migration tooling.
-APPLICATION_TABLES: tuple[str, ...] = (
-    "lsm_chunks",
-    "lsm_schema_versions",
-    "lsm_manifest",
-    "lsm_reranker_cache",
-    "lsm_agent_memories",
-    "lsm_agent_memory_candidates",
-    "lsm_agent_schedules",
-    "lsm_cluster_centroids",
-    "lsm_graph_nodes",
-    "lsm_graph_edges",
-    "lsm_embedding_models",
-    "lsm_job_status",
-    "lsm_stats_cache",
-    "lsm_remote_cache",
-)
+from .tables import DEFAULT_TABLE_NAMES, TableNames
 
 
-def ensure_application_schema(conn: sqlite3.Connection) -> None:
+def get_application_tables(prefix: str = "lsm_") -> tuple[str, ...]:
+    """Return resolved application table names for the given prefix."""
+    return TableNames(prefix=prefix).application_tables()
+
+
+# Backward-compatible constant using default prefix.
+APPLICATION_TABLES: tuple[str, ...] = DEFAULT_TABLE_NAMES.application_tables()
+
+
+def ensure_application_schema(
+    conn: sqlite3.Connection,
+    table_names: TableNames | None = None,
+) -> None:
     """Create all non-vector application tables and indexes.
 
     Safe to call multiple times (all statements use
-    ``CREATE … IF NOT EXISTS``).  Must be called **before** vector DDL
-    so that FTS content-sync triggers can reference ``lsm_chunks``.
+    ``CREATE ... IF NOT EXISTS``).  Must be called **before** vector DDL
+    so that FTS content-sync triggers can reference the chunks table.
     """
+    tn = table_names or DEFAULT_TABLE_NAMES
+
     conn.executescript(
-        """
-        CREATE TABLE IF NOT EXISTS lsm_chunks (
+        f"""
+        CREATE TABLE IF NOT EXISTS {tn.chunks} (
             chunk_id         TEXT PRIMARY KEY,
             source_path      TEXT NOT NULL,
             source_name      TEXT,
@@ -68,10 +65,10 @@ def ensure_application_schema(conn: sqlite3.Connection) -> None:
             start_char       INTEGER,
             end_char         INTEGER,
             chunk_length     INTEGER,
-            metadata_json    TEXT NOT NULL DEFAULT '{}'
+            metadata_json    TEXT NOT NULL DEFAULT '{{}}'
         );
 
-        CREATE TABLE IF NOT EXISTS lsm_schema_versions (
+        CREATE TABLE IF NOT EXISTS {tn.schema_versions} (
             id               INTEGER PRIMARY KEY AUTOINCREMENT,
             manifest_version INTEGER,
             lsm_version      TEXT,
@@ -84,24 +81,24 @@ def ensure_application_schema(conn: sqlite3.Connection) -> None:
             last_ingest_at   TEXT
         );
 
-        CREATE TABLE IF NOT EXISTS lsm_manifest (
+        CREATE TABLE IF NOT EXISTS {tn.manifest} (
             source_path      TEXT PRIMARY KEY,
             mtime_ns         INTEGER,
             file_size        INTEGER,
             file_hash        TEXT,
             version          INTEGER,
             embedding_model  TEXT,
-            schema_version_id INTEGER REFERENCES lsm_schema_versions(id),
+            schema_version_id INTEGER REFERENCES {tn.schema_versions}(id),
             updated_at       TEXT
         );
 
-        CREATE TABLE IF NOT EXISTS lsm_reranker_cache (
+        CREATE TABLE IF NOT EXISTS {tn.reranker_cache} (
             cache_key        TEXT PRIMARY KEY,
             score            REAL,
             created_at       TEXT
         );
 
-        CREATE TABLE IF NOT EXISTS lsm_agent_memories (
+        CREATE TABLE IF NOT EXISTS {tn.agent_memories} (
             id               TEXT PRIMARY KEY,
             memory_type      TEXT NOT NULL,
             memory_key       TEXT NOT NULL,
@@ -115,7 +112,7 @@ def ensure_application_schema(conn: sqlite3.Connection) -> None:
             source_run_id    TEXT NOT NULL
         );
 
-        CREATE TABLE IF NOT EXISTS lsm_agent_memory_candidates (
+        CREATE TABLE IF NOT EXISTS {tn.agent_memory_candidates} (
             id               TEXT PRIMARY KEY,
             memory_id        TEXT NOT NULL UNIQUE,
             provenance       TEXT NOT NULL,
@@ -123,10 +120,10 @@ def ensure_application_schema(conn: sqlite3.Connection) -> None:
             status           TEXT NOT NULL,
             created_at       TEXT NOT NULL,
             updated_at       TEXT NOT NULL,
-            FOREIGN KEY(memory_id) REFERENCES lsm_agent_memories(id) ON DELETE CASCADE
+            FOREIGN KEY(memory_id) REFERENCES {tn.agent_memories}(id) ON DELETE CASCADE
         );
 
-        CREATE TABLE IF NOT EXISTS lsm_agent_schedules (
+        CREATE TABLE IF NOT EXISTS {tn.agent_schedules} (
             schedule_id      TEXT PRIMARY KEY,
             agent_name       TEXT NOT NULL,
             last_run_at      TEXT,
@@ -137,13 +134,13 @@ def ensure_application_schema(conn: sqlite3.Connection) -> None:
             updated_at       TEXT NOT NULL
         );
 
-        CREATE TABLE IF NOT EXISTS lsm_cluster_centroids (
+        CREATE TABLE IF NOT EXISTS {tn.cluster_centroids} (
             cluster_id       INTEGER PRIMARY KEY,
             centroid         BLOB,
             size             INTEGER
         );
 
-        CREATE TABLE IF NOT EXISTS lsm_graph_nodes (
+        CREATE TABLE IF NOT EXISTS {tn.graph_nodes} (
             node_id          TEXT PRIMARY KEY,
             node_type        TEXT,
             label            TEXT,
@@ -151,15 +148,15 @@ def ensure_application_schema(conn: sqlite3.Connection) -> None:
             heading_path     TEXT
         );
 
-        CREATE TABLE IF NOT EXISTS lsm_graph_edges (
+        CREATE TABLE IF NOT EXISTS {tn.graph_edges} (
             edge_id          INTEGER PRIMARY KEY AUTOINCREMENT,
-            src_id           TEXT REFERENCES lsm_graph_nodes(node_id),
-            dst_id           TEXT REFERENCES lsm_graph_nodes(node_id),
+            src_id           TEXT REFERENCES {tn.graph_nodes}(node_id),
+            dst_id           TEXT REFERENCES {tn.graph_nodes}(node_id),
             edge_type        TEXT,
             weight           REAL DEFAULT 1.0
         );
 
-        CREATE TABLE IF NOT EXISTS lsm_embedding_models (
+        CREATE TABLE IF NOT EXISTS {tn.embedding_models} (
             model_id         TEXT PRIMARY KEY,
             base_model       TEXT,
             path             TEXT,
@@ -168,7 +165,7 @@ def ensure_application_schema(conn: sqlite3.Connection) -> None:
             is_active        INTEGER DEFAULT 0
         );
 
-        CREATE TABLE IF NOT EXISTS lsm_job_status (
+        CREATE TABLE IF NOT EXISTS {tn.job_status} (
             job_name         TEXT PRIMARY KEY,
             status           TEXT NOT NULL,
             started_at       TEXT,
@@ -177,14 +174,14 @@ def ensure_application_schema(conn: sqlite3.Connection) -> None:
             metadata         TEXT
         );
 
-        CREATE TABLE IF NOT EXISTS lsm_stats_cache (
+        CREATE TABLE IF NOT EXISTS {tn.stats_cache} (
             cache_key        TEXT PRIMARY KEY,
             cached_at        REAL NOT NULL,
             chunk_count      INTEGER NOT NULL,
             stats_json       TEXT NOT NULL
         );
 
-        CREATE TABLE IF NOT EXISTS lsm_remote_cache (
+        CREATE TABLE IF NOT EXISTS {tn.remote_cache} (
             cache_key        TEXT PRIMARY KEY,
             provider         TEXT NOT NULL,
             response_json    TEXT NOT NULL,
@@ -192,18 +189,18 @@ def ensure_application_schema(conn: sqlite3.Connection) -> None:
             expires_at       TEXT
         );
 
-        CREATE INDEX IF NOT EXISTS idx_lsm_chunks_source_path ON lsm_chunks(source_path);
-        CREATE INDEX IF NOT EXISTS idx_lsm_chunks_is_current ON lsm_chunks(is_current);
-        CREATE INDEX IF NOT EXISTS idx_lsm_chunks_ext ON lsm_chunks(ext);
-        CREATE INDEX IF NOT EXISTS idx_lsm_manifest_updated_at ON lsm_manifest(updated_at);
-        CREATE INDEX IF NOT EXISTS idx_lsm_agent_memory_candidates_status ON lsm_agent_memory_candidates(status);
-        CREATE INDEX IF NOT EXISTS idx_lsm_agent_memories_scope_type ON lsm_agent_memories(scope, memory_type);
-        CREATE INDEX IF NOT EXISTS idx_lsm_agent_memories_expires_at ON lsm_agent_memories(expires_at);
-        CREATE INDEX IF NOT EXISTS idx_lsm_agent_schedules_next_run ON lsm_agent_schedules(next_run_at);
-        CREATE INDEX IF NOT EXISTS idx_lsm_graph_edges_src ON lsm_graph_edges(src_id);
-        CREATE INDEX IF NOT EXISTS idx_lsm_graph_edges_dst ON lsm_graph_edges(dst_id);
-        CREATE INDEX IF NOT EXISTS idx_lsm_stats_cache_cached_at ON lsm_stats_cache(cached_at);
-        CREATE INDEX IF NOT EXISTS idx_lsm_remote_cache_provider ON lsm_remote_cache(provider);
-        CREATE INDEX IF NOT EXISTS idx_lsm_remote_cache_expires_at ON lsm_remote_cache(expires_at);
+        CREATE INDEX IF NOT EXISTS idx_{tn.chunks}_source_path ON {tn.chunks}(source_path);
+        CREATE INDEX IF NOT EXISTS idx_{tn.chunks}_is_current ON {tn.chunks}(is_current);
+        CREATE INDEX IF NOT EXISTS idx_{tn.chunks}_ext ON {tn.chunks}(ext);
+        CREATE INDEX IF NOT EXISTS idx_{tn.manifest}_updated_at ON {tn.manifest}(updated_at);
+        CREATE INDEX IF NOT EXISTS idx_{tn.agent_memory_candidates}_status ON {tn.agent_memory_candidates}(status);
+        CREATE INDEX IF NOT EXISTS idx_{tn.agent_memories}_scope_type ON {tn.agent_memories}(scope, memory_type);
+        CREATE INDEX IF NOT EXISTS idx_{tn.agent_memories}_expires_at ON {tn.agent_memories}(expires_at);
+        CREATE INDEX IF NOT EXISTS idx_{tn.agent_schedules}_next_run ON {tn.agent_schedules}(next_run_at);
+        CREATE INDEX IF NOT EXISTS idx_{tn.graph_edges}_src ON {tn.graph_edges}(src_id);
+        CREATE INDEX IF NOT EXISTS idx_{tn.graph_edges}_dst ON {tn.graph_edges}(dst_id);
+        CREATE INDEX IF NOT EXISTS idx_{tn.stats_cache}_cached_at ON {tn.stats_cache}(cached_at);
+        CREATE INDEX IF NOT EXISTS idx_{tn.remote_cache}_provider ON {tn.remote_cache}(provider);
+        CREATE INDEX IF NOT EXISTS idx_{tn.remote_cache}_expires_at ON {tn.remote_cache}(expires_at);
         """
     )

@@ -15,6 +15,8 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
 
+from lsm.db.tables import TableNames, DEFAULT_TABLE_NAMES
+
 logger = logging.getLogger(__name__)
 
 
@@ -27,6 +29,7 @@ def build_clusters(
     algorithm: str = "kmeans",
     k: int = 50,
     random_state: int = 42,
+    table_names: TableNames | None = None,
 ) -> Dict[str, Any]:
     """Build cluster assignments for all current embeddings.
 
@@ -43,9 +46,10 @@ def build_clusters(
     Returns:
         Summary dict with ``n_clusters``, ``n_chunks``, ``algorithm``.
     """
+    tn = table_names or DEFAULT_TABLE_NAMES
     # 1. Read all current embeddings
     rows = conn.execute(
-        "SELECT chunk_id, embedding FROM vec_chunks WHERE is_current = 1"
+        f"SELECT chunk_id, embedding FROM {tn.vec_chunks} WHERE is_current = 1"
     ).fetchall()
 
     if not rows:
@@ -80,25 +84,25 @@ def build_clusters(
         cluster_sizes[label] = cluster_sizes.get(label, 0) + 1
 
     # 4. Write centroids
-    conn.execute("DELETE FROM lsm_cluster_centroids")
+    conn.execute(f"DELETE FROM {tn.cluster_centroids}")
     for cluster_id, centroid in enumerate(centroids):
         blob = pack(f"{len(centroid)}f", *centroid)
         conn.execute(
-            "INSERT INTO lsm_cluster_centroids (cluster_id, centroid, size) VALUES (?, ?, ?)",
+            f"INSERT INTO {tn.cluster_centroids} (cluster_id, centroid, size) VALUES (?, ?, ?)",
             (cluster_id, blob, cluster_sizes.get(cluster_id, 0)),
         )
 
     # 5. Write cluster_id and cluster_size to lsm_chunks
     for chunk_id, label in zip(chunk_ids, labels):
         conn.execute(
-            "UPDATE lsm_chunks SET cluster_id = ?, cluster_size = ? WHERE chunk_id = ?",
+            f"UPDATE {tn.chunks} SET cluster_id = ?, cluster_size = ? WHERE chunk_id = ?",
             (int(label), cluster_sizes.get(label, 0), chunk_id),
         )
 
     # 6. Update vec_chunks cluster_id
     for chunk_id, label in zip(chunk_ids, labels):
         conn.execute(
-            "UPDATE vec_chunks SET cluster_id = ? WHERE chunk_id = ?",
+            f"UPDATE {tn.vec_chunks} SET cluster_id = ? WHERE chunk_id = ?",
             (int(label), chunk_id),
         )
 
@@ -120,6 +124,7 @@ def get_top_clusters(
     query_embedding: List[float],
     conn: sqlite3.Connection,
     top_n: int = 5,
+    table_names: TableNames | None = None,
 ) -> List[int]:
     """Find the *top_n* clusters closest to the query embedding.
 
@@ -133,8 +138,9 @@ def get_top_clusters(
     Returns:
         Sorted list of cluster IDs (most similar first).
     """
+    tn = table_names or DEFAULT_TABLE_NAMES
     rows = conn.execute(
-        "SELECT cluster_id, centroid FROM lsm_cluster_centroids"
+        f"SELECT cluster_id, centroid FROM {tn.cluster_centroids}"
     ).fetchall()
 
     if not rows:

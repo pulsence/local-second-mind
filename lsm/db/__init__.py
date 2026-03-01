@@ -15,13 +15,14 @@ from .migration import (
     migrate,
     validate_migration,
 )
-from .schema import APPLICATION_TABLES, ensure_application_schema
+from .schema import APPLICATION_TABLES, ensure_application_schema, get_application_tables
 from .schema_version import (
     SchemaVersionMismatchError,
     check_schema_compatibility,
     get_active_schema_version,
     record_schema_version,
 )
+from .tables import DEFAULT_TABLE_NAMES, TableNames
 from .transaction import transaction
 
 __all__ = [
@@ -34,6 +35,7 @@ __all__ = [
     "get_stale_files",
     "APPLICATION_TABLES",
     "ensure_application_schema",
+    "get_application_tables",
     "MigrationSource",
     "MigrationTarget",
     "MigrationValidationError",
@@ -43,5 +45,7 @@ __all__ = [
     "check_schema_compatibility",
     "get_active_schema_version",
     "record_schema_version",
+    "DEFAULT_TABLE_NAMES",
+    "TableNames",
     "transaction",
 ]

@@ -14,6 +14,7 @@ import sqlite3
 from dataclasses import dataclass
 from typing import Any, List, Optional
 
+from lsm.db.tables import TableNames, DEFAULT_TABLE_NAMES
 from lsm.logging import get_logger
 
 logger = get_logger(__name__)
@@ -47,6 +48,7 @@ def _fetchone(conn: Any, query: str, params: tuple = ()) -> Optional[tuple]:
 def check_job_advisories(
     conn: Any,
     config: Any = None,
+    table_names: TableNames | None = None,
 ) -> List[Advisory]:
     """Check for stale or missing offline jobs.
 
@@ -60,36 +62,39 @@ def check_job_advisories(
     Returns:
         List of Advisory objects (may be empty).
     """
+    tn = table_names or DEFAULT_TABLE_NAMES
     advisories: List[Advisory] = []
 
     try:
-        advisories.extend(_check_cluster_status(conn, config))
-        advisories.extend(_check_graph_status(conn, config))
-        advisories.extend(_check_finetune_status(conn, config))
+        advisories.extend(_check_cluster_status(conn, config, table_names=tn))
+        advisories.extend(_check_graph_status(conn, config, table_names=tn))
+        advisories.extend(_check_finetune_status(conn, config, table_names=tn))
     except Exception as exc:
         logger.debug("Advisory check failed: %s", exc)
 
     return advisories
 
 
-def _get_corpus_size(conn: Any) -> int:
+def _get_corpus_size(conn: Any, table_names: TableNames | None = None) -> int:
     """Get current corpus size (active chunks)."""
+    tn = table_names or DEFAULT_TABLE_NAMES
     try:
-        row = _fetchone(conn, "SELECT COUNT(*) FROM lsm_chunks WHERE is_current = 1")
+        row = _fetchone(conn, f"SELECT COUNT(*) FROM {tn.chunks} WHERE is_current = 1")
         return int(row[0]) if row else 0
     except Exception:
         return 0
 
 
 def _get_job_status(
-    conn: Any, job_name: str
+    conn: Any, job_name: str, table_names: TableNames | None = None,
 ) -> Optional[dict]:
     """Get a job's status record."""
+    tn = table_names or DEFAULT_TABLE_NAMES
     try:
         ph = _ph(conn)
         row = _fetchone(
             conn,
-            f"SELECT status, completed_at, corpus_size FROM lsm_job_status WHERE job_name = {ph}",
+            f"SELECT status, completed_at, corpus_size FROM {tn.job_status} WHERE job_name = {ph}",
             (job_name,),
         )
         if row is None:
@@ -104,7 +109,7 @@ def _get_job_status(
 
 
 def _check_cluster_status(
-    conn: Any, config: Any
+    conn: Any, config: Any, table_names: TableNames | None = None,
 ) -> List[Advisory]:
     """Check if clustering needs to be run or updated."""
     advisories: List[Advisory] = []
@@ -117,11 +122,12 @@ def _check_cluster_status(
         except Exception:
             pass
 
+    tn = table_names or DEFAULT_TABLE_NAMES
     if not cluster_enabled:
         return advisories
 
-    job = _get_job_status(conn, "cluster_build")
-    corpus_size = _get_corpus_size(conn)
+    job = _get_job_status(conn, "cluster_build", table_names=tn)
+    corpus_size = _get_corpus_size(conn, table_names=tn)
 
     if job is None:
         # Never run
@@ -152,7 +158,7 @@ def _check_cluster_status(
 
 
 def _check_finetune_status(
-    conn: Any, config: Any
+    conn: Any, config: Any, table_names: TableNames | None = None,
 ) -> List[Advisory]:
     """Check if embedding fine-tuning should be run."""
     advisories: List[Advisory] = []
@@ -166,6 +172,7 @@ def _check_finetune_status(
                 finetune_enabled = bool(gs.finetune_enabled)
         except Exception:
             pass
+    tn = table_names or DEFAULT_TABLE_NAMES
     if not finetune_enabled:
         return advisories
 
@@ -173,7 +180,7 @@ def _check_finetune_status(
     try:
         row = _fetchone(
             conn,
-            "SELECT COUNT(*) FROM lsm_embedding_models WHERE is_active = 1",
+            f"SELECT COUNT(*) FROM {tn.embedding_models} WHERE is_active = 1",
         )
         has_active = int(row[0]) > 0 if row else False
     except Exception:
@@ -181,7 +188,7 @@ def _check_finetune_status(
         return advisories
 
     if not has_active:
-        corpus_size = _get_corpus_size(conn)
+        corpus_size = _get_corpus_size(conn, table_names=tn)
         if corpus_size >= 100:
             advisories.append(Advisory(
                 level="info",
@@ -195,7 +202,7 @@ def _check_finetune_status(
     return advisories
 
 
-def _check_graph_status(conn: Any, config: Any) -> List[Advisory]:
+def _check_graph_status(conn: Any, config: Any, table_names: TableNames | None = None) -> List[Advisory]:
     """Check whether thematic graph links were built when graph expansion is enabled."""
     advisories: List[Advisory] = []
 
@@ -206,13 +213,14 @@ def _check_graph_status(conn: Any, config: Any) -> List[Advisory]:
         except Exception:
             graph_enabled = False
 
+    tn = table_names or DEFAULT_TABLE_NAMES
     if not graph_enabled:
         return advisories
 
     try:
         row = _fetchone(
             conn,
-            "SELECT COUNT(*) FROM lsm_graph_edges WHERE edge_type = 'thematic'",
+            f"SELECT COUNT(*) FROM {tn.graph_edges} WHERE edge_type = 'thematic'",
         )
         thematic_edges = int(row[0]) if row else 0
     except Exception:
@@ -220,7 +228,7 @@ def _check_graph_status(conn: Any, config: Any) -> List[Advisory]:
         return advisories
 
     if thematic_edges <= 0:
-        corpus_size = _get_corpus_size(conn)
+        corpus_size = _get_corpus_size(conn, table_names=tn)
         advisories.append(
             Advisory(
                 level="info",
@@ -240,6 +248,7 @@ def record_job_status(
     job_name: str,
     status: str = "completed",
     corpus_size: Optional[int] = None,
+    table_names: TableNames | None = None,
 ) -> None:
     """Record a job's completion status.
 
@@ -251,11 +260,12 @@ def record_job_status(
     """
     from datetime import datetime, timezone
 
+    tn = table_names or DEFAULT_TABLE_NAMES
     now = datetime.now(timezone.utc).isoformat()
     ph = _ph(conn)
 
     upsert_sql = (
-        f"INSERT INTO lsm_job_status (job_name, status, completed_at, corpus_size) "
+        f"INSERT INTO {tn.job_status} (job_name, status, completed_at, corpus_size) "
         f"VALUES ({ph}, {ph}, {ph}, {ph}) "
         f"ON CONFLICT (job_name) DO UPDATE SET "
         f"status = EXCLUDED.status, completed_at = EXCLUDED.completed_at, "
