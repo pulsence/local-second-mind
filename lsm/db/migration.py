@@ -996,6 +996,95 @@ def _resolve_v07_source_dir(source_config: Any) -> Path:
     return resolved
 
 
+def _resolve_v07_file(source_dir: Path, filename: str) -> Optional[Path]:
+    """Search for a v0.7 legacy file in standard subdirectories.
+
+    Checks ``source_dir/``, then ``source_dir/.ingest/``, then
+    ``source_dir/Agents/``.
+
+    Returns:
+        Path to the first match, or ``None`` if not found.
+    """
+    for subdir in ("", ".ingest", "Agents"):
+        candidate = source_dir / subdir / filename if subdir else source_dir / filename
+        if candidate.exists():
+            return candidate
+    return None
+
+
+def auto_detect_migration(
+    global_folder: Path,
+    config: Any,
+) -> dict:
+    """Auto-detect migration source and target from filesystem heuristics.
+
+    Returns:
+        Dict with keys: ``from_db``, ``from_version``, ``to_db``, ``to_version``,
+        ``source_dir`` (optional).
+    """
+    from lsm import __version__ as current_version
+    from lsm.db.connection import resolve_db_path
+
+    result: dict[str, Any] = {
+        "from_db": None,
+        "from_version": None,
+        "to_db": getattr(getattr(config, "db", None), "provider", "sqlite"),
+        "to_version": current_version,
+        "source_dir": None,
+    }
+
+    folder = Path(global_folder).expanduser().resolve()
+
+    # 1. .chroma/ exists → from_db = "chroma"
+    chroma_dir = folder / ".chroma"
+    if chroma_dir.is_dir():
+        result["from_db"] = "chroma"
+        return result
+
+    # 2. lsm.db exists → from_db = "sqlite", read schema version
+    for data_subdir in ("data", ".ingest", ""):
+        db_candidate = folder / data_subdir / "lsm.db" if data_subdir else folder / "lsm.db"
+        if db_candidate.exists():
+            result["from_db"] = "sqlite"
+            try:
+                conn = sqlite3.connect(str(db_candidate))
+                conn.row_factory = sqlite3.Row
+                from lsm.db.schema_version import get_active_schema_version
+                version_row = get_active_schema_version(conn)
+                if version_row:
+                    result["from_version"] = version_row.get("lsm_version")
+                conn.close()
+            except Exception:
+                pass
+            return result
+
+    # 3. PostgreSQL configured and reachable
+    db_cfg = getattr(config, "db", None)
+    if db_cfg and getattr(db_cfg, "provider", "") == "postgresql":
+        conn_str = getattr(db_cfg, "connection_string", None)
+        if conn_str:
+            try:
+                import psycopg2
+                conn = psycopg2.connect(conn_str, connect_timeout=5)
+                with conn:
+                    with conn.cursor() as cur:
+                        cur.execute("SELECT 1")
+                conn.close()
+                result["from_db"] = "postgresql"
+                return result
+            except Exception:
+                pass
+
+    # 4. manifest.json without lsm.db → v0.7 legacy
+    manifest = _resolve_v07_file(folder, "manifest.json")
+    if manifest is not None:
+        result["from_version"] = "v0.7"
+        result["source_dir"] = str(folder)
+        return result
+
+    return result
+
+
 def _migrate_v07_legacy(
     *,
     source_dir: Path,
@@ -1021,8 +1110,8 @@ def _migrate_v07_legacy(
         f"Importing legacy v0.7 state from {source_dir}.",
     )
 
-    manifest_path = source_dir / "manifest.json"
-    if manifest_path.exists():
+    manifest_path = _resolve_v07_file(source_dir, "manifest.json")
+    if manifest_path is not None:
         raw_manifest = _load_json_file(manifest_path)
         rows: list[dict[str, Any]] = []
         if isinstance(raw_manifest, Mapping):
@@ -1045,10 +1134,10 @@ def _migrate_v07_legacy(
             _upsert_rows(target_conn, tn.manifest, "source_path", rows)
         counts[tn.manifest] = len(rows)
     else:
-        _warn_legacy_missing(manifest_path)
+        _warn_legacy_missing(source_dir / "manifest.json")
 
-    memories_db_path = source_dir / "memories.db"
-    if memories_db_path.exists():
+    memories_db_path = _resolve_v07_file(source_dir, "memories.db")
+    if memories_db_path is not None:
         legacy_conn = sqlite3.connect(str(memories_db_path))
         legacy_conn.row_factory = sqlite3.Row
         try:
@@ -1114,10 +1203,10 @@ def _migrate_v07_legacy(
         finally:
             legacy_conn.close()
     else:
-        _warn_legacy_missing(memories_db_path)
+        _warn_legacy_missing(source_dir / "memories.db")
 
-    schedules_path = source_dir / "schedules.json"
-    if schedules_path.exists():
+    schedules_path = _resolve_v07_file(source_dir, "schedules.json")
+    if schedules_path is not None:
         raw_schedules = _load_json_file(schedules_path)
         schedule_rows: list[dict[str, Any]] = []
         for schedule in _iter_legacy_schedules(raw_schedules):
@@ -1143,10 +1232,10 @@ def _migrate_v07_legacy(
             _upsert_rows(target_conn, tn.agent_schedules, "schedule_id", schedule_rows)
         counts[tn.agent_schedules] = len(schedule_rows)
     else:
-        _warn_legacy_missing(schedules_path)
+        _warn_legacy_missing(source_dir / "schedules.json")
 
-    stats_cache_path = source_dir / "stats_cache.json"
-    if stats_cache_path.exists():
+    stats_cache_path = _resolve_v07_file(source_dir, "stats_cache.json")
+    if stats_cache_path is not None:
         raw_stats = _load_json_file(stats_cache_path)
         stats_rows: list[dict[str, Any]] = []
         if isinstance(raw_stats, Mapping) and "stats" in raw_stats:
@@ -1174,7 +1263,7 @@ def _migrate_v07_legacy(
             _upsert_rows(target_conn, tn.stats_cache, "cache_key", stats_rows)
         counts[tn.stats_cache] = len(stats_rows)
     else:
-        _warn_legacy_missing(stats_cache_path)
+        _warn_legacy_missing(source_dir / "stats_cache.json")
 
     remote_rows: list[dict[str, Any]] = []
     for root in (source_dir / "Downloads", source_dir / "remote"):

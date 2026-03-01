@@ -65,8 +65,11 @@ def run_migrate(args) -> int:
     """Run explicit migration command."""
     return run_migrate_cli(
         args.config,
-        migration_source=getattr(args, "migration_source", None),
-        migration_target=getattr(args, "migration_target", None),
+        from_db=getattr(args, "from_db", None),
+        to_db=getattr(args, "to_db", None),
+        from_version=getattr(args, "from_version", None),
+        to_version=getattr(args, "to_version", None),
+        resume=getattr(args, "resume", False),
         source_path=getattr(args, "source_path", None),
         source_collection=getattr(args, "source_collection", None),
         source_connection_string=getattr(args, "source_connection_string", None),
@@ -328,8 +331,11 @@ def _with_overrides(
 def run_migrate_cli(
     config_path: str | Path,
     *,
-    migration_source: Optional[str],
-    migration_target: Optional[str],
+    from_db: Optional[str] = None,
+    to_db: Optional[str] = None,
+    from_version: Optional[str] = None,
+    to_version: Optional[str] = None,
+    resume: bool = False,
     source_path: Optional[str] = None,
     source_collection: Optional[str] = None,
     source_connection_string: Optional[str] = None,
@@ -338,18 +344,58 @@ def run_migrate_cli(
     target_collection: Optional[str] = None,
     target_connection_string: Optional[str] = None,
     batch_size: int = 1000,
+    # Legacy compat
+    migration_source: Optional[str] = None,
+    migration_target: Optional[str] = None,
 ) -> int:
     """Run backend migration command."""
-    if not migration_source or not migration_target:
-        print("Error: --from and --to are required.")
+    config = _load_config(config_path)
+
+    # Legacy argument compat: --from/--to → --from-db/--to-db
+    if migration_source and not from_db:
+        source_lower = migration_source.strip().lower()
+        if source_lower == "v0.7":
+            from_version = "v0.7"
+        else:
+            from_db = source_lower
+    if migration_target and not to_db:
+        target_lower = migration_target.strip().lower()
+        if target_lower == "v0.8":
+            to_db = "sqlite"
+        else:
+            to_db = target_lower
+
+    # Auto-detect when no explicit source specified
+    if not from_db and not from_version:
+        try:
+            from lsm.db.migration import auto_detect_migration
+
+            global_folder = getattr(config.global_settings, "global_folder", None)
+            if global_folder:
+                detected = auto_detect_migration(global_folder, config)
+                from_db = detected.get("from_db")
+                from_version = from_version or detected.get("from_version")
+                to_db = to_db or detected.get("to_db")
+                source_dir = source_dir or detected.get("source_dir")
+                if from_db or from_version:
+                    print(
+                        f"Auto-detected migration: from_db={from_db}, "
+                        f"from_version={from_version}, to_db={to_db}"
+                    )
+        except Exception as exc:
+            print(f"Auto-detection failed: {exc}")
+
+    # Determine effective source and target values
+    if from_version and from_version.startswith("v0.7"):
+        source_value = "v0.7"
+    elif from_db:
+        source_value = from_db.strip().lower()
+    else:
+        print("Error: cannot determine migration source. Use --from-db or --from-version.")
         return 2
 
-    source_value = str(migration_source).strip().lower()
-    target_value = str(migration_target).strip().lower()
-    if target_value == "v0.8":
-        target_value = "sqlite"
+    target_value = (to_db or config.db.provider).strip().lower()
 
-    config = _load_config(config_path)
     target_vdb = _with_overrides(
         config.db,
         provider=target_value,
@@ -377,14 +423,14 @@ def run_migrate_cli(
         )
     elif source_value == "v0.7":
         if target_value not in {"sqlite"}:
-            print("Error: legacy v0.7 migration only supports --to v0.8/sqlite.")
+            print("Error: legacy v0.7 migration only supports --to-db sqlite.")
             return 2
         default_source_dir = source_dir
         if default_source_dir is None:
             default_source_dir = str(getattr(config.global_settings, "global_folder", "") or "")
         source_payload = {"source_dir": default_source_dir}
     else:
-        print(f"Error: unsupported migration source '{migration_source}'.")
+        print(f"Error: unsupported migration source '{source_value}'.")
         return 2
 
     target_runtime = replace(config, db=target_vdb)

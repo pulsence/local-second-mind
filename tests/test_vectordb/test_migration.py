@@ -313,3 +313,87 @@ def test_framework_migration_is_idempotent(monkeypatch: pytest.MonkeyPatch) -> N
 
     assert target_provider.count() == 2
     assert target_conn.execute("SELECT COUNT(*) FROM lsm_manifest").fetchone()[0] == 1
+
+
+# ---------------------------------------------------------------------------
+# Phase 17.5: _resolve_v07_file and auto_detect_migration
+# ---------------------------------------------------------------------------
+
+class TestResolveV07File:
+    """Test _resolve_v07_file() finds files in standard subdirectories."""
+
+    def test_finds_file_in_root(self, tmp_path):
+        (tmp_path / "manifest.json").write_text("{}")
+        result = migration_mod._resolve_v07_file(tmp_path, "manifest.json")
+        assert result == tmp_path / "manifest.json"
+
+    def test_finds_file_in_ingest_subdir(self, tmp_path):
+        ingest_dir = tmp_path / ".ingest"
+        ingest_dir.mkdir()
+        (ingest_dir / "manifest.json").write_text("{}")
+        result = migration_mod._resolve_v07_file(tmp_path, "manifest.json")
+        assert result == ingest_dir / "manifest.json"
+
+    def test_finds_file_in_agents_subdir(self, tmp_path):
+        agents_dir = tmp_path / "Agents"
+        agents_dir.mkdir()
+        (agents_dir / "memories.db").write_text("")
+        result = migration_mod._resolve_v07_file(tmp_path, "memories.db")
+        assert result == agents_dir / "memories.db"
+
+    def test_prefers_root_over_subdir(self, tmp_path):
+        (tmp_path / "manifest.json").write_text("{}")
+        ingest_dir = tmp_path / ".ingest"
+        ingest_dir.mkdir()
+        (ingest_dir / "manifest.json").write_text("{}")
+        result = migration_mod._resolve_v07_file(tmp_path, "manifest.json")
+        assert result == tmp_path / "manifest.json"
+
+    def test_returns_none_when_missing(self, tmp_path):
+        result = migration_mod._resolve_v07_file(tmp_path, "nonexistent.json")
+        assert result is None
+
+
+class TestAutoDetectMigration:
+    """Test auto_detect_migration() filesystem heuristics."""
+
+    def test_detects_chroma_directory(self, tmp_path):
+        from types import SimpleNamespace
+        chroma_dir = tmp_path / ".chroma"
+        chroma_dir.mkdir()
+        config = SimpleNamespace(db=SimpleNamespace(provider="sqlite"))
+        result = migration_mod.auto_detect_migration(tmp_path, config)
+        assert result["from_db"] == "chroma"
+
+    def test_detects_sqlite_db(self, tmp_path):
+        from types import SimpleNamespace
+        data_dir = tmp_path / "data"
+        data_dir.mkdir()
+        db_path = data_dir / "lsm.db"
+        conn = sqlite3.connect(str(db_path))
+        conn.execute("CREATE TABLE lsm_schema_versions (id INTEGER)")
+        conn.close()
+        config = SimpleNamespace(db=SimpleNamespace(provider="sqlite"))
+        result = migration_mod.auto_detect_migration(tmp_path, config)
+        assert result["from_db"] == "sqlite"
+
+    def test_detects_v07_manifest(self, tmp_path):
+        from types import SimpleNamespace
+        (tmp_path / "manifest.json").write_text("{}")
+        config = SimpleNamespace(db=SimpleNamespace(provider="sqlite"))
+        result = migration_mod.auto_detect_migration(tmp_path, config)
+        assert result["from_version"] == "v0.7"
+        assert result["source_dir"] == str(tmp_path)
+
+    def test_returns_none_when_empty(self, tmp_path):
+        from types import SimpleNamespace
+        config = SimpleNamespace(db=SimpleNamespace(provider="sqlite"))
+        result = migration_mod.auto_detect_migration(tmp_path, config)
+        assert result["from_db"] is None
+        assert result["from_version"] is None
+
+    def test_to_db_matches_config(self, tmp_path):
+        from types import SimpleNamespace
+        config = SimpleNamespace(db=SimpleNamespace(provider="postgresql"))
+        result = migration_mod.auto_detect_migration(tmp_path, config)
+        assert result["to_db"] == "postgresql"

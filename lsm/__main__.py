@@ -186,21 +186,52 @@ def build_parser() -> argparse.ArgumentParser:
     migrate_parser = subparsers.add_parser(
         "migrate",
         help="Migrate vector/state data across backends",
-        description="Run explicit migration between supported backend/state formats.",
+        description=(
+            "Run migration between supported backend/state formats. "
+            "When no --from-db/--from-version is specified, auto-detects the source."
+        ),
     )
     migrate_parser.add_argument(
-        "--from",
-        dest="migration_source",
-        required=True,
-        choices=["chroma", "sqlite", "postgresql", "v0.7"],
-        help="Migration source backend/state",
+        "--from-db",
+        dest="from_db",
+        choices=["chroma", "sqlite", "postgresql"],
+        help="Source database backend (auto-detected if omitted)",
     )
     migrate_parser.add_argument(
-        "--to",
-        dest="migration_target",
-        required=True,
-        choices=["sqlite", "postgresql", "v0.8"],
-        help="Migration target backend/state",
+        "--to-db",
+        dest="to_db",
+        choices=["sqlite", "postgresql"],
+        help="Target database backend (default: configured provider)",
+    )
+    migrate_parser.add_argument(
+        "--from-version",
+        dest="from_version",
+        type=str,
+        help="Source schema version (e.g., 'v0.7'). Auto-detected if omitted",
+    )
+    migrate_parser.add_argument(
+        "--to-version",
+        dest="to_version",
+        type=str,
+        help="Target schema version (default: current LSM version)",
+    )
+    migrate_parser.add_argument(
+        "--resume",
+        action="store_true",
+        default=False,
+        help="Resume a previously interrupted migration",
+    )
+    migrate_parser.add_argument(
+        "--enrich",
+        action="store_true",
+        default=False,
+        help="Run post-migration chunk enrichment",
+    )
+    migrate_parser.add_argument(
+        "--skip-enrich",
+        action="store_true",
+        default=False,
+        help="Skip post-migration chunk enrichment",
     )
     migrate_parser.add_argument(
         "--source-path",

@@ -66,7 +66,7 @@ def test_main_dispatches_migrate(tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     monkeypatch.setattr("lsm.config.load_config_from_file", lambda p: fake_config)
     monkeypatch.setattr("lsm.ui.shell.cli.run_migrate", lambda args: 6)
 
-    code = lsm_main.main(["--config", str(cfg_file), "migrate", "--from", "sqlite", "--to", "sqlite"])
+    code = lsm_main.main(["--config", str(cfg_file), "migrate", "--from-db", "sqlite", "--to-db", "sqlite"])
     assert code == 6
 
 

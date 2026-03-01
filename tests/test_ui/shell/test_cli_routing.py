@@ -94,9 +94,9 @@ def test_migrate_parses():
     args = parser.parse_args(
         [
             "migrate",
-            "--from",
+            "--from-db",
             "sqlite",
-            "--to",
+            "--to-db",
             "postgresql",
             "--source-path",
             ".lsm",
@@ -108,8 +108,8 @@ def test_migrate_parses():
     )
 
     assert args.command == "migrate"
-    assert args.migration_source == "sqlite"
-    assert args.migration_target == "postgresql"
+    assert args.from_db == "sqlite"
+    assert args.to_db == "postgresql"
     assert args.source_path == ".lsm"
     assert args.target_connection_string.startswith("postgresql://")
     assert args.batch_size == 500
@@ -120,17 +120,17 @@ def test_migrate_v07_to_v08_parses():
     args = parser.parse_args(
         [
             "migrate",
-            "--from",
+            "--from-version",
             "v0.7",
-            "--to",
-            "v0.8",
+            "--to-db",
+            "sqlite",
             "--source-dir",
             "/tmp/legacy",
         ]
     )
     assert args.command == "migrate"
-    assert args.migration_source == "v0.7"
-    assert args.migration_target == "v0.8"
+    assert args.from_version == "v0.7"
+    assert args.to_db == "sqlite"
     assert args.source_dir == "/tmp/legacy"
 
 
