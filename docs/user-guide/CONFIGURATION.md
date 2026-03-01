@@ -352,9 +352,6 @@ The `query` section controls retrieval and reranking behavior.
 | `path_contains` | list[string]? | null | Filter: substring(s) in path. |
 | `ext_allow` | list[string]? | null | Filter: allow extensions. |
 | `ext_deny` | list[string]? | null | Filter: deny extensions. |
-| `enable_query_cache` | bool | `false` | Enable local in-memory query result cache (TTL + LRU). |
-| `query_cache_ttl` | int | `3600` | Local query cache TTL in seconds. |
-| `query_cache_size` | int | `100` | Max entries in local query cache. |
 | `chat_mode` | string | `single` | Response mode: `single` or `chat`. |
 | `enable_llm_server_cache` | bool | `true` | Enable provider-side prompt/session cache reuse for chat follow-up turns. |
 | `cluster_enabled` | bool | `false` | Enable cluster-aware retrieval (pre-filter by top clusters). |
@@ -377,9 +374,8 @@ The `k_dense` and `k_sparse` parameters control the candidate pool size for each
 The `rrf_dense_weight` and `rrf_sparse_weight` parameters control the relative importance
 of vector similarity vs keyword matching in `hybrid_rrf`.
 
-Query caching notes:
+Server cache notes:
 
-- `enable_query_cache` caches synthesized query results in process memory with query/mode/filter-sensitive cache keys.
 - `enable_llm_server_cache` enables provider server-side cache/session reuse in `chat_mode = "chat"`.
 - LSM tracks provider response/session IDs and reuses them on follow-up turns when the provider API supports this.
 - Provider cache retention is managed by provider backends; LSM does not expose a retention duration setting.

@@ -14,7 +14,6 @@ Folder Path: `lsm/query/`
 - [planning.py](../lsm/query/planning.py): Shared query planning (candidate retrieval, filtering, reranking)
 - [context.py](../lsm/query/context.py): Context block building, remote source fetching, fallback answers
 - [prompts.py](../lsm/query/prompts.py): Synthesis prompt templates (grounded, insight)
-- [cache.py](../lsm/query/cache.py): Query result caching
 - [cost_tracking.py](../lsm/query/cost_tracking.py): Cost tracking for LLM queries
 - [notes.py](../lsm/query/notes.py): Note generation
 - [citations.py](../lsm/query/citations.py): Citation export

@@ -110,7 +110,6 @@ Factories:
 
 - Vector store: configured via `vectordb` (ChromaDB or PostgreSQL)
 - Ingest manifest: tracks file version/hash data for incremental runs
-- Query cache: in-memory TTL/LRU cache (`query.enable_query_cache`)
 - Remote result cache: optional on-disk provider cache
 - Chat and notes output: saved under configured directories
 - Agent state/log files: persisted under `agents.agents_folder`

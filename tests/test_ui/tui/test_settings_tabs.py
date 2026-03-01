@@ -109,9 +109,6 @@ def _config() -> Any:
         ext_allow=None,
         ext_deny=None,
         chat_mode="single",
-        enable_query_cache=False,
-        query_cache_ttl=3600,
-        query_cache_size=100,
         enable_llm_server_cache=True,
     )
     vectordb = SimpleNamespace(

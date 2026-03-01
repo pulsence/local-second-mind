@@ -87,7 +87,6 @@ def test_cache_clear_parses():
     assert args.command == "cache"
     assert args.cache_command == "clear"
     assert args.reranker is True
-    assert args.query is False
 
 
 def test_migrate_parses():

@@ -63,15 +63,6 @@ class QueryConfig:
     ext_deny: Optional[List[str]] = None
     """Exclude files with these extensions."""
 
-    enable_query_cache: bool = False
-    """Enable in-memory query result caching."""
-
-    query_cache_ttl: int = 3600
-    """Cache TTL in seconds."""
-
-    query_cache_size: int = 100
-    """Maximum number of cached query entries."""
-
     chat_mode: str = "single"
     """Response mode: 'single' (stateless) or 'chat' (maintains conversation)."""
 
@@ -144,12 +135,6 @@ class QueryConfig:
             raise ValueError(
                 f"retrieval_profile must be one of {VALID_PROFILES}, got '{self.retrieval_profile}'"
             )
-
-        if self.query_cache_ttl < 1:
-            raise ValueError(f"query_cache_ttl must be positive, got {self.query_cache_ttl}")
-
-        if self.query_cache_size < 1:
-            raise ValueError(f"query_cache_size must be positive, got {self.query_cache_size}")
 
         valid_chat_modes = {"single", "chat"}
         if self.chat_mode not in valid_chat_modes:

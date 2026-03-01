@@ -21,7 +21,6 @@ def _make_config(
     mode="grounded",
     chat_mode="single",
     enable_llm_server_cache=True,
-    enable_query_cache=False,
     k=12,
     min_relevance=0.25,
 ):
@@ -39,9 +38,6 @@ def _make_config(
         path_contains=None,
         ext_allow=None,
         ext_deny=None,
-        enable_query_cache=enable_query_cache,
-        query_cache_ttl=3600,
-        query_cache_size=100,
         chat_mode=chat_mode,
         enable_llm_server_cache=enable_llm_server_cache,
         cluster_enabled=False,

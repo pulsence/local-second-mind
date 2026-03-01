@@ -96,12 +96,6 @@ class QuerySettingsTab(BaseSettingsTab):
             ", ".join(getattr(query, "ext_deny", None) or []),
         )
         self._set_select_value("settings-query-chat-mode", str(getattr(query, "chat_mode", "")))
-        self._set_input("settings-query-cache-ttl", str(getattr(query, "query_cache_ttl", "")))
-        self._set_input("settings-query-cache-size", str(getattr(query, "query_cache_size", "")))
-        self._set_switch(
-            "settings-query-enable-cache",
-            bool(getattr(query, "enable_query_cache", False)),
-        )
         self._set_switch(
             "settings-query-enable-llm-server-cache",
             bool(getattr(query, "enable_llm_server_cache", False)),
@@ -151,15 +145,6 @@ class QuerySettingsTab(BaseSettingsTab):
             return True
         if field_id == "settings-query-chat-mode":
             query.chat_mode = text
-            return True
-        if field_id == "settings-query-cache-ttl" and text:
-            query.query_cache_ttl = int(text)
-            return True
-        if field_id == "settings-query-cache-size" and text:
-            query.query_cache_size = int(text)
-            return True
-        if field_id == "settings-query-enable-cache":
-            query.enable_query_cache = bool(value)
             return True
         if field_id == "settings-query-enable-llm-server-cache":
             query.enable_llm_server_cache = bool(value)

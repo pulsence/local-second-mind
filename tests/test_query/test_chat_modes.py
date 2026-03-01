@@ -33,7 +33,6 @@ def _make_config(
     tmp_path: Path,
     *,
     chat_mode: str = "single",
-    cache_enabled: bool = False,
     llm_server_cache_enabled: bool = False,
 ) -> LSMConfig:
     return LSMConfig(
@@ -48,9 +47,6 @@ def _make_config(
         query=QueryConfig(
             mode="grounded",
             chat_mode=chat_mode,
-            enable_query_cache=cache_enabled,
-            query_cache_ttl=60,
-            query_cache_size=10,
             enable_llm_server_cache=llm_server_cache_enabled,
         ),
         vectordb=VectorDBConfig(provider="sqlite", path=tmp_path / "data", collection="kb"),
@@ -91,34 +87,10 @@ def _mock_pipeline_run(candidate, response_id=None):
     return _run
 
 
-def test_query_cache_short_circuits_second_call(monkeypatch, tmp_path: Path) -> None:
-    from lsm.query import api as qapi
-
-    config = _make_config(tmp_path, chat_mode="single", cache_enabled=True)
-    state = SessionState(model="gpt-5.2")
-    candidate = _make_candidate()
-
-    calls = {"pipeline": 0}
-    _base_run = _mock_pipeline_run(candidate)
-
-    def _counting_run(request, progress_callback=None):
-        calls["pipeline"] += 1
-        return _base_run(request, progress_callback)
-
-    with patch("lsm.query.api.RetrievalPipeline") as MockPipeline:
-        instance = MockPipeline.return_value
-        instance.run.side_effect = _counting_run
-
-        asyncio.run(qapi.query("What is Python?", config, state, embedder=Mock(), collection=Mock()))
-        asyncio.run(qapi.query("What is Python?", config, state, embedder=Mock(), collection=Mock()))
-
-    assert calls["pipeline"] == 1  # Second call should be a cache hit
-
-
 def test_chat_mode_appends_conversation_history(monkeypatch, tmp_path: Path) -> None:
     from lsm.query import api as qapi
 
-    config = _make_config(tmp_path, chat_mode="chat", cache_enabled=False)
+    config = _make_config(tmp_path, chat_mode="chat")
     config.chats.auto_save = False
     state = SessionState(model="gpt-5.2")
     candidate = _make_candidate()
@@ -142,7 +114,6 @@ def test_chat_mode_passes_previous_response_id_when_llm_server_cache_enabled(
     config = _make_config(
         tmp_path,
         chat_mode="chat",
-        cache_enabled=False,
         llm_server_cache_enabled=True,
     )
     config.chats.auto_save = False
@@ -191,7 +162,7 @@ def test_chat_mode_passes_previous_response_id_when_llm_server_cache_enabled(
 def test_chat_mode_respects_mode_auto_save_override_off(monkeypatch, tmp_path: Path) -> None:
     from lsm.query import api as qapi
 
-    config = _make_config(tmp_path, chat_mode="chat", cache_enabled=False)
+    config = _make_config(tmp_path, chat_mode="chat")
     config.chats.auto_save = True
     config.modes = {
         "grounded": ModeConfig(
@@ -221,7 +192,7 @@ def test_chat_mode_respects_mode_auto_save_override_off(monkeypatch, tmp_path: P
 def test_chat_mode_respects_mode_chat_dir_override(monkeypatch, tmp_path: Path) -> None:
     from lsm.query import api as qapi
 
-    config = _make_config(tmp_path, chat_mode="chat", cache_enabled=False)
+    config = _make_config(tmp_path, chat_mode="chat")
     config.chats.auto_save = True
     config.chats.dir = "Chats"
     config.modes = {
@@ -256,7 +227,7 @@ def test_chat_mode_respects_mode_chat_dir_override(monkeypatch, tmp_path: Path) 
 def test_conversation_invalidation_on_model_provider_mode_switch(tmp_path: Path) -> None:
     from lsm.query import api as qapi
 
-    config = _make_config(tmp_path, chat_mode="chat", cache_enabled=False)
+    config = _make_config(tmp_path, chat_mode="chat")
     state = SessionState(model="gpt-5.2")
     state.conversation_id = "conv-1"
     state.prior_response_id = "resp-1"
@@ -295,7 +266,7 @@ def test_conversation_invalidation_on_model_provider_mode_switch(tmp_path: Path)
 def test_conversation_invalidation_in_single_chat_mode(tmp_path: Path) -> None:
     from lsm.query import api as qapi
 
-    config = _make_config(tmp_path, chat_mode="single", cache_enabled=False)
+    config = _make_config(tmp_path, chat_mode="single")
     state = SessionState(model="gpt-5.2")
     state.conversation_id = "conv-1"
     state.prior_response_id = "resp-1"

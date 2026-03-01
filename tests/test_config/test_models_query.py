@@ -11,11 +11,6 @@ def test_query_config_chat_mode_validation() -> None:
     cfg.validate()
 
 
-def test_query_config_cache_validation() -> None:
-    cfg = QueryConfig(enable_query_cache=True, query_cache_ttl=10, query_cache_size=5)
-    cfg.validate()
-
-
 def test_query_config_llm_server_cache_fields() -> None:
     cfg = QueryConfig(enable_llm_server_cache=True)
     cfg.validate()

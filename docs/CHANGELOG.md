@@ -632,7 +632,6 @@ All notable changes to Local Second Mind are documented here.
 - `migrate-vectordb` CLI subcommand and `/migrate` TUI command for running migrations.
 - PostgreSQL connection variables in `.env.example` (`LSM_POSTGRES_CONNECTION_STRING`, `LSM_POSTGRES_TABLE`).
 - PostgreSQL vectordb example in `example_config.json`.
-- Query result cache in `lsm/query/cache.py` with TTL expiration + LRU eviction, integrated into query execution behind `query.enable_query_cache`.
 - Query chat modes (`query.chat_mode = single|chat`) with `/mode chat` and `/mode single` switching in TUI query commands.
 - Global chat transcript settings via `ChatsConfig` (`enabled`, `dir`, `auto_save`, `format`) with transcript auto-save support.
 - Chat conversation/session tracking in query state, including provider response/session ID chaining for follow-up turns.

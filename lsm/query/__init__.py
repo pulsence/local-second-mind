@@ -20,7 +20,6 @@ __all__ = [
     "Candidate",
     "prepare_local_candidates",
     "LocalQueryPlan",
-    "QueryCache",
     "prefilter_by_metadata",
     "extract_tags_from_prompt",
     "QueryFields",
@@ -64,10 +63,6 @@ def __getattr__(name: str) -> Any:
         from lsm.query import planning as _planning
 
         return getattr(_planning, name)
-    if name == "QueryCache":
-        from lsm.query.cache import QueryCache as _QueryCache
-
-        return _QueryCache
     if name in {"prefilter_by_metadata", "extract_tags_from_prompt"}:
         from lsm.query import prefilter as _prefilter
 

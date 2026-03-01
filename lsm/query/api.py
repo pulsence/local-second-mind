@@ -10,19 +10,16 @@ Internally delegates to RetrievalPipeline for the three-stage execution.
 from __future__ import annotations
 
 import asyncio
-from copy import deepcopy
 from dataclasses import dataclass
 from typing import Callable, Dict, Any, List, Optional
 
 from lsm.config.models import LSMConfig
 from lsm.providers import create_provider
-from lsm.query.cache import QueryCache
 from lsm.query.session import (
     Candidate,
     SessionState,
     append_chat_turn,
     save_conversation_markdown,
-    serialize_conversation,
 )
 from lsm.query.context import build_context_block
 from lsm.query.pipeline import RetrievalPipeline
@@ -32,7 +29,6 @@ from lsm.logging import get_logger
 from lsm.paths import get_mode_chats_folder
 
 logger = get_logger(__name__)
-_QUERY_CACHES: Dict[int, QueryCache] = {}
 
 
 @dataclass
@@ -112,43 +108,6 @@ async def query(
 
     state.last_question = question
     _check_conversation_invalidation(config, state)
-
-    # --- Cache check ---
-    cache = _get_query_cache(config)
-    cache_key = None
-    if cache is not None:
-        cache_filters = {
-            "path_contains": state.path_contains,
-            "ext_allow": state.ext_allow,
-            "ext_deny": state.ext_deny,
-            "context_documents": state.context_documents,
-            "context_chunks": state.context_chunks,
-        }
-        cache_key = cache.build_key(
-            query_text=question,
-            mode=config.query.mode,
-            filters=cache_filters,
-            k=local_policy.k,
-            conversation=serialize_conversation(state) if chat_mode == "chat" else None,
-        )
-        cached = cache.get(cache_key)
-        if cached is not None:
-            result = deepcopy(cached)
-            state.last_debug = dict(result.debug_info or {})
-            state.last_debug["cache_hit"] = True
-            state.last_answer = result.answer
-            state.last_chosen = list(result.candidates or [])
-            state.last_label_to_candidate = {
-                f"S{i}": candidate
-                for i, candidate in enumerate(result.candidates or [], start=1)
-            }
-            state.last_remote_sources = list(result.remote_sources or [])
-            state.last_local_sources_for_notes = [
-                {"text": c.text, "meta": c.meta, "distance": c.distance}
-                for c in (result.candidates or [])
-                if not (c.meta or {}).get("remote")
-            ]
-            return result
 
     if chat_mode == "chat":
         append_chat_turn(state, "user", question)
@@ -268,8 +227,6 @@ async def query(
         remote_sources=[rs.to_dict() for rs in package.remote_sources],
         debug_info=state.last_debug,
     )
-    if cache is not None and cache_key is not None:
-        cache.set(cache_key, deepcopy(result))
     return result
 
 
@@ -306,48 +263,6 @@ def query_sync(
             progress_callback=progress_callback,
         )
     )
-
-
-def _get_query_cache(config: LSMConfig) -> QueryCache | None:
-    """Get or initialize a cache for this config instance."""
-    if not config.query.enable_query_cache:
-        return None
-    key = id(config)
-    cache = _QUERY_CACHES.get(key)
-    if cache is None:
-        cache = QueryCache(
-            ttl_seconds=config.query.query_cache_ttl,
-            max_size=config.query.query_cache_size,
-        )
-        _QUERY_CACHES[key] = cache
-    return cache
-
-
-def clear_query_caches(config: Optional[LSMConfig] = None) -> int:
-    """Clear in-memory query result caches.
-
-    Args:
-        config: Optional config to clear only that cache instance. If omitted,
-            clears all registered query caches.
-
-    Returns:
-        Number of cached entries removed.
-    """
-    if config is not None:
-        cache = _QUERY_CACHES.get(id(config))
-        if cache is None:
-            return 0
-        removed = len(getattr(cache, "_store", {}))
-        cache.clear()
-        _QUERY_CACHES.pop(id(config), None)
-        return int(removed)
-
-    removed = 0
-    for cache in list(_QUERY_CACHES.values()):
-        removed += len(getattr(cache, "_store", {}))
-        cache.clear()
-    _QUERY_CACHES.clear()
-    return int(removed)
 
 
 def _maybe_auto_save_chat(config: LSMConfig, state: SessionState) -> None:

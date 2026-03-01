@@ -113,7 +113,6 @@ Mode selection is separate from chat behavior:
 
 Caching controls:
 
-- `query.enable_query_cache`: local in-memory result cache
 - `query.enable_llm_server_cache`: provider-side response-chain caching
 
 TUI toggles:

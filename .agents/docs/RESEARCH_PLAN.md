@@ -222,7 +222,7 @@ v0.8.0 are marked with ✗):
 - **`QueryConfig`**: `k`, `retrieve_k`, `min_relevance`, `k_rerank`,
   `rerank_strategy`✗ ("none"/"lexical"/"llm"/"hybrid"), `no_rerank`, `local_pool`,
   `max_per_file`, `mode`, `path_contains`, `ext_allow`, `ext_deny`,
-  `enable_query_cache`, `query_cache_ttl`, `query_cache_size`, `chat_mode`.
+  `chat_mode`.
 - **`ModeConfig`**: `synthesis_style`, `source_policy` (containing `LocalSourcePolicy`,
   `RemoteSourcePolicy`, `ModelKnowledgePolicy`).
 - **`LocalSourcePolicy`**: `enabled`, `min_relevance`, `k`, `k_rerank`.

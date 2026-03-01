@@ -578,12 +578,6 @@ class SettingsViewModel:
             cfg.query.retrieval_profile = text
         elif field_id == "settings-query-chat-mode":
             cfg.query.chat_mode = text
-        elif field_id == "settings-query-cache-ttl" and text:
-            cfg.query.query_cache_ttl = int(text)
-        elif field_id == "settings-query-cache-size" and text:
-            cfg.query.query_cache_size = int(text)
-        elif field_id == "settings-query-enable-cache":
-            cfg.query.enable_query_cache = bool(value)
         elif field_id == "settings-query-enable-llm-server-cache":
             cfg.query.enable_llm_server_cache = bool(value)
         elif field_id == "settings-vdb-provider":
