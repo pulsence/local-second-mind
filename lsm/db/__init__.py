@@ -8,6 +8,14 @@ from .connection import (
     resolve_sqlite_connection,
     resolve_vectordb_provider_name,
 )
+from .enrichment import (
+    EnrichmentReport,
+    detect_stale_chunks,
+    run_enrichment_pipeline,
+    run_tier1_enrichment,
+    run_tier2_enrichment,
+    run_tier2_cluster_enrichment,
+)
 from .health import DBHealthReport, check_db_health
 from .migration import (
     MigrationSource,
@@ -34,6 +42,12 @@ __all__ = [
     "resolve_vectordb_provider_name",
     "detect_completion_mode",
     "get_stale_files",
+    "EnrichmentReport",
+    "detect_stale_chunks",
+    "run_enrichment_pipeline",
+    "run_tier1_enrichment",
+    "run_tier2_enrichment",
+    "run_tier2_cluster_enrichment",
     "DBHealthReport",
     "check_db_health",
     "APPLICATION_TABLES",
