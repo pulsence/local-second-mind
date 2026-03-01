@@ -70,6 +70,8 @@ def run_migrate(args) -> int:
         from_version=getattr(args, "from_version", None),
         to_version=getattr(args, "to_version", None),
         resume=getattr(args, "resume", False),
+        enrich=getattr(args, "enrich", False),
+        skip_enrich=getattr(args, "skip_enrich", False),
         source_path=getattr(args, "source_path", None),
         source_collection=getattr(args, "source_collection", None),
         source_connection_string=getattr(args, "source_connection_string", None),
@@ -336,6 +338,8 @@ def run_migrate_cli(
     from_version: Optional[str] = None,
     to_version: Optional[str] = None,
     resume: bool = False,
+    enrich: bool = False,
+    skip_enrich: bool = False,
     source_path: Optional[str] = None,
     source_collection: Optional[str] = None,
     source_connection_string: Optional[str] = None,
@@ -349,7 +353,19 @@ def run_migrate_cli(
     migration_target: Optional[str] = None,
 ) -> int:
     """Run backend migration command."""
+    if enrich and skip_enrich:
+        print("Error: --enrich and --skip-enrich are mutually exclusive.")
+        return 2
+
+    if enrich and (from_db or to_db):
+        print("Error: --enrich is for in-place enrichment. Do not use with --from-db/--to-db.")
+        return 2
+
     config = _load_config(config_path)
+
+    # Standalone enrichment mode: enrich existing database, no backend copy
+    if enrich:
+        return _run_standalone_enrichment(config)
 
     # Legacy argument compat: --from/--to → --from-db/--to-db
     if migration_source and not from_db:
@@ -449,6 +465,7 @@ def run_migrate_cli(
             target_config=target_runtime,
             progress_callback=progress,
             batch_size=max(1, int(batch_size)),
+            resume=resume,
         )
     except Exception as exc:
         print(f"Error: {exc}")
@@ -459,7 +476,60 @@ def run_migrate_cli(
         f"{result.get('migrated_vectors', 0):,}/{result.get('total_vectors', 0):,} vectors, "
         f"validated tables={result.get('validated_tables', 0)}."
     )
+
+    # Run enrichment unless --skip-enrich was passed
+    if not skip_enrich:
+        _run_post_migration_enrichment(target_runtime, progress)
+
     return 0
+
+
+def _run_standalone_enrichment(config: LSMConfig) -> int:
+    """Run enrichment on the existing database without backend migration."""
+    provider = create_vectordb_provider(config.db)
+    conn = getattr(provider, "connection", getattr(provider, "_conn", None))
+    if conn is None:
+        print("Error: Enrichment requires a backend with direct SQL access.")
+        return 1
+
+    from lsm.db.enrichment import run_enrichment_pipeline
+
+    print("Running standalone enrichment on existing database...")
+    report = run_enrichment_pipeline(conn, config)
+    _print_enrichment_summary(report)
+    return 0
+
+
+def _run_post_migration_enrichment(config: LSMConfig, progress_callback) -> None:
+    """Run enrichment after a backend migration."""
+    provider = create_vectordb_provider(config.db)
+    conn = getattr(provider, "connection", getattr(provider, "_conn", None))
+    if conn is None:
+        return
+
+    from lsm.db.enrichment import run_enrichment_pipeline
+
+    print("\nRunning post-migration enrichment...")
+    report = run_enrichment_pipeline(conn, config)
+    _print_enrichment_summary(report)
+
+
+def _print_enrichment_summary(report) -> None:
+    """Print a human-readable enrichment summary."""
+    print(f"  Tier 1 enriched: {report.tier1_updated:,} (simhash, defaults, tags)")
+    print(f"  Tier 2 enriched: {report.tier2_updated:,} (heading_path, positions, graph)")
+    print(f"  Tier 2b enriched: {report.tier2b_updated:,} (cluster rebuild)")
+    if report.tier2_skipped:
+        print(f"  Tier 2 skipped: {len(report.tier2_skipped):,} (source files not found)")
+    if report.tier3_needed:
+        print(f"  Tier 3 needed: {len(report.tier3_needed):,} (chunk boundary changes + missing summaries)")
+        print(
+            "\nWARNING: Some files need re-ingest (chunk boundaries changed and/or summaries missing).\n"
+            "Run `lsm ingest --force-reingest-changed-config` to re-chunk, re-embed, and regenerate summaries."
+        )
+    if report.errors:
+        for err in report.errors:
+            print(f"  Error: {err}")
 
 
 def run_cache_clear_cli(

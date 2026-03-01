@@ -435,3 +435,51 @@ class TestEnrichmentPipeline:
         report = enrichment.run_enrichment_pipeline(conn, cfg)
         # Should report missing summaries as tier3 needed
         assert len(report.tier3_needed) > 0
+
+
+# ==================================================================
+# CLI Integration Tests
+# ==================================================================
+
+
+class TestCLIEnrichmentFlags:
+    """Test that --enrich and --skip-enrich flags are parsed correctly."""
+
+    def test_enrich_flag_parses(self):
+        from lsm.__main__ import build_parser
+
+        parser = build_parser()
+        args = parser.parse_args(["migrate", "--enrich"])
+        assert args.enrich is True
+        assert args.skip_enrich is False
+
+    def test_skip_enrich_flag_parses(self):
+        from lsm.__main__ import build_parser
+
+        parser = build_parser()
+        args = parser.parse_args([
+            "migrate", "--skip-enrich", "--from-db", "sqlite", "--to-db", "sqlite"
+        ])
+        assert args.skip_enrich is True
+        assert args.enrich is False
+
+    def test_mutual_exclusion_in_cli(self):
+        from lsm.ui.shell.cli import run_migrate_cli
+
+        # run_migrate_cli should reject both --enrich and --skip-enrich
+        code = run_migrate_cli(
+            "/nonexistent/config.json",
+            enrich=True,
+            skip_enrich=True,
+        )
+        assert code == 2
+
+    def test_enrich_rejects_from_db(self):
+        from lsm.ui.shell.cli import run_migrate_cli
+
+        code = run_migrate_cli(
+            "/nonexistent/config.json",
+            enrich=True,
+            from_db="sqlite",
+        )
+        assert code == 2
