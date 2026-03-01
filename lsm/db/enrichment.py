@@ -666,6 +666,7 @@ def run_enrichment_pipeline(
     root_paths: list[Path] | None = None,
     skip_tier2: bool = False,
     stage_tracker: Optional[Callable[[str, str], None]] = None,
+    skip_stages: Optional[set[str]] = None,
 ) -> EnrichmentReport:
     """Orchestrate full enrichment pipeline.
 
@@ -676,12 +677,15 @@ def run_enrichment_pipeline(
         root_paths: Root paths for source file lookups.
         skip_tier2: Skip Tier 2 enrichment.
         stage_tracker: Optional callback(stage_name, status) for progress tracking.
+        skip_stages: Optional stage names to skip (resume support).
 
     Returns:
         EnrichmentReport with all results.
     """
     tn = table_names or DEFAULT_TABLE_NAMES
     errors: List[str] = []
+    failed_stages: set[str] = set()
+    skipped_stage_names = set(skip_stages or set())
 
     cluster_enabled = getattr(
         getattr(config, "query", None), "cluster_enabled", False
@@ -697,67 +701,134 @@ def run_enrichment_pipeline(
         summaries_enabled=summaries_enabled,
     )
 
+    def _run_stage(stage_name: str, fn: Callable[[], int]) -> int:
+        if stage_name in skipped_stage_names:
+            logger.info("Skipping enrichment stage %s (already completed)", stage_name)
+            return 0
+        try:
+            if stage_tracker:
+                stage_tracker(stage_name, "in_progress")
+            updated = int(fn())
+            if stage_tracker:
+                stage_tracker(stage_name, "completed")
+            return updated
+        except Exception as exc:
+            errors.append(f"{stage_name} error: {exc}")
+            failed_stages.add(stage_name)
+            logger.error("%s failed: %s", stage_name, exc)
+            if stage_tracker:
+                stage_tracker(stage_name, "failed")
+            return 0
+
     # Tier 1
     tier1_updated = 0
-    try:
-        if stage_tracker:
-            stage_tracker("enrich_tier1", "in_progress")
-        tier1_updated = run_tier1_enrichment(conn, config, tn)
-        logger.info("Tier 1 enrichment: %d chunks updated", tier1_updated)
-        if stage_tracker:
-            stage_tracker("enrich_tier1", "completed")
-    except Exception as exc:
-        errors.append(f"Tier 1 error: {exc}")
-        logger.error("Tier 1 enrichment failed: %s", exc)
-        if stage_tracker:
-            stage_tracker("enrich_tier1", "failed")
+    if stage_tracker:
+        stage_tracker("enrich_tier1", "in_progress")
+    tier1_updated += _run_stage("enrich_tier1_simhash", lambda: _backfill_simhash(conn, tn))
+    tier1_updated += _run_stage("enrich_tier1_defaults", lambda: _backfill_defaults(conn, tn))
+    tier1_updated += _run_stage("enrich_tier1_node_type", lambda: _backfill_node_type(conn, tn))
+    tier1_updated += _run_stage("enrich_tier1_tags", lambda: _backfill_tags(conn, config, tn))
+    if stage_tracker:
+        tier1_failed = any(
+            stage_name in failed_stages
+            for stage_name in (
+                "enrich_tier1_simhash",
+                "enrich_tier1_defaults",
+                "enrich_tier1_node_type",
+                "enrich_tier1_tags",
+            )
+        )
+        stage_tracker("enrich_tier1", "failed" if tier1_failed else "completed")
+    conn.commit()
+    logger.info("Tier 1 enrichment: %d chunks updated", tier1_updated)
 
     # Tier 2
     tier2_updated = 0
     tier2_skipped: List[str] = []
     if not skip_tier2:
-        try:
-            if stage_tracker:
-                stage_tracker("enrich_tier2", "in_progress")
-            tier2_updated, tier2_skipped = run_tier2_enrichment(
-                conn, config, tn, root_paths
+        if stage_tracker:
+            stage_tracker("enrich_tier2", "in_progress")
+        source_rows = conn.execute(
+            f"""SELECT DISTINCT source_path FROM {tn.chunks}
+                WHERE (
+                    (heading IS NOT NULL AND heading_path IS NULL)
+                    OR start_char IS NULL
+                )
+                AND (node_type = 'chunk' OR node_type IS NULL)
+                AND is_current = 1"""
+        ).fetchall()
+        source_paths = [str(row[0]) for row in source_rows]
+
+        existing_paths: List[tuple[str, Path]] = []
+        for source_path in source_paths:
+            candidate = Path(source_path)
+            if candidate.exists():
+                existing_paths.append((source_path, candidate))
+            else:
+                tier2_skipped.append(source_path)
+
+        def _run_heading_path() -> int:
+            updated = 0
+            for source_path, file_path in existing_paths:
+                updated += _backfill_heading_path(conn, tn, source_path, file_path)
+            return updated
+
+        def _run_positions() -> int:
+            updated = 0
+            for source_path, file_path in existing_paths:
+                updated += _backfill_positions(conn, tn, source_path, file_path)
+            return updated
+
+        tier2_updated += _run_stage("enrich_tier2_heading_path", _run_heading_path)
+        tier2_updated += _run_stage("enrich_tier2_positions", _run_positions)
+        tier2_updated += _run_stage("enrich_tier2_graph", lambda: _backfill_graph(conn, tn))
+        conn.commit()
+        logger.info(
+            "Tier 2 enrichment: %d updated, %d skipped",
+            tier2_updated,
+            len(tier2_skipped),
+        )
+        if stage_tracker:
+            tier2_failed = any(
+                stage_name in failed_stages
+                for stage_name in (
+                    "enrich_tier2_heading_path",
+                    "enrich_tier2_positions",
+                    "enrich_tier2_graph",
+                )
             )
-            logger.info(
-                "Tier 2 enrichment: %d updated, %d skipped",
-                tier2_updated,
-                len(tier2_skipped),
-            )
-            if stage_tracker:
-                stage_tracker("enrich_tier2", "completed")
-        except Exception as exc:
-            errors.append(f"Tier 2 error: {exc}")
-            logger.error("Tier 2 enrichment failed: %s", exc)
-            if stage_tracker:
-                stage_tracker("enrich_tier2", "failed")
+            stage_tracker("enrich_tier2", "failed" if tier2_failed else "completed")
 
     # Tier 2b cluster rebuild
     tier2b_updated = 0
     if stale["tier2"]["cluster_rebuild_needed"]:
-        try:
-            if stage_tracker:
-                stage_tracker("enrich_tier2b", "in_progress")
-            tier2b_updated = run_tier2_cluster_enrichment(conn, config, tn)
-            logger.info("Tier 2b cluster rebuild: %d chunks", tier2b_updated)
-            if stage_tracker:
-                stage_tracker("enrich_tier2b", "completed")
-        except Exception as exc:
-            errors.append(f"Tier 2b error: {exc}")
-            logger.error("Tier 2b cluster rebuild failed: %s", exc)
-            if stage_tracker:
-                stage_tracker("enrich_tier2b", "failed")
+        if stage_tracker:
+            stage_tracker("enrich_tier2b", "in_progress")
+        tier2b_updated = _run_stage(
+            "enrich_tier2_clusters",
+            lambda: run_tier2_cluster_enrichment(conn, config, tn),
+        )
+        if stage_tracker:
+            stage_tracker(
+                "enrich_tier2b",
+                "failed" if "enrich_tier2_clusters" in failed_stages else "completed",
+            )
+        logger.info("Tier 2b cluster rebuild: %d chunks", tier2b_updated)
 
     # Tier 3 advisory
     tier3_needed: List[str] = []
-    if stale["tier3"]["needs_reingest"]:
-        for f in stale["tier3"]["missing_section_summary_files"]:
-            tier3_needed.append(f"missing section summary: {f}")
-        for f in stale["tier3"]["missing_file_summary_files"]:
-            tier3_needed.append(f"missing file summary: {f}")
+    if "enrich_tier3_gap_detection" in skipped_stage_names:
+        logger.info("Skipping enrichment stage enrich_tier3_gap_detection (already completed)")
+    else:
+        if stage_tracker:
+            stage_tracker("enrich_tier3_gap_detection", "in_progress")
+        if stale["tier3"]["needs_reingest"]:
+            for f in stale["tier3"]["missing_section_summary_files"]:
+                tier3_needed.append(f"missing section summary: {f}")
+            for f in stale["tier3"]["missing_file_summary_files"]:
+                tier3_needed.append(f"missing file summary: {f}")
+        if stage_tracker:
+            stage_tracker("enrich_tier3_gap_detection", "completed")
 
     return EnrichmentReport(
         tier1_updated=tier1_updated,

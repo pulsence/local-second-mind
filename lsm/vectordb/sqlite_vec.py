@@ -11,9 +11,10 @@ from pathlib import Path
 from struct import unpack
 from typing import Any, Dict, List, Optional, Tuple
 
-from lsm.config.models import VectorDBConfig
+from lsm.config.models import DBConfig
 from lsm.db.connection import create_sqlite_connection, resolve_db_path
-from lsm.db.schema import APPLICATION_TABLES, ensure_application_schema
+from lsm.db.schema import ensure_application_schema
+from lsm.db.tables import DEFAULT_TABLE_NAMES, TableNames
 from lsm.db.transaction import transaction
 from lsm.logging import get_logger
 
@@ -51,8 +52,9 @@ def _normalize_ext(value: Any) -> Optional[str]:
 class SQLiteVecProvider(BaseVectorDBProvider):
     """Vector DB provider backed by SQLite + sqlite-vec."""
 
-    def __init__(self, config: VectorDBConfig) -> None:
+    def __init__(self, config: DBConfig) -> None:
         super().__init__(config)
+        self._tn = TableNames(prefix=config.table_prefix)
         self._db_path = resolve_db_path(config.path)
         self._db_path.parent.mkdir(parents=True, exist_ok=True)
         self._conn = create_sqlite_connection(self._db_path)
@@ -86,13 +88,13 @@ class SQLiteVecProvider(BaseVectorDBProvider):
         if not self._extension_loaded:
             return
 
-        # Application tables (lsm_chunks, lsm_manifest, etc.) — owned by lsm.db.
-        ensure_application_schema(self._conn)
+        # Application tables are owned by lsm.db.
+        ensure_application_schema(self._conn, table_names=self._tn)
 
         # Vector-specific virtual tables and FTS content-sync triggers.
         self._conn.executescript(
-            """
-            CREATE VIRTUAL TABLE IF NOT EXISTS vec_chunks USING vec0(
+            f"""
+            CREATE VIRTUAL TABLE IF NOT EXISTS {self._tn.vec_chunks} USING vec0(
                 chunk_id TEXT PRIMARY KEY,
                 embedding FLOAT[384] distance_metric=cosine,
                 is_current INTEGER,
@@ -101,39 +103,39 @@ class SQLiteVecProvider(BaseVectorDBProvider):
                 cluster_id INTEGER
             );
 
-            CREATE VIRTUAL TABLE IF NOT EXISTS chunks_fts USING fts5(
+            CREATE VIRTUAL TABLE IF NOT EXISTS {self._tn.chunks_fts} USING fts5(
                 chunk_id UNINDEXED,
                 chunk_text,
                 heading,
                 source_name,
-                content='lsm_chunks',
+                content='{self._tn.chunks}',
                 content_rowid='rowid'
             );
             """
         )
 
         self._conn.executescript(
-            """
-            CREATE TRIGGER IF NOT EXISTS lsm_chunks_ai
-            AFTER INSERT ON lsm_chunks
+            f"""
+            CREATE TRIGGER IF NOT EXISTS {self._tn.chunks}_ai
+            AFTER INSERT ON {self._tn.chunks}
             BEGIN
-                INSERT INTO chunks_fts(rowid, chunk_id, chunk_text, heading, source_name)
+                INSERT INTO {self._tn.chunks_fts}(rowid, chunk_id, chunk_text, heading, source_name)
                 VALUES (new.rowid, new.chunk_id, new.chunk_text, new.heading, new.source_name);
             END;
 
-            CREATE TRIGGER IF NOT EXISTS lsm_chunks_ad
-            AFTER DELETE ON lsm_chunks
+            CREATE TRIGGER IF NOT EXISTS {self._tn.chunks}_ad
+            AFTER DELETE ON {self._tn.chunks}
             BEGIN
-                INSERT INTO chunks_fts(chunks_fts, rowid, chunk_id, chunk_text, heading, source_name)
+                INSERT INTO {self._tn.chunks_fts}({self._tn.chunks_fts}, rowid, chunk_id, chunk_text, heading, source_name)
                 VALUES('delete', old.rowid, old.chunk_id, old.chunk_text, old.heading, old.source_name);
             END;
 
-            CREATE TRIGGER IF NOT EXISTS lsm_chunks_au
-            AFTER UPDATE ON lsm_chunks
+            CREATE TRIGGER IF NOT EXISTS {self._tn.chunks}_au
+            AFTER UPDATE ON {self._tn.chunks}
             BEGIN
-                INSERT INTO chunks_fts(chunks_fts, rowid, chunk_id, chunk_text, heading, source_name)
+                INSERT INTO {self._tn.chunks_fts}({self._tn.chunks_fts}, rowid, chunk_id, chunk_text, heading, source_name)
                 VALUES('delete', old.rowid, old.chunk_id, old.chunk_text, old.heading, old.source_name);
-                INSERT INTO chunks_fts(rowid, chunk_id, chunk_text, heading, source_name)
+                INSERT INTO {self._tn.chunks_fts}(rowid, chunk_id, chunk_text, heading, source_name)
                 VALUES (new.rowid, new.chunk_id, new.chunk_text, new.heading, new.source_name);
             END;
             """
@@ -163,8 +165,8 @@ class SQLiteVecProvider(BaseVectorDBProvider):
             for chunk_id, text, metadata, embedding in zip(ids, documents, metadatas, embeddings):
                 normalized = self._normalize_metadata(metadata or {})
                 self._conn.execute(
-                    """
-                    INSERT INTO lsm_chunks (
+                    f"""
+                    INSERT INTO {self._tn.chunks} (
                         chunk_id, source_path, source_name, chunk_text, heading, heading_path,
                         page_number, paragraph_index, mtime_ns, file_hash, version, is_current,
                         node_type, root_tags, folder_tags, content_type, cluster_id, cluster_size,
@@ -230,12 +232,12 @@ class SQLiteVecProvider(BaseVectorDBProvider):
                     ),
                 )
                 self._conn.execute(
-                    "DELETE FROM vec_chunks WHERE chunk_id = ?",
+                    f"DELETE FROM {self._tn.vec_chunks} WHERE chunk_id = ?",
                     (str(chunk_id),),
                 )
                 self._conn.execute(
-                    """
-                    INSERT INTO vec_chunks (
+                    f"""
+                    INSERT INTO {self._tn.vec_chunks} (
                         chunk_id, embedding, is_current, node_type, source_path, cluster_id
                     ) VALUES (?, ?, ?, ?, ?, ?)
                     """,
@@ -281,9 +283,9 @@ class SQLiteVecProvider(BaseVectorDBProvider):
                 where.append(filter_sql)
                 params.extend(filter_params)
 
-        query = f"SELECT {', '.join(columns)} FROM lsm_chunks c"
+        query = f"SELECT {', '.join(columns)} FROM {self._tn.chunks} c"
         if "embeddings" in inc:
-            query += " LEFT JOIN vec_chunks v ON v.chunk_id = c.chunk_id"
+            query += f" LEFT JOIN {self._tn.vec_chunks} v ON v.chunk_id = c.chunk_id"
         if where:
             query += " WHERE " + " AND ".join(where)
         query += " ORDER BY c.rowid"
@@ -339,7 +341,7 @@ class SQLiteVecProvider(BaseVectorDBProvider):
         rows = self._conn.execute(
             f"""
             SELECT chunk_id, distance
-            FROM vec_chunks
+            FROM {self._tn.vec_chunks}
             WHERE embedding MATCH ? AND k = ?{vec_extra_clauses}
             """,
             [sqlite_vec.serialize_float32(list(embedding)), knn_limit] + vec_extra_params,
@@ -355,7 +357,7 @@ class SQLiteVecProvider(BaseVectorDBProvider):
         chunk_rows = self._conn.execute(
             f"""
             SELECT chunk_id, chunk_text, metadata_json
-            FROM lsm_chunks
+            FROM {self._tn.chunks}
             WHERE chunk_id IN ({placeholders})
             """,
             ids,
@@ -397,12 +399,13 @@ class SQLiteVecProvider(BaseVectorDBProvider):
     # Graph operations
     # ------------------------------------------------------------------
     def graph_insert_nodes(self, nodes):
-        """Insert graph nodes into lsm_graph_nodes (upsert)."""
+        """Insert graph nodes (upsert)."""
         if not nodes:
             return
+        tn = getattr(self, "_tn", DEFAULT_TABLE_NAMES)
         for node in nodes:
             self._conn.execute(
-                """INSERT OR REPLACE INTO lsm_graph_nodes
+                f"""INSERT OR REPLACE INTO {tn.graph_nodes}
                    (node_id, node_type, label, source_path, heading_path)
                    VALUES (?, ?, ?, ?, ?)""",
                 (
@@ -416,12 +419,13 @@ class SQLiteVecProvider(BaseVectorDBProvider):
         self._conn.commit()
 
     def graph_insert_edges(self, edges):
-        """Insert graph edges into lsm_graph_edges."""
+        """Insert graph edges."""
         if not edges:
             return
+        tn = getattr(self, "_tn", DEFAULT_TABLE_NAMES)
         for edge in edges:
             self._conn.execute(
-                """INSERT INTO lsm_graph_edges (src_id, dst_id, edge_type, weight)
+                f"""INSERT INTO {tn.graph_edges} (src_id, dst_id, edge_type, weight)
                    VALUES (?, ?, ?, ?)""",
                 (
                     edge["src_id"],
@@ -439,6 +443,7 @@ class SQLiteVecProvider(BaseVectorDBProvider):
         """
         if not start_ids:
             return []
+        tn = getattr(self, "_tn", DEFAULT_TABLE_NAMES)
 
         placeholders = ", ".join(["?"] * len(start_ids))
 
@@ -453,18 +458,18 @@ class SQLiteVecProvider(BaseVectorDBProvider):
         if edge_types:
             sql = f"""
                 WITH RECURSIVE reachable(node_id, depth) AS (
-                    SELECT node_id, 0 FROM lsm_graph_nodes
+                    SELECT node_id, 0 FROM {tn.graph_nodes}
                     WHERE node_id IN ({placeholders})
                     UNION
                     SELECT e.dst_id, r.depth + 1
                     FROM reachable r
-                    JOIN lsm_graph_edges e ON e.src_id = r.node_id
+                    JOIN {tn.graph_edges} e ON e.src_id = r.node_id
                     WHERE r.depth < ?
                     AND e.edge_type IN ({et_placeholders})
                     UNION
                     SELECT e.src_id, r.depth + 1
                     FROM reachable r
-                    JOIN lsm_graph_edges e ON e.dst_id = r.node_id
+                    JOIN {tn.graph_edges} e ON e.dst_id = r.node_id
                     WHERE r.depth < ?
                     AND e.edge_type IN ({et_placeholders})
                 )
@@ -478,17 +483,17 @@ class SQLiteVecProvider(BaseVectorDBProvider):
         else:
             sql = f"""
                 WITH RECURSIVE reachable(node_id, depth) AS (
-                    SELECT node_id, 0 FROM lsm_graph_nodes
+                    SELECT node_id, 0 FROM {tn.graph_nodes}
                     WHERE node_id IN ({placeholders})
                     UNION
                     SELECT e.dst_id, r.depth + 1
                     FROM reachable r
-                    JOIN lsm_graph_edges e ON e.src_id = r.node_id
+                    JOIN {tn.graph_edges} e ON e.src_id = r.node_id
                     WHERE r.depth < ?
                     UNION
                     SELECT e.src_id, r.depth + 1
                     FROM reachable r
-                    JOIN lsm_graph_edges e ON e.dst_id = r.node_id
+                    JOIN {tn.graph_edges} e ON e.dst_id = r.node_id
                     WHERE r.depth < ?
                 )
                 SELECT DISTINCT node_id FROM reachable
@@ -524,11 +529,11 @@ class SQLiteVecProvider(BaseVectorDBProvider):
             return VectorDBQueryResult(ids=[], documents=[], metadatas=[], distances=[])
 
         rows = self._conn.execute(
-            """
-            SELECT f.chunk_id, bm25(chunks_fts) AS rank
-            FROM chunks_fts f
-            JOIN lsm_chunks c ON c.chunk_id = f.chunk_id
-            WHERE chunks_fts MATCH ? AND c.is_current = 1
+            f"""
+            SELECT f.chunk_id, bm25({self._tn.chunks_fts}) AS rank
+            FROM {self._tn.chunks_fts} f
+            JOIN {self._tn.chunks} c ON c.chunk_id = f.chunk_id
+            WHERE {self._tn.chunks_fts} MATCH ? AND c.is_current = 1
             ORDER BY rank
             LIMIT ?
             """,
@@ -543,7 +548,7 @@ class SQLiteVecProvider(BaseVectorDBProvider):
 
         placeholders = ", ".join(["?"] * len(ids))
         chunk_rows = self._conn.execute(
-            f"SELECT chunk_id, chunk_text, metadata_json FROM lsm_chunks WHERE chunk_id IN ({placeholders})",
+            f"SELECT chunk_id, chunk_text, metadata_json FROM {self._tn.chunks} WHERE chunk_id IN ({placeholders})",
             ids,
         ).fetchall()
 
@@ -599,11 +604,11 @@ class SQLiteVecProvider(BaseVectorDBProvider):
         normalized = [str(item) for item in ids]
         with transaction(self._conn):
             self._conn.execute(
-                f"DELETE FROM vec_chunks WHERE chunk_id IN ({placeholders})",
+                f"DELETE FROM {self._tn.vec_chunks} WHERE chunk_id IN ({placeholders})",
                 normalized,
             )
             self._conn.execute(
-                f"DELETE FROM lsm_chunks WHERE chunk_id IN ({placeholders})",
+                f"DELETE FROM {self._tn.chunks} WHERE chunk_id IN ({placeholders})",
                 normalized,
             )
 
@@ -611,7 +616,7 @@ class SQLiteVecProvider(BaseVectorDBProvider):
         if not filters:
             raise ValueError("filters must be a non-empty dict")
         where_sql, params = self._sql_filters(filters, alias="c")
-        query = "SELECT c.chunk_id, c.metadata_json FROM lsm_chunks c"
+        query = f"SELECT c.chunk_id, c.metadata_json FROM {self._tn.chunks} c"
         if where_sql:
             query += f" WHERE {where_sql}"
         rows = self._conn.execute(query, params).fetchall()
@@ -625,24 +630,24 @@ class SQLiteVecProvider(BaseVectorDBProvider):
     def delete_all(self) -> int:
         current = self.count()
         with transaction(self._conn):
-            self._conn.execute("DELETE FROM vec_chunks")
-            self._conn.execute("DELETE FROM lsm_chunks")
+            self._conn.execute(f"DELETE FROM {self._tn.vec_chunks}")
+            self._conn.execute(f"DELETE FROM {self._tn.chunks}")
         return current
 
     def count(self) -> int:
         row = self._conn.execute(
-            "SELECT COUNT(*) AS total FROM lsm_chunks WHERE is_current = 1"
+            f"SELECT COUNT(*) AS total FROM {self._tn.chunks} WHERE is_current = 1"
         ).fetchone()
         return int((row["total"] if row else 0) or 0)
 
     def get_stats(self) -> Dict[str, Any]:
         row = self._conn.execute(
-            """
+            f"""
             SELECT
                 COUNT(*) AS total_rows,
                 SUM(CASE WHEN is_current = 1 THEN 1 ELSE 0 END) AS current_rows,
                 COUNT(DISTINCT source_path) AS unique_sources
-            FROM lsm_chunks
+            FROM {self._tn.chunks}
             """
         ).fetchone()
         return {
@@ -666,7 +671,7 @@ class SQLiteVecProvider(BaseVectorDBProvider):
                 "error": "sqlite-vec extension is not loaded",
             }
 
-        required = list(APPLICATION_TABLES) + ["vec_chunks", "chunks_fts"]
+        required = list(self._tn.application_tables()) + [self._tn.vec_chunks, self._tn.chunks_fts]
         missing = []
         for name in required:
             row = self._conn.execute(
@@ -694,8 +699,8 @@ class SQLiteVecProvider(BaseVectorDBProvider):
             for chunk_id, metadata in zip(ids, metadatas):
                 normalized = self._normalize_metadata(metadata or {})
                 self._conn.execute(
-                    """
-                    UPDATE lsm_chunks
+                    f"""
+                    UPDATE {self._tn.chunks}
                     SET
                         source_path = COALESCE(?, source_path),
                         source_name = COALESCE(?, source_name),
@@ -752,8 +757,8 @@ class SQLiteVecProvider(BaseVectorDBProvider):
                     ),
                 )
                 self._conn.execute(
-                    """
-                    UPDATE vec_chunks
+                    f"""
+                    UPDATE {self._tn.vec_chunks}
                     SET
                         is_current = ?,
                         node_type = ?,
@@ -771,6 +776,7 @@ class SQLiteVecProvider(BaseVectorDBProvider):
                 )
 
     def prune_old_versions(self, criteria: PruneCriteria) -> int:
+        tn = getattr(self, "_tn", DEFAULT_TABLE_NAMES)
         max_versions = (
             int(criteria.max_versions)
             if criteria.max_versions is not None
@@ -788,9 +794,9 @@ class SQLiteVecProvider(BaseVectorDBProvider):
             raise ValueError("older_than_days must be >= 0 when provided")
 
         rows = self._conn.execute(
-            """
+            f"""
             SELECT chunk_id, source_path, version, ingested_at
-            FROM lsm_chunks
+            FROM {tn.chunks}
             WHERE is_current = 0
             """
         ).fetchall()
@@ -837,11 +843,11 @@ class SQLiteVecProvider(BaseVectorDBProvider):
         with transaction(self._conn):
             placeholders = ", ".join(["?"] * len(to_delete))
             self._conn.execute(
-                f"DELETE FROM vec_chunks WHERE chunk_id IN ({placeholders})",
+                f"DELETE FROM {tn.vec_chunks} WHERE chunk_id IN ({placeholders})",
                 to_delete,
             )
             self._conn.execute(
-                f"DELETE FROM lsm_chunks WHERE chunk_id IN ({placeholders})",
+                f"DELETE FROM {tn.chunks} WHERE chunk_id IN ({placeholders})",
                 to_delete,
             )
         return len(to_delete)

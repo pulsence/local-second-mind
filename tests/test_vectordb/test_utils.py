@@ -1,6 +1,6 @@
 """Tests verifying the BaseVectorDBProvider ABC contract."""
 
-from lsm.config.models import VectorDBConfig
+from lsm.config.models import DBConfig
 from lsm.vectordb.base import (
     BaseVectorDBProvider,
     PruneCriteria,
@@ -12,7 +12,7 @@ from lsm.vectordb.base import (
 class DummyProvider(BaseVectorDBProvider):
     """Minimal concrete implementation for testing the ABC contract."""
 
-    def __init__(self, config: VectorDBConfig, provider_name: str = "dummy") -> None:
+    def __init__(self, config: DBConfig, provider_name: str = "dummy") -> None:
         super().__init__(config)
         self._provider_name = provider_name
 
@@ -62,7 +62,7 @@ class DummyProvider(BaseVectorDBProvider):
 
 
 def test_dummy_provider_instantiates(tmp_path) -> None:
-    cfg = VectorDBConfig(provider="dummy", path=tmp_path / "db", collection="kb")
+    cfg = DBConfig(provider="dummy", path=tmp_path / "db", collection="kb")
     provider = DummyProvider(cfg)
     assert provider.name == "dummy"
     assert provider.is_available() is True
@@ -71,7 +71,7 @@ def test_dummy_provider_instantiates(tmp_path) -> None:
 
 
 def test_dummy_provider_get_returns_empty(tmp_path) -> None:
-    cfg = VectorDBConfig(provider="dummy", path=tmp_path / "db", collection="kb")
+    cfg = DBConfig(provider="dummy", path=tmp_path / "db", collection="kb")
     provider = DummyProvider(cfg)
     result = provider.get()
     assert result.ids == []
@@ -80,7 +80,7 @@ def test_dummy_provider_get_returns_empty(tmp_path) -> None:
 
 
 def test_dummy_provider_query_returns_empty(tmp_path) -> None:
-    cfg = VectorDBConfig(provider="dummy", path=tmp_path / "db", collection="kb")
+    cfg = DBConfig(provider="dummy", path=tmp_path / "db", collection="kb")
     provider = DummyProvider(cfg)
     result = provider.query([0.1, 0.2], top_k=5)
     assert result.ids == []

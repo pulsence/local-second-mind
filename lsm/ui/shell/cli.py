@@ -11,7 +11,8 @@ from pathlib import Path
 from typing import Optional
 
 from lsm.config import load_config_from_file
-from lsm.config.models import LSMConfig, VectorDBConfig
+from lsm.config.models import LSMConfig, DBConfig
+from lsm.db.tables import TableNames
 from lsm.logging import get_logger
 from lsm.db.migration import migrate as migrate_db
 from lsm.ingest.api import run_ingest as api_run_ingest, wipe_collection as api_wipe_collection
@@ -19,6 +20,10 @@ from lsm.ingest.tagging import tag_chunks
 from lsm.vectordb import PruneCriteria, create_vectordb_provider
 
 logger = get_logger(__name__)
+
+
+def _table_names(config: LSMConfig) -> TableNames:
+    return TableNames(prefix=config.db.table_prefix)
 
 
 def run_ingest(args) -> int:
@@ -311,13 +316,13 @@ def run_db_complete_cli(
 
 
 def _with_overrides(
-    base: VectorDBConfig,
+    base: DBConfig,
     *,
     provider: Optional[str] = None,
     path: Optional[str] = None,
     collection: Optional[str] = None,
     connection_string: Optional[str] = None,
-) -> VectorDBConfig:
+) -> DBConfig:
     config = replace(base)
     if provider:
         config.provider = str(provider)
@@ -450,6 +455,7 @@ def run_migrate_cli(
         return 2
 
     target_runtime = replace(config, db=target_vdb)
+    tn = _table_names(target_runtime)
 
     def progress(stage: str, current: int, total: int, message: str) -> None:
         if total > 0:
@@ -466,6 +472,8 @@ def run_migrate_cli(
             progress_callback=progress,
             batch_size=max(1, int(batch_size)),
             resume=resume,
+            skip_enrich=skip_enrich,
+            table_names=tn,
         )
     except Exception as exc:
         print(f"Error: {exc}")
@@ -476,10 +484,9 @@ def run_migrate_cli(
         f"{result.get('migrated_vectors', 0):,}/{result.get('total_vectors', 0):,} vectors, "
         f"validated tables={result.get('validated_tables', 0)}."
     )
-
-    # Run enrichment unless --skip-enrich was passed
-    if not skip_enrich:
-        _run_post_migration_enrichment(target_runtime, progress)
+    report = result.get("enrichment")
+    if report is not None:
+        _print_enrichment_summary(report)
 
     return 0
 
@@ -495,23 +502,9 @@ def _run_standalone_enrichment(config: LSMConfig) -> int:
     from lsm.db.enrichment import run_enrichment_pipeline
 
     print("Running standalone enrichment on existing database...")
-    report = run_enrichment_pipeline(conn, config)
+    report = run_enrichment_pipeline(conn, config, table_names=_table_names(config))
     _print_enrichment_summary(report)
     return 0
-
-
-def _run_post_migration_enrichment(config: LSMConfig, progress_callback) -> None:
-    """Run enrichment after a backend migration."""
-    provider = create_vectordb_provider(config.db)
-    conn = getattr(provider, "connection", getattr(provider, "_conn", None))
-    if conn is None:
-        return
-
-    from lsm.db.enrichment import run_enrichment_pipeline
-
-    print("\nRunning post-migration enrichment...")
-    report = run_enrichment_pipeline(conn, config)
-    _print_enrichment_summary(report)
 
 
 def _print_enrichment_summary(report) -> None:
@@ -543,13 +536,14 @@ def run_cache_clear_cli(
 
     provider = create_vectordb_provider(config.db)
     conn = getattr(provider, "connection", getattr(provider, "_conn", None))
+    tn = _table_names(config)
     if conn is None:
         print("Error: Reranker cache clear requires a backend with direct SQL access.")
         return 1
     try:
         conn.execute(
-            """
-            CREATE TABLE IF NOT EXISTS lsm_reranker_cache (
+            f"""
+            CREATE TABLE IF NOT EXISTS {tn.reranker_cache} (
                 cache_key TEXT PRIMARY KEY,
                 score REAL,
                 created_at TEXT
@@ -557,10 +551,10 @@ def run_cache_clear_cli(
             """
         )
         row = conn.execute(
-            "SELECT COUNT(*) FROM lsm_reranker_cache"
+            f"SELECT COUNT(*) FROM {tn.reranker_cache}"
         ).fetchone()
         removed = int(row[0]) if row else 0
-        conn.execute("DELETE FROM lsm_reranker_cache")
+        conn.execute(f"DELETE FROM {tn.reranker_cache}")
         conn.commit()
     except Exception as exc:
         print(f"Error clearing reranker cache: {exc}")
@@ -600,6 +594,7 @@ def run_cluster_build_cli(
 
     algorithm = algorithm or config.query.cluster_algorithm
     k = k or config.query.cluster_k
+    tn = _table_names(config)
 
     provider = create_vectordb_provider(config.db)
     conn = getattr(provider, "connection", None)
@@ -609,7 +604,7 @@ def run_cluster_build_cli(
 
     print(f"Building clusters: algorithm={algorithm}, k={k}")
     try:
-        result = build_clusters(conn, algorithm=algorithm, k=k)
+        result = build_clusters(conn, algorithm=algorithm, k=k, table_names=tn)
     except ImportError as exc:
         print(f"Error: {exc}")
         return 1
@@ -653,6 +648,7 @@ def run_cluster_visualize_cli(
 
     provider = create_vectordb_provider(config.db)
     conn = getattr(provider, "connection", None)
+    tn = _table_names(config)
     if conn is None:
         print("Error: Cluster visualization requires SQLite backend with direct connection access.")
         return 1
@@ -660,10 +656,10 @@ def run_cluster_visualize_cli(
     print("Loading embeddings and cluster assignments...")
     try:
         rows = conn.execute(
-            "SELECT c.chunk_id, c.cluster_id, v.embedding "
-            "FROM lsm_chunks c "
-            "JOIN vec_chunks v ON c.chunk_id = v.chunk_id "
-            "WHERE c.is_current = 1 AND c.cluster_id IS NOT NULL"
+            f"SELECT c.chunk_id, c.cluster_id, v.embedding "
+            f"FROM {tn.chunks} c "
+            f"JOIN {tn.vec_chunks} v ON c.chunk_id = v.chunk_id "
+            f"WHERE c.is_current = 1 AND c.cluster_id IS NOT NULL"
         ).fetchall()
     except Exception as exc:
         print(f"Error loading data: {exc}")
@@ -760,12 +756,13 @@ def run_finetune_train_cli(
 
     provider = create_vectordb_provider(config.db)
     conn = getattr(provider, "connection", None)
+    tn = _table_names(config)
     if conn is None:
         print("Error: Fine-tuning requires SQLite backend with direct connection access.")
         return 1
 
     print("Extracting training pairs from corpus...")
-    pairs = extract_training_pairs(conn, max_pairs=max_pairs)
+    pairs = extract_training_pairs(conn, max_pairs=max_pairs, table_names=tn)
     if not pairs:
         print("Error: No training pairs found. Ingest data first.")
         return 1
@@ -793,8 +790,9 @@ def run_finetune_train_cli(
         base_model=result["base_model"],
         path=result["output_path"],
         dimension=result["dimension"],
+        table_names=tn,
     )
-    set_active_model(conn, entry.model_id)
+    set_active_model(conn, entry.model_id, table_names=tn)
 
     print(f"Fine-tuning complete:")
     print(f"  Model ID: {entry.model_id}")
@@ -805,7 +803,7 @@ def run_finetune_train_cli(
 
     try:
         row = conn.execute(
-            "SELECT COUNT(*) FROM lsm_chunks WHERE is_current = 1"
+            f"SELECT COUNT(*) FROM {tn.chunks} WHERE is_current = 1"
         ).fetchone()
         corpus_size = int(row[0]) if row else None
         record_job_status(conn, "finetune_embedding", corpus_size=corpus_size)
@@ -825,7 +823,8 @@ def run_finetune_list_cli(config: LSMConfig) -> int:
         print("Error: Model registry requires SQLite backend.")
         return 1
 
-    models = list_models(conn)
+    tn = _table_names(config)
+    models = list_models(conn, table_names=tn)
     if not models:
         print("No fine-tuned models registered.")
         return 0
@@ -849,13 +848,14 @@ def run_finetune_activate_cli(config: LSMConfig, model_id: str) -> int:
         return 1
 
     # Check model exists
-    models = list_models(conn)
+    tn = _table_names(config)
+    models = list_models(conn, table_names=tn)
     ids = [m.model_id for m in models]
     if model_id not in ids:
         print(f"Error: Model '{model_id}' not found. Available: {', '.join(ids) or 'none'}")
         return 1
 
-    set_active_model(conn, model_id)
+    set_active_model(conn, model_id, table_names=tn)
     print(f"Activated model: {model_id}")
     return 0
 
@@ -888,6 +888,7 @@ def run_graph_build_links_cli(
 
     provider = create_vectordb_provider(config.db)
     conn = getattr(provider, "connection", None)
+    tn = _table_names(config)
     if conn is None:
         print("Error: Graph link building requires SQLite backend with direct connection access.")
         return 1
@@ -899,10 +900,10 @@ def run_graph_build_links_cli(
         from struct import unpack
 
         rows = conn.execute(
-            "SELECT c.chunk_id, v.embedding "
-            "FROM lsm_chunks c "
-            "JOIN vec_chunks v ON c.chunk_id = v.chunk_id "
-            "WHERE c.is_current = 1"
+            f"SELECT c.chunk_id, v.embedding "
+            f"FROM {tn.chunks} c "
+            f"JOIN {tn.vec_chunks} v ON c.chunk_id = v.chunk_id "
+            f"WHERE c.is_current = 1"
         ).fetchall()
     except Exception as exc:
         print(f"Error loading embeddings: {exc}")
@@ -949,7 +950,7 @@ def run_graph_build_links_cli(
                         src_id = chunk_ids[global_i]
                         dst_id = chunk_ids[global_j]
                         conn.execute(
-                            "INSERT OR IGNORE INTO lsm_graph_edges "
+                            f"INSERT OR IGNORE INTO {tn.graph_edges} "
                             "(src_id, dst_id, edge_type, weight) "
                             "VALUES (?, ?, 'thematic', ?)",
                             (src_id, dst_id, float(sim[bi, ci])),

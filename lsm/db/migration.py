@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Any, Callable, Dict, Iterable, Mapping, Optional
 
 from lsm import __version__ as LSM_VERSION
-from lsm.config.models import VectorDBConfig
+from lsm.config.models import DBConfig
 from lsm.db.tables import DEFAULT_TABLE_NAMES, TableNames
 from lsm.logging import get_logger
 from lsm.vectordb import create_vectordb_provider
@@ -260,6 +260,7 @@ def migrate(
     batch_size: int = 1000,
     table_names: TableNames | None = None,
     resume: bool = False,
+    skip_enrich: bool = False,
 ) -> Dict[str, Any]:
     """Migrate vectors + auxiliary state between supported backends."""
     import uuid
@@ -311,105 +312,182 @@ def migrate(
     source_provider = _provider_from_source(source_enum, source_config)
     target_provider = _provider_from_target(target_enum, target_config)
 
-    # Determine completed stages for resume
+    # Determine completed stages for resume.
     completed_stages: set[str] = set()
     if resume:
         with _connection_context(target_provider) as tc:
             if tc is not None:
                 prev_run = _get_latest_run_id(tc, tn)
                 if prev_run:
-                    run_id = prev_run  # reuse the run id
+                    run_id = prev_run
                     completed_stages = _get_completed_stages(tc, prev_run, tn)
 
-    _emit_progress(progress_callback, "migrate", 0, 0, "Copying vectors and chunk metadata.")
-    if "copy_vectors" not in completed_stages:
-        migrated, total, inferred_dim = _copy_vectors(
-            source_provider=source_provider,
-            target_provider=target_provider,
-            batch_size=max(1, int(batch_size)),
-            progress_callback=progress_callback,
-        )
-    else:
-        _emit_progress(progress_callback, "migrate", 0, 0, "Skipping copy_vectors (already completed).")
-        total = source_provider.count()
-        migrated = total
-        inferred_dim = None
-
     validation_checked = 0
+    total = int(source_provider.count())
+    migrated = 0
+    inferred_dim: Optional[int] = None
+    enrichment_report: Optional[Any] = None
+
     with ExitStack() as stack:
         source_conn = stack.enter_context(_connection_context(source_provider))
         target_conn = stack.enter_context(_connection_context(target_provider))
+        if target_conn is None:
+            raise RuntimeError("Migration target does not expose a writable DB connection.")
 
-        if target_conn is not None:
-            _ensure_aux_tables(target_conn, tn)
-            _ensure_migration_progress_table(target_conn, tn)
+        _ensure_aux_tables(target_conn, tn)
+        _ensure_migration_progress_table(target_conn, tn)
 
-            # Track copy_vectors stage
-            if "copy_vectors" not in completed_stages:
-                sid = _begin_stage(target_conn, run_id, "copy_vectors", source_enum.value, target_enum.value, tn)
-                _complete_stage(target_conn, sid, rows=migrated, tn=tn)
+        # Vector copy stage.
+        _emit_progress(progress_callback, "migrate", 0, 0, "Copying vectors and chunk metadata.")
+        vector_stage = "copy_vectors"
+        if vector_stage in completed_stages:
+            _emit_progress(progress_callback, "migrate", total, total, "Skipping copy_vectors (already completed).")
+            migrated = total
+        else:
+            start_offset = (
+                _get_stage_rows_processed(target_conn, run_id, vector_stage, tn)
+                if resume
+                else 0
+            )
+            stage_id = _begin_stage(
+                target_conn,
+                run_id,
+                vector_stage,
+                source_enum.value,
+                target_enum.value,
+                tn,
+            )
+            try:
+                copied_count, total, inferred_dim = _copy_vectors(
+                    source_provider=source_provider,
+                    target_provider=target_provider,
+                    batch_size=max(1, int(batch_size)),
+                    progress_callback=progress_callback,
+                    start_offset=start_offset,
+                    rows_progress_callback=lambda rows: _set_stage_rows_processed(
+                        target_conn,
+                        stage_id,
+                        rows,
+                        tn=tn,
+                    ),
+                )
+                migrated = int(start_offset + copied_count)
+                _complete_stage(target_conn, stage_id, rows=migrated, tn=tn)
+            except Exception as exc:
+                _fail_stage(target_conn, stage_id, str(exc), tn=tn)
+                raise
 
-        vector_key = (
-            _vector_validation_key(target_provider, target_conn, tn)
-            if target_conn is not None
-            else "vector_rows"
-        )
+        vector_key = _vector_validation_key(target_provider, target_conn, tn)
         expected_counts: dict[str, int] = {vector_key: int(total)}
-        if source_conn is not None and target_conn is not None:
-            # Track auxiliary state copy with per-table stages
-            aux_stage = "copy_auxiliary"
-            if aux_stage not in completed_stages:
-                sid = _begin_stage(target_conn, run_id, aux_stage, source_enum.value, target_enum.value, tn)
-                try:
-                    expected_counts.update(
-                        _copy_auxiliary_state(
-                            source_conn=source_conn,
-                            target_conn=target_conn,
-                            progress_callback=progress_callback,
-                            tn=tn,
-                        )
-                    )
-                    _complete_stage(target_conn, sid, tn=tn)
-                except Exception as exc:
-                    _fail_stage(target_conn, sid, str(exc), tn=tn)
-                    raise
-            else:
-                _emit_progress(progress_callback, "migrate", 0, 0, "Skipping auxiliary copy (already completed).")
 
-            _record_derived_schema_version(
-                target_conn=target_conn,
-                runtime_config=target_config,
-                inferred_embedding_dim=inferred_dim,
+        # Auxiliary copy stages (per-table granularity for resume).
+        if source_conn is not None:
+            for spec in _build_aux_table_specs(tn):
+                stage_name = _aux_copy_stage_name(spec.name, tn)
+                if stage_name in completed_stages:
+                    _emit_progress(
+                        progress_callback,
+                        "migrate",
+                        0,
+                        0,
+                        f"Skipping {stage_name} (already completed).",
+                    )
+                    expected_counts[spec.name] = _count_table_rows(target_conn, spec.name)
+                    continue
+
+                stage_id = _begin_stage(
+                    target_conn,
+                    run_id,
+                    stage_name,
+                    source_enum.value,
+                    target_enum.value,
+                    tn,
+                )
+                try:
+                    copied = _copy_aux_table(
+                        source_conn=source_conn,
+                        target_conn=target_conn,
+                        spec=spec,
+                        progress_callback=progress_callback,
+                    )
+                    _complete_stage(target_conn, stage_id, rows=copied, tn=tn)
+                    expected_counts[spec.name] = _count_table_rows(target_conn, spec.name)
+                except Exception as exc:
+                    _fail_stage(target_conn, stage_id, str(exc), tn=tn)
+                    raise
+
+        _record_derived_schema_version(
+            target_conn=target_conn,
+            runtime_config=target_config,
+            inferred_embedding_dim=inferred_dim,
+            tn=tn,
+        )
+        if _table_exists(target_conn, tn.schema_versions):
+            expected_counts[tn.schema_versions] = _count_table_rows(target_conn, tn.schema_versions)
+
+        # Schema evolution.
+        evolve_stage = "schema_evolution"
+        if evolve_stage not in completed_stages:
+            stage_id = _begin_stage(
+                target_conn,
+                run_id,
+                evolve_stage,
+                source_enum.value,
+                target_enum.value,
+                tn,
+            )
+            try:
+                _evolve_schema(target_conn, tn)
+                _complete_stage(target_conn, stage_id, tn=tn)
+            except Exception as exc:
+                _fail_stage(target_conn, stage_id, str(exc), tn=tn)
+                raise
+        else:
+            _emit_progress(progress_callback, "migrate", 0, 0, "Skipping schema_evolution (already completed).")
+
+        # Enrichment integration (post-copy).
+        if not skip_enrich and isinstance(target_conn, sqlite3.Connection):
+            from lsm.db.enrichment import run_enrichment_pipeline
+
+            _emit_progress(progress_callback, "migrate", 0, 0, "Running post-migration enrichment.")
+            stage_tracker = _build_enrichment_stage_tracker(
+                conn=target_conn,
+                run_id=run_id,
+                source_type=source_enum.value,
+                target_type=target_enum.value,
                 tn=tn,
             )
+            enrichment_report = run_enrichment_pipeline(
+                target_conn,
+                target_config,
+                table_names=tn,
+                stage_tracker=stage_tracker,
+                skip_stages=(completed_stages if resume else None),
+            )
+        elif not skip_enrich:
+            _emit_progress(
+                progress_callback,
+                "migrate",
+                0,
+                0,
+                "Skipping enrichment (requires SQLite target connection).",
+            )
 
-            # Schema evolution — ensure all current tables/columns exist
-            evolve_stage = "schema_evolution"
-            if evolve_stage not in completed_stages:
-                sid = _begin_stage(target_conn, run_id, evolve_stage, source_enum.value, target_enum.value, tn)
-                try:
-                    _evolve_schema(target_conn, tn)
-                    _complete_stage(target_conn, sid, tn=tn)
-                except Exception as exc:
-                    _fail_stage(target_conn, sid, str(exc), tn=tn)
-                    raise
-
-            if _table_exists(target_conn, tn.schema_versions):
-                expected_counts[tn.schema_versions] = _count_table_rows(
-                    target_conn, tn.schema_versions
-                )
-            _record_validation_counts(target_conn, expected_counts, tn)
-            validation_result = validate_migration(target_conn, tn)
-            validation_checked = int(validation_result.get("checked", 0))
+        _record_validation_counts(target_conn, expected_counts, tn)
+        validation_result = validate_migration(target_conn, tn)
+        validation_checked = int(validation_result.get("checked", 0))
 
     _emit_progress(progress_callback, "migrate", migrated, total, "Migration complete.")
-    return {
+    result: dict[str, Any] = {
         "source": source_enum.value,
         "target": target_enum.value,
         "total_vectors": int(total),
         "migrated_vectors": int(migrated),
         "validated_tables": validation_checked,
     }
+    if enrichment_report is not None:
+        result["enrichment"] = enrichment_report
+    return result
 
 
 def validate_migration(target_conn: Any, tn: TableNames = DEFAULT_TABLE_NAMES) -> Dict[str, Any]:
@@ -449,12 +527,17 @@ def _copy_vectors(
     target_provider: Any,
     batch_size: int,
     progress_callback: Optional[ProgressCallback],
+    start_offset: int = 0,
+    rows_progress_callback: Optional[Callable[[int], None]] = None,
 ) -> tuple[int, int, Optional[int]]:
     total = int(source_provider.count())
     migrated = 0
-    offset = 0
+    offset = max(0, min(int(start_offset), total))
     inferred_dim: Optional[int] = None
     last_page_ids: Optional[tuple[str, ...]] = None
+
+    if rows_progress_callback is not None:
+        rows_progress_callback(offset)
 
     while True:
         page = source_provider.get(
@@ -483,15 +566,52 @@ def _copy_vectors(
         target_provider.add_chunks(ids, documents, metadatas, embeddings)
         migrated += len(ids)
         offset += len(ids)
+        if rows_progress_callback is not None:
+            rows_progress_callback(offset)
         _emit_progress(
             progress_callback,
             "vectors",
-            migrated,
+            offset,
             total,
-            f"Migrated {migrated}/{total} vectors.",
+            f"Migrated {offset}/{total} vectors.",
         )
 
     return migrated, total, inferred_dim
+
+
+def _aux_copy_stage_name(table_name: str, tn: TableNames) -> str:
+    mapping = {
+        tn.manifest: "copy_manifest",
+        tn.agent_memories: "copy_memories",
+        tn.agent_memory_candidates: "copy_memory_candidates",
+        tn.agent_schedules: "copy_schedules",
+        tn.stats_cache: "copy_stats_cache",
+        tn.remote_cache: "copy_remote_cache",
+        tn.schema_versions: "copy_schema_versions",
+    }
+    return mapping.get(table_name, f"copy_{table_name}")
+
+
+def _copy_aux_table(
+    *,
+    source_conn: Any,
+    target_conn: Any,
+    spec: AuxiliaryTableSpec,
+    progress_callback: Optional[ProgressCallback],
+) -> int:
+    if not _table_exists(source_conn, spec.name):
+        return 0
+    rows = _fetch_table_rows(source_conn, spec.name)
+    if rows:
+        _upsert_rows(target_conn, spec.name, spec.primary_key, rows)
+    _emit_progress(
+        progress_callback,
+        "state",
+        len(rows),
+        len(rows),
+        f"Copied auxiliary table '{spec.name}' ({len(rows)} rows).",
+    )
+    return len(rows)
 
 
 def _copy_auxiliary_state(
@@ -713,38 +833,39 @@ def _provider_from_target(target: MigrationTarget, target_config: Any) -> Any:
     return create_vectordb_provider(config)
 
 
-def _to_vectordb_config(raw: Any, provider_hint: Optional[str] = None) -> VectorDBConfig:
-    if isinstance(raw, VectorDBConfig):
+def _to_vectordb_config(raw: Any, provider_hint: Optional[str] = None) -> DBConfig:
+    if isinstance(raw, DBConfig):
         return replace(raw, provider=provider_hint or raw.provider)
 
-    if hasattr(raw, "db") and isinstance(raw.db, VectorDBConfig):
+    if hasattr(raw, "db") and isinstance(raw.db, DBConfig):
         base = raw.db
         return replace(base, provider=provider_hint or base.provider)
 
     if isinstance(raw, Mapping):
-        vectordb_raw: Mapping[str, Any] = raw
+        db_raw: Mapping[str, Any] = raw
         if "db" in raw and isinstance(raw["db"], Mapping):
-            vectordb_raw = raw["db"]
-        elif "vectordb" in raw and isinstance(raw["vectordb"], Mapping):
-            vectordb_raw = raw["vectordb"]
-        provider = provider_hint or str(vectordb_raw.get("provider", "sqlite"))
-        path_value = vectordb_raw.get("path", Path(".lsm"))
-        collection = str(vectordb_raw.get("collection", "local_kb"))
-        return VectorDBConfig(
+            db_raw = raw["db"]
+        vector_raw: Mapping[str, Any] = db_raw
+        if "vector" in db_raw and isinstance(db_raw["vector"], Mapping):
+            vector_raw = db_raw["vector"]
+        provider = provider_hint or str(vector_raw.get("provider", "sqlite"))
+        path_value = db_raw.get("path", Path(".lsm"))
+        collection = str(vector_raw.get("collection", "local_kb"))
+        return DBConfig(
             provider=provider,
             collection=collection,
             path=Path(path_value),
-            connection_string=vectordb_raw.get("connection_string"),
-            host=vectordb_raw.get("host"),
-            port=vectordb_raw.get("port"),
-            database=vectordb_raw.get("database"),
-            user=vectordb_raw.get("user"),
-            password=vectordb_raw.get("password"),
-            index_type=vectordb_raw.get("index_type", "hnsw"),
-            pool_size=int(vectordb_raw.get("pool_size", 5)),
+            connection_string=db_raw.get("connection_string"),
+            host=db_raw.get("host"),
+            port=db_raw.get("port"),
+            database=db_raw.get("database"),
+            user=db_raw.get("user"),
+            password=db_raw.get("password"),
+            index_type=vector_raw.get("index_type", "hnsw"),
+            pool_size=int(vector_raw.get("pool_size", 5)),
         )
 
-    raise ValueError("Unable to derive VectorDBConfig for migration source/target.")
+    raise ValueError("Unable to derive DBConfig for migration source/target.")
 
 
 def _emit_progress(
@@ -839,6 +960,21 @@ def _complete_stage(
     _commit(conn)
 
 
+def _set_stage_rows_processed(
+    conn: Any,
+    stage_id: int,
+    rows: int,
+    tn: TableNames = DEFAULT_TABLE_NAMES,
+) -> None:
+    """Update in-progress row count for a stage checkpoint."""
+    _execute(
+        conn,
+        f"UPDATE {tn.migration_progress} SET rows_processed = ? WHERE id = ?",
+        (int(rows), stage_id),
+    )
+    _commit(conn)
+
+
 def _fail_stage(
     conn: Any,
     stage_id: int,
@@ -855,6 +991,23 @@ def _fail_stage(
         (now, error, stage_id),
     )
     _commit(conn)
+
+
+def _get_stage_rows_processed(
+    conn: Any,
+    run_id: str,
+    stage: str,
+    tn: TableNames = DEFAULT_TABLE_NAMES,
+) -> int:
+    """Return the highest checkpoint row count for a stage in a run."""
+    _ensure_migration_progress_table(conn, tn)
+    row = _execute(
+        conn,
+        f"SELECT COALESCE(MAX(rows_processed), 0) FROM {tn.migration_progress} "
+        f"WHERE migration_run = ? AND stage = ?",
+        (run_id, stage),
+    ).fetchone()
+    return int((row[0] if row is not None else 0) or 0)
 
 
 def _get_completed_stages(
@@ -885,6 +1038,43 @@ def _get_latest_run_id(
         f"ORDER BY id DESC LIMIT 1",
     ).fetchone()
     return row[0] if row else None
+
+
+def _build_enrichment_stage_tracker(
+    *,
+    conn: Any,
+    run_id: str,
+    source_type: str,
+    target_type: str,
+    tn: TableNames,
+) -> Callable[[str, str], None]:
+    """Create stage tracker callback backed by migration_progress rows."""
+    stage_ids: dict[str, int] = {}
+
+    def _tracker(stage_name: str, status: str) -> None:
+        if status == "in_progress":
+            stage_ids[stage_name] = _begin_stage(
+                conn,
+                run_id,
+                stage_name,
+                source_type,
+                target_type,
+                tn,
+            )
+            return
+        stage_id = stage_ids.get(stage_name)
+        if stage_id is None:
+            return
+        if status == "completed":
+            _complete_stage(conn, stage_id, tn=tn)
+            stage_ids.pop(stage_name, None)
+            return
+        if status == "failed":
+            _fail_stage(conn, stage_id, "enrichment stage failed", tn=tn)
+            stage_ids.pop(stage_name, None)
+            return
+
+    return _tracker
 
 
 # ---------------------------------------------------------------------------

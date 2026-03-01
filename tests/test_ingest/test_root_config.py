@@ -206,7 +206,7 @@ class TestConfigLoaderRoots:
     def _make_config(self, tmp_path: Path, roots: list) -> "LSMConfig":
         """Helper to build an LSMConfig with given roots (avoids API key validation)."""
         from lsm.config.models import (
-            LSMConfig, GlobalConfig, QueryConfig, VectorDBConfig,
+            LSMConfig, GlobalConfig, QueryConfig, DBConfig,
             LLMRegistryConfig, LLMProviderConfig, LLMServiceConfig,
         )
 
@@ -217,7 +217,7 @@ class TestConfigLoaderRoots:
                 providers=[LLMProviderConfig(provider_name="local")],
                 services={"default": LLMServiceConfig(provider="local", model="test")},
             ),
-            vectordb=VectorDBConfig(
+            db=DBConfig(
                 provider="sqlite",
                 path=tmp_path / "data",
                 collection="test_kb",

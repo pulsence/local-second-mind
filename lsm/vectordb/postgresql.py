@@ -11,7 +11,8 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
 from lsm.logging import get_logger
-from lsm.config.models import VectorDBConfig
+from lsm.config.models import DBConfig
+from lsm.db.tables import TableNames
 from .base import BaseVectorDBProvider, PruneCriteria, VectorDBGetResult, VectorDBQueryResult
 
 logger = get_logger(__name__)
@@ -56,8 +57,9 @@ def _ensure_postgres_dependencies() -> None:
 class PostgreSQLProvider(BaseVectorDBProvider):
     """PostgreSQL + pgvector provider."""
 
-    def __init__(self, config: VectorDBConfig) -> None:
+    def __init__(self, config: DBConfig) -> None:
         super().__init__(config)
+        self._tn = TableNames(prefix=config.table_prefix)
         self._pool = None
         self._table_name = self._sanitize_table_name(config.collection or "local_kb")
         self._embedding_dim: Optional[int] = None
@@ -700,31 +702,31 @@ class PostgreSQLProvider(BaseVectorDBProvider):
         """Create graph node/edge tables if they don't exist."""
         with conn.cursor() as cur:
             cur.execute("""
-                CREATE TABLE IF NOT EXISTS lsm_graph_nodes (
+                CREATE TABLE IF NOT EXISTS {graph_nodes} (
                     node_id      TEXT PRIMARY KEY,
                     node_type    TEXT,
                     label        TEXT,
                     source_path  TEXT,
                     heading_path TEXT
                 )
-            """)
+            """.format(graph_nodes=self._tn.graph_nodes))
             cur.execute("""
-                CREATE TABLE IF NOT EXISTS lsm_graph_edges (
+                CREATE TABLE IF NOT EXISTS {graph_edges} (
                     id        SERIAL PRIMARY KEY,
                     src_id    TEXT NOT NULL,
                     dst_id    TEXT NOT NULL,
                     edge_type TEXT,
                     weight    REAL DEFAULT 1.0
                 )
-            """)
+            """.format(graph_edges=self._tn.graph_edges))
             cur.execute("""
                 CREATE INDEX IF NOT EXISTS idx_graph_edges_src
-                ON lsm_graph_edges (src_id)
-            """)
+                ON {graph_edges} (src_id)
+            """.format(graph_edges=self._tn.graph_edges))
             cur.execute("""
                 CREATE INDEX IF NOT EXISTS idx_graph_edges_dst
-                ON lsm_graph_edges (dst_id)
-            """)
+                ON {graph_edges} (dst_id)
+            """.format(graph_edges=self._tn.graph_edges))
         conn.commit()
 
     def graph_insert_nodes(self, nodes: List[Dict[str, Any]]) -> None:
@@ -737,7 +739,7 @@ class PostgreSQLProvider(BaseVectorDBProvider):
                 for node in nodes:
                     cur.execute(
                         """
-                        INSERT INTO lsm_graph_nodes
+                        INSERT INTO {graph_nodes}
                             (node_id, node_type, label, source_path, heading_path)
                         VALUES (%s, %s, %s, %s, %s)
                         ON CONFLICT (node_id) DO UPDATE SET
@@ -745,7 +747,7 @@ class PostgreSQLProvider(BaseVectorDBProvider):
                             label = EXCLUDED.label,
                             source_path = EXCLUDED.source_path,
                             heading_path = EXCLUDED.heading_path
-                        """,
+                        """.format(graph_nodes=self._tn.graph_nodes),
                         (
                             node["node_id"],
                             node.get("node_type", ""),
@@ -766,9 +768,9 @@ class PostgreSQLProvider(BaseVectorDBProvider):
                 for edge in edges:
                     cur.execute(
                         """
-                        INSERT INTO lsm_graph_edges (src_id, dst_id, edge_type, weight)
+                        INSERT INTO {graph_edges} (src_id, dst_id, edge_type, weight)
                         VALUES (%s, %s, %s, %s)
-                        """,
+                        """.format(graph_edges=self._tn.graph_edges),
                         (
                             edge["src_id"],
                             edge["dst_id"],
@@ -796,48 +798,57 @@ class PostgreSQLProvider(BaseVectorDBProvider):
 
             if edge_types:
                 et_placeholders = ", ".join(["%s"] * len(edge_types))
-                query = f"""
+                query = """
                     WITH RECURSIVE reachable(node_id, depth) AS (
-                        SELECT node_id, 0 FROM lsm_graph_nodes
+                        SELECT node_id, 0 FROM {graph_nodes}
                         WHERE node_id IN ({placeholders})
                         UNION
                         SELECT e.dst_id, r.depth + 1
                         FROM reachable r
-                        JOIN lsm_graph_edges e ON e.src_id = r.node_id
+                        JOIN {graph_edges} e ON e.src_id = r.node_id
                         WHERE r.depth < %s
                         AND e.edge_type IN ({et_placeholders})
                         UNION
                         SELECT e.src_id, r.depth + 1
                         FROM reachable r
-                        JOIN lsm_graph_edges e ON e.dst_id = r.node_id
+                        JOIN {graph_edges} e ON e.dst_id = r.node_id
                         WHERE r.depth < %s
                         AND e.edge_type IN ({et_placeholders})
                     )
                     SELECT DISTINCT node_id FROM reachable
-                """
+                """.format(
+                    graph_nodes=self._tn.graph_nodes,
+                    graph_edges=self._tn.graph_edges,
+                    placeholders=placeholders,
+                    et_placeholders=et_placeholders,
+                )
                 params = (
                     list(start_ids)
                     + [max_hops] + list(edge_types)
                     + [max_hops] + list(edge_types)
                 )
             else:
-                query = f"""
+                query = """
                     WITH RECURSIVE reachable(node_id, depth) AS (
-                        SELECT node_id, 0 FROM lsm_graph_nodes
+                        SELECT node_id, 0 FROM {graph_nodes}
                         WHERE node_id IN ({placeholders})
                         UNION
                         SELECT e.dst_id, r.depth + 1
                         FROM reachable r
-                        JOIN lsm_graph_edges e ON e.src_id = r.node_id
+                        JOIN {graph_edges} e ON e.src_id = r.node_id
                         WHERE r.depth < %s
                         UNION
                         SELECT e.src_id, r.depth + 1
                         FROM reachable r
-                        JOIN lsm_graph_edges e ON e.dst_id = r.node_id
+                        JOIN {graph_edges} e ON e.dst_id = r.node_id
                         WHERE r.depth < %s
                     )
                     SELECT DISTINCT node_id FROM reachable
-                """
+                """.format(
+                    graph_nodes=self._tn.graph_nodes,
+                    graph_edges=self._tn.graph_edges,
+                    placeholders=placeholders,
+                )
                 params = list(start_ids) + [max_hops, max_hops]
 
             with conn.cursor() as cur:
@@ -854,7 +865,7 @@ class PostgreSQLProvider(BaseVectorDBProvider):
         """Create embedding models table if it doesn't exist."""
         with conn.cursor() as cur:
             cur.execute("""
-                CREATE TABLE IF NOT EXISTS lsm_embedding_models (
+                CREATE TABLE IF NOT EXISTS {embedding_models} (
                     model_id   TEXT PRIMARY KEY,
                     base_model TEXT,
                     path       TEXT,
@@ -862,5 +873,5 @@ class PostgreSQLProvider(BaseVectorDBProvider):
                     created_at TEXT,
                     is_active  INTEGER DEFAULT 0
                 )
-            """)
+            """.format(embedding_models=self._tn.embedding_models))
         conn.commit()

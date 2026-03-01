@@ -11,6 +11,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Optional
 
+from lsm import __version__ as LSM_VERSION
 from lsm.db.connection import resolve_db_path
 from lsm.db.tables import DEFAULT_TABLE_NAMES, TableNames
 
@@ -234,35 +235,55 @@ def _check_partial_migration(
 
 def _check_stale_chunks(
     conn: sqlite3.Connection,
-    table_names: TableNames,
+    config: Any | TableNames | None = None,
+    table_names: Optional[TableNames] = None,
 ) -> Optional[DBHealthReport]:
-    """Check for chunks missing enrichment fields.
+    """Check for chunks missing enrichment fields using deterministic detection."""
+    from lsm.db.enrichment import detect_stale_chunks
 
-    This is a stub that will be wired to detect_stale_chunks() from Phase 17.7.
-    For now, performs basic NULL field checks.
-    """
+    # Backward compatibility for existing internal/test callers that passed
+    # (conn, table_names) prior to config-aware stale checks.
+    if isinstance(config, TableNames) and table_names is None:
+        table_names = config
+        config = None
+    tn = table_names or DEFAULT_TABLE_NAMES
+
     try:
         row = conn.execute(
             "SELECT name FROM sqlite_master WHERE type='table' AND name=?",
-            (table_names.chunks,),
+            (tn.chunks,),
         ).fetchone()
         if row is None:
             return None  # no chunks table yet
 
-        # Check for chunks with NULL simhash (basic enrichment indicator)
-        counts = {}
-        for col_name in ("simhash", "node_type"):
-            try:
-                result = conn.execute(
-                    f"SELECT COUNT(*) FROM {table_names.chunks} WHERE {col_name} IS NULL"
-                ).fetchone()
-                if result and result[0] > 0:
-                    counts[col_name] = result[0]
-            except Exception:
-                pass  # column may not exist in older schemas
+        query_cfg = getattr(config, "query", None)
+        stale = detect_stale_chunks(
+            conn,
+            tn,
+            cluster_enabled=bool(getattr(query_cfg, "cluster_enabled", False)),
+            summaries_enabled=(
+                str(getattr(query_cfg, "retrieval_profile", "") or "").strip().lower()
+                == "multi_vector"
+            ),
+        )
+        tier1 = stale.get("tier1", {})
+        tier2 = stale.get("tier2", {})
+        tier3 = stale.get("tier3", {})
+        detail_parts: list[str] = []
+        if int(tier1.get("simhash_null_count", 0) or 0) > 0:
+            detail_parts.append(f"{tier1['simhash_null_count']} chunks with NULL simhash")
+        if int(tier1.get("node_type_null_count", 0) or 0) > 0:
+            detail_parts.append(f"{tier1['node_type_null_count']} chunks with NULL/empty node_type")
+        if int(tier2.get("heading_path_null_count", 0) or 0) > 0:
+            detail_parts.append(f"{tier2['heading_path_null_count']} headed chunks with NULL heading_path")
+        missing_section = int(len(tier3.get("missing_section_summary_files", []) or []))
+        missing_file = int(len(tier3.get("missing_file_summary_files", []) or []))
+        if missing_section > 0:
+            detail_parts.append(f"{missing_section} files missing section summaries")
+        if missing_file > 0:
+            detail_parts.append(f"{missing_file} files missing file summaries")
 
-        if counts:
-            detail_parts = [f"{count} chunks with NULL {col}" for col, count in counts.items()]
+        if detail_parts:
             return DBHealthReport(
                 status="stale_chunks",
                 details=f"Stale chunks detected: {'; '.join(detail_parts)}.",
@@ -276,6 +297,20 @@ def _check_stale_chunks(
         return None
 
     return None
+
+
+def _default_schema_config(config: Any) -> dict[str, Any]:
+    global_cfg = getattr(config, "global_settings", None)
+    ingest_cfg = getattr(config, "ingest", None)
+    embedding_dim = getattr(global_cfg, "embedding_dimension", None)
+    return {
+        "lsm_version": LSM_VERSION,
+        "embedding_model": str(getattr(global_cfg, "embed_model", "") or ""),
+        "embedding_dim": int(embedding_dim or 0),
+        "chunking_strategy": str(getattr(ingest_cfg, "chunking_strategy", "") or ""),
+        "chunk_size": int(getattr(ingest_cfg, "chunk_size", 0) or 0),
+        "chunk_overlap": int(getattr(ingest_cfg, "chunk_overlap", 0) or 0),
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -341,10 +376,10 @@ def check_db_health(
 
     try:
         # 3. Schema version compatible?
-        if schema_config is not None:
-            report = _check_schema_version(conn, schema_config, tn)
-            if report is not None:
-                return report
+        effective_schema_config = schema_config if schema_config is not None else _default_schema_config(config)
+        report = _check_schema_version(conn, effective_schema_config, tn)
+        if report is not None:
+            return report
 
         # 4. Required tables present?
         report = _check_required_tables(conn, tn)
@@ -357,7 +392,7 @@ def check_db_health(
             return report
 
         # 6. Stale chunks?
-        report = _check_stale_chunks(conn, tn)
+        report = _check_stale_chunks(conn, config, tn)
         if report is not None:
             return report
     finally:

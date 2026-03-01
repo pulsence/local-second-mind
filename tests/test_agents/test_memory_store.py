@@ -15,7 +15,7 @@ from lsm.agents.memory import (
 from lsm.agents.memory.migrations import migrate_memory_store
 from lsm.agents.memory.models import now_utc
 from lsm.config.models.agents import AgentConfig, MemoryConfig, SandboxConfig
-from lsm.config.models.vectordb import VectorDBConfig
+from lsm.config.models import DBConfig
 
 
 def _sqlite_store(tmp_path: Path, name: str = "memory.sqlite3") -> SQLiteMemoryStore:
@@ -172,7 +172,7 @@ def test_create_memory_store_auto_selects_backend(tmp_path: Path) -> None:
         memory=MemoryConfig(storage_backend="auto"),
     )
 
-    sqlite_cfg = VectorDBConfig(
+    sqlite_cfg = DBConfig(
         provider="sqlite",
         path=tmp_path / "data",
         collection="local_kb",
@@ -181,7 +181,7 @@ def test_create_memory_store_auto_selects_backend(tmp_path: Path) -> None:
     assert isinstance(sqlite_store, SQLiteMemoryStore)
     sqlite_store.close()
 
-    postgres_cfg = VectorDBConfig(
+    postgres_cfg = DBConfig(
         provider="postgresql",
         collection="local_kb",
         connection_string="postgresql://user:pass@localhost:5432/lsm",

@@ -15,7 +15,7 @@ from lsm.config.models import (
     ModeChatsConfig,
     ModeConfig,
     QueryConfig,
-    VectorDBConfig,
+    DBConfig,
 )
 from lsm.query.context import ContextResult
 from lsm.query.pipeline_types import (
@@ -49,7 +49,7 @@ def _make_config(
             chat_mode=chat_mode,
             enable_llm_server_cache=llm_server_cache_enabled,
         ),
-        vectordb=VectorDBConfig(provider="sqlite", path=tmp_path / "data", collection="kb"),
+        db=DBConfig(provider="sqlite", path=tmp_path / "data", collection="kb"),
         global_settings=GlobalConfig(global_folder=tmp_path / "global"),
         config_path=tmp_path / "config.json",
     )

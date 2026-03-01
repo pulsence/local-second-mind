@@ -132,8 +132,8 @@ class DBConfig:
 
 
 # ---------------------------------------------------------------------------
-# Backward-compatible __init__ wrapper: accept provider/collection/index_type/
-# pool_size as top-level kwargs and forward them to the nested VectorConfig.
+# Convenience __init__ wrapper: accept provider/collection/index_type/pool_size
+# as top-level kwargs and forward them to the nested VectorConfig.
 # ---------------------------------------------------------------------------
 _dc_init = DBConfig.__init__
 _UNSET = object()
@@ -160,6 +160,3 @@ def _compat_init(
 
 
 DBConfig.__init__ = _compat_init
-
-# Backward-compatible alias
-VectorDBConfig = DBConfig

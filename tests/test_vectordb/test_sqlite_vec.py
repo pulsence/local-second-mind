@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from lsm.config.models import VectorDBConfig
+from lsm.config.models import DBConfig
 from lsm.vectordb.sqlite_vec import SQLiteVecProvider
 
 
@@ -19,7 +19,7 @@ def _vector(x: float, y: float = 0.0) -> list[float]:
 
 
 def _provider(tmp_path: Path) -> SQLiteVecProvider:
-    cfg = VectorDBConfig(provider="sqlite", path=tmp_path / "db", collection="test")
+    cfg = DBConfig(provider="sqlite", path=tmp_path / "db", collection="test")
     return SQLiteVecProvider(cfg)
 
 

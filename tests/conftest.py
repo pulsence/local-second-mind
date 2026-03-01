@@ -24,7 +24,7 @@ from lsm.config.models import (
     LLMServiceConfig,
     LSMConfig,
     QueryConfig,
-    VectorDBConfig,
+    DBConfig,
 )
 from tests.testing_config import TestConfig, load_test_config
 
@@ -257,7 +257,7 @@ def ingest_config(tmp_path: Path, global_folder: Path) -> LSMConfig:
         providers=[LLMProviderConfig(provider_name="local")],
         services={"query": LLMServiceConfig(provider="local", model="llama3.1")},
     )
-    vectordb = VectorDBConfig(
+    vectordb = DBConfig(
         provider="sqlite",
         path=tmp_path / "data",
         collection="test_collection",
@@ -266,7 +266,7 @@ def ingest_config(tmp_path: Path, global_folder: Path) -> LSMConfig:
         ingest=ingest,
         query=query,
         llm=llm,
-        vectordb=vectordb,
+        db=vectordb,
         global_settings=GlobalConfig(global_folder=global_folder),
     )
 
@@ -413,7 +413,7 @@ def real_chromadb_provider(tmp_path: Path):
     """
     from lsm.vectordb.chromadb import ChromaDBProvider
 
-    config = VectorDBConfig(
+    config = DBConfig(
         provider="chromadb",
         path=tmp_path / ".chroma",
         collection=f"test_{tmp_path.name}",
@@ -432,7 +432,7 @@ def real_postgresql_provider(live_postgres_connection_string: str):
     from lsm.vectordb.factory import create_vectordb_provider
 
     collection_name = f"test_pg_{uuid4().hex[:12]}"
-    config = VectorDBConfig(
+    config = DBConfig(
         provider="postgresql",
         connection_string=live_postgres_connection_string,
         collection=collection_name,

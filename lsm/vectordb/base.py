@@ -10,7 +10,7 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
-from lsm.config.models import VectorDBConfig
+from lsm.config.models import DBConfig
 
 
 @dataclass
@@ -68,7 +68,7 @@ class BaseVectorDBProvider(ABC):
     Providers must implement add/get/query/update/delete/count/health operations.
     """
 
-    def __init__(self, config: VectorDBConfig) -> None:
+    def __init__(self, config: DBConfig) -> None:
         self.config = config
 
     @property

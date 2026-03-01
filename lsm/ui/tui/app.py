@@ -347,8 +347,12 @@ class LSMApp(App):
         # --- Database health check ---
         try:
             from lsm.db.health import check_db_health
+            from lsm.db.tables import TableNames
 
-            health = check_db_health(self.config)
+            health = check_db_health(
+                self.config,
+                table_names=TableNames(prefix=self.config.db.table_prefix),
+            )
             if health.status != "ok":
                 severity = "warning" if health.blocking else "information"
                 message = health.details
@@ -368,7 +372,7 @@ class LSMApp(App):
         # --- Job advisories ---
         try:
             from lsm.db.job_status import check_job_advisories
-            from lsm.vectordb import create_vectordb_provider
+            from lsm.db import create_vectordb_provider
 
             provider = create_vectordb_provider(self.config.db)
 
@@ -1096,7 +1100,7 @@ class LSMApp(App):
             return
 
         logger.info("Initializing ingest context")
-        from lsm.vectordb import create_vectordb_provider
+        from lsm.db import create_vectordb_provider
 
         try:
             # Run sync provider creation in thread to not block UI
@@ -1119,7 +1123,7 @@ class LSMApp(App):
         from lsm.query.retrieval import init_embedder
         from lsm.query.session import SessionState
         from lsm.query.cost_tracking import CostTracker
-        from lsm.vectordb import create_vectordb_provider
+        from lsm.db import create_vectordb_provider
 
         try:
             # Initialize embedder — skip if already preloaded by background init

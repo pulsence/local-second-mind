@@ -18,7 +18,7 @@ from lsm.config.models import (
     QueryConfig,
     RemoteProviderConfig,
     RemoteSourcePolicy,
-    VectorDBConfig,
+    DBConfig,
 )
 from lsm.query.api import query
 from lsm.query.pipeline_types import (
@@ -56,7 +56,7 @@ def _build_query_config(tmp_path: Path, remote_enabled: bool) -> LSMConfig:
                 "ranking": LLMServiceConfig(provider="openai", model="gpt-5.2"),
             },
         ),
-        vectordb=VectorDBConfig(
+        db=DBConfig(
             provider="sqlite",
             path=tmp_path / "data",
             collection="test_collection",

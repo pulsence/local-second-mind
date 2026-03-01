@@ -21,7 +21,7 @@ from lsm.config.models import (
     ModelKnowledgePolicy,
     QueryConfig,
     RemoteSourcePolicy,
-    VectorDBConfig,
+    DBConfig,
 )
 from lsm.ingest.api import run_ingest
 from lsm.ingest.manifest import load_manifest
@@ -105,7 +105,7 @@ def _build_pipeline_config(
             ),
         },
     )
-    vectordb = VectorDBConfig(
+    vectordb = DBConfig(
         provider=vectordb_provider,
         path=tmp_path / "data",
         collection=collection_name,
@@ -130,7 +130,7 @@ def _build_pipeline_config(
         ingest=ingest,
         query=query,
         llm=llm,
-        vectordb=vectordb,
+        db=vectordb,
         modes=modes,
         global_settings=GlobalConfig(
             global_folder=tmp_path / "global",

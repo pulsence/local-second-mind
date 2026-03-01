@@ -7,18 +7,18 @@ from unittest.mock import MagicMock, patch, call
 
 import pytest
 
-from lsm.config.models import VectorDBConfig
+from lsm.config.models import DBConfig
 from lsm.vectordb.base import VectorDBGetResult, VectorDBQueryResult
 
 
-def _pg_config(**overrides) -> VectorDBConfig:
+def _pg_config(**overrides) -> DBConfig:
     defaults = dict(
         provider="postgresql",
         connection_string="postgresql://u:p@localhost/testdb",
         collection="test_kb",
     )
     defaults.update(overrides)
-    return VectorDBConfig(**defaults)
+    return DBConfig(**defaults)
 
 
 @pytest.fixture()

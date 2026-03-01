@@ -43,8 +43,9 @@ from lsm.db.schema_version import (
     check_schema_compatibility,
     record_schema_version,
 )
+from lsm.db.tables import TableNames
 from lsm.vectordb import BaseVectorDBProvider, create_vectordb_provider
-from lsm.config.models import LLMConfig, RootConfig, VectorDBConfig
+from lsm.config.models import LLMConfig, RootConfig, DBConfig
 
 # -----------------------------
 # Main ingest pipeline
@@ -352,7 +353,7 @@ def parse_and_chunk_job(
         )
 
 
-def _resolve_runtime_artifact_dir(vectordb_config: VectorDBConfig) -> Path:
+def _resolve_runtime_artifact_dir(vectordb_config: DBConfig) -> Path:
     vdb_path = Path(vectordb_config.path)
     if str(vdb_path).lower().endswith(".db"):
         return vdb_path.parent
@@ -368,7 +369,7 @@ def ingest(
     manifest_path: Optional[Path],
     exts: set[str],
     exclude_dirs: set[str],
-    vectordb_config: VectorDBConfig,
+    vectordb_config: DBConfig,
     dry_run: bool = False,
     enable_ocr: bool = False,
     skip_errors: bool = True,
@@ -402,6 +403,7 @@ def ingest(
         Summary dictionary with ingest metrics.
     """
     _ = enable_versioning  # Versioning is always on; retained for compatibility.
+    table_names = TableNames(prefix=vectordb_config.table_prefix)
 
     def emit(event: str, current: int, total: int, message: str) -> None:
         if progress_callback:
@@ -477,7 +479,7 @@ def ingest(
         manifest = {}
         if manifest_connection is not None:
             load_manifest(connection=manifest_connection)
-            manifest_connection.execute("DELETE FROM lsm_manifest")
+            manifest_connection.execute(f"DELETE FROM {table_names.manifest}")
             manifest_connection.commit()
         elif manifest_path is not None and manifest_path.exists():
             manifest_path.unlink()
@@ -1146,7 +1148,7 @@ def ingest(
         (
             f"completed={completed} skipped={skipped} embedded_files={embedded_files} "
             f"chunks_added={added_chunks} chunks_written={written_chunks} "
-            f"elapsed={format_time(elapsed)} vectordb={vectordb_config.provider} "
+            f"elapsed={format_time(elapsed)} db={vectordb_config.provider} "
             f"collection={vectordb_config.collection} dry_run={dry_run}"
         ),
     )

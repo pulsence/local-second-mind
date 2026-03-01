@@ -16,7 +16,7 @@ from lsm.config.models import (
     LSMConfig,
     QueryConfig,
     RootConfig,
-    VectorDBConfig,
+    DBConfig,
 )
 from lsm.db.completion import detect_completion_mode, get_stale_files
 from lsm.db.schema_version import record_schema_version
@@ -125,7 +125,7 @@ def _build_config(
             providers=[LLMProviderConfig(provider_name="local")],
             services={"default": LLMServiceConfig(provider="local", model="tiny")},
         ),
-        vectordb=VectorDBConfig(
+        db=DBConfig(
             provider="sqlite",
             path=tmp_path / "data",
             collection="completion_test",

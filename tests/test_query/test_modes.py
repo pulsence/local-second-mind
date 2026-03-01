@@ -17,7 +17,7 @@ from lsm.config.models import (
     NotesConfig,
     QueryConfig,
     RemoteSourcePolicy,
-    VectorDBConfig,
+    DBConfig,
 )
 
 
@@ -29,7 +29,7 @@ def _make_config(mode: str, modes: dict | None = None, notes: NotesConfig | None
             providers=[LLMProviderConfig(provider_name="openai", api_key="test")],
             services={"query": LLMServiceConfig(provider="openai", model="gpt-5.2")},
         ),
-        vectordb=VectorDBConfig(
+        db=DBConfig(
             provider="sqlite",
             path=Path("/tmp/data"),
             collection="test",

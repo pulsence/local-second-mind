@@ -7,7 +7,7 @@ from __future__ import annotations
 from typing import Any, Dict, List, Optional
 
 from lsm.logging import get_logger
-from lsm.config.models import VectorDBConfig
+from lsm.config.models import DBConfig
 from .base import BaseVectorDBProvider, PruneCriteria, VectorDBGetResult, VectorDBQueryResult
 
 logger = get_logger(__name__)
@@ -16,7 +16,7 @@ logger = get_logger(__name__)
 class ChromaDBProvider(BaseVectorDBProvider):
     """Vector DB provider backed by ChromaDB."""
 
-    def __init__(self, config: VectorDBConfig) -> None:
+    def __init__(self, config: DBConfig) -> None:
         super().__init__(config)
         self._client = None
         self._collection = None

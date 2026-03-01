@@ -13,6 +13,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
+from lsm.db.tables import DEFAULT_TABLE_NAMES, TableNames
 from lsm.logging import get_logger
 
 logger = get_logger(__name__)
@@ -31,29 +32,31 @@ def extract_training_pairs(
     conn: Any,
     min_content_length: int = 50,
     max_pairs: Optional[int] = None,
+    table_names: TableNames = DEFAULT_TABLE_NAMES,
 ) -> List[TrainingPair]:
     """Extract heading-content training pairs from the corpus.
 
-    Uses lsm_chunks with headings as anchors and chunk text as positives.
+    Uses chunks with headings as anchors and chunk text as positives.
 
     Args:
-        conn: SQLite connection with lsm_chunks table.
+        conn: SQLite connection with chunk table.
         min_content_length: Minimum chunk text length to include.
         max_pairs: Optional limit on training pairs.
 
     Returns:
         List of TrainingPair objects.
     """
+    tn = table_names
     sql = """
         SELECT heading, chunk_text, source_path
-        FROM lsm_chunks
+        FROM {chunks}
         WHERE is_current = 1
           AND node_type = 'chunk'
           AND heading IS NOT NULL
           AND heading != ''
           AND LENGTH(chunk_text) >= ?
         ORDER BY source_path, chunk_index
-    """
+    """.format(chunks=tn.chunks)
     params = [min_content_length]
     if max_pairs:
         sql += " LIMIT ?"

@@ -15,7 +15,7 @@ from lsm.config.models import (
     LLMServiceConfig,
     LSMConfig,
     QueryConfig,
-    VectorDBConfig,
+    DBConfig,
 )
 from lsm.db.schema_version import (
     SchemaVersionMismatchError,
@@ -171,7 +171,7 @@ def test_manifest_entries_reference_current_schema_version(
             providers=[LLMProviderConfig(provider_name="local")],
             services={"default": LLMServiceConfig(provider="local", model="tiny")},
         ),
-        vectordb=VectorDBConfig(
+        db=DBConfig(
             provider="sqlite",
             path=tmp_path / "data",
             collection="schema_version_test",

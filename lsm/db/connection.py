@@ -12,6 +12,13 @@ from pathlib import Path
 from typing import Any, Callable, Optional, Tuple, Union
 
 
+def create_vectordb_provider(config: Any) -> Any:
+    """Create a vector DB provider via the canonical db-level entrypoint."""
+    from lsm.db import create_vectordb_provider as _create_vectordb_provider
+
+    return _create_vectordb_provider(config)
+
+
 def create_sqlite_connection(path: Path) -> sqlite3.Connection:
     """Create a SQLite connection with standard LSM pragmas.
 
@@ -44,7 +51,7 @@ def resolve_vectordb_provider_name(
     # Avoid circular import — check duck-type first.
     if _is_provider_instance(vectordb):
         return str(getattr(vectordb, "name", "") or "").strip().lower()
-    # Assume VectorDBConfig
+    # Assume DBConfig
     return str(getattr(vectordb, "provider", "") or "sqlite").strip().lower()
 
 
@@ -74,8 +81,6 @@ def resolve_sqlite_connection(
         raise ValueError(
             "SQLite connection resolution requires vectordb.provider='sqlite'."
         )
-
-    from lsm.vectordb import create_vectordb_provider
 
     provider = create_vectordb_provider(vectordb)
     connection = getattr(provider, "connection", None)

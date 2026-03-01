@@ -1,6 +1,6 @@
 import pytest
 
-from lsm.config.models import VectorDBConfig
+from lsm.config.models import DBConfig
 from lsm.vectordb.base import BaseVectorDBProvider, VectorDBGetResult, VectorDBQueryResult
 
 
@@ -27,7 +27,7 @@ def test_query_result_empty_values() -> None:
 
 def test_base_provider_is_abstract() -> None:
     with pytest.raises(TypeError):
-        BaseVectorDBProvider(VectorDBConfig())
+        BaseVectorDBProvider(DBConfig())
 
 
 class TestVectorDBGetResult:

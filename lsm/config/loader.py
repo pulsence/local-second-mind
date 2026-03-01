@@ -52,7 +52,6 @@ from .models import (
     RemoteProviderRef,
     DBConfig,
     VectorConfig,
-    VectorDBConfig,
     DEFAULT_EXTENSIONS,
     DEFAULT_EXCLUDE_DIRS,
 )
@@ -469,10 +468,15 @@ def build_config_from_raw(raw: Dict[str, Any], path: Path | str) -> LSMConfig:
 def build_db_config(raw: Dict[str, Any]) -> DBConfig:
     """Build DBConfig from raw configuration.
 
-    Reads from ``raw["db"]`` (preferred) or ``raw["vectordb"]`` (legacy
-    fallback).  When reading from ``"db"``, the nested ``"vector"`` sub-key
-    is used for ``VectorConfig`` fields.
+    Reads from ``raw["db"]``. The nested ``"vector"`` sub-key is used for
+    ``VectorConfig`` fields.
     """
+    if "vectordb" in raw:
+        raise ValueError(
+            "Legacy config key 'vectordb' is no longer supported. "
+            "Rename it to 'db' and move vector settings under 'db.vector'."
+        )
+
     if "db" in raw:
         db_raw = raw["db"]
         if not isinstance(db_raw, dict):
@@ -498,47 +502,8 @@ def build_db_config(raw: Dict[str, Any]) -> DBConfig:
             vector=vector,
         )
 
-    # Legacy fallback: read from "vectordb" key
-    if "vectordb" in raw:
-        vectordb_raw = raw["vectordb"]
-        if not isinstance(vectordb_raw, dict):
-            raise ValueError("Config 'vectordb' section must be an object")
-
-        legacy_vdb_fields = {
-            "persist_dir": "path",
-            "chroma_hnsw_space": "no longer supported (sqlite provider)",
-        }
-        for field, replacement in legacy_vdb_fields.items():
-            if field in vectordb_raw:
-                raise ValueError(
-                    f"Unsupported legacy vectordb field '{field}'. "
-                    f"Use 'db.{replacement}' instead."
-                )
-
-        vector = VectorConfig(
-            provider=vectordb_raw.get("provider", VectorConfig.provider),
-            collection=vectordb_raw.get("collection", VectorConfig.collection),
-            index_type=vectordb_raw.get("index_type", "hnsw"),
-            pool_size=int(vectordb_raw.get("pool_size", 5)),
-        )
-        return DBConfig(
-            table_prefix=vectordb_raw.get("table_prefix", "lsm_"),
-            path=vectordb_raw.get("path", DBConfig.path),
-            connection_string=vectordb_raw.get("connection_string"),
-            host=vectordb_raw.get("host"),
-            port=vectordb_raw.get("port"),
-            database=vectordb_raw.get("database"),
-            user=vectordb_raw.get("user"),
-            password=vectordb_raw.get("password"),
-            vector=vector,
-        )
-
     # Neither key present — use defaults
     return DBConfig()
-
-
-# Backward-compatible alias
-build_vectordb_config = build_db_config
 
 
 def build_query_config(raw: Dict[str, Any]) -> QueryConfig:

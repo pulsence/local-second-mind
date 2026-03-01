@@ -6,7 +6,7 @@ import sqlite3
 
 import pytest
 
-from lsm.config.models import VectorDBConfig
+from lsm.config.models import DBConfig
 from lsm.db import migration as migration_mod
 from lsm.db.tables import DEFAULT_TABLE_NAMES
 from lsm.vectordb.base import VectorDBGetResult

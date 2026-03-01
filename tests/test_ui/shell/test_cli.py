@@ -6,7 +6,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from lsm.config.models import VectorDBConfig
+from lsm.config.models import DBConfig
 import lsm.ui.shell.cli as shell_cli
 
 
@@ -187,12 +187,12 @@ def test_run_db_complete_cli_success_and_error(monkeypatch: pytest.MonkeyPatch, 
 def test_run_migrate_cli_success_and_error(monkeypatch: pytest.MonkeyPatch, capsys) -> None:
     @dataclass
     class _ConfigStub:
-        db: VectorDBConfig
+        db: DBConfig
         ingest: object
         global_settings: object
 
     cfg = _ConfigStub(
-        db=VectorDBConfig(provider="sqlite", path=Path(".lsm"), collection="kb"),
+        db=DBConfig(provider="sqlite", path=Path(".lsm"), collection="kb"),
         ingest=SimpleNamespace(chunking_strategy="structure", chunk_size=1800, chunk_overlap=200),
         global_settings=SimpleNamespace(embed_model="test-model", embedding_dimension=384),
     )
@@ -230,12 +230,12 @@ def test_run_migrate_cli_success_and_error(monkeypatch: pytest.MonkeyPatch, caps
 def test_run_migrate_cli_v07_path_validation(monkeypatch: pytest.MonkeyPatch, capsys) -> None:
     @dataclass
     class _ConfigStub:
-        db: VectorDBConfig
+        db: DBConfig
         ingest: object
         global_settings: object
 
     cfg = _ConfigStub(
-        db=VectorDBConfig(provider="sqlite", path=Path(".lsm"), collection="kb"),
+        db=DBConfig(provider="sqlite", path=Path(".lsm"), collection="kb"),
         ingest=SimpleNamespace(chunking_strategy="structure", chunk_size=1800, chunk_overlap=200),
         global_settings=SimpleNamespace(
             embed_model="test-model",

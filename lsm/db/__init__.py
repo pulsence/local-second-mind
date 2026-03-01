@@ -1,5 +1,7 @@
 """Database-level helpers for schema and migration workflows."""
 
+from lsm.vectordb.factory import create_vectordb_provider
+
 from .completion import detect_completion_mode, get_stale_files
 from .connection import (
     create_sqlite_connection,
@@ -40,6 +42,7 @@ __all__ = [
     "resolve_postgres_connection_factory",
     "resolve_sqlite_connection",
     "resolve_vectordb_provider_name",
+    "create_vectordb_provider",
     "detect_completion_mode",
     "get_stale_files",
     "EnrichmentReport",

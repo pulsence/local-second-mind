@@ -13,7 +13,7 @@ from lsm.config.models import (
     LLMServiceConfig,
     LSMConfig,
     QueryConfig,
-    VectorDBConfig,
+    DBConfig,
 )
 from lsm.ingest.api import run_ingest
 from lsm.ingest.manifest import load_manifest
@@ -101,7 +101,7 @@ def _build_config(root: Path, tmp_path: Path) -> LSMConfig:
             providers=[LLMProviderConfig(provider_name="local")],
             services={"query": LLMServiceConfig(provider="local", model="llama3.1")}
         ),
-        vectordb=VectorDBConfig(
+        db=DBConfig(
             provider="sqlite",
             path=tmp_path / "data",
             collection="integration_test_collection",

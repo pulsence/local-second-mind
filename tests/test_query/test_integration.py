@@ -20,7 +20,7 @@ from lsm.config.models import (
     LLMServiceConfig,
     LSMConfig,
     QueryConfig,
-    VectorDBConfig,
+    DBConfig,
 )
 from lsm.query.pipeline_types import (
     ContextPackage,
@@ -84,7 +84,7 @@ def _build_config(tmp_path: Path, *, mode: str = "grounded") -> LSMConfig:
             k=12,
             mode=mode,
         ),
-        vectordb=VectorDBConfig(
+        db=DBConfig(
             provider="sqlite",
             path=tmp_path / "data",
             collection="test_kb",

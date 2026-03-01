@@ -14,7 +14,7 @@ from typing import Any, Dict, List, Optional, Sequence, Callable
 from uuid import uuid4
 
 from lsm.config.models.agents import AgentConfig, MemoryConfig
-from lsm.config.models.vectordb import VectorDBConfig
+from lsm.config.models.vectordb import DBConfig
 from lsm.db.connection import (
     resolve_postgres_connection_factory,
     resolve_sqlite_connection,
@@ -834,7 +834,7 @@ class PostgreSQLMemoryStore(BaseMemoryStore):
 
 def create_memory_store(
     agent_config: AgentConfig,
-    vectordb: VectorDBConfig | BaseVectorDBProvider,
+    vectordb: DBConfig | BaseVectorDBProvider,
 ) -> BaseMemoryStore:
     """
     Create the appropriate memory store backend.
@@ -879,16 +879,16 @@ def create_memory_store(
     raise ValueError("Unsupported memory backend. Use 'auto', 'sqlite', or 'postgresql'.")
 
 
-def _resolve_vectordb_config(vectordb: VectorDBConfig | BaseVectorDBProvider) -> VectorDBConfig:
-    if isinstance(vectordb, VectorDBConfig):
+def _resolve_vectordb_config(vectordb: DBConfig | BaseVectorDBProvider) -> DBConfig:
+    if isinstance(vectordb, DBConfig):
         return vectordb
     config = getattr(vectordb, "config", None)
-    if isinstance(config, VectorDBConfig):
+    if isinstance(config, DBConfig):
         return config
-    raise TypeError("vectordb must be a VectorDBConfig or vector DB provider instance")
+    raise TypeError("vectordb must be a DBConfig or vector DB provider instance")
 
 
-def _build_postgres_connection_string(vectordb_config: VectorDBConfig) -> Optional[str]:
+def _build_postgres_connection_string(vectordb_config: DBConfig) -> Optional[str]:
     if not vectordb_config.host or not vectordb_config.database or not vectordb_config.user:
         return None
     password = vectordb_config.password or ""

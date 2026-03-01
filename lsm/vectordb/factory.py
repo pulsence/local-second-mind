@@ -8,7 +8,7 @@ from importlib import import_module
 from typing import Dict, Type
 
 from lsm.logging import get_logger
-from lsm.config.models import VectorDBConfig
+from lsm.config.models import DBConfig
 from .base import BaseVectorDBProvider
 
 logger = get_logger(__name__)
@@ -27,7 +27,7 @@ def _load_provider_class(ref: str | Type[BaseVectorDBProvider]) -> Type[BaseVect
     return getattr(module, class_name)
 
 
-def create_vectordb_provider(config: VectorDBConfig) -> BaseVectorDBProvider:
+def create_vectordb_provider(config: DBConfig) -> BaseVectorDBProvider:
     """
     Create a vector DB provider from config.
 

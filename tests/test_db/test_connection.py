@@ -6,7 +6,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from lsm.config.models import VectorDBConfig
+from lsm.config.models import DBConfig
 from lsm.db.connection import (
     create_sqlite_connection,
     resolve_db_path,
@@ -49,7 +49,7 @@ def test_resolve_sqlite_connection_from_provider_instance(tmp_path: Path) -> Non
     try:
         provider = SimpleNamespace(
             name="sqlite",
-            config=VectorDBConfig(provider="sqlite", path=tmp_path),
+            config=DBConfig(provider="sqlite", path=tmp_path),
             connection=inner_conn,
         )
         conn, owns = resolve_sqlite_connection(provider)
@@ -67,7 +67,7 @@ def test_resolve_sqlite_connection_creates_provider_from_config(
 
     class _FakeProvider:
         name = "sqlite"
-        config = VectorDBConfig(provider="sqlite", path=tmp_path)
+        config = DBConfig(provider="sqlite", path=tmp_path)
         connection = inner_conn
 
     monkeypatch.setattr(
@@ -76,10 +76,10 @@ def test_resolve_sqlite_connection_creates_provider_from_config(
         raising=False,
     )
     # Patch the import path used inside resolve_sqlite_connection
-    import lsm.vectordb as vectordb_mod
+    import lsm.db as vectordb_mod
     monkeypatch.setattr(vectordb_mod, "create_vectordb_provider", lambda cfg: _FakeProvider())
 
-    config = VectorDBConfig(provider="sqlite", path=tmp_path)
+    config = DBConfig(provider="sqlite", path=tmp_path)
     conn, owns = resolve_sqlite_connection(config)
     assert conn is inner_conn
     assert owns is True
@@ -112,5 +112,5 @@ def test_resolve_vectordb_provider_name_from_provider() -> None:
 
 
 def test_resolve_vectordb_provider_name_from_config() -> None:
-    config = VectorDBConfig(provider="postgresql", path=Path("/tmp"))
+    config = DBConfig(provider="postgresql", path=Path("/tmp"))
     assert resolve_vectordb_provider_name(config) == "postgresql"

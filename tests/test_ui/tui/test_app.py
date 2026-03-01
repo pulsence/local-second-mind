@@ -882,7 +882,7 @@ class TestLSMAppBehavior:
             return fn(*args, **kwargs)
 
         monkeypatch.setattr("asyncio.to_thread", _to_thread)
-        monkeypatch.setattr("lsm.vectordb.create_vectordb_provider", lambda cfg: "provider")
+        monkeypatch.setattr("lsm.db.create_vectordb_provider", lambda cfg: "provider")
         asyncio.run(app._async_init_ingest_context())
         assert app.ingest_provider == "provider"
 
@@ -907,7 +907,7 @@ class TestLSMAppBehavior:
         cost_mod = importlib.import_module("lsm.query.cost_tracking")
         session_mod = importlib.import_module("lsm.query.session")
         monkeypatch.setattr(retrieval_mod, "init_embedder", lambda *_args, **_kwargs: "embedder")
-        monkeypatch.setattr("lsm.vectordb.create_vectordb_provider", lambda *_args, **_kwargs: _Provider())
+        monkeypatch.setattr("lsm.db.create_vectordb_provider", lambda *_args, **_kwargs: _Provider())
         monkeypatch.setattr(cost_mod, "CostTracker", lambda: "costs")
         monkeypatch.setattr(session_mod, "SessionState", lambda model, cost_tracker: SimpleNamespace(model=model, cost_tracker=cost_tracker))
         notices = []

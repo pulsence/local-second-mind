@@ -321,31 +321,3 @@ class LSMConfig:
         """Shortcut to global_settings.embedding_dimension."""
         return self.global_settings.embedding_dimension
 
-    # ------------------------------------------------------------------
-    # Backward-compatible alias
-    # ------------------------------------------------------------------
-
-    @property
-    def vectordb(self) -> DBConfig:
-        """Deprecated alias for ``db``."""
-        return self.db
-
-    @vectordb.setter
-    def vectordb(self, value: DBConfig) -> None:
-        self.db = value
-
-
-# ---------------------------------------------------------------------------
-# Backward-compatible __init__ wrapper: accept vectordb= kwarg as alias for db=
-# ---------------------------------------------------------------------------
-_lsm_dc_init = LSMConfig.__init__
-_LSM_UNSET = object()
-
-
-def _lsm_compat_init(self, *args, vectordb=_LSM_UNSET, **kwargs):
-    if vectordb is not _LSM_UNSET and "db" not in kwargs:
-        kwargs["db"] = vectordb
-    _lsm_dc_init(self, *args, **kwargs)
-
-
-LSMConfig.__init__ = _lsm_compat_init

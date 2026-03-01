@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from lsm.config.models import VectorDBConfig
+from lsm.config.models import DBConfig
 from lsm.vectordb.base import PruneCriteria
 from lsm.vectordb.sqlite_vec import SQLiteVecProvider
 
@@ -16,7 +16,7 @@ def _vector(x: float, y: float = 0.0) -> list[float]:
 
 
 def _provider(tmp_path: Path) -> SQLiteVecProvider:
-    cfg = VectorDBConfig(provider="sqlite", path=tmp_path / "data", collection="prune")
+    cfg = DBConfig(provider="sqlite", path=tmp_path / "data", collection="prune")
     return SQLiteVecProvider(cfg)
 
 

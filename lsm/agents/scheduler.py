@@ -14,7 +14,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Any, Callable, Dict, Optional, Sequence
 
-from lsm.config.models import LSMConfig, ScheduleConfig, VectorDBConfig
+from lsm.config.models import LSMConfig, ScheduleConfig, DBConfig
 from lsm.config.models.agents import AgentConfig, SandboxConfig
 from lsm.db.connection import (
     resolve_postgres_connection_factory,
@@ -113,7 +113,7 @@ class AgentScheduler:
         *,
         collection: Any = None,
         embedder: Any = None,
-        vectordb: VectorDBConfig | BaseVectorDBProvider | None = None,
+        vectordb: DBConfig | BaseVectorDBProvider | None = None,
         batch_size: int = 32,
         tick_seconds: float = 60.0,
         now_fn: Optional[Callable[[], datetime]] = None,

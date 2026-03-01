@@ -11,7 +11,7 @@ from .models import (
     LLMConfig,
     LLMRegistryConfig,
     LLMProviderConfig,
-    VectorDBConfig,
+    DBConfig,
 )
 from .loader import load_config_from_file
 
@@ -22,6 +22,6 @@ __all__ = [
     "LLMConfig",
     "LLMRegistryConfig",
     "LLMProviderConfig",
-    "VectorDBConfig",
+    "DBConfig",
     "load_config_from_file",
 ]

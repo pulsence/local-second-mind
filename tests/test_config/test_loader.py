@@ -323,7 +323,7 @@ def test_build_config_rejects_legacy_vectordb_fields(tmp_path: Path) -> None:
     del raw["db"]
     raw["vectordb"] = {"provider": "sqlite", "path": str(tmp_path / "data"), "persist_dir": str(tmp_path / ".chroma")}
 
-    with pytest.raises(ValueError, match="Unsupported legacy vectordb field 'persist_dir'"):
+    with pytest.raises(ValueError, match="Legacy config key 'vectordb' is no longer supported"):
         build_config_from_raw(raw, tmp_path / "config.json")
 
 
@@ -654,7 +654,7 @@ def test_save_and_load_config_json_roundtrip(tmp_path: Path) -> None:
 
     save_config_to_file(config, out_path)
     loaded = load_config_from_file(out_path)
-    assert loaded.vectordb.collection == "test_collection"
+    assert loaded.db.collection == "test_collection"
     assert loaded.embed_model == config.embed_model
 
 
@@ -665,7 +665,7 @@ def test_save_and_load_config_yaml_roundtrip(tmp_path: Path) -> None:
 
     save_config_to_file(config, out_path)
     loaded = load_config_from_file(out_path)
-    assert loaded.vectordb.collection == "test_collection"
+    assert loaded.db.collection == "test_collection"
 
 
 def test_save_config_rejects_unknown_suffix(tmp_path: Path) -> None:

@@ -14,7 +14,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable, Dict, Optional, Set
 
-from lsm.config.models import AgentConfig, LLMRegistryConfig, LSMConfig, VectorDBConfig
+from lsm.config.models import AgentConfig, LLMRegistryConfig, LSMConfig, DBConfig
 from lsm.config.models.agents import SandboxConfig
 from lsm.logging import get_logger
 from lsm.providers.factory import create_provider
@@ -84,7 +84,7 @@ class AgentHarness:
         llm_model: Optional[str] = None,
         llm_temperature: Optional[float] = None,
         llm_max_tokens: Optional[int] = None,
-        vectordb_config: Optional[VectorDBConfig] = None,
+        vectordb_config: Optional[DBConfig] = None,
         memory_store: Optional[BaseMemoryStore] = None,
         memory_context_builder: Optional[MemoryContextBuilder] = None,
         interaction_channel: Optional[InteractionChannel] = None,
