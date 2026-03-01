@@ -1,6 +1,6 @@
 # Phase 11: Cross-Encoder, LLM Reranking, and HyDE
 
-**Status**: Pending
+**Status**: Complete
 
 Implements the remaining three retrieval profiles: `dense_cross_rerank`, `llm_rerank`,
 and `hyde_hybrid`.

@@ -42,6 +42,9 @@ All notable changes to Local Second Mind are documented here.
 - Per-candidate `ScoreBreakdown` with `dense_score`, `dense_rank`, `sparse_score`, `sparse_rank`, `fused_score` populated across all retrieval stages.
 - Graceful degradation: `hybrid_rrf` falls back to `dense_only` with a warning when FTS5 is unavailable.
 - New `QueryConfig` fields: `retrieval_profile`, `k_dense`, `k_sparse`, `rrf_dense_weight`, `rrf_sparse_weight`.
+- Cross-encoder reranking stage (`lsm/query/stages/cross_encoder.py`) with `CrossEncoderReranker` for the `dense_cross_rerank` profile. Lazy model loading and graceful degradation when model unavailable.
+- HyDE (Hypothetical Document Embeddings) stage (`lsm/query/stages/hyde.py`) for the `hyde_hybrid` profile. Generates hypothetical answer documents via LLM, pools embeddings, and uses them for retrieval. Graceful degradation on LLM failure.
+- New `QueryConfig` fields: `cross_encoder_model`, `hyde_num_samples`, `hyde_temperature`, `hyde_pooling`.
 
 ### Removed
 
