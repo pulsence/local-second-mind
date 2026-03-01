@@ -117,6 +117,10 @@ def _make_config(
         enable_query_cache=False,
         query_cache_ttl=3600,
         query_cache_size=100,
+        cluster_enabled=False,
+        cluster_algorithm="kmeans",
+        cluster_k=50,
+        cluster_top_n=5,
     )
     llm_service = SimpleNamespace(
         temperature=0.7,

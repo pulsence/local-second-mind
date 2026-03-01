@@ -374,3 +374,51 @@ def run_migrate_cli(
         f"validated tables={result.get('validated_tables', 0)}."
     )
     return 0
+
+
+def run_cluster(args, config: LSMConfig) -> int:
+    """Run cluster management commands."""
+    command = getattr(args, "cluster_command", None)
+    if command == "build":
+        return run_cluster_build_cli(
+            config,
+            algorithm=getattr(args, "algorithm", None),
+            k=getattr(args, "k", None),
+        )
+
+    print("Missing cluster subcommand. Use `lsm cluster --help` for options.")
+    return 2
+
+
+def run_cluster_build_cli(
+    config: LSMConfig,
+    algorithm: Optional[str] = None,
+    k: Optional[int] = None,
+) -> int:
+    """Build cluster assignments for all current embeddings."""
+    from lsm.db.clustering import build_clusters
+
+    algorithm = algorithm or config.query.cluster_algorithm
+    k = k or config.query.cluster_k
+
+    provider = create_vectordb_provider(config.vectordb)
+    conn = getattr(provider, "connection", None)
+    if conn is None:
+        print("Error: Clustering requires SQLite backend with direct connection access.")
+        return 1
+
+    print(f"Building clusters: algorithm={algorithm}, k={k}")
+    try:
+        result = build_clusters(conn, algorithm=algorithm, k=k)
+    except ImportError as exc:
+        print(f"Error: {exc}")
+        return 1
+    except Exception as exc:
+        print(f"Error during clustering: {exc}")
+        return 1
+
+    print(
+        f"Clustering complete: {result['n_clusters']} clusters, "
+        f"{result['n_chunks']} chunks, algorithm={result['algorithm']}"
+    )
+    return 0

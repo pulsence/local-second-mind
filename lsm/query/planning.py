@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 from lsm.config.models import LSMConfig
 from lsm.query.session import SessionState, Candidate
@@ -127,6 +127,7 @@ def prepare_local_candidates(
     state: SessionState,
     embedder,
     collection,
+    extra_filters: Optional[Dict[str, Any]] = None,
 ) -> LocalQueryPlan:
     """
     Prepare local candidates for query execution or cost estimation.
@@ -172,6 +173,8 @@ def prepare_local_candidates(
         llm_config=decomposition_llm,
     )
     where_filter = {**where_filter, "is_current": True}
+    if extra_filters:
+        where_filter.update(extra_filters)
     if not where_filter:
         where_filter = None
 

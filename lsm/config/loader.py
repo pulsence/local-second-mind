@@ -535,6 +535,10 @@ def build_query_config(raw: Dict[str, Any]) -> QueryConfig:
         temporal_boost_enabled=bool(query_section.get("temporal_boost_enabled", False)),
         temporal_boost_days=int(query_section.get("temporal_boost_days", 30)),
         temporal_boost_factor=float(query_section.get("temporal_boost_factor", 1.5)),
+        cluster_enabled=bool(query_section.get("cluster_enabled", False)),
+        cluster_algorithm=str(query_section.get("cluster_algorithm", "kmeans")),
+        cluster_k=int(query_section.get("cluster_k", 50)),
+        cluster_top_n=int(query_section.get("cluster_top_n", 5)),
     )
 
     return config
@@ -1475,6 +1479,10 @@ def config_to_raw(config: LSMConfig) -> Dict[str, Any]:
             "temporal_boost_enabled": config.query.temporal_boost_enabled,
             "temporal_boost_days": config.query.temporal_boost_days,
             "temporal_boost_factor": config.query.temporal_boost_factor,
+            "cluster_enabled": config.query.cluster_enabled,
+            "cluster_algorithm": config.query.cluster_algorithm,
+            "cluster_k": config.query.cluster_k,
+            "cluster_top_n": config.query.cluster_top_n,
         },
         "modes": modes or None,
         "notes": {

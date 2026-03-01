@@ -318,13 +318,31 @@ class SQLiteVecProvider(BaseVectorDBProvider):
         import sqlite_vec
 
         knn_limit = max(int(top_k), int(top_k) * 10)
+
+        # Extract cluster_id for vec0-level pre-filtering
+        vec_extra_clauses = ""
+        vec_extra_params: List[Any] = []
+        remaining_filters = filters
+        if filters and "cluster_id" in filters:
+            cluster_value = self._normalize_filter_value(filters["cluster_id"])
+            cluster_ids = self._ensure_list(cluster_value)
+            cluster_ids = [int(i) for i in cluster_ids if i is not None]
+            if cluster_ids:
+                placeholders = ", ".join(["?"] * len(cluster_ids))
+                vec_extra_clauses = f" AND cluster_id IN ({placeholders})"
+                vec_extra_params = cluster_ids
+            # Remove cluster_id from remaining filters to avoid double-filtering
+            remaining_filters = {k: v for k, v in filters.items() if k != "cluster_id"}
+            if not remaining_filters:
+                remaining_filters = None
+
         rows = self._conn.execute(
-            """
+            f"""
             SELECT chunk_id, distance
             FROM vec_chunks
-            WHERE embedding MATCH ? AND k = ?
+            WHERE embedding MATCH ? AND k = ?{vec_extra_clauses}
             """,
-            (sqlite_vec.serialize_float32(list(embedding)), knn_limit),
+            [sqlite_vec.serialize_float32(list(embedding)), knn_limit] + vec_extra_params,
         ).fetchall()
         if not rows:
             return VectorDBQueryResult(ids=[], documents=[], metadatas=[], distances=[])
@@ -359,7 +377,7 @@ class SQLiteVecProvider(BaseVectorDBProvider):
             if chunk_id not in metadata_by_id:
                 continue
             text, metadata = metadata_by_id[chunk_id]
-            if filters and not self._match_metadata_filter(metadata, filters):
+            if remaining_filters and not self._match_metadata_filter(metadata, remaining_filters):
                 continue
             result_ids.append(chunk_id)
             result_docs.append(text)
@@ -843,6 +861,13 @@ class SQLiteVecProvider(BaseVectorDBProvider):
                     placeholders = ", ".join(["?"] * len(denied))
                     clauses.append(f"({prefix}ext IS NULL OR {prefix}ext NOT IN ({placeholders}))")
                     params.extend(denied)
+            elif key == "cluster_id":
+                ids = self._ensure_list(normalized_value)
+                ids = [int(i) for i in ids if i is not None]
+                if ids:
+                    placeholders = ", ".join(["?"] * len(ids))
+                    clauses.append(f"{prefix}cluster_id IN ({placeholders})")
+                    params.extend(ids)
 
         return (" AND ".join(clauses), params)
 
@@ -888,6 +913,15 @@ class SQLiteVecProvider(BaseVectorDBProvider):
                 continue
             if key == "is_current":
                 if _to_bool_int(metadata.get("is_current"), default=1) != _to_bool_int(value, default=1):
+                    return False
+                continue
+            if key == "cluster_id":
+                chunk_cluster = metadata.get("cluster_id")
+                if chunk_cluster is None:
+                    return False
+                ids = self._ensure_list(value)
+                ids = {int(i) for i in ids if i is not None}
+                if ids and int(chunk_cluster) not in ids:
                     return False
                 continue
 

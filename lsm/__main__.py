@@ -289,6 +289,37 @@ def build_parser() -> argparse.ArgumentParser:
         help="List saved evaluation baselines",
     )
 
+    # -------------------------------------------------------------------------
+    # Cluster subcommand
+    # -------------------------------------------------------------------------
+    cluster_parser = subparsers.add_parser(
+        "cluster",
+        help="Cluster management commands",
+        description="Build and manage embedding clusters for cluster-filtered retrieval.",
+    )
+    cluster_subparsers = cluster_parser.add_subparsers(
+        dest="cluster_command",
+        title="cluster commands",
+        required=True,
+    )
+
+    cluster_build_parser = cluster_subparsers.add_parser(
+        "build",
+        help="Build cluster assignments for all current embeddings",
+    )
+    cluster_build_parser.add_argument(
+        "--algorithm",
+        choices=["kmeans", "hdbscan"],
+        default=None,
+        help="Clustering algorithm (default: from config or 'kmeans')",
+    )
+    cluster_build_parser.add_argument(
+        "--k",
+        type=int,
+        default=None,
+        help="Number of clusters for k-means (default: from config or 50)",
+    )
+
     return parser
 
 
@@ -353,6 +384,10 @@ def main(argv: list[str] | None = None) -> int:
             logger.info("Starting eval command")
             from lsm.eval.cli import run_eval
             return run_eval(args, config)
+        if args.command == "cluster":
+            logger.info("Starting cluster command")
+            from lsm.ui.shell.cli import run_cluster
+            return run_cluster(args, config)
 
         else:
             # Should not reach here with required=True in subparsers

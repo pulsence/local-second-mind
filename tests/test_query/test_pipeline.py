@@ -44,6 +44,10 @@ def _make_config(
         query_cache_size=100,
         chat_mode=chat_mode,
         enable_llm_server_cache=enable_llm_server_cache,
+        cluster_enabled=False,
+        cluster_algorithm="kmeans",
+        cluster_k=50,
+        cluster_top_n=5,
     )
 
     from lsm.config.models.modes import GROUNDED_MODE, INSIGHT_MODE, HYBRID_MODE

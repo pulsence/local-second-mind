@@ -128,6 +128,27 @@ class RetrievalPipeline:
         # Build a lightweight SessionState for the planning module
         state = self._request_to_state(request)
 
+        # --- Cluster pre-filtering ---
+        cluster_ids: Optional[List[int]] = None
+        if local_policy.enabled and self.config.query.cluster_enabled:
+            try:
+                conn = getattr(self.db, "connection", None)
+                if conn is not None:
+                    from lsm.db.clustering import get_top_clusters
+                    from lsm.query.planning import embed_text
+
+                    q_vec = embed_text(
+                        self.embedder, request.question,
+                        batch_size=self.config.batch_size,
+                    )
+                    cluster_ids = get_top_clusters(
+                        q_vec, conn, top_n=self.config.query.cluster_top_n,
+                    )
+                    if cluster_ids:
+                        trace.stages_executed.append("cluster_prefilter")
+            except Exception as exc:
+                logger.warning("Cluster pre-filtering failed: %s", exc)
+
         # --- Local retrieval via profile routing ---
         plan: Optional[LocalQueryPlan] = None
         local_candidates: List[Candidate] = []
@@ -136,26 +157,28 @@ class RetrievalPipeline:
             if progress_callback:
                 progress_callback("retrieval", 0, 1, "Searching local knowledge base...")
 
+            extra_filters = {"cluster_id": cluster_ids} if cluster_ids else None
+
             if profile == "hybrid_rrf":
                 local_candidates, plan = self._profile_hybrid_rrf(
-                    request, state, trace, costs
+                    request, state, trace, costs, extra_filters=extra_filters,
                 )
             elif profile == "llm_rerank":
                 local_candidates, plan = self._profile_llm_rerank(
-                    request, state, trace, costs
+                    request, state, trace, costs, extra_filters=extra_filters,
                 )
             elif profile == "dense_cross_rerank":
                 local_candidates, plan = self._profile_dense_cross_rerank(
-                    request, state, trace
+                    request, state, trace, extra_filters=extra_filters,
                 )
             elif profile == "hyde_hybrid":
                 local_candidates, plan = self._profile_hyde_hybrid(
-                    request, state, trace, costs
+                    request, state, trace, costs, extra_filters=extra_filters,
                 )
             else:
                 # dense_only (default)
                 local_candidates, plan = self._profile_dense_only(
-                    request, state, trace
+                    request, state, trace, extra_filters=extra_filters,
                 )
 
             trace.retrieval_profile = profile
@@ -222,10 +245,12 @@ class RetrievalPipeline:
         request: QueryRequest,
         state: SessionState,
         trace: RetrievalTrace,
+        extra_filters: Optional[Dict[str, Any]] = None,
     ) -> tuple:
         """Dense-only retrieval (default profile)."""
         plan = prepare_local_candidates(
             request.question, self.config, state, self.embedder, self.db,
+            extra_filters=extra_filters,
         )
         dense_candidates = plan.filtered[: max(1, int(getattr(self.config.query, "k_dense", plan.k) or plan.k))]
         self._populate_dense_score_breakdown(dense_candidates)
@@ -240,17 +265,19 @@ class RetrievalPipeline:
         state: SessionState,
         trace: RetrievalTrace,
         costs: List[CostEntry],
+        extra_filters: Optional[Dict[str, Any]] = None,
     ) -> tuple:
         """Hybrid RRF: dense + sparse (BM25) + RRF fusion."""
         if not self._is_sparse_recall_available():
             logger.warning(
                 "FTS5 not available; falling back to dense_only profile"
             )
-            return self._profile_dense_only(request, state, trace)
+            return self._profile_dense_only(request, state, trace, extra_filters=extra_filters)
 
         # Dense recall
         plan = prepare_local_candidates(
             request.question, self.config, state, self.embedder, self.db,
+            extra_filters=extra_filters,
         )
         dense_candidates = plan.filtered[
             : max(1, int(getattr(self.config.query, "k_dense", plan.k) or plan.k))
@@ -286,10 +313,12 @@ class RetrievalPipeline:
         state: SessionState,
         trace: RetrievalTrace,
         costs: List[CostEntry],
+        extra_filters: Optional[Dict[str, Any]] = None,
     ) -> tuple:
         """Dense + LLM reranking profile."""
         plan = prepare_local_candidates(
             request.question, self.config, state, self.embedder, self.db,
+            extra_filters=extra_filters,
         )
         trace.stages_executed.append("dense_recall")
         trace.dense_candidates_count = len(plan.candidates)
@@ -340,10 +369,12 @@ class RetrievalPipeline:
         request: QueryRequest,
         state: SessionState,
         trace: RetrievalTrace,
+        extra_filters: Optional[Dict[str, Any]] = None,
     ) -> tuple:
         """Dense + cross-encoder reranking profile."""
         plan = prepare_local_candidates(
             request.question, self.config, state, self.embedder, self.db,
+            extra_filters=extra_filters,
         )
         trace.stages_executed.append("dense_recall")
         trace.dense_candidates_count = len(plan.candidates)
@@ -369,6 +400,7 @@ class RetrievalPipeline:
         state: SessionState,
         trace: RetrievalTrace,
         costs: List[CostEntry],
+        extra_filters: Optional[Dict[str, Any]] = None,
     ) -> tuple:
         """HyDE + hybrid RRF: generate hypothetical docs, embed, then hybrid_rrf."""
         query_config = self.config.query
@@ -394,11 +426,12 @@ class RetrievalPipeline:
 
         if not pooled_embedding:
             logger.warning("HyDE produced empty embedding; falling back to dense_only")
-            return self._profile_dense_only(request, state, trace)
+            return self._profile_dense_only(request, state, trace, extra_filters=extra_filters)
 
         # Use HyDE embedding for dense recall via planning
         plan = prepare_local_candidates(
             request.question, self.config, state, self.embedder, self.db,
+            extra_filters=extra_filters,
         )
         trace.stages_executed.append("dense_recall")
         trace.dense_candidates_count = len(plan.candidates)

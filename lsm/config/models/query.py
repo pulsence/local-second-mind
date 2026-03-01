@@ -107,6 +107,18 @@ class QueryConfig:
     temporal_boost_factor: float = 1.5
     """Boost multiplier for recent documents."""
 
+    cluster_enabled: bool = False
+    """Enable cluster-filtered retrieval (requires `lsm cluster build` first)."""
+
+    cluster_algorithm: str = "kmeans"
+    """Clustering algorithm: 'kmeans' or 'hdbscan'."""
+
+    cluster_k: int = 50
+    """Number of clusters for k-means."""
+
+    cluster_top_n: int = 5
+    """Number of top clusters to search during retrieval."""
+
     def __post_init__(self):
         """Compute derived values."""
         self.chat_mode = (self.chat_mode or "single").strip().lower()
@@ -137,3 +149,16 @@ class QueryConfig:
             raise ValueError(
                 f"chat_mode must be one of {valid_chat_modes}, got '{self.chat_mode}'"
             )
+
+        valid_cluster_algorithms = {"kmeans", "hdbscan"}
+        if self.cluster_algorithm not in valid_cluster_algorithms:
+            raise ValueError(
+                f"cluster_algorithm must be one of {valid_cluster_algorithms}, "
+                f"got '{self.cluster_algorithm}'"
+            )
+
+        if self.cluster_k < 2:
+            raise ValueError(f"cluster_k must be >= 2, got {self.cluster_k}")
+
+        if self.cluster_top_n < 1:
+            raise ValueError(f"cluster_top_n must be >= 1, got {self.cluster_top_n}")
