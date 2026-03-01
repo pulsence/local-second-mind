@@ -52,6 +52,7 @@ from lsm.query.session import Candidate, SessionState
 from lsm.query.stages.dense_recall import dense_recall
 from lsm.query.stages.sparse_recall import sparse_recall
 from lsm.query.stages.rrf_fusion import rrf_fuse
+from lsm.query.stages.cross_encoder import CrossEncoderReranker
 from lsm.vectordb.base import BaseVectorDBProvider
 
 VALID_PROFILES = (
@@ -142,8 +143,12 @@ class RetrievalPipeline:
                 local_candidates, plan = self._profile_llm_rerank(
                     request, state, trace, costs
                 )
+            elif profile == "dense_cross_rerank":
+                local_candidates, plan = self._profile_dense_cross_rerank(
+                    request, state, trace
+                )
             else:
-                # dense_only (default), hyde_hybrid, dense_cross_rerank
+                # dense_only (default), hyde_hybrid
                 local_candidates, plan = self._profile_dense_only(
                     request, state, trace
                 )
@@ -322,6 +327,34 @@ class RetrievalPipeline:
         )
 
         trace.stages_executed.append("llm_rerank")
+        trace.reranked_candidates_count = len(local_candidates)
+        return local_candidates, plan
+
+    def _profile_dense_cross_rerank(
+        self,
+        request: QueryRequest,
+        state: SessionState,
+        trace: RetrievalTrace,
+    ) -> tuple:
+        """Dense + cross-encoder reranking profile."""
+        plan = prepare_local_candidates(
+            request.question, self.config, state, self.embedder, self.db,
+        )
+        trace.stages_executed.append("dense_recall")
+        trace.dense_candidates_count = len(plan.candidates)
+
+        # Cross-encoder reranking
+        model_name = getattr(
+            self.config.query,
+            "cross_encoder_model",
+            "cross-encoder/ms-marco-MiniLM-L-6-v2",
+        )
+        device = getattr(self.config, "device", "cpu")
+        reranker = CrossEncoderReranker(model_name=model_name, device=device)
+        k = min(plan.k, len(plan.filtered))
+        local_candidates = reranker.rerank(request.question, plan.filtered, top_k=k)
+
+        trace.stages_executed.append("cross_encoder_rerank")
         trace.reranked_candidates_count = len(local_candidates)
         return local_candidates, plan
 

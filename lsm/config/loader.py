@@ -523,6 +523,10 @@ def build_query_config(raw: Dict[str, Any]) -> QueryConfig:
         query_cache_size=int(query_section.get("query_cache_size", 100)),
         chat_mode=str(query_section.get("chat_mode", "single")),
         enable_llm_server_cache=bool(query_section.get("enable_llm_server_cache", True)),
+        cross_encoder_model=str(query_section.get("cross_encoder_model", "cross-encoder/ms-marco-MiniLM-L-6-v2")),
+        hyde_num_samples=int(query_section.get("hyde_num_samples", 2)),
+        hyde_temperature=float(query_section.get("hyde_temperature", 0.2)),
+        hyde_pooling=str(query_section.get("hyde_pooling", "mean")),
     )
 
     return config
@@ -1451,6 +1455,10 @@ def config_to_raw(config: LSMConfig) -> Dict[str, Any]:
             "query_cache_size": config.query.query_cache_size,
             "chat_mode": config.query.chat_mode,
             "enable_llm_server_cache": config.query.enable_llm_server_cache,
+            "cross_encoder_model": config.query.cross_encoder_model,
+            "hyde_num_samples": config.query.hyde_num_samples,
+            "hyde_temperature": config.query.hyde_temperature,
+            "hyde_pooling": config.query.hyde_pooling,
         },
         "modes": modes or None,
         "notes": {

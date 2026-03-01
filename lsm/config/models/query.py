@@ -77,6 +77,18 @@ class QueryConfig:
     enable_llm_server_cache: bool = True
     """Enable provider-side server caching for chat follow-up turns when supported."""
 
+    cross_encoder_model: str = "cross-encoder/ms-marco-MiniLM-L-6-v2"
+    """Cross-encoder model for dense_cross_rerank profile."""
+
+    hyde_num_samples: int = 2
+    """Number of hypothetical documents to generate for HyDE."""
+
+    hyde_temperature: float = 0.2
+    """Temperature for HyDE document generation."""
+
+    hyde_pooling: str = "mean"
+    """Embedding pooling strategy for HyDE: 'mean' or 'max'."""
+
     def __post_init__(self):
         """Compute derived values."""
         self.chat_mode = (self.chat_mode or "single").strip().lower()
