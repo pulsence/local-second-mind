@@ -49,6 +49,11 @@ All notable changes to Local Second Mind are documented here.
 - Maximal Marginal Relevance (MMR) diversity selection (`lsm/query/stages/diversity.py`) with configurable lambda parameter and per-section heading caps.
 - Temporal-aware ranking (`lsm/query/stages/temporal.py`) with recency boost and time-range filtering using `mtime_ns` metadata.
 - New `QueryConfig` fields: `dedup_threshold`, `mmr_lambda`, `max_per_section`, `temporal_boost_enabled`, `temporal_boost_days`, `temporal_boost_factor`.
+- Pipeline-backed agent tools (`query_context`, `execute_context`, `query_and_synthesize`) replacing `query_knowledge_base`. Three granularity levels: retrieval-only, synthesis on pre-built context, and full pipeline.
+- Agent mode validation (`lsm/agents/tools/mode_validation.py`): prevents agents from using invalid retrieval profiles or enabling remote sources without sandbox URL access permission.
+- Cache-aware `query_llm` tool with `previous_response_id`, `prompt_cache_key`, `prompt_cache_retention` parameters and `response_id` in output for conversation chaining.
+- Per-context conversation chain tracking in `AgentHarness`: `_context_chain_state` tracks `last_response_id` per `context_label`, with deterministic reset on `continue_context=False` and cross-label isolation.
+- `create_default_tool_registry()` accepts optional `pipeline` parameter; registers pipeline tools when provided, falls back to `query_knowledge_base` otherwise.
 
 ### Removed
 

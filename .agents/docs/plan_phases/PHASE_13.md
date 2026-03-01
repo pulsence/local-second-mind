@@ -1,6 +1,6 @@
 # Phase 13: Agent Pipeline Tools
 
-**Status**: Pending
+**Status**: Complete
 
 Replaces the agent's `query_knowledge_base` tool with three pipeline-backed tools:
 `query_context`, `execute_context`, and `query_and_synthesize`. Agents gain fine-grained
