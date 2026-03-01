@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime
+import json
 from pathlib import Path
 from typing import Any, Optional, Protocol
 
@@ -71,6 +72,13 @@ def execute_query_command(host: QueryCommandHost, command: str) -> QueryCommandR
         return QueryCommandResult(output=host._get_help_text())
     if parsed.cmd == "/debug":
         return QueryCommandResult(output=host.app.query_state.format_debug())
+    if parsed.cmd == "/trace":
+        trace = getattr(host.app.query_state, "last_retrieval_trace", None)
+        if not trace:
+            return QueryCommandResult(output="No retrieval trace available. Run a query first.\n")
+        return QueryCommandResult(
+            output=f"{json.dumps(trace, indent=2, sort_keys=True)}\n"
+        )
 
     for handler in (
         _handle_ui_commands,

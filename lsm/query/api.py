@@ -111,6 +111,7 @@ async def query(
     chat_mode = config.query.chat_mode
 
     state.last_question = question
+    _check_conversation_invalidation(config, state)
 
     # --- Cache check ---
     cache = _get_query_cache(config)
@@ -223,9 +224,6 @@ async def query(
         state.prior_response_id = response.response_id
     if response.conversation_id:
         state.conversation_id = response.conversation_id
-
-    # Invalidation: reset chain on model/provider/mode switch
-    _check_conversation_invalidation(config, state)
 
     # Debug info
     state.last_debug = {
@@ -358,14 +356,15 @@ def _maybe_auto_save_chat(config: LSMConfig, state: SessionState) -> None:
 
 def _check_conversation_invalidation(config: LSMConfig, state: SessionState) -> None:
     """Reset conversation chain state on model/mode changes."""
-    cache_key = f"{config.query.mode}"
-    if not hasattr(state, "_last_conversation_key"):
-        state._last_conversation_key = cache_key
-        return
-    if state._last_conversation_key != cache_key:
+    query_service = config.llm.resolve_service("query")
+    active_provider = str(getattr(query_service, "provider", ""))
+    active_model = str(getattr(state, "model", "") or getattr(query_service, "model", ""))
+    cache_key = f"{config.query.mode}:{active_provider}:{active_model}"
+    previous_key = getattr(state, "_last_conversation_key", None)
+    if previous_key is not None and previous_key != cache_key:
         state.prior_response_id = None
         state.conversation_id = None
-        state._last_conversation_key = cache_key
     if config.query.chat_mode == "single":
         state.prior_response_id = None
         state.conversation_id = None
+    state._last_conversation_key = cache_key

@@ -210,6 +210,21 @@ def test_execute_command_basic_and_costs(monkeypatch: pytest.MonkeyPatch, tmp_pa
     assert "Failed to export costs" in screen._execute_query_command("/costs export bad.csv").output
 
 
+def test_execute_trace_command() -> None:
+    screen = _screen()
+
+    missing = screen._execute_query_command("/trace").output
+    assert "No retrieval trace available" in missing
+
+    screen.app.query_state.last_retrieval_trace = {
+        "stages_executed": ["dense_recall"],
+        "total_duration_ms": 12.3,
+    }
+    output = screen._execute_query_command("/trace").output
+    assert '"stages_executed"' in output
+    assert "dense_recall" in output
+
+
 def test_execute_budget_and_estimate(monkeypatch: pytest.MonkeyPatch) -> None:
     screen = _screen()
     assert "No budget set" in screen._execute_query_command("/budget").output

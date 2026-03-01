@@ -71,6 +71,7 @@ QUERY_COMMANDS: Dict[str, str] = {
     "/cost-estimate": "Estimate query cost (requires: query)",
     "/export-citations": "Export citations (optional: format path)",
     "/debug": "Show retrieval diagnostics",
+    "/trace": "Show raw retrieval trace JSON",
     "/set": "Set session filter (requires: filter value)",
     "/clear": "Clear session filter",
     "/agent": "Run or inspect agent workflows",
@@ -365,7 +366,7 @@ def format_command_help(context: ContextType) -> str:
     # Group commands by category
     categories = {
         "Navigation": ["/exit", "/quit", "/help"],
-        "Information": ["/info", "/stats", "/debug", "/costs"],
+        "Information": ["/info", "/stats", "/debug", "/trace", "/costs"],
         "Exploration": ["/explore", "/show", "/search", "/tags"],
         "Operations": ["/build", "/tag", "/wipe", "/load"],
         "Query": ["/mode", "/show", "/expand", "/open", "/note", "/notes"],

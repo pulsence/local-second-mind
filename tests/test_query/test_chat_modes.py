@@ -251,3 +251,55 @@ def test_chat_mode_respects_mode_chat_dir_override(monkeypatch, tmp_path: Path) 
     assert str(captured["chats_dir"]).endswith(
         str(Path("Chats") / "CustomModeFolder" / "grounded")
     )
+
+
+def test_conversation_invalidation_on_model_provider_mode_switch(tmp_path: Path) -> None:
+    from lsm.query import api as qapi
+
+    config = _make_config(tmp_path, chat_mode="chat", cache_enabled=False)
+    state = SessionState(model="gpt-5.2")
+    state.conversation_id = "conv-1"
+    state.prior_response_id = "resp-1"
+
+    # First call initializes conversation key only.
+    qapi._check_conversation_invalidation(config, state)
+    assert state.conversation_id == "conv-1"
+    assert state.prior_response_id == "resp-1"
+
+    # Model switch should invalidate.
+    state.model = "gpt-4.1"
+    qapi._check_conversation_invalidation(config, state)
+    assert state.conversation_id is None
+    assert state.prior_response_id is None
+
+    # Re-seed state then switch provider.
+    state.conversation_id = "conv-2"
+    state.prior_response_id = "resp-2"
+    state.model = "gpt-4.1"
+    config.llm.providers.append(LLMProviderConfig(provider_name="openrouter", api_key="test"))
+    config.llm.services["query"] = LLMServiceConfig(provider="openrouter", model="gpt-4.1")
+    qapi._check_conversation_invalidation(config, state)
+    assert state.conversation_id is None
+    assert state.prior_response_id is None
+
+    # Re-seed state then switch mode.
+    state.conversation_id = "conv-3"
+    state.prior_response_id = "resp-3"
+    config.query.mode = "insight"
+    config.modes["insight"] = ModeConfig(synthesis_style="insight")
+    qapi._check_conversation_invalidation(config, state)
+    assert state.conversation_id is None
+    assert state.prior_response_id is None
+
+
+def test_conversation_invalidation_in_single_chat_mode(tmp_path: Path) -> None:
+    from lsm.query import api as qapi
+
+    config = _make_config(tmp_path, chat_mode="single", cache_enabled=False)
+    state = SessionState(model="gpt-5.2")
+    state.conversation_id = "conv-1"
+    state.prior_response_id = "resp-1"
+
+    qapi._check_conversation_invalidation(config, state)
+    assert state.conversation_id is None
+    assert state.prior_response_id is None

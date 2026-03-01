@@ -27,6 +27,8 @@ class QuerySettingsTab(BaseSettingsTab):
                 [
                     ("dense_only", "dense_only"),
                     ("hybrid_rrf", "hybrid_rrf"),
+                    ("hyde_hybrid", "hyde_hybrid"),
+                    ("dense_cross_rerank", "dense_cross_rerank"),
                     ("llm_rerank", "llm_rerank"),
                 ],
             ),

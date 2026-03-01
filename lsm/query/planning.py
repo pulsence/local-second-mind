@@ -159,7 +159,10 @@ def prepare_local_candidates(
     ext_deny = state.ext_deny
 
     filters_active = bool(path_contains) or bool(ext_allow) or bool(ext_deny)
-    retrieve_k = config.query.retrieve_k or (max(k, k * 3) if filters_active else k)
+    configured_dense_k = int(getattr(config.query, "k_dense", k) or k)
+    retrieve_k = config.query.retrieve_k or (
+        max(configured_dense_k, max(k, k * 3)) if filters_active else max(configured_dense_k, k)
+    )
 
     available_metadata = _collect_available_metadata(collection)
     decomposition_llm = _resolve_decomposition_llm_config(config)
@@ -262,14 +265,14 @@ def prepare_local_candidates(
         filtered = apply_local_reranking(
             question,
             filtered,
+            local_pool=max(configured_dense_k, k),
         )
-        filtered = filtered[: min(k, len(filtered))]
 
     if anchor_candidates:
         filtered = _prioritize_anchor_candidates(
             anchor_candidates,
             filtered,
-            limit=min(k, max(len(filtered), len(anchor_candidates))),
+            limit=max(len(filtered), len(anchor_candidates)),
         )
 
     relevance = compute_relevance(filtered) if filtered else 0.0

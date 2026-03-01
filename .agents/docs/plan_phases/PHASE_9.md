@@ -1,6 +1,6 @@
 # Phase 9: Evaluation Harness
 
-**Status**: Pending
+**Status**: Complete
 
 Implements the retrieval evaluation system. Per the evaluation-first principle (§7.2),
 this must be in place before any retrieval feature can claim measurable improvement.

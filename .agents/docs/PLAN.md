@@ -21,9 +21,9 @@
 | 5 | LLM Provider Simplification | Completed | [PHASE_5.md](./plan_phases/PHASE_5.md) |
 | 6 | Prompt Ownership Migration and ModeConfig | Completed | [PHASE_6.md](./plan_phases/PHASE_6.md) |
 | 7 | FileGraph Heading Enhancements | Completed | [PHASE_7.md](./plan_phases/PHASE_7.md) |
-| 8 | RetrievalPipeline Core | Pending | [PHASE_8.md](./plan_phases/PHASE_8.md) |
-| 9 | Evaluation Harness | Pending | [PHASE_9.md](./plan_phases/PHASE_9.md) |
-| 10 | Retrieval Profiles and Hybrid RRF | Pending | [PHASE_10.md](./plan_phases/PHASE_10.md) |
+| 8 | RetrievalPipeline Core | Completed | [PHASE_8.md](./plan_phases/PHASE_8.md) |
+| 9 | Evaluation Harness | Completed | [PHASE_9.md](./plan_phases/PHASE_9.md) |
+| 10 | Retrieval Profiles and Hybrid RRF | Completed | [PHASE_10.md](./plan_phases/PHASE_10.md) |
 | 11 | Cross-Encoder, LLM Reranking, and HyDE | Pending | [PHASE_11.md](./plan_phases/PHASE_11.md) |
 | 12 | Diversity, Dedup, and Temporal Ranking | Pending | [PHASE_12.md](./plan_phases/PHASE_12.md) |
 | 13 | Agent Pipeline Tools | Pending | [PHASE_13.md](./plan_phases/PHASE_13.md) |

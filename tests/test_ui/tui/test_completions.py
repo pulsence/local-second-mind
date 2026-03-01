@@ -49,6 +49,7 @@ class TestGetCommands:
         assert "/expand" in commands
         assert "/costs" in commands
         assert "/debug" in commands
+        assert "/trace" in commands
         # Also includes global
         assert "/exit" in commands
 
@@ -240,6 +241,7 @@ class TestFormatCommandHelp:
 
               Information:
                 /debug               Show retrieval diagnostics
+                /trace               Show raw retrieval trace JSON
                 /costs               Show session cost summary
 
               Exploration:

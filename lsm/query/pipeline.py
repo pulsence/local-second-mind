@@ -43,6 +43,7 @@ from lsm.query.pipeline_types import (
     QueryResponse,
     RemoteSource,
     RetrievalTrace,
+    ScoreBreakdown,
     StageTimings,
 )
 from lsm.query.planning import LocalQueryPlan, prepare_local_candidates
@@ -216,9 +217,11 @@ class RetrievalPipeline:
         plan = prepare_local_candidates(
             request.question, self.config, state, self.embedder, self.db,
         )
+        dense_candidates = plan.filtered[: max(1, int(getattr(self.config.query, "k_dense", plan.k) or plan.k))]
+        self._populate_dense_score_breakdown(dense_candidates)
         trace.stages_executed.append("dense_recall")
         trace.dense_candidates_count = len(plan.candidates)
-        local_candidates = plan.filtered[: min(plan.k, len(plan.filtered))]
+        local_candidates = dense_candidates[: min(plan.k, len(dense_candidates))]
         return local_candidates, plan
 
     def _profile_hybrid_rrf(
@@ -229,15 +232,7 @@ class RetrievalPipeline:
         costs: List[CostEntry],
     ) -> tuple:
         """Hybrid RRF: dense + sparse (BM25) + RRF fusion."""
-        # Check if FTS is available (graceful degradation)
-        test_result = self.db.fts_query("test", top_k=1)
-        fts_available = True
-        if not hasattr(self.db, "fts_query"):
-            fts_available = False
-        elif test_result.ids == [] and not getattr(self.db, "_extension_loaded", True):
-            fts_available = False
-
-        if not fts_available:
+        if not self._is_sparse_recall_available():
             logger.warning(
                 "FTS5 not available; falling back to dense_only profile"
             )
@@ -247,7 +242,10 @@ class RetrievalPipeline:
         plan = prepare_local_candidates(
             request.question, self.config, state, self.embedder, self.db,
         )
-        dense_candidates = plan.filtered
+        dense_candidates = plan.filtered[
+            : max(1, int(getattr(self.config.query, "k_dense", plan.k) or plan.k))
+        ]
+        self._populate_dense_score_breakdown(dense_candidates)
         trace.stages_executed.append("dense_recall")
         trace.dense_candidates_count = len(plan.candidates)
 
@@ -265,6 +263,7 @@ class RetrievalPipeline:
             sparse_weight=self.config.query.rrf_sparse_weight,
         )
         trace.stages_executed.append("rrf_fusion")
+        trace.fused_candidates_count = len(fused)
 
         # Trim to k
         k = plan.k
@@ -302,8 +301,9 @@ class RetrievalPipeline:
                 text=item.get("text", ""),
                 meta=item.get("metadata", {}),
                 distance=item.get("distance"),
+                score_breakdown=ScoreBreakdown(rerank_score=1.0 / (rank + 1)),
             )
-            for item in reranked
+            for rank, item in enumerate(reranked)
         ]
 
         # Cost tracking
@@ -353,9 +353,12 @@ class RetrievalPipeline:
         # 2. Session cache continuation (prior_response_id)
         # 3. Mode-derived default
         mode_config = self._resolve_mode(package.request)
-        starting_prompt: str
+        starting_prompt: Optional[str]
         if package.request.starting_prompt is not None:
             starting_prompt = package.request.starting_prompt
+        elif package.prior_response_id or package.request.prior_response_id:
+            # Continuation requests rely on provider-side server cache.
+            starting_prompt = None
         else:
             starting_prompt = mode_config.synthesis_instructions
 
@@ -406,17 +409,30 @@ class RetrievalPipeline:
                 + f"\n\nCurrent user question:\n{package.request.question}"
             )
 
-        instructions = package.starting_prompt or mode_config.synthesis_instructions
+        if package.starting_prompt is not None:
+            instructions = package.starting_prompt
+        elif package.prior_response_id:
+            instructions = None
+        else:
+            instructions = mode_config.synthesis_instructions
         user_content = format_user_content(question_payload, package.context_block or "")
 
         # Build cache key for provider-side prompt caching
+        conversation_scope = (
+            package.request.conversation_id
+            or package.prior_response_id
+            or "single"
+        )
         provider_cache_key = (
             f"{synthesis_provider.name}:{synthesis_provider.model}"
-            f":{package.request.resolved_mode}"
+            f":{package.request.resolved_mode}:{conversation_scope}"
         )
 
         previous_response_id = package.prior_response_id
         enable_server_cache = self.config.query.enable_llm_server_cache
+        prompt_cache_retention = getattr(
+            self.config.query, "prompt_cache_retention", None
+        )
 
         answer = synthesis_provider.send_message(
             input=user_content,
@@ -428,6 +444,7 @@ class RetrievalPipeline:
             enable_server_cache=enable_server_cache,
             previous_response_id=previous_response_id,
             prompt_cache_key=provider_cache_key,
+            prompt_cache_retention=prompt_cache_retention,
         )
 
         # Capture response_id for next-turn chaining
@@ -578,3 +595,38 @@ class RetrievalPipeline:
                 )
             )
         return citations
+
+    @staticmethod
+    def _populate_dense_score_breakdown(candidates: List[Candidate]) -> None:
+        """Ensure dense recall candidates carry dense score/rank metadata."""
+        for rank, candidate in enumerate(candidates, start=1):
+            dense_score = None
+            if candidate.distance is not None:
+                dense_score = 1.0 - float(candidate.distance)
+            prior = candidate.score_breakdown or ScoreBreakdown()
+            candidate.score_breakdown = ScoreBreakdown(
+                dense_score=dense_score if dense_score is not None else prior.dense_score,
+                dense_rank=rank,
+                sparse_score=prior.sparse_score,
+                sparse_rank=prior.sparse_rank,
+                fused_score=prior.fused_score,
+                rerank_score=prior.rerank_score,
+                temporal_boost=prior.temporal_boost,
+            )
+
+    def _is_sparse_recall_available(self) -> bool:
+        """Detect whether provider-backed sparse recall is available."""
+        provider_method = getattr(type(self.db), "fts_query", None)
+        if provider_method is None:
+            return False
+        if provider_method is BaseVectorDBProvider.fts_query:
+            return False
+        if hasattr(self.db, "_extension_loaded") and not bool(
+            getattr(self.db, "_extension_loaded")
+        ):
+            return False
+        try:
+            self.db.fts_query("lsm_sparse_probe", top_k=1)
+        except Exception:
+            return False
+        return True

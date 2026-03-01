@@ -1,6 +1,6 @@
 # Phase 8: RetrievalPipeline Core
 
-**Status**: Pending
+**Status**: Complete
 
 Implements the central `RetrievalPipeline` abstraction with the three-stage API
 (`build_sources → synthesize_context → execute`), `QueryRequest`, `ContextPackage`,

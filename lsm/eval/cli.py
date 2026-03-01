@@ -4,7 +4,7 @@ CLI entry points for retrieval evaluation commands.
 
 from __future__ import annotations
 
-import json
+from copy import deepcopy
 from pathlib import Path
 from typing import Optional
 
@@ -31,28 +31,41 @@ def _build_retrieve_fn(config: LSMConfig, profile: str):
     This creates a function that queries the vector database and returns
     (doc_id, source_path) tuples in ranked order.
     """
-    from lsm.query.planning import prepare_local_candidates
-    from lsm.query.session import SessionState
-
-    # Lazy-load embedder and collection
+    from lsm.providers import create_provider
+    from lsm.query.pipeline import RetrievalPipeline
+    from lsm.query.pipeline_types import QueryRequest
     from lsm.ingest.embeddings import load_embedder
-    from lsm.vectordb import create_provider as create_vectordb
+    from lsm.vectordb import create_vectordb
 
-    embedder = load_embedder(config)
-    db = create_vectordb(config)
+    eval_config = deepcopy(config)
+    eval_config.query.retrieval_profile = profile
+    try:
+        mode_cfg = eval_config.get_mode_config(eval_config.query.mode)
+        mode_cfg.retrieval_profile = profile
+    except Exception:
+        # If mode lookup fails, RetrievalPipeline resolves to GROUNDED_MODE.
+        pass
+
+    embedder = load_embedder(eval_config)
+    db = create_vectordb(eval_config)
+    llm_provider = create_provider(eval_config.llm.resolve_service("query"))
+    pipeline = RetrievalPipeline(
+        db=db,
+        embedder=embedder,
+        config=eval_config,
+        llm_provider=llm_provider,
+    )
 
     def retrieve_fn(query_text: str):
-        state = SessionState()
-        mode_config = config.get_mode_config()
-        local_policy = getattr(mode_config, "local_policy", mode_config.source_policy.local)
-
-        candidates = prepare_local_candidates(
+        request = QueryRequest(
             question=query_text,
-            db=db,
-            embedder=embedder,
-            k=local_policy.k,
+            mode=eval_config.query.mode,
+            chat_mode="single",
         )
-
+        package = pipeline.build_sources(request)
+        candidates = [
+            c for c in package.candidates if not (c.meta or {}).get("remote")
+        ]
         return [
             (c.cid, c.source_path)
             for c in candidates

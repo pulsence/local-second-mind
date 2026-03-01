@@ -542,6 +542,7 @@ Costs and diagnostics
 /budget set <amount>          Set budget limit
 /cost-estimate <query>        Estimate query cost
 /debug                        Show retrieval diagnostics
+/trace                        Show raw retrieval trace JSON
 
 KEYBOARD SHORTCUTS
 
