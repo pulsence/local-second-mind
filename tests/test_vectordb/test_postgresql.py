@@ -413,3 +413,94 @@ class TestPostgreSQLGraphTraverse:
             )
 
         assert set(result) == {"n1", "n2"}
+
+
+class TestPostgreSQLFTSQuery:
+    """Tests for fts_query() method (PostgreSQL full-text search parity)."""
+
+    def test_empty_text_returns_empty(self, provider):
+        result = provider.fts_query("", 5)
+        assert result.ids == []
+        assert result.documents == []
+
+    def test_whitespace_text_returns_empty(self, provider):
+        result = provider.fts_query("   ", 5)
+        assert result.ids == []
+
+    def test_zero_top_k_returns_empty(self, provider):
+        result = provider.fts_query("search query", 0)
+        assert result.ids == []
+
+    def test_negative_top_k_returns_empty(self, provider):
+        result = provider.fts_query("search query", -1)
+        assert result.ids == []
+
+    def test_returns_empty_when_no_table(self, provider, mocker):
+        mock_conn = MagicMock()
+        mocker.patch.object(provider, "_table_exists", return_value=False)
+        with patch.object(provider, "_get_conn") as ctx:
+            ctx.return_value.__enter__ = lambda s: mock_conn
+            ctx.return_value.__exit__ = MagicMock(return_value=False)
+            result = provider.fts_query("search term", 5)
+        assert result.ids == []
+
+    def test_fts_query_executes_tsquery(self, provider, mocker):
+        mock_conn = MagicMock()
+        mock_cursor = MagicMock()
+        mock_cursor.fetchall.return_value = [
+            ("id1", "doc one text", {"source": "a.md"}, -0.5),
+            ("id2", "doc two text", {"source": "b.md"}, -0.3),
+        ]
+        mock_conn.cursor.return_value.__enter__ = lambda s: mock_cursor
+        mock_conn.cursor.return_value.__exit__ = MagicMock(return_value=False)
+
+        mocker.patch.object(provider, "_table_exists", return_value=True)
+        mocker.patch.object(provider, "_ensure_fts")
+        with patch.object(provider, "_get_conn") as ctx:
+            ctx.return_value.__enter__ = lambda s: mock_conn
+            ctx.return_value.__exit__ = MagicMock(return_value=False)
+            result = provider.fts_query("search term", 5)
+
+        assert result.ids == ["id1", "id2"]
+        assert result.documents == ["doc one text", "doc two text"]
+        assert len(result.distances) == 2
+        mock_cursor.execute.assert_called_once()
+
+    def test_fts_query_returns_empty_on_no_match(self, provider, mocker):
+        mock_conn = MagicMock()
+        mock_cursor = MagicMock()
+        mock_cursor.fetchall.return_value = []
+        mock_conn.cursor.return_value.__enter__ = lambda s: mock_cursor
+        mock_conn.cursor.return_value.__exit__ = MagicMock(return_value=False)
+
+        mocker.patch.object(provider, "_table_exists", return_value=True)
+        mocker.patch.object(provider, "_ensure_fts")
+        with patch.object(provider, "_get_conn") as ctx:
+            ctx.return_value.__enter__ = lambda s: mock_conn
+            ctx.return_value.__exit__ = MagicMock(return_value=False)
+            result = provider.fts_query("nonexistent query", 5)
+
+        assert result.ids == []
+        assert result.documents == []
+
+    def test_fts_query_result_structure(self, provider, mocker):
+        mock_conn = MagicMock()
+        mock_cursor = MagicMock()
+        mock_cursor.fetchall.return_value = [
+            ("chunk_abc", "The quick brown fox", {"key": "val"}, -0.8),
+        ]
+        mock_conn.cursor.return_value.__enter__ = lambda s: mock_cursor
+        mock_conn.cursor.return_value.__exit__ = MagicMock(return_value=False)
+
+        mocker.patch.object(provider, "_table_exists", return_value=True)
+        mocker.patch.object(provider, "_ensure_fts")
+        with patch.object(provider, "_get_conn") as ctx:
+            ctx.return_value.__enter__ = lambda s: mock_conn
+            ctx.return_value.__exit__ = MagicMock(return_value=False)
+            result = provider.fts_query("fox", 10)
+
+        assert isinstance(result, VectorDBQueryResult)
+        assert result.ids == ["chunk_abc"]
+        assert result.documents == ["The quick brown fox"]
+        assert result.metadatas == [{"key": "val"}]
+        assert result.distances == [-0.8]

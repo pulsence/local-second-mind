@@ -247,7 +247,6 @@ def _build_aux_table_specs(tn: TableNames) -> tuple[AuxiliaryTableSpec, ...]:
         ),
     )
 
-_VALIDATION_TABLE = "lsm_migration_validation"
 _VALID_IDENTIFIER = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
 
@@ -297,8 +296,8 @@ def migrate(
                 expected_counts[tn.schema_versions] = _count_table_rows(
                     target_conn, tn.schema_versions
                 )
-            _record_validation_counts(target_conn, expected_counts)
-            validation_result = validate_migration(target_conn)
+            _record_validation_counts(target_conn, expected_counts, tn)
+            validation_result = validate_migration(target_conn, tn)
 
         return {
             "source": source_enum.value,
@@ -399,8 +398,8 @@ def migrate(
                 expected_counts[tn.schema_versions] = _count_table_rows(
                     target_conn, tn.schema_versions
                 )
-            _record_validation_counts(target_conn, expected_counts)
-            validation_result = validate_migration(target_conn)
+            _record_validation_counts(target_conn, expected_counts, tn)
+            validation_result = validate_migration(target_conn, tn)
             validation_checked = int(validation_result.get("checked", 0))
 
     _emit_progress(progress_callback, "migrate", migrated, total, "Migration complete.")
@@ -413,11 +412,11 @@ def migrate(
     }
 
 
-def validate_migration(target_conn: Any) -> Dict[str, Any]:
+def validate_migration(target_conn: Any, tn: TableNames = DEFAULT_TABLE_NAMES) -> Dict[str, Any]:
     """Validate migration counts previously recorded on the target connection."""
-    _ensure_aux_tables(target_conn)
-    _ensure_validation_table(target_conn)
-    rows = _fetch_table_rows(target_conn, _VALIDATION_TABLE)
+    _ensure_aux_tables(target_conn, tn)
+    _ensure_validation_table(target_conn, tn)
+    rows = _fetch_table_rows(target_conn, tn.migration_validation)
     if not rows:
         return {"checked": 0, "mismatches": {}}
 
@@ -578,8 +577,12 @@ def _record_derived_schema_version(
     _upsert_rows(target_conn, tn.schema_versions, "id", rows_to_insert)
 
 
-def _record_validation_counts(target_conn: Any, counts: Mapping[str, int]) -> None:
-    _ensure_validation_table(target_conn)
+def _record_validation_counts(
+    target_conn: Any,
+    counts: Mapping[str, int],
+    tn: TableNames = DEFAULT_TABLE_NAMES,
+) -> None:
+    _ensure_validation_table(target_conn, tn)
     now = _utcnow_iso()
     rows = [
         {
@@ -589,7 +592,7 @@ def _record_validation_counts(target_conn: Any, counts: Mapping[str, int]) -> No
         }
         for table_name, expected in counts.items()
     ]
-    _upsert_rows(target_conn, _VALIDATION_TABLE, "table_name", rows)
+    _upsert_rows(target_conn, tn.migration_validation, "table_name", rows)
 
 
 def _derive_schema_payload(runtime_config: Any, inferred_embedding_dim: Optional[int]) -> Dict[str, Any]:
@@ -981,17 +984,18 @@ def _ensure_aux_tables(conn: Any, tn: TableNames = DEFAULT_TABLE_NAMES) -> None:
     for spec in _build_aux_table_specs(tn):
         ddl = spec.sqlite_ddl if dialect == "sqlite" else spec.postgres_ddl
         _execute(conn, ddl)
-    _ensure_validation_table(conn)
+    _ensure_validation_table(conn, tn)
     _commit(conn)
 
 
-def _ensure_validation_table(conn: Any) -> None:
+def _ensure_validation_table(conn: Any, tn: TableNames = DEFAULT_TABLE_NAMES) -> None:
     dialect = _dialect(conn)
+    table = tn.migration_validation
     if dialect == "sqlite":
         _execute(
             conn,
             f"""
-            CREATE TABLE IF NOT EXISTS {_VALIDATION_TABLE} (
+            CREATE TABLE IF NOT EXISTS {table} (
                 table_name TEXT PRIMARY KEY,
                 expected_count INTEGER NOT NULL,
                 recorded_at TEXT NOT NULL
@@ -1002,7 +1006,7 @@ def _ensure_validation_table(conn: Any) -> None:
         _execute(
             conn,
             f"""
-            CREATE TABLE IF NOT EXISTS {_VALIDATION_TABLE} (
+            CREATE TABLE IF NOT EXISTS {table} (
                 table_name TEXT PRIMARY KEY,
                 expected_count BIGINT NOT NULL,
                 recorded_at TEXT NOT NULL

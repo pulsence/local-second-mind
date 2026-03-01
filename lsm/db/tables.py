@@ -97,12 +97,16 @@ class TableNames:
         return f"{self.prefix}remote_cache"
 
     # ------------------------------------------------------------------
-    # Migration bookkeeping (1)
+    # Migration bookkeeping (2)
     # ------------------------------------------------------------------
 
     @property
     def migration_progress(self) -> str:
         return f"{self.prefix}migration_progress"
+
+    @property
+    def migration_validation(self) -> str:
+        return f"{self.prefix}migration_validation"
 
     # ------------------------------------------------------------------
     # SQLite-only virtual tables (2)
