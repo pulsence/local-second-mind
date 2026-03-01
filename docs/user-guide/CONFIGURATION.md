@@ -361,6 +361,8 @@ The `query` section controls retrieval and reranking behavior.
 | `cluster_algorithm` | string | `kmeans` | Clustering algorithm: `kmeans` or `hdbscan`. |
 | `cluster_k` | int | `50` | Number of clusters for k-means. Must be >= 2. |
 | `cluster_top_n` | int | `5` | Number of top clusters to search at query time. Must be >= 1. |
+| `graph_expansion_enabled` | bool | `false` | Enable graph-augmented retrieval (expand candidates via knowledge graph). |
+| `graph_expansion_hops` | int | `2` | Maximum graph traversal hops for expansion. Must be >= 1. |
 
 Retrieval profiles:
 

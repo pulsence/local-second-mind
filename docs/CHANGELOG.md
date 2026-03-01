@@ -59,6 +59,14 @@ All notable changes to Local Second Mind are documented here.
 - Per-context conversation chain tracking in `AgentHarness`: `_context_chain_state` tracks `last_response_id` per `context_label`, with deterministic reset on `continue_context=False` and cross-label isolation.
 - `create_default_tool_registry()` accepts optional `pipeline` parameter; registers pipeline tools when provided, falls back to `query_knowledge_base` otherwise.
 
+- Knowledge graph construction at ingest time (`lsm/ingest/graph_builder.py`): extracts heading hierarchy, wikilinks, markdown internal links, and DOI citations into `lsm_graph_nodes` and `lsm_graph_edges`. Graph data flows through the ingest pipeline (ParseResult → WriteJob → writer thread).
+- Graph-augmented retrieval (`lsm/query/stages/graph_expansion.py`): post-retrieval expansion via recursive CTE graph traversal with decaying `graph_expansion_score`. Configurable via `graph_expansion_enabled` and `graph_expansion_hops` in `QueryConfig`.
+- Graph methods on `BaseVectorDBProvider`: `graph_insert_nodes()`, `graph_insert_edges()`, `graph_traverse()` with bidirectional recursive CTE traversal in SQLite.
+- Multi-hop retrieval (`lsm/query/multi_hop.py`): parallel strategy (decompose → retrieve all → merge) and iterative strategy (hop-by-hop with LLM-guided follow-ups and `prior_response_id` chaining).
+- Embedding fine-tuning package (`lsm/finetune/`): contrastive learning with heading-content pairs using `MultipleNegativesRankingLoss`. Model registry (`lsm_embedding_models`) for tracking fine-tuned models with active model state.
+- CLI commands: `lsm finetune train`, `lsm finetune list`, `lsm finetune activate`.
+- New `QueryConfig` fields: `graph_expansion_enabled`, `graph_expansion_hops`.
+
 ### Removed
 
 - Removed legacy `QueryConfig` fields: `rerank_strategy`, `no_rerank`, `local_pool`, `max_per_file`, `DEFAULT_MAX_PER_FILE`.
