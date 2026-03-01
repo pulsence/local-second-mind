@@ -54,6 +54,7 @@ from lsm.query.stages.sparse_recall import sparse_recall
 from lsm.query.stages.rrf_fusion import rrf_fuse
 from lsm.query.stages.cross_encoder import CrossEncoderReranker
 from lsm.query.stages.hyde import hyde_recall
+from lsm.query.stages.multi_vector import multi_vector_recall
 from lsm.vectordb.base import BaseVectorDBProvider
 
 VALID_PROFILES = (
@@ -62,6 +63,7 @@ VALID_PROFILES = (
     "hyde_hybrid",
     "dense_cross_rerank",
     "llm_rerank",
+    "multi_vector",
 )
 
 if TYPE_CHECKING:
@@ -159,7 +161,11 @@ class RetrievalPipeline:
 
             extra_filters = {"cluster_id": cluster_ids} if cluster_ids else None
 
-            if profile == "hybrid_rrf":
+            if profile == "multi_vector":
+                local_candidates, plan = self._profile_multi_vector(
+                    request, state, trace, extra_filters=extra_filters,
+                )
+            elif profile == "hybrid_rrf":
                 local_candidates, plan = self._profile_hybrid_rrf(
                     request, state, trace, costs, extra_filters=extra_filters,
                 )
@@ -257,6 +263,49 @@ class RetrievalPipeline:
         trace.stages_executed.append("dense_recall")
         trace.dense_candidates_count = len(plan.candidates)
         local_candidates = dense_candidates[: min(plan.k, len(dense_candidates))]
+        return local_candidates, plan
+
+    def _profile_multi_vector(
+        self,
+        request: QueryRequest,
+        state: SessionState,
+        trace: RetrievalTrace,
+        extra_filters: Optional[Dict[str, Any]] = None,
+    ) -> tuple:
+        """Multi-vector retrieval across chunk, section, and file granularities."""
+        from lsm.query.retrieval import embed_text
+
+        query_embedding = embed_text(
+            self.embedder, request.question,
+            batch_size=getattr(self.config, "batch_size", 32),
+        )
+
+        k = self.config.query.k
+        filters = extra_filters or {}
+
+        candidates = multi_vector_recall(
+            query_embedding=query_embedding,
+            db=self.db,
+            top_k=k,
+            filters=filters if filters else None,
+        )
+
+        # Build a lightweight plan for the ContextPackage
+        plan = LocalQueryPlan(
+            local_enabled=True,
+            candidates=candidates,
+            filtered=candidates[:k],
+            relevance=1.0 if candidates else 0.0,
+            filters_active=bool(extra_filters),
+            retrieve_k=k,
+            k=k,
+            min_relevance=self.config.query.min_relevance,
+        )
+
+        trace.stages_executed.append("multi_vector_recall")
+        trace.dense_candidates_count = len(candidates)
+
+        local_candidates = candidates[:k]
         return local_candidates, plan
 
     def _profile_hybrid_rrf(
