@@ -21,6 +21,12 @@ from lsm.query.session import Candidate
 # Fake pipeline
 # ---------------------------------------------------------------------------
 
+class _FakeConfig:
+    def get_mode_config(self, name):
+        from lsm.config.models.modes import GROUNDED_MODE
+        return GROUNDED_MODE
+
+
 class FakePipeline:
     """Minimal stand-in for RetrievalPipeline.build_sources()."""
 
@@ -29,6 +35,7 @@ class FakePipeline:
         self._remote_sources = remote_sources or []
         self._relevance = relevance
         self.last_request = None
+        self.config = _FakeConfig()
 
     def build_sources(self, request):
         self.last_request = request

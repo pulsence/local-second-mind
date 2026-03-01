@@ -12,6 +12,7 @@ from typing import Any, Dict, Optional, TYPE_CHECKING
 from .base import BaseTool
 
 if TYPE_CHECKING:
+    from lsm.config.models.agents import SandboxConfig
     from lsm.query.pipeline import RetrievalPipeline
 
 
@@ -74,15 +75,26 @@ class QueryAndSynthesizeTool(BaseTool):
         "required": ["query"],
     }
 
-    def __init__(self, pipeline: "RetrievalPipeline") -> None:
+    def __init__(
+        self,
+        pipeline: "RetrievalPipeline",
+        sandbox_config: Optional["SandboxConfig"] = None,
+    ) -> None:
         self.pipeline = pipeline
+        self.sandbox_config = sandbox_config
 
     def execute(self, args: Dict[str, Any]) -> str:
         from lsm.query.pipeline_types import FilterSet, QueryRequest
+        from .mode_validation import validate_agent_mode
 
         query = str(args.get("query", "")).strip()
         if not query:
             raise ValueError("query is required")
+
+        mode = args.get("mode")
+        error = validate_agent_mode(mode, self.pipeline.config, self.sandbox_config)
+        if error:
+            raise ValueError(error)
 
         filters: Optional[FilterSet] = None
         raw_filters = args.get("filters")

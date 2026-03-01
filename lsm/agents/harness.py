@@ -128,6 +128,8 @@ class AgentHarness:
         self._sub_agent_counter = 0
         self._meta_tool_names = {"spawn_agent", "await_agent", "collect_artifacts"}
         self._context_histories: Dict[Optional[str], list] = {}
+        self._context_chain_state: Dict[Optional[str], Dict[str, Any]] = {}
+        self._last_llm_response_id: Optional[str] = None
         self.sandbox.set_interaction_channel(
             self.interaction_channel,
             waiting_state_callback=self._set_waiting_for_user,
@@ -153,6 +155,7 @@ class AgentHarness:
             self._tool_sequence = []
             self._permission_events = []
             self._context_histories = {None: list(initial_context.messages)}
+            self._context_chain_state = {}
             self.context.tool_definitions = self._list_tool_definitions()
             if not self.context.budget_tracking:
                 self.context.budget_tracking = {}
@@ -299,8 +302,13 @@ class AgentHarness:
         context = self._ensure_context()
         if not continue_context or context_label not in self._context_histories:
             self._context_histories[context_label] = []
+            self._context_chain_state[context_label] = {}
+
+        if context_label not in self._context_chain_state:
+            self._context_chain_state[context_label] = {}
 
         history = self._context_histories[context_label]
+        chain_state = self._context_chain_state[context_label]
 
         if user_message:
             history.append({"role": "user", "content": user_message})
@@ -335,13 +343,28 @@ class AgentHarness:
 
             standing_context_block = self._build_standing_context_block()
             messages_for_llm = self._prepare_messages_from_history(history)
+
+            # Thread conversation chain state
+            prior_resp_id = chain_state.get("last_response_id")
+            cache_key = (
+                f"{self.agent_name}:{context_label or 'default'}"
+                if context_label is not None
+                else None
+            )
+
             raw_response, system_prompt, user_prompt = self._call_llm(
                 llm_provider,
                 messages_for_llm=messages_for_llm,
                 standing_context_block=standing_context_block,
                 tool_definitions=tool_definitions,
+                previous_response_id=prior_resp_id,
+                prompt_cache_key=cache_key,
             )
             self._consume_tokens(raw_response)
+
+            # Persist response_id for next turn in this context
+            if getattr(self, "_last_llm_response_id", None):
+                chain_state["last_response_id"] = self._last_llm_response_id
             tool_response = self._parse_tool_response(raw_response)
 
             self._append_log(
@@ -947,6 +970,8 @@ class AgentHarness:
         messages_for_llm: list[Dict[str, Any]],
         standing_context_block: str,
         tool_definitions: Optional[list[Dict[str, Any]]] = None,
+        previous_response_id: Optional[str] = None,
+        prompt_cache_key: Optional[str] = None,
     ) -> tuple[str, str, str]:
         if tool_definitions is None:
             tool_definitions = (
@@ -989,6 +1014,10 @@ class AgentHarness:
         if supports_function_calling and tool_definitions:
             llm_kwargs["tools"] = tool_definitions
             llm_kwargs["tool_choice"] = "auto"
+        if previous_response_id:
+            llm_kwargs["previous_response_id"] = previous_response_id
+        if prompt_cache_key:
+            llm_kwargs["prompt_cache_key"] = prompt_cache_key
 
         raw_response = llm_provider.send_message(
             input=user_prompt,
@@ -997,6 +1026,14 @@ class AgentHarness:
             max_tokens=max_tokens_value,
             **llm_kwargs,
         )
+
+        # Capture response_id for conversation chain tracking
+        response_id = getattr(llm_provider, "last_response_id", None)
+        if response_id:
+            self._last_llm_response_id = str(response_id)
+        else:
+            self._last_llm_response_id = None
+
         return str(raw_response), system_prompt, user_prompt
 
     def _tools_context_block(self) -> str:

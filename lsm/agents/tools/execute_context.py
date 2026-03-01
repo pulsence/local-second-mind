@@ -8,11 +8,12 @@ synthesize_context + execute to produce a QueryResponse.
 from __future__ import annotations
 
 import json
-from typing import Any, Dict, TYPE_CHECKING
+from typing import Any, Dict, Optional, TYPE_CHECKING
 
 from .base import BaseTool
 
 if TYPE_CHECKING:
+    from lsm.config.models.agents import SandboxConfig
     from lsm.query.pipeline import RetrievalPipeline
 
 
@@ -57,15 +58,26 @@ class ExecuteContextTool(BaseTool):
         "required": ["question", "context_block"],
     }
 
-    def __init__(self, pipeline: "RetrievalPipeline") -> None:
+    def __init__(
+        self,
+        pipeline: "RetrievalPipeline",
+        sandbox_config: Optional["SandboxConfig"] = None,
+    ) -> None:
         self.pipeline = pipeline
+        self.sandbox_config = sandbox_config
 
     def execute(self, args: Dict[str, Any]) -> str:
         from lsm.query.pipeline_types import ContextPackage, QueryRequest
+        from .mode_validation import validate_agent_mode
 
         question = str(args.get("question", "")).strip()
         if not question:
             raise ValueError("question is required")
+
+        mode = args.get("mode")
+        error = validate_agent_mode(mode, self.pipeline.config, self.sandbox_config)
+        if error:
+            raise ValueError(error)
 
         context_block = str(args.get("context_block", "")).strip()
         if not context_block:

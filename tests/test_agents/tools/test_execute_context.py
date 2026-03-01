@@ -22,6 +22,12 @@ from lsm.query.pipeline_types import (
 # ---------------------------------------------------------------------------
 
 
+class _FakeConfig:
+    def get_mode_config(self, name):
+        from lsm.config.models.modes import GROUNDED_MODE
+        return GROUNDED_MODE
+
+
 class FakePipeline:
     """Minimal stand-in for RetrievalPipeline stages 2+3."""
 
@@ -29,6 +35,7 @@ class FakePipeline:
         self._answer = answer
         self._response_id = response_id
         self.last_package = None
+        self.config = _FakeConfig()
 
     def synthesize_context(self, package):
         # Just populate context_block for the execute stage

@@ -142,10 +142,11 @@ def create_default_tool_registry(
             )
         )
     # Pipeline-backed tools (preferred over query_knowledge_base)
+    sandbox_config = getattr(getattr(config, "agents", None), "sandbox", None)
     if pipeline is not None:
-        registry.register(QueryContextTool(pipeline=pipeline))
-        registry.register(ExecuteContextTool(pipeline=pipeline))
-        registry.register(QueryAndSynthesizeTool(pipeline=pipeline))
+        registry.register(QueryContextTool(pipeline=pipeline, sandbox_config=sandbox_config))
+        registry.register(ExecuteContextTool(pipeline=pipeline, sandbox_config=sandbox_config))
+        registry.register(QueryAndSynthesizeTool(pipeline=pipeline, sandbox_config=sandbox_config))
     elif collection is not None and embedder is not None:
         # Fallback: register legacy tool when pipeline not available
         registry.register(

@@ -22,6 +22,12 @@ from lsm.query.session import Candidate
 # ---------------------------------------------------------------------------
 
 
+class _FakeConfig:
+    def get_mode_config(self, name):
+        from lsm.config.models.modes import GROUNDED_MODE
+        return GROUNDED_MODE
+
+
 class FakePipeline:
     """Minimal stand-in for RetrievalPipeline.run()."""
 
@@ -31,6 +37,7 @@ class FakePipeline:
         self._response_id = response_id
         self._conversation_id = conversation_id
         self.last_request = None
+        self.config = _FakeConfig()
 
     def run(self, request, progress_callback=None):
         self.last_request = request
