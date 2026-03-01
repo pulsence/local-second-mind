@@ -1,6 +1,6 @@
 # Phase 12: Diversity, Dedup, and Temporal Ranking
 
-**Status**: Pending
+**Status**: Complete
 
 Adds MinHash near-duplicate detection, MMR diversity selection, per-section caps, and
 temporal-aware ranking.

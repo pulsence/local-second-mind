@@ -45,6 +45,10 @@ All notable changes to Local Second Mind are documented here.
 - Cross-encoder reranking stage (`lsm/query/stages/cross_encoder.py`) with `CrossEncoderReranker` for the `dense_cross_rerank` profile. Lazy model loading and graceful degradation when model unavailable.
 - HyDE (Hypothetical Document Embeddings) stage (`lsm/query/stages/hyde.py`) for the `hyde_hybrid` profile. Generates hypothetical answer documents via LLM, pools embeddings, and uses them for retrieval. Graceful degradation on LLM failure.
 - New `QueryConfig` fields: `cross_encoder_model`, `hyde_num_samples`, `hyde_temperature`, `hyde_pooling`.
+- MinHash near-duplicate detection (`lsm/query/stages/dedup.py`) with configurable Jaccard threshold for suppressing redundant chunks.
+- Maximal Marginal Relevance (MMR) diversity selection (`lsm/query/stages/diversity.py`) with configurable lambda parameter and per-section heading caps.
+- Temporal-aware ranking (`lsm/query/stages/temporal.py`) with recency boost and time-range filtering using `mtime_ns` metadata.
+- New `QueryConfig` fields: `dedup_threshold`, `mmr_lambda`, `max_per_section`, `temporal_boost_enabled`, `temporal_boost_days`, `temporal_boost_factor`.
 
 ### Removed
 
