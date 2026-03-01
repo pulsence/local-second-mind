@@ -85,7 +85,6 @@ def run_cache(args, config: LSMConfig) -> int:
         return run_cache_clear_cli(
             config,
             clear_reranker=bool(getattr(args, "reranker", False)),
-            clear_query=bool(getattr(args, "query", False)),
         )
 
     print("Missing cache subcommand. Use `lsm cache --help` for options.")
@@ -421,22 +420,10 @@ def run_cache_clear_cli(
     config: LSMConfig,
     *,
     clear_reranker: bool = False,
-    clear_query: bool = False,
 ) -> int:
-    """Clear reranker and/or in-memory query caches."""
-    if not clear_reranker and not clear_query:
-        clear_reranker = True
-        clear_query = True
-
-    cleared_query = 0
-    if clear_query:
-        from lsm.query.api import clear_query_caches
-
-        cleared_query = clear_query_caches(config=config)
-
+    """Clear reranker cache."""
     if not clear_reranker:
-        print(f"Cleared query cache entries: {cleared_query}")
-        return 0
+        clear_reranker = True
 
     provider = create_vectordb_provider(config.vectordb)
     conn = getattr(provider, "connection", getattr(provider, "_conn", None))
@@ -464,8 +451,6 @@ def run_cache_clear_cli(
         return 1
 
     print(f"Cleared reranker cache entries: {removed}")
-    if clear_query:
-        print(f"Cleared query cache entries: {cleared_query}")
     return 0
 
 
