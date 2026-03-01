@@ -100,7 +100,7 @@ def test_folder_tag_fixtures_are_valid_json() -> None:
 
 
 def test_synthetic_config_fixtures_are_valid_json_with_required_sections() -> None:
-    required_sections = {"global", "ingest", "vectordb", "llms", "query"}
+    required_sections = {"global", "ingest", "db", "llms", "query"}
     for path in REQUIRED_CONFIG_FILES:
         data = json.loads(_read(path))
         assert required_sections.issubset(set(data.keys()))

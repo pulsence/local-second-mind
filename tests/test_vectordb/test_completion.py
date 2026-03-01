@@ -209,7 +209,7 @@ def test_metadata_enrichment_updates_without_reembedding(
     (docs_root / "a.txt").write_text("alpha " * 200, encoding="utf-8")
 
     config_initial = _build_config(docs_root, tmp_path, root_tags=None, content_type=None)
-    provider = SQLiteVecProvider(config_initial.vectordb)
+    provider = SQLiteVecProvider(config_initial.db)
 
     monkeypatch.setitem(
         sys.modules,
@@ -264,7 +264,7 @@ def test_injected_write_failure_rolls_back_chunks_and_manifest_atomically(
     (docs_root / "a.txt").write_text("alpha " * 200, encoding="utf-8")
 
     config = _build_config(docs_root, tmp_path)
-    provider = SQLiteVecProvider(config.vectordb)
+    provider = SQLiteVecProvider(config.db)
     original_add_chunks = provider.add_chunks
 
     def _failing_add_chunks(ids, documents, metadatas, embeddings):

@@ -46,9 +46,9 @@ class TestLSMAppInit:
 
         # Create a mock config
         mock_config = Mock()
-        mock_config.vectordb = Mock()
-        mock_config.vectordb.provider = "sqlite"
-        mock_config.vectordb.path = Path("/tmp/test")
+        mock_config.db = Mock()
+        mock_config.db.provider = "sqlite"
+        mock_config.db.path = Path("/tmp/test")
         mock_config.embed_model = "test-model"
         mock_config.device = "cpu"
         mock_config.collection = "test"
@@ -65,7 +65,7 @@ class TestLSMAppInit:
         from lsm.ui.tui.app import LSMApp
 
         mock_config = Mock()
-        mock_config.vectordb = Mock()
+        mock_config.db = Mock()
         mock_config.query = Mock()
         mock_config.query.mode = "grounded"
 
@@ -97,7 +97,7 @@ class TestLSMAppInit:
         from lsm.ui.tui.app import LSMApp
 
         mock_config = Mock()
-        mock_config.vectordb = Mock()
+        mock_config.db = Mock()
         mock_config.query = Mock()
         mock_config.query.mode = "grounded"
 
@@ -118,7 +118,7 @@ class TestLSMAppProviders:
         from lsm.ui.tui.app import LSMApp
 
         mock_config = Mock()
-        mock_config.vectordb = Mock()
+        mock_config.db = Mock()
         mock_config.query = Mock()
         mock_config.query.mode = "grounded"
 
@@ -134,7 +134,7 @@ class TestLSMAppProviders:
         from lsm.ui.tui.app import LSMApp
 
         mock_config = Mock()
-        mock_config.vectordb = Mock()
+        mock_config.db = Mock()
         mock_config.query = Mock()
         mock_config.query.mode = "grounded"
 
@@ -155,7 +155,7 @@ class TestLSMAppMethods:
         from lsm.ui.tui.app import LSMApp
 
         mock_config = Mock()
-        mock_config.vectordb = Mock()
+        mock_config.db = Mock()
         mock_config.query = Mock()
         mock_config.query.mode = "grounded"
 
@@ -173,7 +173,7 @@ class TestLSMAppMethods:
         from lsm.ui.tui.app import LSMApp
 
         mock_config = Mock()
-        mock_config.vectordb = Mock()
+        mock_config.db = Mock()
         mock_config.query = Mock()
         mock_config.query.mode = "grounded"
 
@@ -190,7 +190,7 @@ class TestLSMAppMethods:
         from lsm.ui.tui.app import LSMApp
 
         mock_config = Mock()
-        mock_config.vectordb = Mock()
+        mock_config.db = Mock()
         mock_config.query = Mock()
         mock_config.query.mode = "grounded"
 
@@ -212,7 +212,7 @@ class TestLSMAppMethods:
         from lsm.ui.tui.app import LSMApp, TUILogEvent
 
         mock_config = Mock()
-        mock_config.vectordb = Mock()
+        mock_config.db = Mock()
         mock_config.query = Mock()
         mock_config.query.mode = "grounded"
 
@@ -232,7 +232,7 @@ class TestLSMAppMethods:
         from lsm.ui.tui.app import LSMApp, TUILogEvent
 
         mock_config = Mock()
-        mock_config.vectordb = Mock()
+        mock_config.db = Mock()
         mock_config.query = Mock()
         mock_config.query.mode = "grounded"
 
@@ -249,7 +249,7 @@ class TestLSMAppMethods:
         from lsm.ui.tui.screens.agents import AgentRuntimeEventMessage
 
         mock_config = Mock()
-        mock_config.vectordb = Mock()
+        mock_config.db = Mock()
         mock_config.query = Mock()
         mock_config.query.mode = "grounded"
 
@@ -274,7 +274,7 @@ class TestLSMAppMethods:
         from lsm.ui.tui.app import LSMApp
 
         mock_config = Mock()
-        mock_config.vectordb = Mock()
+        mock_config.db = Mock()
         mock_config.query = Mock()
         mock_config.query.mode = "grounded"
 
@@ -288,7 +288,7 @@ class TestLSMAppMethods:
         from lsm.ui.tui.app import LSMApp
 
         mock_config = Mock()
-        mock_config.vectordb = Mock()
+        mock_config.db = Mock()
         mock_config.query = Mock()
         mock_config.query.mode = "grounded"
 
@@ -313,7 +313,7 @@ class TestLSMAppMethods:
         from lsm.ui.tui.app import LSMApp
 
         mock_config = Mock()
-        mock_config.vectordb = Mock()
+        mock_config.db = Mock()
         mock_config.query = Mock()
         mock_config.query.mode = "grounded"
 
@@ -335,7 +335,7 @@ class TestLSMAppMethods:
         from lsm.ui.tui.app import LSMApp
 
         mock_config = Mock()
-        mock_config.vectordb = Mock()
+        mock_config.db = Mock()
         mock_config.query = Mock()
         mock_config.query.mode = "grounded"
 
@@ -378,7 +378,7 @@ class TestLSMAppMethods:
         from lsm.ui.tui.app import LSMApp
 
         mock_config = Mock()
-        mock_config.vectordb = Mock()
+        mock_config.db = Mock()
         mock_config.query = Mock()
         mock_config.query.mode = "grounded"
 
@@ -566,7 +566,7 @@ class TestLSMAppActions:
         from lsm.ui.tui.app import LSMApp
 
         mock_config = Mock()
-        mock_config.vectordb = Mock()
+        mock_config.db = Mock()
         mock_config.query = Mock()
         mock_config.query.mode = "grounded"
 
@@ -595,7 +595,7 @@ class TestLSMAppStatusBarIntegration:
         from lsm.ui.tui.app import LSMApp
 
         mock_config = Mock()
-        mock_config.vectordb = Mock()
+        mock_config.db = Mock()
         mock_config.query = Mock()
         mock_config.query.mode = "grounded"
 
@@ -613,7 +613,7 @@ class TestLSMAppStatusBarIntegration:
         from lsm.ui.tui.app import LSMApp
 
         mock_config = Mock()
-        mock_config.vectordb = Mock()
+        mock_config.db = Mock()
         mock_config.query = Mock()
         mock_config.query.mode = "grounded"
 
@@ -627,7 +627,7 @@ class TestLSMAppStatusBarIntegration:
 
 def _build_config(tmp_path: Path, provider: str = "sqlite"):
     cfg = SimpleNamespace()
-    cfg.vectordb = SimpleNamespace(provider=provider, path=tmp_path / "data")
+    cfg.db = SimpleNamespace(provider=provider, path=tmp_path / "data")
     cfg.embed_model = "mini-model"
     cfg.device = "cpu"
     cfg.collection = "kb"

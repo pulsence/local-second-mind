@@ -66,7 +66,7 @@ def _app(memory_enabled: bool = True):
                 enabled=True,
                 memory=SimpleNamespace(enabled=memory_enabled),
             ),
-            vectordb=SimpleNamespace(provider="chromadb"),
+            db=SimpleNamespace(provider="chromadb"),
         )
     )
 

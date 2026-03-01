@@ -49,10 +49,12 @@ def _base_raw(tmp_path: Path) -> dict:
                 }
             },
         },
-        "vectordb": {
-            "provider": "sqlite",
+        "db": {
             "path": str(tmp_path / "data"),
-            "collection": "test_collection",
+            "vector": {
+                "provider": "sqlite",
+                "collection": "test_collection",
+            },
         },
         "query": {"mode": "grounded"},
     }
@@ -217,8 +219,8 @@ def test_build_config_uses_vectordb_fields(tmp_path: Path) -> None:
 
     config = build_config_from_raw(raw, tmp_path / "config.json")
 
-    assert config.vectordb.path.name == "data"
-    assert config.vectordb.collection == "test_collection"
+    assert config.db.path.name == "data"
+    assert config.db.collection == "test_collection"
 
 
 def test_build_source_policy_does_not_accept_remote_provides_alias() -> None:
@@ -287,9 +289,9 @@ def test_config_to_raw_uses_global_and_ingest_sections(tmp_path: Path) -> None:
     assert "global_folder" not in serialized
     assert "chunk_size" not in serialized
 
-    # vectordb still present
-    assert serialized["vectordb"]["path"].endswith("data")
-    assert serialized["vectordb"]["collection"] == "test_collection"
+    # db section present
+    assert serialized["db"]["path"].endswith("data")
+    assert serialized["db"]["vector"]["collection"] == "test_collection"
 
 
 def test_build_config_paths_resolve_relative_to_global_folder(tmp_path: Path) -> None:
@@ -298,13 +300,13 @@ def test_build_config_paths_resolve_relative_to_global_folder(tmp_path: Path) ->
     config_path = project_dir / "config.json"
     raw = _base_raw(tmp_path)
     raw["global"]["global_folder"] = "lsm-global"
-    raw["vectordb"]["path"] = "db"
+    raw["db"]["path"] = "db"
 
     config = build_config_from_raw(raw, config_path)
 
     expected_global = (project_dir / "lsm-global").resolve()
     assert config.global_folder == expected_global
-    assert config.vectordb.path == (expected_global / "db").resolve()
+    assert config.db.path == (expected_global / "db").resolve()
 
 
 def test_build_config_rejects_legacy_ingest_fields(tmp_path: Path) -> None:
@@ -317,7 +319,9 @@ def test_build_config_rejects_legacy_ingest_fields(tmp_path: Path) -> None:
 
 def test_build_config_rejects_legacy_vectordb_fields(tmp_path: Path) -> None:
     raw = _base_raw(tmp_path)
-    raw["vectordb"]["persist_dir"] = str(tmp_path / ".chroma")
+    # Replace new-style "db" with legacy "vectordb" containing unsupported field
+    del raw["db"]
+    raw["vectordb"] = {"provider": "sqlite", "path": str(tmp_path / "data"), "persist_dir": str(tmp_path / ".chroma")}
 
     with pytest.raises(ValueError, match="Unsupported legacy vectordb field 'persist_dir'"):
         build_config_from_raw(raw, tmp_path / "config.json")

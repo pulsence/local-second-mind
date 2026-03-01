@@ -27,7 +27,7 @@ class _Provider:
 
 def _config() -> SimpleNamespace:
     return SimpleNamespace(
-        vectordb=SimpleNamespace(provider="chromadb", collection="kb"),
+        db=SimpleNamespace(provider="chromadb", collection="kb"),
         llm=SimpleNamespace(
             get_tagging_config=lambda: SimpleNamespace(model="gpt-test", provider="openai")
         ),

@@ -56,8 +56,8 @@ def tui_app_factory():
     def _create_app(config=None):
         if config is None:
             config = Mock()
-            config.vectordb = Mock()
-            config.vectordb.provider = "chromadb"
+            config.db = Mock()
+            config.db.provider = "chromadb"
             config.embed_model = "test-model"
             config.device = "cpu"
             config.global_settings = SimpleNamespace(tui_density_mode="auto")

@@ -32,10 +32,12 @@ def _base_raw(tmp_path: Path) -> dict:
                 }
             },
         },
-        "vectordb": {
-            "provider": "sqlite",
+        "db": {
             "path": str(tmp_path / "data"),
-            "collection": "test_collection",
+            "vector": {
+                "provider": "sqlite",
+                "collection": "test_collection",
+            },
         },
         "query": {"mode": "grounded"},
     }

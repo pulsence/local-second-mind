@@ -101,7 +101,7 @@ def _screen(current_context: str = "ingest", provider: str = "sqlite"):
 
     app = SimpleNamespace(
         ingest_provider=SimpleNamespace(count=lambda: 3),
-        config=SimpleNamespace(collection="kb", vectordb=SimpleNamespace(provider=provider)),
+        config=SimpleNamespace(collection="kb", db=SimpleNamespace(provider=provider)),
         current_context=current_context,
         call_from_thread=lambda fn: fn(),
         update_chunk_count=lambda n: None,

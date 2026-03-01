@@ -306,7 +306,7 @@ def fetch_remote_sources(
                     query=question,
                     global_folder=config.global_folder,
                     max_age=int(cache_ttl),
-                    vectordb_path=config.vectordb.path,
+                    vectordb_path=config.db.path,
                 )
                 if cached is not None:
                     raw_results = []
@@ -334,7 +334,7 @@ def fetch_remote_sources(
                         provider_config,
                         effective_weight,
                         config.global_folder,
-                        config.vectordb.path,
+                        config.db.path,
                     ),
                 )
 
@@ -369,7 +369,7 @@ def fetch_remote_sources(
                             query=question,
                             results=raw_results,
                             global_folder=config.global_folder,
-                            vectordb_path=config.vectordb.path,
+                            vectordb_path=config.db.path,
                             cache_ttl_seconds=int(cache_ttl),
                         )
                     except Exception as exc:

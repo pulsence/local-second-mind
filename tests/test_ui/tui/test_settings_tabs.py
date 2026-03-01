@@ -191,7 +191,7 @@ def _config() -> Any:
         config_path=Path("config.json"),
         ingest=ingest,
         query=query,
-        vectordb=vectordb,
+        db=vectordb,
         llm=llm,
         modes={"grounded": mode_cfg},
         notes=notes,
@@ -368,7 +368,7 @@ def test_vectordb_tab_refresh_updates_and_visibility() -> None:
     assert widgets["#settings-vdb-connection-string"].parent.display is False
 
     assert tab.apply_update("settings-vdb-provider", "postgresql", cfg) is True
-    assert cfg.vectordb.provider == "postgresql"
+    assert cfg.db.provider == "postgresql"
     assert widgets["#settings-vdb-connection-string"].parent.display is True
     assert widgets["#settings-vdb-path"].parent.display is False
 

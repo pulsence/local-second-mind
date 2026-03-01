@@ -62,7 +62,7 @@ class _FakeApp:
         self._effective_density = "comfortable"
         self.config = SimpleNamespace(
             llm=_LLM(),
-            vectordb=SimpleNamespace(provider="chromadb", collection="kb"),
+            db=SimpleNamespace(provider="chromadb", collection="kb"),
             query=SimpleNamespace(
                 mode="grounded",
                 path_contains=None,

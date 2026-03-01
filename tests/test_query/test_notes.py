@@ -466,10 +466,12 @@ class TestResolveNotesDir:
                     "query": {"provider": "openai", "model": "gpt-5.2"}
                 },
             },
-            "vectordb": {
-                "provider": "chromadb",
+            "db": {
                 "path": str(tmp_path / ".chroma"),
-                "collection": "test_collection",
+                "vector": {
+                    "provider": "chromadb",
+                    "collection": "test_collection",
+                },
             },
             "query": {"mode": "grounded"},
         }

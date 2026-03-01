@@ -192,9 +192,9 @@ def test_framework_migration_preserves_vectors_and_state(
     result = migration_mod.migrate(
         source_kind,
         target_kind,
-        {"vectordb": {"provider": source_kind}},
+        {"db": {"vector": {"provider": source_kind}}},
         {
-            "vectordb": {"provider": target_kind},
+            "db": {"vector": {"provider": target_kind}},
             "global": {"embed_model": "test-model", "embedding_dimension": 384},
             "ingest": {"chunking_strategy": "structure", "chunk_size": 1800, "chunk_overlap": 200},
         },
@@ -237,9 +237,9 @@ def test_framework_validation_detects_mismatch(monkeypatch: pytest.MonkeyPatch) 
         migration_mod.migrate(
             "sqlite",
             "sqlite",
-            {"vectordb": {"provider": "sqlite"}},
+            {"db": {"vector": {"provider": "sqlite"}}},
             {
-                "vectordb": {"provider": "sqlite"},
+                "db": {"vector": {"provider": "sqlite"}},
                 "global": {"embed_model": "test-model", "embedding_dimension": 384},
                 "ingest": {"chunking_strategy": "structure", "chunk_size": 1800, "chunk_overlap": 200},
             },
@@ -304,12 +304,12 @@ def test_framework_migration_is_idempotent(monkeypatch: pytest.MonkeyPatch) -> N
     )
 
     runtime_config = {
-        "vectordb": {"provider": "sqlite"},
+        "db": {"vector": {"provider": "sqlite"}},
         "global": {"embed_model": "test-model", "embedding_dimension": 384},
         "ingest": {"chunking_strategy": "structure", "chunk_size": 1800, "chunk_overlap": 200},
     }
-    migration_mod.migrate("sqlite", "sqlite", {"vectordb": {"provider": "sqlite"}}, runtime_config)
-    migration_mod.migrate("sqlite", "sqlite", {"vectordb": {"provider": "sqlite"}}, runtime_config)
+    migration_mod.migrate("sqlite", "sqlite", {"db": {"vector": {"provider": "sqlite"}}}, runtime_config)
+    migration_mod.migrate("sqlite", "sqlite", {"db": {"vector": {"provider": "sqlite"}}}, runtime_config)
 
     assert target_provider.count() == 2
     assert target_conn.execute("SELECT COUNT(*) FROM lsm_manifest").fetchone()[0] == 1

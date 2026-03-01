@@ -9,11 +9,13 @@
                    "path":  "tests/.tmp/chroma_minimal",
                    "collection":  "synthetic_minimal"
                },
-    "vectordb":  {
-                     "provider":  "chromadb",
-                     "path":  "tests/.tmp/chroma_minimal",
-                     "collection":  "synthetic_minimal"
-                 },
+    "db":  {
+                 "path":  "tests/.tmp/chroma_minimal",
+                 "vector":  {
+                                "provider":  "chromadb",
+                                "collection":  "synthetic_minimal"
+                            }
+             },
     "llms":  {
                  "providers":  [
                                    {

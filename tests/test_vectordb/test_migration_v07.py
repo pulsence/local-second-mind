@@ -97,7 +97,7 @@ def _write_memories_db(path: Path) -> None:
 
 def _runtime_config() -> dict[str, object]:
     return {
-        "vectordb": {"provider": "sqlite"},
+        "db": {"vector": {"provider": "sqlite"}},
         "global": {"embed_model": "sentence-transformers/all-MiniLM-L6-v2", "embedding_dimension": 384},
         "ingest": {"chunking_strategy": "structure", "chunk_size": 1800, "chunk_overlap": 200},
     }

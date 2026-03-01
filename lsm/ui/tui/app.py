@@ -348,7 +348,7 @@ class LSMApp(App):
             from lsm.db.job_status import check_job_advisories
             from lsm.vectordb import create_vectordb_provider
 
-            provider = create_vectordb_provider(self.config.vectordb)
+            provider = create_vectordb_provider(self.config.db)
 
             # Get a connection from either SQLite or PostgreSQL provider
             conn = getattr(provider, "connection", None)
@@ -1079,7 +1079,7 @@ class LSMApp(App):
         try:
             # Run sync provider creation in thread to not block UI
             self._ingest_provider = await asyncio.to_thread(
-                create_vectordb_provider, self.config.vectordb
+                create_vectordb_provider, self.config.db
             )
             logger.info("Ingest context initialized")
         except Exception as e:
@@ -1112,7 +1112,7 @@ class LSMApp(App):
 
             # Initialize vector DB provider
             self._query_provider = await asyncio.to_thread(
-                create_vectordb_provider, self.config.vectordb
+                create_vectordb_provider, self.config.db
             )
 
             # Get chunk count

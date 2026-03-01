@@ -50,6 +50,8 @@ from .models import (
     RemoteConfig,
     ChainLink,
     RemoteProviderRef,
+    DBConfig,
+    VectorConfig,
     VectorDBConfig,
     DEFAULT_EXTENSIONS,
     DEFAULT_EXCLUDE_DIRS,
@@ -331,7 +333,7 @@ def build_ingest_config(raw: Dict[str, Any], config_path: Path) -> IngestConfig:
         raise ValueError("Config ingest section must be an object")
 
     legacy_ingest_fields = {
-        "persist_dir": "vectordb.path",
+        "persist_dir": "db.path",
         "manifest": "manifest is now database-backed in lsm.db",
         "chroma_flush_interval": "writes are internally batched for sqlite",
         "enable_versioning": "versioning is always enabled in v0.8.0",
@@ -436,7 +438,7 @@ def build_config_from_raw(raw: Dict[str, Any], path: Path | str) -> LSMConfig:
     llm_config = build_llm_config(raw)
     ingest_config = build_ingest_config(raw, path)
     query_config = build_query_config(raw)
-    vectordb_config = build_vectordb_config(raw)
+    db_config = build_db_config(raw)
     modes = build_modes_registry(raw)
     notes_config = build_notes_config(raw.get("notes", {}))
     chats_config = build_chats_config(raw.get("chats", {}))
@@ -449,7 +451,7 @@ def build_config_from_raw(raw: Dict[str, Any], path: Path | str) -> LSMConfig:
         ingest=ingest_config,
         query=query_config,
         llm=llm_config,
-        vectordb=vectordb_config,
+        db=db_config,
         global_settings=global_config,
         modes=modes,
         notes=notes_config,
@@ -464,38 +466,79 @@ def build_config_from_raw(raw: Dict[str, Any], path: Path | str) -> LSMConfig:
     return config
 
 
-def build_vectordb_config(raw: Dict[str, Any]) -> VectorDBConfig:
-    """
-    Build VectorDBConfig from raw configuration.
-    """
-    vectordb_raw = raw.get("vectordb", {})
-    if not isinstance(vectordb_raw, dict):
-        raise ValueError("Config vectordb section must be an object")
+def build_db_config(raw: Dict[str, Any]) -> DBConfig:
+    """Build DBConfig from raw configuration.
 
-    legacy_vdb_fields = {
-        "persist_dir": "path",
-        "chroma_hnsw_space": "no longer supported (sqlite provider)",
-    }
-    for field, replacement in legacy_vdb_fields.items():
-        if field in vectordb_raw:
-            raise ValueError(
-                f"Unsupported legacy vectordb field '{field}'. "
-                f"Use 'vectordb.{replacement}' instead."
-            )
+    Reads from ``raw["db"]`` (preferred) or ``raw["vectordb"]`` (legacy
+    fallback).  When reading from ``"db"``, the nested ``"vector"`` sub-key
+    is used for ``VectorConfig`` fields.
+    """
+    if "db" in raw:
+        db_raw = raw["db"]
+        if not isinstance(db_raw, dict):
+            raise ValueError("Config 'db' section must be an object")
+        vector_raw = db_raw.get("vector", {})
+        if not isinstance(vector_raw, dict):
+            vector_raw = {}
+        vector = VectorConfig(
+            provider=vector_raw.get("provider", VectorConfig.provider),
+            collection=vector_raw.get("collection", VectorConfig.collection),
+            index_type=vector_raw.get("index_type", "hnsw"),
+            pool_size=int(vector_raw.get("pool_size", 5)),
+        )
+        return DBConfig(
+            table_prefix=db_raw.get("table_prefix", "lsm_"),
+            path=db_raw.get("path", DBConfig.path),
+            connection_string=db_raw.get("connection_string"),
+            host=db_raw.get("host"),
+            port=db_raw.get("port"),
+            database=db_raw.get("database"),
+            user=db_raw.get("user"),
+            password=db_raw.get("password"),
+            vector=vector,
+        )
 
-    return VectorDBConfig(
-        provider=vectordb_raw.get("provider", VectorDBConfig.provider),
-        collection=vectordb_raw.get("collection", VectorDBConfig.collection),
-        path=vectordb_raw.get("path", VectorDBConfig.path),
-        connection_string=vectordb_raw.get("connection_string"),
-        host=vectordb_raw.get("host"),
-        port=vectordb_raw.get("port"),
-        database=vectordb_raw.get("database"),
-        user=vectordb_raw.get("user"),
-        password=vectordb_raw.get("password"),
-        index_type=vectordb_raw.get("index_type", "hnsw"),
-        pool_size=int(vectordb_raw.get("pool_size", 5)),
-    )
+    # Legacy fallback: read from "vectordb" key
+    if "vectordb" in raw:
+        vectordb_raw = raw["vectordb"]
+        if not isinstance(vectordb_raw, dict):
+            raise ValueError("Config 'vectordb' section must be an object")
+
+        legacy_vdb_fields = {
+            "persist_dir": "path",
+            "chroma_hnsw_space": "no longer supported (sqlite provider)",
+        }
+        for field, replacement in legacy_vdb_fields.items():
+            if field in vectordb_raw:
+                raise ValueError(
+                    f"Unsupported legacy vectordb field '{field}'. "
+                    f"Use 'db.{replacement}' instead."
+                )
+
+        vector = VectorConfig(
+            provider=vectordb_raw.get("provider", VectorConfig.provider),
+            collection=vectordb_raw.get("collection", VectorConfig.collection),
+            index_type=vectordb_raw.get("index_type", "hnsw"),
+            pool_size=int(vectordb_raw.get("pool_size", 5)),
+        )
+        return DBConfig(
+            table_prefix=vectordb_raw.get("table_prefix", "lsm_"),
+            path=vectordb_raw.get("path", DBConfig.path),
+            connection_string=vectordb_raw.get("connection_string"),
+            host=vectordb_raw.get("host"),
+            port=vectordb_raw.get("port"),
+            database=vectordb_raw.get("database"),
+            user=vectordb_raw.get("user"),
+            password=vectordb_raw.get("password"),
+            vector=vector,
+        )
+
+    # Neither key present — use defaults
+    return DBConfig()
+
+
+# Backward-compatible alias
+build_vectordb_config = build_db_config
 
 
 def build_query_config(raw: Dict[str, Any]) -> QueryConfig:
@@ -1507,17 +1550,20 @@ def config_to_raw(config: LSMConfig) -> Dict[str, Any]:
         "remote": remote,
         "remote_providers": remote_providers,
         "remote_provider_chains": remote_provider_chains,
-        "vectordb": {
-            "provider": config.vectordb.provider,
-            "collection": config.vectordb.collection,
-            "path": str(config.vectordb.path),
-            "connection_string": config.vectordb.connection_string,
-            "host": config.vectordb.host,
-            "port": config.vectordb.port,
-            "database": config.vectordb.database,
-            "user": config.vectordb.user,
-            "password": config.vectordb.password,
-            "index_type": config.vectordb.index_type,
-            "pool_size": config.vectordb.pool_size,
+        "db": {
+            "table_prefix": config.db.table_prefix,
+            "path": str(config.db.path),
+            "connection_string": config.db.connection_string,
+            "host": config.db.host,
+            "port": config.db.port,
+            "database": config.db.database,
+            "user": config.db.user,
+            "password": config.db.password,
+            "vector": {
+                "provider": config.db.provider,
+                "collection": config.db.collection,
+                "index_type": config.db.index_type,
+                "pool_size": config.db.pool_size,
+            },
         },
     }

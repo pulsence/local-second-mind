@@ -287,7 +287,7 @@ def format_vectordb_providers(vectordb_config: Any) -> str:
     """Format available vector DB providers.
 
     Args:
-        vectordb_config: The ``config.vectordb`` object.
+        vectordb_config: The ``config.db`` object.
 
     Returns:
         Formatted multi-line string.
@@ -328,7 +328,7 @@ def format_vectordb_providers(vectordb_config: Any) -> str:
 
     lines.append("")
     lines.append("To switch providers, update your config.json:")
-    lines.append('  "vectordb": { "provider": "provider_name", ... }')
+    lines.append('  "db": { "path": "...", "vector": { "provider": "provider_name", ... } }')
     lines.append("")
 
     return "\n".join(lines)
@@ -341,7 +341,7 @@ def format_vectordb_status(
     """Format vector DB status combined with LLM provider health.
 
     Args:
-        vectordb_config: The ``config.vectordb`` object.
+        vectordb_config: The ``config.db`` object.
         llm_config: The ``config.llm`` object.
 
     Returns:

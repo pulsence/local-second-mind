@@ -33,10 +33,12 @@ def _raw_config(tmp_path: Path) -> dict:
                 }
             },
         },
-        "vectordb": {
-            "provider": "sqlite",
+        "db": {
             "path": str(tmp_path / "data"),
-            "collection": "test_collection",
+            "vector": {
+                "provider": "sqlite",
+                "collection": "test_collection",
+            },
         },
         "query": {
             "mode": "grounded",
@@ -237,7 +239,7 @@ def test_unset_key_sets_optional_value_to_none(tmp_path: Path) -> None:
 
     assert result.handled is True
     assert result.error is None
-    assert vm.draft_config.vectordb.connection_string is None
+    assert vm.draft_config.db.connection_string is None
 
 
 def test_reset_key_restores_persisted_scalar(tmp_path: Path) -> None:

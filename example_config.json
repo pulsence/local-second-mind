@@ -45,19 +45,24 @@
     "enable_file_summaries": false
   },
 
-  "_comment_storage": "Vector database configuration (sqlite or postgresql)",
-  "vectordb": {
-    "provider": "sqlite",
+  "_comment_storage": "Database configuration (sqlite or postgresql)",
+  "db": {
+    "table_prefix": "lsm_",
     "path": "data",
-    "collection": "local_kb"
+    "vector": {
+      "provider": "sqlite",
+      "collection": "local_kb"
+    }
   },
 
-  "_comment_vectordb_postgresql": "Alternative: PostgreSQL with pgvector. Requires psycopg2-binary and pgvector extension.",
-  "_vectordb_postgresql_example": {
-    "provider": "postgresql",
-    "collection": "local_kb",
+  "_comment_db_postgresql": "Alternative: PostgreSQL with pgvector. Requires psycopg2-binary and pgvector extension.",
+  "_db_postgresql_example": {
+    "table_prefix": "lsm_",
     "connection_string": "postgresql://user:password@localhost:5432/lsm",
-    "embedding_dimension": 384
+    "vector": {
+      "provider": "postgresql",
+      "collection": "local_kb"
+    }
   },
 
   "_comment_llm": "LLM configuration. Providers define connections; services map features to provider+model.",

@@ -51,10 +51,12 @@ def _base_raw(
             "providers": [{"provider_name": "openai", "api_key": "test-key"}],
             "services": {"default": {"provider": "openai", "model": "gpt-5.2"}},
         },
-        "vectordb": {
-            "provider": "chromadb",
+        "db": {
             "path": str(tmp_path / ".chroma"),
-            "collection": "local_kb",
+            "vector": {
+                "provider": "chromadb",
+                "collection": "local_kb",
+            },
         },
         "query": {"mode": "grounded"},
         "agents": {

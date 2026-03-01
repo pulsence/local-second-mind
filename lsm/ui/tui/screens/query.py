@@ -229,10 +229,10 @@ class QueryScreen(ManagedScreenMixin, Widget):
         return format_provider_status(self.app.config.llm)
 
     def _format_vectordb_providers(self) -> str:
-        return format_vectordb_providers(self.app.config.vectordb)
+        return format_vectordb_providers(self.app.config.db)
 
     def _format_vectordb_status(self) -> str:
-        return format_vectordb_status(self.app.config.vectordb, self.app.config.llm)
+        return format_vectordb_status(self.app.config.db, self.app.config.llm)
 
     def _format_remote_providers(self) -> str:
         return format_remote_providers(self.app.config)

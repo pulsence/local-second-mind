@@ -41,7 +41,7 @@ class CollectionStats:
 
 
 def _runtime_artifact_dir(config: LSMConfig) -> Path:
-    vdb_path = Path(config.vectordb.path)
+    vdb_path = Path(config.db.path)
     if str(vdb_path).lower().endswith(".db"):
         return vdb_path.parent
     return vdb_path
@@ -53,20 +53,20 @@ def _build_stats_cache(
 ):
     from lsm.ingest.stats_cache import StatsCache
 
-    cache_key = f"{config.vectordb.collection}:collection_stats"
-    if config.vectordb.provider == "sqlite":
+    cache_key = f"{config.db.collection}:collection_stats"
+    if config.db.provider == "sqlite":
         if isinstance(connection, sqlite3.Connection):
             return StatsCache(connection=connection, cache_key=cache_key)
-        return StatsCache(db_path=config.vectordb.path, cache_key=cache_key)
+        return StatsCache(db_path=config.db.path, cache_key=cache_key)
     return StatsCache(_runtime_artifact_dir(config) / "stats_cache.json", cache_key=cache_key)
 
 
 def get_collection_info(config: LSMConfig) -> CollectionInfo:
     """Return collection info in structured form."""
-    provider = create_vectordb_provider(config.vectordb)
+    provider = create_vectordb_provider(config.db)
     info = _get_collection_info(provider)
     return CollectionInfo(
-        name=info.get("name", config.vectordb.collection),
+        name=info.get("name", config.db.collection),
         chunk_count=int(info.get("count", 0)),
         provider=info.get("provider", provider.name),
     )
@@ -77,7 +77,7 @@ def get_collection_stats(
     progress_callback: Optional[Callable[[int, Optional[int]], None]] = None,
 ) -> CollectionStats:
     """Return collection stats in structured form."""
-    provider = create_vectordb_provider(config.vectordb)
+    provider = create_vectordb_provider(config.db)
     count = provider.count()
 
     def report_progress(analyzed: int) -> None:
@@ -144,7 +144,7 @@ def run_ingest(
         manifest_path=None,
         exts=config.ingest.exts,
         exclude_dirs=config.ingest.exclude_set,
-        vectordb_config=config.vectordb,
+        vectordb_config=config.db,
         dry_run=config.ingest.dry_run,
         enable_ocr=config.ingest.enable_ocr,
         skip_errors=config.ingest.skip_errors,
@@ -185,5 +185,5 @@ def run_ingest(
 
 def wipe_collection(config: LSMConfig) -> int:
     """Delete all chunks from the configured collection; return deleted count."""
-    provider = create_vectordb_provider(config.vectordb)
+    provider = create_vectordb_provider(config.db)
     return provider.delete_all()

@@ -80,7 +80,7 @@ class RemoteProviderChain:
                 _provider_runtime_config(
                     provider_cfg,
                     global_folder=self.config.global_folder,
-                    vectordb_path=self.config.vectordb.path,
+                    vectordb_path=self.config.db.path,
                 ),
             )
 

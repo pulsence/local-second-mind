@@ -70,7 +70,7 @@ class SettingsViewModel:
         "settings-ingest": ("ingest",),
         "settings-query": ("query",),
         "settings-llm": ("llms",),
-        "settings-vdb": ("vectordb",),
+        "settings-vdb": ("db",),
         "settings-modes": ("modes", "query"),
         "settings-remote": ("remote_providers", "remote_provider_chains", "modes"),
         "settings-chats-notes": ("chats", "notes"),
@@ -581,28 +581,28 @@ class SettingsViewModel:
         elif field_id == "settings-query-enable-llm-server-cache":
             cfg.query.enable_llm_server_cache = bool(value)
         elif field_id == "settings-vdb-provider":
-            cfg.vectordb.provider = text
+            cfg.db.provider = text
         elif field_id == "settings-vdb-collection":
-            cfg.vectordb.collection = text
+            cfg.db.collection = text
         elif field_id == "settings-vdb-path":
-            cfg.vectordb.path = Path(text)
+            cfg.db.path = Path(text)
         elif field_id == "settings-vdb-connection-string":
-            cfg.vectordb.connection_string = text or None
+            cfg.db.connection_string = text or None
         elif field_id == "settings-vdb-host":
-            cfg.vectordb.host = text or None
+            cfg.db.host = text or None
         elif field_id == "settings-vdb-port":
-            cfg.vectordb.port = int(text) if text else None
+            cfg.db.port = int(text) if text else None
         elif field_id == "settings-vdb-database":
-            cfg.vectordb.database = text or None
+            cfg.db.database = text or None
         elif field_id == "settings-vdb-user":
-            cfg.vectordb.user = text or None
+            cfg.db.user = text or None
         elif field_id == "settings-vdb-password":
             if text:
-                cfg.vectordb.password = text
+                cfg.db.password = text
         elif field_id == "settings-vdb-index-type":
-            cfg.vectordb.index_type = text or "hnsw"
+            cfg.db.index_type = text or "hnsw"
         elif field_id == "settings-vdb-pool-size" and text:
-            cfg.vectordb.pool_size = int(text)
+            cfg.db.pool_size = int(text)
         elif field_id == "settings-modes-mode":
             cfg.query.mode = text
         elif field_id == "settings-notes-enabled":

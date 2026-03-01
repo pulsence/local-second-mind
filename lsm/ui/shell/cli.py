@@ -110,7 +110,7 @@ def _print_post_ingest_advisories(config: LSMConfig) -> None:
     try:
         from lsm.db.job_status import check_job_advisories
 
-        provider = create_vectordb_provider(config.vectordb)
+        provider = create_vectordb_provider(config.db)
         conn = getattr(provider, "connection", None)
         if conn is not None:
             advisories = check_job_advisories(conn, config)
@@ -192,7 +192,7 @@ def run_tag_cli(
         Exit code (0 for success)
     """
     config = _load_config(config_path)
-    provider = create_vectordb_provider(config.vectordb)
+    provider = create_vectordb_provider(config.db)
     tagging_config = config.llm.get_tagging_config()
 
     print("\nStarting AI tagging...")
@@ -254,7 +254,7 @@ def run_db_prune_cli(
 ) -> int:
     """Run non-current version prune operation."""
     config = _load_config(config_path)
-    provider = create_vectordb_provider(config.vectordb)
+    provider = create_vectordb_provider(config.db)
 
     try:
         deleted = provider.prune_old_versions(
@@ -351,7 +351,7 @@ def run_migrate_cli(
 
     config = _load_config(config_path)
     target_vdb = _with_overrides(
-        config.vectordb,
+        config.db,
         provider=target_value,
         path=target_path,
         collection=target_collection,
@@ -361,15 +361,15 @@ def run_migrate_cli(
     source_payload: object
     if source_value == "chroma":
         source_payload = _with_overrides(
-            config.vectordb,
+            config.db,
             provider="chromadb",
             path=source_path or ".chroma",
-            collection=source_collection or config.vectordb.collection,
+            collection=source_collection or config.db.collection,
             connection_string=source_connection_string,
         )
     elif source_value in {"sqlite", "postgresql"}:
         source_payload = _with_overrides(
-            config.vectordb,
+            config.db,
             provider=source_value,
             path=source_path,
             collection=source_collection,
@@ -387,7 +387,7 @@ def run_migrate_cli(
         print(f"Error: unsupported migration source '{migration_source}'.")
         return 2
 
-    target_runtime = replace(config, vectordb=target_vdb)
+    target_runtime = replace(config, db=target_vdb)
 
     def progress(stage: str, current: int, total: int, message: str) -> None:
         if total > 0:
@@ -425,7 +425,7 @@ def run_cache_clear_cli(
     if not clear_reranker:
         clear_reranker = True
 
-    provider = create_vectordb_provider(config.vectordb)
+    provider = create_vectordb_provider(config.db)
     conn = getattr(provider, "connection", getattr(provider, "_conn", None))
     if conn is None:
         print("Error: Reranker cache clear requires a backend with direct SQL access.")
@@ -485,7 +485,7 @@ def run_cluster_build_cli(
     algorithm = algorithm or config.query.cluster_algorithm
     k = k or config.query.cluster_k
 
-    provider = create_vectordb_provider(config.vectordb)
+    provider = create_vectordb_provider(config.db)
     conn = getattr(provider, "connection", None)
     if conn is None:
         print("Error: Clustering requires SQLite backend with direct connection access.")
@@ -535,7 +535,7 @@ def run_cluster_visualize_cli(
         )
         return 1
 
-    provider = create_vectordb_provider(config.vectordb)
+    provider = create_vectordb_provider(config.db)
     conn = getattr(provider, "connection", None)
     if conn is None:
         print("Error: Cluster visualization requires SQLite backend with direct connection access.")
@@ -642,7 +642,7 @@ def run_finetune_train_cli(
     from lsm.finetune.registry import register_model, set_active_model
     from lsm.db.job_status import record_job_status
 
-    provider = create_vectordb_provider(config.vectordb)
+    provider = create_vectordb_provider(config.db)
     conn = getattr(provider, "connection", None)
     if conn is None:
         print("Error: Fine-tuning requires SQLite backend with direct connection access.")
@@ -703,7 +703,7 @@ def run_finetune_list_cli(config: LSMConfig) -> int:
     """List registered fine-tuned models."""
     from lsm.finetune.registry import list_models
 
-    provider = create_vectordb_provider(config.vectordb)
+    provider = create_vectordb_provider(config.db)
     conn = getattr(provider, "connection", None)
     if conn is None:
         print("Error: Model registry requires SQLite backend.")
@@ -726,7 +726,7 @@ def run_finetune_activate_cli(config: LSMConfig, model_id: str) -> int:
     """Set a fine-tuned model as active."""
     from lsm.finetune.registry import get_active_model, list_models, set_active_model
 
-    provider = create_vectordb_provider(config.vectordb)
+    provider = create_vectordb_provider(config.db)
     conn = getattr(provider, "connection", None)
     if conn is None:
         print("Error: Model registry requires SQLite backend.")
@@ -770,7 +770,7 @@ def run_graph_build_links_cli(
         print("Error: numpy is required for graph link building.")
         return 1
 
-    provider = create_vectordb_provider(config.vectordb)
+    provider = create_vectordb_provider(config.db)
     conn = getattr(provider, "connection", None)
     if conn is None:
         print("Error: Graph link building requires SQLite backend with direct connection access.")

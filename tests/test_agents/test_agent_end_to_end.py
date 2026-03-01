@@ -42,10 +42,12 @@ def _base_raw(tmp_path: Path, *, provider: str, model: str, api_key: str) -> dic
             "providers": [{"provider_name": provider, "api_key": api_key}],
             "services": {"default": {"provider": provider, "model": model}},
         },
-        "vectordb": {
-            "provider": "chromadb",
+        "db": {
             "path": str(tmp_path / ".chroma"),
-            "collection": "local_kb",
+            "vector": {
+                "provider": "chromadb",
+                "collection": "local_kb",
+            },
         },
         "query": {"mode": "grounded"},
         "agents": {

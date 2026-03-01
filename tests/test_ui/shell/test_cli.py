@@ -96,7 +96,7 @@ def test_run_build_cli_overrides_and_progress(monkeypatch: pytest.MonkeyPatch, c
 
 def test_run_tag_cli(monkeypatch: pytest.MonkeyPatch, capsys) -> None:
     cfg = SimpleNamespace(
-        vectordb=SimpleNamespace(provider="chromadb"),
+        db=SimpleNamespace(provider="chromadb"),
         llm=SimpleNamespace(
             get_tagging_config=lambda: SimpleNamespace(model="gpt-test", provider="openai")
         ),
@@ -138,7 +138,7 @@ def test_run_wipe_cli_confirmation_and_error_paths(monkeypatch: pytest.MonkeyPat
 
 
 def test_run_db_prune_cli_success_and_error(monkeypatch: pytest.MonkeyPatch, capsys) -> None:
-    cfg = SimpleNamespace(vectordb=SimpleNamespace(provider="sqlite"))
+    cfg = SimpleNamespace(db=SimpleNamespace(provider="sqlite"))
     provider = SimpleNamespace(prune_old_versions=lambda criteria: 7)
     monkeypatch.setattr(shell_cli, "_load_config", lambda p: cfg)
     monkeypatch.setattr(shell_cli, "create_vectordb_provider", lambda _v: provider)
@@ -187,12 +187,12 @@ def test_run_db_complete_cli_success_and_error(monkeypatch: pytest.MonkeyPatch, 
 def test_run_migrate_cli_success_and_error(monkeypatch: pytest.MonkeyPatch, capsys) -> None:
     @dataclass
     class _ConfigStub:
-        vectordb: VectorDBConfig
+        db: VectorDBConfig
         ingest: object
         global_settings: object
 
     cfg = _ConfigStub(
-        vectordb=VectorDBConfig(provider="sqlite", path=Path(".lsm"), collection="kb"),
+        db=VectorDBConfig(provider="sqlite", path=Path(".lsm"), collection="kb"),
         ingest=SimpleNamespace(chunking_strategy="structure", chunk_size=1800, chunk_overlap=200),
         global_settings=SimpleNamespace(embed_model="test-model", embedding_dimension=384),
     )
@@ -230,12 +230,12 @@ def test_run_migrate_cli_success_and_error(monkeypatch: pytest.MonkeyPatch, caps
 def test_run_migrate_cli_v07_path_validation(monkeypatch: pytest.MonkeyPatch, capsys) -> None:
     @dataclass
     class _ConfigStub:
-        vectordb: VectorDBConfig
+        db: VectorDBConfig
         ingest: object
         global_settings: object
 
     cfg = _ConfigStub(
-        vectordb=VectorDBConfig(provider="sqlite", path=Path(".lsm"), collection="kb"),
+        db=VectorDBConfig(provider="sqlite", path=Path(".lsm"), collection="kb"),
         ingest=SimpleNamespace(chunking_strategy="structure", chunk_size=1800, chunk_overlap=200),
         global_settings=SimpleNamespace(
             embed_model="test-model",

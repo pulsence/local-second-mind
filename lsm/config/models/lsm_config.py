@@ -26,7 +26,7 @@ from .modes import (
     get_builtin_modes,
 )
 from .query import QueryConfig
-from .vectordb import VectorDBConfig
+from .vectordb import DBConfig
 
 
 @dataclass
@@ -46,8 +46,8 @@ class LSMConfig:
     llm: LLMRegistryConfig
     """Ordered LLM provider configuration registry."""
 
-    vectordb: VectorDBConfig
-    """Vector DB provider configuration."""
+    db: DBConfig
+    """Database configuration (connection + vector settings)."""
 
     global_settings: GlobalConfig = field(default_factory=GlobalConfig)
     """Global settings shared across multiple modules."""
@@ -85,8 +85,8 @@ class LSMConfig:
             base_dir = self.config_path.parent
 
         if base_dir is not None:
-            if self.vectordb and not self.vectordb.path.is_absolute():
-                self.vectordb.path = (base_dir / self.vectordb.path).resolve()
+            if self.db and not self.db.path.is_absolute():
+                self.db.path = (base_dir / self.db.path).resolve()
 
         if self.agents is not None and not self.agents.agents_folder.is_absolute():
             if self.global_settings.global_folder is not None:
@@ -109,7 +109,7 @@ class LSMConfig:
         self.ingest.validate()
         self.query.validate()
         self.llm.validate()
-        self.vectordb.validate()
+        self.db.validate()
         self.chats.validate()
         if self.remote is not None:
             try:
@@ -288,13 +288,13 @@ class LSMConfig:
 
     @property
     def persist_dir(self) -> Path:
-        """Compatibility alias for vectordb path."""
-        return self.vectordb.path
+        """Compatibility alias for db path."""
+        return self.db.path
 
     @property
     def collection(self) -> str:
-        """Shortcut to vectordb collection name."""
-        return self.vectordb.collection
+        """Shortcut to db collection name."""
+        return self.db.collection
 
     @property
     def global_folder(self) -> Optional[Path]:
@@ -320,3 +320,32 @@ class LSMConfig:
     def embedding_dimension(self) -> Optional[int]:
         """Shortcut to global_settings.embedding_dimension."""
         return self.global_settings.embedding_dimension
+
+    # ------------------------------------------------------------------
+    # Backward-compatible alias
+    # ------------------------------------------------------------------
+
+    @property
+    def vectordb(self) -> DBConfig:
+        """Deprecated alias for ``db``."""
+        return self.db
+
+    @vectordb.setter
+    def vectordb(self, value: DBConfig) -> None:
+        self.db = value
+
+
+# ---------------------------------------------------------------------------
+# Backward-compatible __init__ wrapper: accept vectordb= kwarg as alias for db=
+# ---------------------------------------------------------------------------
+_lsm_dc_init = LSMConfig.__init__
+_LSM_UNSET = object()
+
+
+def _lsm_compat_init(self, *args, vectordb=_LSM_UNSET, **kwargs):
+    if vectordb is not _LSM_UNSET and "db" not in kwargs:
+        kwargs["db"] = vectordb
+    _lsm_dc_init(self, *args, **kwargs)
+
+
+LSMConfig.__init__ = _lsm_compat_init

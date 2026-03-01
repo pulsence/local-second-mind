@@ -174,7 +174,7 @@ def _app(max_concurrent: int = 3) -> SimpleNamespace:
                 ),
             ),
             llm=SimpleNamespace(),
-            vectordb=SimpleNamespace(),
+            db=SimpleNamespace(),
             batch_size=32,
         ),
         query_provider=None,

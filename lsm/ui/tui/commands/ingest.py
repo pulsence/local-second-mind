@@ -467,9 +467,9 @@ def format_vectordb_providers(config: LSMConfig) -> str:
         lines.append("")
         return "\n".join(lines)
 
-    current_provider = config.vectordb.provider
+    current_provider = config.db.provider
     lines.append(f"Current Provider: {current_provider}")
-    lines.append(f"Collection:       {config.vectordb.collection}")
+    lines.append(f"Collection:       {config.db.collection}")
     lines.append("")
 
     lines.append(f"Available Providers ({len(providers)}):")
@@ -480,7 +480,7 @@ def format_vectordb_providers(config: LSMConfig) -> str:
         status = ""
         if provider_name == current_provider:
             try:
-                provider = create_vectordb_provider(config.vectordb)
+                provider = create_vectordb_provider(config.db)
                 status = "ok" if provider.is_available() else "unavailable"
             except Exception as e:
                 status = f"error ({e})"
@@ -500,7 +500,7 @@ def format_vectordb_status(config: LSMConfig) -> str:
     ]
 
     try:
-        provider = create_vectordb_provider(config.vectordb)
+        provider = create_vectordb_provider(config.db)
         health = provider.health_check()
         stats = provider.get_stats()
 

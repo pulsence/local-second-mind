@@ -54,10 +54,12 @@ def sample_config_dict(tmp_path: Path) -> Dict[str, Any]:
             "override_excludes": False,
             "dry_run": False,
         },
-        "vectordb": {
-            "provider": "sqlite",
+        "db": {
             "path": str(tmp_path / "data"),
-            "collection": "test_kb",
+            "vector": {
+                "provider": "sqlite",
+                "collection": "test_kb",
+            },
         },
         "llms": {
             "providers": [

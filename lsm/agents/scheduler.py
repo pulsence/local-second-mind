@@ -132,7 +132,7 @@ class AgentScheduler:
         self.batch_size = int(batch_size)
         self.tick_seconds = max(1.0, float(tick_seconds))
         self.now_fn = now_fn or _utcnow
-        self._vectordb = vectordb or config.vectordb
+        self._vectordb = vectordb or config.db
 
         self.harness_cls = harness_cls
         self.agent_factory = agent_factory
@@ -752,7 +752,7 @@ class AgentScheduler:
 
         memory_store: Optional[BaseMemoryStore] = None
         if self.agent_config.memory.enabled:
-            memory_store = self.memory_store_factory(self.agent_config, self.config.vectordb)
+            memory_store = self.memory_store_factory(self.agent_config, self.config.db)
 
         tool_registry = self.tool_registry_builder(
             self.config,
@@ -805,7 +805,7 @@ class AgentScheduler:
             "llm_model": llm_selection.get("model"),
             "llm_temperature": llm_selection.get("temperature"),
             "llm_max_tokens": llm_selection.get("max_tokens"),
-            "vectordb_config": self.config.vectordb,
+            "vectordb_config": self.config.db,
             "memory_store": memory_store,
         }
         harness = self.harness_cls(

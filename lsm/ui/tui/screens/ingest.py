@@ -538,7 +538,7 @@ class IngestScreen(ManagedScreenMixin, Widget):
 
         try:
             app = self.app
-            configured_provider = str(getattr(app.config.vectordb, "provider", "")).strip().lower()
+            configured_provider = str(getattr(app.config.db, "provider", "")).strip().lower()
             if configured_provider in {"chromadb", "chroma"}:
                 stats_widget.update(
                     "Migration required\n"
@@ -563,7 +563,7 @@ class IngestScreen(ManagedScreenMixin, Widget):
             stats_widget.update(
                 f"Collection: {app.config.collection}\n"
                 f"Chunks: {count:,}\n"
-                f"Provider: {app.config.vectordb.provider}"
+                f"Provider: {app.config.db.provider}"
             )
 
         except Exception as e:
@@ -603,7 +603,7 @@ class IngestScreen(ManagedScreenMixin, Widget):
 
     def action_show_migration_help(self) -> None:
         """Show migration instructions (advisory only)."""
-        provider = str(getattr(self.app.config.vectordb, "provider", "")).strip().lower()
+        provider = str(getattr(self.app.config.db, "provider", "")).strip().lower()
         if provider in {"chromadb", "chroma"}:
             message = (
                 "Migration action\n\n"

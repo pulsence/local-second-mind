@@ -199,7 +199,7 @@ def test_end_to_end_ingest_and_retrieval_without_network(
     assert ingest_result.errors == []
     assert ingest_result.chunks_added > 0
 
-    collection = create_vectordb_provider(config.vectordb)
+    collection = create_vectordb_provider(config.db)
     assert collection.count() == ingest_result.chunks_added
     manifest_data = load_manifest(connection=collection.connection)
     assert len(manifest_data) == 3
@@ -249,7 +249,7 @@ def test_full_live_pipeline_with_real_llm_rerank_and_synthesis(
     ingest_result = run_ingest(config, force=True)
     assert ingest_result.chunks_added > 0
 
-    collection = create_vectordb_provider(config.vectordb)
+    collection = create_vectordb_provider(config.db)
     state = SessionState(model=model)
     question = (
         "Explain what improves retrieval quality in this corpus and use "
@@ -297,7 +297,7 @@ def test_full_pipeline_with_postgresql_store(
         vectordb_connection_string=live_postgres_connection_string,
     )
 
-    collection = create_vectordb_provider(config.vectordb)
+    collection = create_vectordb_provider(config.db)
     if not collection.is_available():
         pytest.skip("PostgreSQL provider is unavailable in this environment")
 
@@ -363,7 +363,7 @@ def test_performance_ingest_and_query_latency_over_100_chunks(
     assert ingest_result.total_files == 1
     assert ingest_result.chunks_added >= 100
 
-    collection = create_vectordb_provider(config.vectordb)
+    collection = create_vectordb_provider(config.db)
     assert collection.count() == ingest_result.chunks_added
 
     started_at = perf_counter()

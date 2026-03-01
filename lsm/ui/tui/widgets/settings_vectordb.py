@@ -54,7 +54,7 @@ class VectorDBSettingsTab(BaseSettingsTab):
         )
 
     def refresh_fields(self, config: Any) -> None:
-        vdb = getattr(config, "vectordb", None)
+        vdb = getattr(config, "db", None)
         if vdb is None:
             return
 
@@ -77,7 +77,7 @@ class VectorDBSettingsTab(BaseSettingsTab):
         self._update_provider_field_visibility(provider)
 
     def apply_update(self, field_id: str, value: Any, config: Any) -> bool:
-        vdb = getattr(config, "vectordb", None)
+        vdb = getattr(config, "db", None)
         if vdb is None:
             return False
 

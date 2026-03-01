@@ -30,7 +30,7 @@ from .llm import (
     LLMTierConfig,
 )
 from .ingest import IngestConfig, RootConfig
-from .vectordb import VectorDBConfig
+from .vectordb import DBConfig, VectorConfig, VectorDBConfig
 from .modes import (
     LocalSourcePolicy,
     RemoteProviderRef,
@@ -86,6 +86,8 @@ __all__ = [
     "LLMTierConfig",
     "IngestConfig",
     "RootConfig",
+    "DBConfig",
+    "VectorConfig",
     "VectorDBConfig",
     "LocalSourcePolicy",
     "RemoteProviderRef",

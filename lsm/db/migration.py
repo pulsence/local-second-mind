@@ -664,13 +664,15 @@ def _to_vectordb_config(raw: Any, provider_hint: Optional[str] = None) -> Vector
     if isinstance(raw, VectorDBConfig):
         return replace(raw, provider=provider_hint or raw.provider)
 
-    if hasattr(raw, "vectordb") and isinstance(raw.vectordb, VectorDBConfig):
-        base = raw.vectordb
+    if hasattr(raw, "db") and isinstance(raw.db, VectorDBConfig):
+        base = raw.db
         return replace(base, provider=provider_hint or base.provider)
 
     if isinstance(raw, Mapping):
         vectordb_raw: Mapping[str, Any] = raw
-        if "vectordb" in raw and isinstance(raw["vectordb"], Mapping):
+        if "db" in raw and isinstance(raw["db"], Mapping):
+            vectordb_raw = raw["db"]
+        elif "vectordb" in raw and isinstance(raw["vectordb"], Mapping):
             vectordb_raw = raw["vectordb"]
         provider = provider_hint or str(vectordb_raw.get("provider", "sqlite"))
         path_value = vectordb_raw.get("path", Path(".lsm"))

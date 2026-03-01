@@ -24,7 +24,7 @@ class TestVersioningConfig:
         raw = {
             "global": {"embed_model": "sentence-transformers/all-MiniLM-L6-v2"},
             "ingest": {"roots": [str(tmp_path)]},
-            "vectordb": {"provider": "sqlite", "path": str(tmp_path / "data")},
+            "db": {"path": str(tmp_path / "data"), "vector": {"provider": "sqlite"}},
             "llms": {
                 "providers": [{"provider_name": "local"}],
                 "services": {"default": {"provider": "local", "model": "m"}},

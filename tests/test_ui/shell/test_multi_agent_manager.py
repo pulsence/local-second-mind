@@ -337,7 +337,7 @@ def _app(
                 ),
             ),
             llm=SimpleNamespace(),
-            vectordb=SimpleNamespace(),
+            db=SimpleNamespace(),
             batch_size=32,
         ),
         query_provider=None,

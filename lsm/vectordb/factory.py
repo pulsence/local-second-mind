@@ -42,7 +42,7 @@ def create_vectordb_provider(config: VectorDBConfig) -> BaseVectorDBProvider:
     if provider_name == "chromadb":
         raise ValueError(
             "ChromaDB is no longer a production provider in v0.8.0. "
-            "Run migration tooling and switch config.vectordb.provider to 'sqlite' or 'postgresql'."
+            "Run migration tooling and switch config.db.vector.provider to 'sqlite' or 'postgresql'."
         )
 
     if provider_name not in PROVIDER_REGISTRY:

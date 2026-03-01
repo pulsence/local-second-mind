@@ -33,10 +33,12 @@ def _base_raw(tmp_path: Path, *, memory_enabled: bool = True) -> dict:
             "providers": [{"provider_name": "openai", "api_key": "test-key"}],
             "services": {"default": {"provider": "openai", "model": "gpt-5.2"}},
         },
-        "vectordb": {
-            "provider": "sqlite",
+        "db": {
             "path": str(tmp_path / "data"),
-            "collection": "local_kb",
+            "vector": {
+                "provider": "sqlite",
+                "collection": "local_kb",
+            },
         },
         "query": {"mode": "grounded"},
         "agents": {

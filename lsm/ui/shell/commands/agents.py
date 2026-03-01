@@ -178,7 +178,7 @@ class AgentRuntimeManager:
             memory_store = None
             if getattr(agent_cfg, "memory", None) is not None and agent_cfg.memory.enabled:
                 try:
-                    memory_store = create_memory_store(agent_cfg, app.config.vectordb)
+                    memory_store = create_memory_store(agent_cfg, app.config.db)
                 except Exception as exc:
                     return f"Failed to initialize agent memory store: {exc}\n"
 
@@ -1133,7 +1133,7 @@ class AgentRuntimeManager:
                 "llm_model": llm_selection.get("model"),
                 "llm_temperature": llm_selection.get("temperature"),
                 "llm_max_tokens": llm_selection.get("max_tokens"),
-                "vectordb_config": getattr(app.config, "vectordb", None),
+                "vectordb_config": getattr(app.config, "db", None),
                 "memory_store": memory_store,
                 "interaction_channel": interaction_channel,
             }
@@ -1916,7 +1916,7 @@ class AgentRuntimeManager:
         if memory_cfg is None or not getattr(memory_cfg, "enabled", False):
             raise RuntimeError("Agent memory is disabled. Enable `agents.memory.enabled` in config.")
 
-        vectordb_cfg = getattr(app.config, "vectordb", None)
+        vectordb_cfg = getattr(app.config, "db", None)
         if vectordb_cfg is None:
             raise RuntimeError("Vector DB config is required for memory commands.")
         return create_memory_store(agent_cfg, vectordb_cfg)

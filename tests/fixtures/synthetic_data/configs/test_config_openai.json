@@ -24,11 +24,13 @@
                                     ],
                    "override_excludes":  false
                },
-    "vectordb":  {
-                     "provider":  "chromadb",
-                     "path":  "tests/.tmp/chroma",
-                     "collection":  "synthetic_openai"
-                 },
+    "db":  {
+                 "path":  "tests/.tmp/chroma",
+                 "vector":  {
+                                "provider":  "chromadb",
+                                "collection":  "synthetic_openai"
+                            }
+             },
     "llms":  {
                  "providers":  [
                                    {

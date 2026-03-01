@@ -147,10 +147,12 @@ class TestConfigLoaderRoots:
             "ingest": {
                 "roots": [str(tmp_path / "docs")],
             },
-            "vectordb": {
-                "provider": "sqlite",
+            "db": {
                 "path": str(tmp_path / "data"),
-                "collection": "test_kb",
+                "vector": {
+                    "provider": "sqlite",
+                    "collection": "test_kb",
+                },
             },
             "llms": {
                 "providers": [{"provider_name": "openai", "api_key": None}],

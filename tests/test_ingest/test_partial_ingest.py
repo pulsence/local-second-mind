@@ -112,7 +112,7 @@ class TestPartialIngestLoader:
                 "max_files": 10,
                 "max_seconds": 120,
             },
-            "vectordb": {},
+            "db": {},
             "llms": {
                 "providers": [
                     {"provider_name": "local"},

@@ -54,9 +54,9 @@ def create_startup_mock_config() -> Mock:
         Mock mimicking ``LSMConfig`` for startup tests.
     """
     cfg = Mock()
-    cfg.vectordb = Mock()
-    cfg.vectordb.provider = "sqlite"
-    cfg.vectordb.path = Path("/tmp/test")
+    cfg.db = Mock()
+    cfg.db.provider = "sqlite"
+    cfg.db.path = Path("/tmp/test")
     cfg.embed_model = "test-model"
     cfg.device = "cpu"
     cfg.collection = "test"
