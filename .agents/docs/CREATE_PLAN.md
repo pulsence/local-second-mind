@@ -51,6 +51,11 @@ Every Major Feature phase should have a final code review phase with tasks:
 
 Every Major Feature phase should end with a task summarizing the changes and writing them into `docs/CHANGELOG.md`.
 
+## Debug Phase
+- Before the final review phase there should be a debug phase specified where the user will manually
+  enter problems that need to be resolved. The user will put example output file in `<GLOBAL_FOLDER>/Debug/`
+  (e.g., logs, agent artifacts, etc.) and refer to example in the debug phase relative to this Debug folder.
+
 ## Final Review Phase
 
 Every task plan ends with a final phase for code review and final documentation review.

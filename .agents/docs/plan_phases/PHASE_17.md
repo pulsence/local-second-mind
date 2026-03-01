@@ -7,7 +7,7 @@ Phase 11–16 review, plus any additional issues surfaced by the user.
 
 ---
 
-## 17.1: Issues Identified During Phase 11–16 Review
+## 17.1: Issues Identified During Phase 11–16 Review (COMPLETED)
 
 The following issues were cataloged during a comprehensive review of phases 11–16. Each
 item includes severity, affected phase, location, and description.
@@ -52,27 +52,17 @@ item includes severity, affected phase, location, and description.
 ---
 
 ## 17.2: User-Reported Debug Errors
+I have put example logs and outputs in `<GLOBAL_FOLDER>/Debug/`.
 
-_This section is reserved for additional issues identified by the user during manual
-testing and review. Items will be added here before implementation begins._
 
----
+**Bugs:**
+- 
 
-## 17.3: Fix Implementation
-
-**Tasks**:
-- Triage all items from 17.1 and 17.2
-- Implement fixes for all accepted items
-- Add or update tests for each fix
-- Run full test suite after each fix batch
-
-- Commit and push changes for this sub-phase.
-
-**Success criteria**: All accepted issues resolved. Full test suite passes. No regressions.
 
 ---
 
-## 17.4: Debug Phase Review
+
+## 17.3: Debug Phase Review
 
 **Tasks**:
 - Verify all fixes are correct and complete

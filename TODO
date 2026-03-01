@@ -1,33 +1,6 @@
 # Todo (Future Timeline of Work)
 
-**The curren plan is for version [0.7.1](.agents/docs/PLAN.md).**
-
-## v0.8.0: Embedding Retrevial Improvments
-
-### DB
-- Add DB versioning with migratin/upgrade between versions.
-  - This needs to be thoroughly tested.
-- Add DB complete, meaning when an update adds new ingest etc. items stored
-  there should be a way for the DB to be completed with this new data instead
-  of having to rebuild the entire DB
-
-### Architecural Overhall
-
-- Read .claude_files/INGEST_FUTURE.md for an outline of how to create
-  a plan to improve the ingest and embedding retrevial pipeline.
-
-### Document Headings Improvement
-
-- When a text document has subheadings the user should be able to define
-  how many subheadings deep should be considered when creating chunk
-  boundaries by headings. Otherwise the ingest should intellegently use
-  subheadings based upon the follow criteria:
-  - When a heading is larger than the max chunk size and contains
-      sub-headings,
-      then the section should be chunked along the sub-heading boundaries. The meta-data
-      in the chunk should indicate the heirarchy of headings: heading::sub-heading
-  - This process should repeat into nested subheadings so long as the
-      current heading level is larger than the target max chunk size.
+**The curren plan is for version [0.8.0](.agents/docs/PLAN.md).**
 
 ## v0.9.0: Refactor and Dog Food
 
@@ -36,6 +9,8 @@
   and not a command line program. This also makes it far more brittle in both
   UX and development than it should be.
 - Change to have a single base display:
+
+----------------------------------------------------
 |Current Screen: Insert Screen Name       Date Time|
 |--------------------------------------------------|
 | Formatted Text Content               | Global    |
@@ -45,6 +20,8 @@
 | Prompt for user type commands                    |
 |--------------------------------------------------|
 | Short cuts for current display                   |
+----------------------------------------------------
+
 - Then each screen handles the commands from the user and modifies the display
   space. This can either be to simply update the screen with new text from the
   result of have a scrolling display in the case of query results or viewing
@@ -156,12 +133,6 @@
 ### General Meta Agent
 - Like General Agent, but can spawn General Agents
 
-### Deployment
-
-- Create clear install instructions
-- Explore creating docker images
-- Config pyproject to install complete/just chroma/just pgsql
-
 ### Testing
 
 - Ensure that the complete security strategy in SECURITY.md is being
@@ -197,6 +168,13 @@
     and proper encapsulation is being followed.
 - Need to do security expliot testing and create a test harness to make
   such testing easy to do.
+
+## v0.9.3: Extending Agent Tooling
+- Add DB access tooling
+  - Per Agent 'user' restricting. Create user in PG, simulate user in SQLite
+  - Restrict to read/edit/etc based on SQL user managment
+  - Default to most restrictive
+- Add Tool to read user and .agent documentation
 
 ## v0.10.0: Extra Control Paths
 - Add ability to send email/txt notifications
@@ -269,7 +247,12 @@
   saved and static for this version, so that all future builds can validate migration paths using
   real past versions.
 
-### Update System
+
+### Deployment
+
+- Create clear install instructions
+- Explore creating docker images
+- Config pyproject to install complete/just chroma/just pgsql
 - Create system to upgrade to latest versions
 
 ## v1.1.0: Remote Access
