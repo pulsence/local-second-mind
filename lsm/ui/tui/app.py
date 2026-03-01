@@ -283,6 +283,8 @@ class LSMApp(App):
 
             self._preload_ml_stack()
 
+            self._check_startup_advisories()
+
             self._startup_timeline.mark("background_init_complete")
             logger.info("Background initialization complete")
 
@@ -339,6 +341,28 @@ class LSMApp(App):
             logger.info("Background: embedding model ready")
         except Exception:
             logger.exception("Background: failed to load embedding model")
+
+    def _check_startup_advisories(self) -> None:
+        """Check for offline job advisories and display via notify."""
+        try:
+            from lsm.db.job_status import check_job_advisories
+            from lsm.vectordb import create_vectordb_provider
+
+            provider = create_vectordb_provider(self.config.vectordb)
+            conn = getattr(provider, "connection", None)
+            if conn is None:
+                return
+
+            advisories = check_job_advisories(conn, self.config)
+            for adv in advisories:
+                self.call_from_thread(
+                    self.notify,
+                    f"{adv.message}\nRun: {adv.action}",
+                    severity="information",
+                    timeout=8,
+                )
+        except Exception:
+            logger.debug("Startup advisory check failed", exc_info=True)
 
     def _setup_tui_logging(self) -> None:
         """Route LSM logs to the query log panel when running in TUI."""
