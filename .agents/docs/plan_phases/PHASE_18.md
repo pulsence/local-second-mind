@@ -26,8 +26,8 @@ preparation.
   - Cross-encoder inputs are sanitized
   - Graph traversal depth is bounded
   - Agent tools validate permissions correctly
-
 - Commit and push changes for this sub-phase.
+
 **Files**: All modified files from all phases
 
 **Success criteria**: No dead code, no injection risks, no circular dependencies, no

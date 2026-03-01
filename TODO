@@ -55,7 +55,8 @@
   - Each screen should manage user autocomplete/command processing/content state
     so that it can properly output the right text.
 - There should be no buttons remaining.
-
+- Given the simplifications planned to the TUI is there any continuing need to
+  maintain CLI and TUI? My intuition says no.
 
 ### General
 
@@ -87,6 +88,7 @@
 - Search for feature creep or bloat.
 - Update Config search path to start by searching in <GLOBAL_FOLDER> and 
   load env files from there
+- Look for any unnecessary dependancies
 
 ### LLM Refinements
 - Research how bulk Batch APIs might be used effectively.
@@ -212,6 +214,9 @@
   - Create obsidian plugin that connects to the LSM server used by the Web
     UI to allow the user to interact with LSM via the API requests
 - Complete logseq integration
+- Look into adding SearXNG web searching
+  - https://github.com/searxng/searxng
+  - https://docs.searxng.org/
 
 ## v0.13.0: Internals
 
@@ -231,7 +236,7 @@
 - Does it make sense given how large and complicated the config file is becoming
   to use SQLite for settings.
 
-## v1.0.0: First Release
+## v1.0.0: First Release(LTR)
 
 ### General
 
@@ -255,6 +260,17 @@
 ### Remote Controlers
 
 - Ensure Txt and Email notifications and control messanges are rock solid
+
+### Migration Support
+- This will also be a Long Term Release, meaning I will maintain migration from v1.0.0 for later
+  versions. LTR is defined as supporting migration from this version to the latest version, not
+  bug fixes.
+- Need to create a "golden set" of databases (SQLite and PG), schema, and configurations that are
+  saved and static for this version, so that all future builds can validate migration paths using
+  real past versions.
+
+### Update System
+- Create system to upgrade to latest versions
 
 ## v1.1.0: Remote Access
 - Provide the ability to access LSM from remote location. Since the GUI is already a front
