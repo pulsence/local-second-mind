@@ -320,6 +320,58 @@ def build_parser() -> argparse.ArgumentParser:
         help="Number of clusters for k-means (default: from config or 50)",
     )
 
+    # --- finetune command ---
+    finetune_parser = subparsers.add_parser(
+        "finetune",
+        help="Fine-tune embedding models on corpus data",
+    )
+    finetune_subparsers = finetune_parser.add_subparsers(
+        dest="finetune_command",
+        title="finetune commands",
+        required=True,
+    )
+
+    finetune_train_parser = finetune_subparsers.add_parser(
+        "train",
+        help="Extract training pairs and fine-tune embedding model",
+    )
+    finetune_train_parser.add_argument(
+        "--base-model",
+        default="sentence-transformers/all-MiniLM-L6-v2",
+        help="Base model to fine-tune (default: all-MiniLM-L6-v2)",
+    )
+    finetune_train_parser.add_argument(
+        "--epochs",
+        type=int,
+        default=3,
+        help="Number of training epochs (default: 3)",
+    )
+    finetune_train_parser.add_argument(
+        "--output",
+        default="./models/finetuned",
+        help="Output directory for fine-tuned model",
+    )
+    finetune_train_parser.add_argument(
+        "--max-pairs",
+        type=int,
+        default=None,
+        help="Maximum number of training pairs to use",
+    )
+
+    finetune_list_parser = finetune_subparsers.add_parser(
+        "list",
+        help="List registered fine-tuned models",
+    )
+
+    finetune_activate_parser = finetune_subparsers.add_parser(
+        "activate",
+        help="Set a fine-tuned model as active",
+    )
+    finetune_activate_parser.add_argument(
+        "model_id",
+        help="Model ID to activate",
+    )
+
     return parser
 
 
@@ -388,6 +440,10 @@ def main(argv: list[str] | None = None) -> int:
             logger.info("Starting cluster command")
             from lsm.ui.shell.cli import run_cluster
             return run_cluster(args, config)
+        if args.command == "finetune":
+            logger.info("Starting finetune command")
+            from lsm.ui.shell.cli import run_finetune
+            return run_finetune(args, config)
 
         else:
             # Should not reach here with required=True in subparsers

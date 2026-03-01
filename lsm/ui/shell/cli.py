@@ -422,3 +422,126 @@ def run_cluster_build_cli(
         f"{result['n_chunks']} chunks, algorithm={result['algorithm']}"
     )
     return 0
+
+
+def run_finetune(args, config: LSMConfig) -> int:
+    """Run fine-tuning commands."""
+    command = getattr(args, "finetune_command", None)
+    if command == "train":
+        return run_finetune_train_cli(
+            config,
+            base_model=getattr(args, "base_model", "sentence-transformers/all-MiniLM-L6-v2"),
+            epochs=getattr(args, "epochs", 3),
+            output=getattr(args, "output", "./models/finetuned"),
+            max_pairs=getattr(args, "max_pairs", None),
+        )
+    if command == "list":
+        return run_finetune_list_cli(config)
+    if command == "activate":
+        return run_finetune_activate_cli(config, model_id=args.model_id)
+
+    print("Missing finetune subcommand. Use `lsm finetune --help` for options.")
+    return 2
+
+
+def run_finetune_train_cli(
+    config: LSMConfig,
+    base_model: str = "sentence-transformers/all-MiniLM-L6-v2",
+    epochs: int = 3,
+    output: str = "./models/finetuned",
+    max_pairs: Optional[int] = None,
+) -> int:
+    """Extract training pairs from corpus and fine-tune embedding model."""
+    from lsm.finetune.embedding import extract_training_pairs, finetune_embedding_model
+    from lsm.finetune.registry import register_model, set_active_model
+
+    provider = create_vectordb_provider(config.vectordb)
+    conn = getattr(provider, "connection", None)
+    if conn is None:
+        print("Error: Fine-tuning requires SQLite backend with direct connection access.")
+        return 1
+
+    print("Extracting training pairs from corpus...")
+    pairs = extract_training_pairs(conn, max_pairs=max_pairs)
+    if not pairs:
+        print("Error: No training pairs found. Ingest data first.")
+        return 1
+    print(f"Found {len(pairs)} training pairs.")
+
+    print(f"Fine-tuning {base_model} for {epochs} epochs...")
+    try:
+        result = finetune_embedding_model(
+            pairs=pairs,
+            base_model=base_model,
+            output_path=output,
+            epochs=epochs,
+        )
+    except ImportError as exc:
+        print(f"Error: {exc}")
+        return 1
+    except Exception as exc:
+        print(f"Error during fine-tuning: {exc}")
+        return 1
+
+    # Register in model registry
+    entry = register_model(
+        conn=conn,
+        model_id=result["model_id"],
+        base_model=result["base_model"],
+        path=result["output_path"],
+        dimension=result["dimension"],
+    )
+    set_active_model(conn, entry.model_id)
+
+    print(f"Fine-tuning complete:")
+    print(f"  Model ID: {entry.model_id}")
+    print(f"  Path: {entry.path}")
+    print(f"  Dimension: {entry.dimension}")
+    print(f"  Training pairs: {result['num_pairs']}")
+    print(f"  Status: active")
+    return 0
+
+
+def run_finetune_list_cli(config: LSMConfig) -> int:
+    """List registered fine-tuned models."""
+    from lsm.finetune.registry import list_models
+
+    provider = create_vectordb_provider(config.vectordb)
+    conn = getattr(provider, "connection", None)
+    if conn is None:
+        print("Error: Model registry requires SQLite backend.")
+        return 1
+
+    models = list_models(conn)
+    if not models:
+        print("No fine-tuned models registered.")
+        return 0
+
+    print(f"{'Model ID':<30} {'Base Model':<35} {'Dim':>5} {'Active':>7} {'Created'}")
+    print("-" * 100)
+    for m in models:
+        active = "  *" if m.is_active else ""
+        print(f"{m.model_id:<30} {m.base_model:<35} {m.dimension:>5} {active:>7} {m.created_at}")
+    return 0
+
+
+def run_finetune_activate_cli(config: LSMConfig, model_id: str) -> int:
+    """Set a fine-tuned model as active."""
+    from lsm.finetune.registry import get_active_model, list_models, set_active_model
+
+    provider = create_vectordb_provider(config.vectordb)
+    conn = getattr(provider, "connection", None)
+    if conn is None:
+        print("Error: Model registry requires SQLite backend.")
+        return 1
+
+    # Check model exists
+    models = list_models(conn)
+    ids = [m.model_id for m in models]
+    if model_id not in ids:
+        print(f"Error: Model '{model_id}' not found. Available: {', '.join(ids) or 'none'}")
+        return 1
+
+    set_active_model(conn, model_id)
+    print(f"Activated model: {model_id}")
+    return 0
