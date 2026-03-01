@@ -503,23 +503,26 @@ def main(argv: list[str] | None = None) -> int:
     config = load_config_from_file(cfg_path)
 
     # Database health check before dispatching any subcommand.
-    try:
-        from lsm.db.health import check_db_health
-        from lsm.db.tables import TableNames
+    # Skip for 'migrate' — it handles its own detection and is the fix for
+    # health issues like legacy ChromaDB or partial migrations.
+    if getattr(args, "command", None) != "migrate":
+        try:
+            from lsm.db.health import check_db_health
+            from lsm.db.tables import TableNames
 
-        health = check_db_health(
-            config,
-            table_names=TableNames(prefix=config.db.table_prefix),
-        )
-        if health.status != "ok":
-            if health.blocking:
-                print(f"Database issue: {health.details}")
-                if health.suggested_action:
-                    print(f"Suggested action: {health.suggested_action}")
-                return 1
-            logger.warning(f"Database advisory: {health.details}")
-    except Exception:
-        logger.debug("Startup DB health check failed", exc_info=True)
+            health = check_db_health(
+                config,
+                table_names=TableNames(prefix=config.db.table_prefix),
+            )
+            if health.status != "ok":
+                if health.blocking:
+                    print(f"Database issue: {health.details}")
+                    if health.suggested_action:
+                        print(f"Suggested action: {health.suggested_action}")
+                    return 1
+                logger.warning(f"Database advisory: {health.details}")
+        except Exception:
+            logger.debug("Startup DB health check failed", exc_info=True)
 
     # TUI interface if no command specified
     if not args.command:
