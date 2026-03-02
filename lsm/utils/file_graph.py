@@ -1355,6 +1355,18 @@ def build_html_graph(path: Path | str, html_or_text: str) -> FileGraph:
     return _build_text_graph(file_path, normalized, content_hash)
 
 
+def build_file_graph(path: Path | str, text: str) -> FileGraph:
+    """Build a FileGraph by dispatching to the correct builder for the file type."""
+    ext = Path(path).suffix.lower()
+    if ext == ".md":
+        return build_markdown_graph(path, text)
+    if ext in {".html", ".htm"}:
+        return build_html_graph(path, text)
+    if ext == ".docx":
+        return build_docx_graph(path, text)
+    return build_text_graph(path, text)
+
+
 def build_graph_outline(
     graph: FileGraph,
     *,
