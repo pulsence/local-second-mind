@@ -1,135 +1,125 @@
-# Phase 18: Final Code Review and Release
+# Phase 18: Post-Migration Boundary-Drift Rechunk
 
-**Status**: Pending
+**Status**: In Progress
 
-Comprehensive code review, integration testing, documentation finalization, and release
-preparation.
-
----
-
-## 18.1: Comprehensive Code Review
-
-**Tasks**:
-- Review all changes for backwards compatibility issues — ensure no unintended regressions
-- Review for deprecated code, dead code, or legacy compatibility shims — remove them
-- Review all SQL queries for injection risks — parameterized queries only
-- Review all new modules for proper error handling and logging
-- Review import graph — no circular dependencies
-- Review test suite:
-  - No mocks or stubs on database operations
-  - No auto-pass tests
-  - Test structure matches project module structure
-  - All new features have unit + integration tests
-- Review security:
-  - FTS5 queries use parameterized queries
-  - sqlite-vec queries use `?` placeholders
-  - Cross-encoder inputs are sanitized
-  - Graph traversal depth is bounded
-  - Agent tools validate permissions correctly
-- Commit and push changes for this sub-phase.
-
-**Files**: All modified files from all phases
-
-**Success criteria**: No dead code, no injection risks, no circular dependencies, no
-auto-pass tests.
+After migration from ChromaDB (or other legacy backends), the enrichment pipeline marks
+chunks with `start_char = -1` when their text cannot be located in the source file. This
+indicates boundary drift — the chunks were created with the old fixed-size chunking strategy
+and their boundaries no longer align with the current file content. This phase adds the
+ability to re-chunk those files using the current structure-aware chunking strategy, either
+interactively at the end of migration or via CLI flags.
 
 ---
 
-## 18.2: Integration Testing
+## 18.1: Drifted Source Path Detection
+
+**Description**: Extend `detect_stale_chunks` and `EnrichmentReport` to surface the
+distinct source paths that have boundary-drifted chunks (`start_char = -1`), and populate
+them through the enrichment pipeline.
 
 **Tasks**:
-- Run end-to-end integration tests:
-  - Full ingest → query → answer cycle with SQLite provider
-  - Full ingest → query → answer cycle with PostgreSQL provider
-  - Migration between providers preserves all data
-  - All five retrieval profiles produce results
-  - Agent tools work through full pipeline
-  - Agent multi-turn query chain uses returned `response_id` / `conversation_id`
-  - Agent `_run_phase()` / `run_bounded()` multi-context runs preserve independent
-    `context_label` + conversation-chain state
-  - Multi-hop retrieval produces answers
-  - Eval harness runs against real corpus
-  - TUI chat flow preserves and advances conversation chaining across turns
-  - Mode/model switch resets conversation chain deterministically
-  - TUI Help screen shows updated `WHAT'S NEW` content for v0.8.0
-- Run performance tests and assert against SLO targets from §6.8:
-  - TUI startup SLA
-  - Retrieval stage p95 ≤ 500ms (at 100k chunks, 384 dims)
-  - End-to-end query p95 ≤ 1.5s for local interactive use
-  - Query latency at 10k, 50k, 100k chunks
-  - Ingest throughput
-- Run all existing tests: `pytest tests/ -v --cov=lsm --cov-report=html`
+- Add a query in `detect_stale_chunks` for distinct source paths where `start_char = -1`
+- Add `drifted_source_paths` list to the `tier3` section of the stale report dict
+- Update `needs_reingest` to also trigger when drifted paths exist
+- Add `drifted_source_paths: tuple[str, ...] = ()` field to `EnrichmentReport`
+- In `run_enrichment_pipeline` Tier 3 section, read drifted paths from the stale report,
+  append `"boundary drifted: <path>"` entries to `tier3_needed`, and pass the path list
+  to the new report field
+- Write tests:
+  - `detect_stale_chunks` returns `drifted_source_paths` in tier3
+  - `EnrichmentReport` includes `drifted_source_paths` from pipeline run
+  - `needs_reingest` is true when drifted paths exist
 
-- Commit and push changes for this sub-phase.
 **Files**:
-- `tests/test_integration/` — end-to-end tests
-- `tests/performance/` — performance tests
+- `lsm/db/enrichment.py`
+- `tests/test_db/test_enrichment.py`
 
-**Success criteria**: All integration tests pass. Performance is within documented SLO
-targets. Coverage report generated.
-
----
-
-## 18.3: Architecture Documentation Update
-
-**Tasks**:
-- Update all `.agents/docs/architecture/` files to reflect v0.8.0 changes:
-  - `development/OVERVIEW.md` — updated system map
-  - `development/INGEST.md` — FileGraph integration, multi-vector, graph construction
-  - `development/QUERY.md` — RetrievalPipeline, profiles, stages
-  - `development/PROVIDERS.md` — simplified provider interface
-  - `development/MODES.md` — updated ModeConfig
-  - `development/AGENTS.md` — new pipeline tools, DB-backed memory/schedules
-  - `packages/lsm.vectordb.md` — SQLite-vec provider, removed ChromaDB
-  - `packages/lsm.query.md` — pipeline, stages, types
-  - `packages/lsm.ingest.md` — heading enhancements, graph builder, multi-vector
-  - `packages/lsm.providers.md` — simplified interface
-  - `api-reference/CONFIG.md` — all config changes
-  - `api-reference/PROVIDERS.md` — new send_message signature
-- Update `ARCHITECTURE.md` top-level overview
-
-- Commit and push changes for this sub-phase.
-**Files**: All architecture docs listed above
-
-**Success criteria**: Architecture docs accurately reflect v0.8.0 codebase.
+**Success criteria**: `detect_stale_chunks` returns drifted source paths in tier3.
+`EnrichmentReport.drifted_source_paths` is populated after enrichment runs on a database
+with boundary-drifted chunks. All enrichment tests pass.
 
 ---
 
-## 18.4: Release Preparation
+## 18.2: Ingest Pipeline `force_source_paths` Parameter
+
+**Description**: Add a `force_source_paths` parameter to the ingest pipeline and API layer,
+enabling exact-path filtering for selective re-ingestion. This parallels the existing
+`stale_file_paths` skip-if-not-in-set pattern already in the pipeline.
 
 **Tasks**:
-- Finalize `docs/CHANGELOG.md` with complete v0.8.0 entry
-- Update version in `pyproject.toml` to `0.8.0`
-- Update `README.md`
-- Verify `example_config.json` is complete and correct
-- Verify `.env.example` is complete
-- Update TUI release notes in `lsm/ui/tui/screens/help.py`:
-  - Refresh `WHAT'S NEW` entries for v0.8.0 feature highlights
-  - Keep entries synchronized with release notes/changelog language
-- Update `tests/test_ui/tui/test_screens.py` to validate v0.8.0 `WHAT'S NEW` content
-- Update `docs/user-guide/AGENTS.md`:
-  - Add a `Tools Access` subsection for each agent
-  - Enumerate the exact tools each agent can invoke and any scope limits
-- Create upgrade guide for v0.7.x → v0.8.0 users:
-  - Config file changes required
-  - `lsm migrate` instructions
-  - Breaking changes summary
-- Run final full test suite: `pytest tests/ -v`
+- Add `force_source_paths: Optional[set[str]] = None` parameter to `ingest()` in
+  `pipeline.py` (after `force_file_pattern`)
+- Add filter logic after existing `stale_file_paths` check: skip files not in the set
+- Add to the `force_this_file` condition so matched files bypass manifest freshness checks
+- Add `force_source_paths: Optional[set[str]] = None` to `run_ingest()` in `api.py`
+  and pass through to `ingest()`
 
-- Commit and push changes for this sub-phase.
 **Files**:
+- `lsm/ingest/pipeline.py`
+- `lsm/ingest/api.py`
+
+**Success criteria**: Calling `run_ingest(config, force_source_paths={"/path/to/file.md"})`
+only processes the specified file and skips all others. Existing ingest behavior is
+unchanged when `force_source_paths` is `None`.
+
+---
+
+## 18.3: CLI Rechunk Flags and Interactive Offer
+
+**Description**: Add `--rechunk` and `--skip-rechunk` flags to the `lsm migrate` command,
+and implement an interactive rechunk offer that appears after enrichment when
+boundary-drifted files are detected.
+
+**Tasks**:
+- Add `--rechunk` and `--skip-rechunk` arguments to `migrate_parser` in `__main__.py`
+- Add `rechunk` and `skip_rechunk` parameters to `run_migrate_cli()` and `run_migrate()`
+- Implement `_handle_rechunk_offer()` in `cli.py`:
+  - Print count of drifted files and explain what rechunking does
+  - `--skip-rechunk`: print skip message, return
+  - `--rechunk`: proceed automatically
+  - Neither: interactive `[y/N]` prompt
+  - Filter to paths that exist on disk
+  - Call `run_ingest(config, force_source_paths=valid_paths)`
+  - Print result summary
+- Call `_handle_rechunk_offer()` after `_print_enrichment_summary()` in both
+  `run_migrate_cli()` and `_run_standalone_enrichment()`
+- Update `_print_enrichment_summary()` to show drifted count separately from missing
+  summaries
+
+**Files**:
+- `lsm/__main__.py`
+- `lsm/ui/shell/cli.py`
+
+**Success criteria**: `lsm migrate --help` shows `--rechunk` and `--skip-rechunk` flags.
+After migration with drifted files, user is prompted to rechunk (or auto-rechunks with
+`--rechunk`). The rechunk uses the current chunking strategy, versions old chunks, and
+re-embeds.
+
+---
+
+## 18.4: Debug Phase
+
+User-reported issues and bugs encountered during 18.1–18.3 implementation are resolved
+here. The user will provide example output in `<GLOBAL_FOLDER>/Debug/` as needed.
+
+---
+
+## 18.5: Code Review and Changelog
+
+**Tasks**:
+- Review all changes from 18.1–18.3 for correctness and backwards compatibility
+- Review for dead code or unused imports
+- Review tests: no mocks/stubs, no auto-pass tests
+- Ensure `--rechunk` does not run unless drifted files exist
+- Ensure `force_source_paths` does not interfere with normal ingest when `None`
+- Summarize changes in `docs/CHANGELOG.md` under the Unreleased section
+- Commit and push
+
+**Files**:
+- All files modified in 18.1–18.3
 - `docs/CHANGELOG.md`
-- `pyproject.toml`
-- `README.md`
-- `example_config.json`
-- `.env.example`
-- `lsm/ui/tui/screens/help.py`
-- `tests/test_ui/tui/test_screens.py`
-- `docs/user-guide/AGENTS.md`
 
-**Success criteria**: All tests pass. Version bumped. Changelog complete. Upgrade guide
-written. TUI `WHAT'S NEW` reflects v0.8.0. `AGENTS.md` documents per-agent tool access.
-Ready for release.
+**Success criteria**: All tests pass. No regressions. Changelog updated.
 
 ---
 

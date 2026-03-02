@@ -31,7 +31,8 @@
 | 15 | Phase 3 — Graph, Multi-Hop, and Fine-Tuning | Completed | [PHASE_15.md](./plan_phases/PHASE_15.md) |
 | 16 | PostgreSQL Parity and Cross-Cutting | Completed | [PHASE_16.md](./plan_phases/PHASE_16.md) |
 | 17 | Debug Phase | Completed | [PHASE_17.md](./plan_phases/PHASE_17.md) |
-| 18 | Final Code Review and Release | Pending | [PHASE_18.md](./plan_phases/PHASE_18.md) |
+| 18 | Post-Migration Boundary-Drift Rechunk | In Progress | [PHASE_18.md](./plan_phases/PHASE_18.md) |
+| 19 | Final Code Review and Release | Pending | [PHASE_19.md](./plan_phases/PHASE_19.md) |
 
 ---
 
@@ -91,8 +92,11 @@ PostgreSQL provider parity, TUI startup advisories, documentation, and scale gui
 ### [Phase 17: Debug Phase](./plan_phases/PHASE_17.md)
 Pre-release debug phase for resolving implementation gaps and bugs identified during the Phase 11–16 review, plus user-reported issues. Sub-tasks: 17.1–17.11.
 
-### [Phase 18: Final Code Review and Release](./plan_phases/PHASE_18.md)
-Comprehensive review, integration testing, architecture docs, and release preparation. Sub-tasks: 18.1–18.4.
+### [Phase 18: Post-Migration Boundary-Drift Rechunk](./plan_phases/PHASE_18.md)
+Detects boundary-drifted chunks after migration (old fixed-size chunking), surfaces them in the enrichment report, and offers interactive re-chunking with the current structure-aware strategy. Sub-tasks: 18.1–18.5.
+
+### [Phase 19: Final Code Review and Release](./plan_phases/PHASE_19.md)
+Comprehensive review, integration testing, architecture docs, and release preparation. Sub-tasks: 19.1–19.4.
 
 ---
 
