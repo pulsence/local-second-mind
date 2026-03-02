@@ -309,6 +309,7 @@ def migrate(
             "migrated_vectors": expected_counts[vector_key],
             "validated_tables": int(validation_result.get("checked", 0)),
             "legacy_source_dir": str(source_dir),
+            "imported_counts": imported_counts,
         }
 
     source_provider = _provider_from_source(source_enum, source_config)

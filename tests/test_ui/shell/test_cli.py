@@ -235,6 +235,49 @@ def test_run_migrate_cli_success_and_error(monkeypatch: pytest.MonkeyPatch, caps
     assert "Error: migration failed" in bad_out
 
 
+def test_run_migrate_cli_prints_legacy_import_summary(monkeypatch: pytest.MonkeyPatch, capsys) -> None:
+    @dataclass
+    class _ConfigStub:
+        db: DBConfig
+        ingest: object
+        global_settings: object
+
+    cfg = _ConfigStub(
+        db=DBConfig(provider="sqlite", path=Path(".lsm"), collection="kb"),
+        ingest=SimpleNamespace(chunking_strategy="structure", chunk_size=1800, chunk_overlap=200),
+        global_settings=SimpleNamespace(embed_model="test-model", embedding_dimension=384),
+    )
+    monkeypatch.setattr(shell_cli, "_load_config", lambda p: cfg)
+    monkeypatch.setattr(
+        shell_cli,
+        "migrate_db",
+        lambda **kwargs: {
+            "migrated_vectors": 0,
+            "total_vectors": 0,
+            "validated_tables": 5,
+            "imported_counts": {
+                "lsm_manifest": 42,
+                "lsm_agent_memories": 3,
+                "lsm_agent_memory_candidates": 1,
+                "lsm_agent_schedules": 2,
+                "lsm_stats_cache": 0,
+                "lsm_remote_cache": 0,
+            },
+        },
+    )
+
+    code = shell_cli.run_migrate_cli("config.json", from_db="sqlite", to_db="sqlite")
+    out = capsys.readouterr().out
+    assert code == 0
+    assert "Legacy state imported" in out
+    assert "manifest=42" in out
+    assert "agent_memories=3" in out
+    assert "agent_schedules=2" in out
+    # Zero-count tables should not appear
+    assert "stats_cache" not in out
+    assert "remote_cache" not in out
+
+
 def test_run_migrate_cli_v07_path_validation(monkeypatch: pytest.MonkeyPatch, capsys) -> None:
     @dataclass
     class _ConfigStub:

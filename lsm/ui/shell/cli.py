@@ -505,6 +505,12 @@ def run_migrate_cli(
         f"{result.get('migrated_vectors', 0):,}/{result.get('total_vectors', 0):,} vectors, "
         f"validated tables={result.get('validated_tables', 0)}."
     )
+
+    # Print legacy sidecar file import summary when available
+    imported = result.get("imported_counts")
+    if imported:
+        _print_legacy_import_summary(imported)
+
     report = result.get("enrichment")
     if report is not None:
         _print_enrichment_summary(report)
@@ -536,6 +542,20 @@ def _run_standalone_enrichment(
     _print_enrichment_summary(report)
     _handle_rechunk_offer(config, report, rechunk=rechunk, skip_rechunk=skip_rechunk)
     return 0
+
+
+def _print_legacy_import_summary(imported: dict[str, int]) -> None:
+    """Print a human-readable summary of legacy v0.7 sidecar file imports."""
+    non_zero = {k: v for k, v in imported.items() if v}
+    if not non_zero:
+        print("  Legacy state: no sidecar files found to import.")
+        return
+    parts = []
+    for table, count in non_zero.items():
+        # Strip table prefix for readability (e.g. "lsm_manifest" → "manifest")
+        label = table.split("_", 1)[1] if "_" in table else table
+        parts.append(f"{label}={count:,}")
+    print(f"  Legacy state imported: {', '.join(parts)}")
 
 
 def _print_enrichment_summary(report) -> None:

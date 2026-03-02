@@ -113,22 +113,28 @@ def _check_db_reachable(config: Any) -> Optional[DBHealthReport]:
 
 
 def _check_legacy_provider(config: Any) -> Optional[DBHealthReport]:
-    """Check for leftover ChromaDB directory indicating legacy provider."""
-    global_folder = getattr(getattr(config, "global_settings", None), "global_folder", None)
-    if global_folder is None:
+    """Check whether the loaded configuration references a legacy provider.
+
+    Only flags an issue when the *config itself* selects a discontinued
+    backend (``chromadb``).  Leftover ``.chroma/`` directories on disk are
+    harmless after migration and should not block startup.
+    """
+    db_cfg = getattr(config, "db", None)
+    if db_cfg is None:
         return None
 
-    chroma_dir = Path(global_folder) / ".chroma"
-    if chroma_dir.is_dir():
+    provider_name = str(getattr(db_cfg, "provider", "") or "").strip().lower()
+    if provider_name in ("chromadb", "chroma"):
         return DBHealthReport(
             status="legacy_detected",
             details=(
-                f"Legacy ChromaDB directory found at {chroma_dir}. "
-                "This suggests a pre-migration database from an older version."
+                f"Configuration sets db.provider to '{provider_name}', "
+                "which is a legacy backend no longer supported in v0.8+."
             ),
             suggested_action=(
                 "Run `lsm migrate --from-db chroma` to migrate your data to the "
-                "current database backend, then remove the .chroma directory."
+                "current database backend, then update db.provider in your config "
+                "to 'sqlite' or 'postgresql'."
             ),
             blocking=True,
         )

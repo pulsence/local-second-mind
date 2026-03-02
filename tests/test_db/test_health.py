@@ -123,24 +123,37 @@ class TestPostgresUnreachable:
 # ---------------------------------------------------------------------------
 
 class TestLegacyDetection:
-    def test_chroma_dir_returns_legacy_detected(self, tmp_path: Path) -> None:
+    def test_chromadb_provider_returns_legacy_detected(self, tmp_path: Path) -> None:
         config = _make_config(tmp_path)
-        chroma_dir = tmp_path / "global" / ".chroma"
-        chroma_dir.mkdir(parents=True)
+        config.db.provider = "chromadb"
         report = _check_legacy_provider(config)
         assert report is not None
         assert report.status == "legacy_detected"
         assert report.blocking is True
-        assert "chroma" in report.details.lower()
+        assert "chromadb" in report.details.lower()
 
-    def test_no_chroma_dir_returns_none(self, tmp_path: Path) -> None:
+    def test_chroma_provider_returns_legacy_detected(self, tmp_path: Path) -> None:
         config = _make_config(tmp_path)
-        (tmp_path / "global").mkdir(parents=True, exist_ok=True)
+        config.db.provider = "chroma"
+        report = _check_legacy_provider(config)
+        assert report is not None
+        assert report.status == "legacy_detected"
+
+    def test_sqlite_provider_returns_none(self, tmp_path: Path) -> None:
+        config = _make_config(tmp_path)
         report = _check_legacy_provider(config)
         assert report is None
 
-    def test_no_global_folder_returns_none(self) -> None:
-        config = SimpleNamespace(global_settings=SimpleNamespace(global_folder=None))
+    def test_chroma_dir_on_disk_does_not_block(self, tmp_path: Path) -> None:
+        """Leftover .chroma/ directory should NOT block when config uses sqlite."""
+        config = _make_config(tmp_path)
+        chroma_dir = tmp_path / "global" / ".chroma"
+        chroma_dir.mkdir(parents=True)
+        report = _check_legacy_provider(config)
+        assert report is None
+
+    def test_no_db_config_returns_none(self) -> None:
+        config = SimpleNamespace()
         report = _check_legacy_provider(config)
         assert report is None
 
@@ -395,14 +408,21 @@ class TestCheckDbHealthIntegration:
         assert report.status == "missing"
         assert report.blocking is False
 
-    def test_legacy_chroma_blocks(self, tmp_path: Path) -> None:
+    def test_legacy_chromadb_config_blocks(self, tmp_path: Path) -> None:
+        _create_db(tmp_path)
+        config = _make_config(tmp_path)
+        config.db.provider = "chromadb"
+        report = check_db_health(config)
+        assert report.status == "legacy_detected"
+        assert report.blocking is True
+
+    def test_chroma_dir_on_disk_does_not_block(self, tmp_path: Path) -> None:
         _create_db(tmp_path)
         config = _make_config(tmp_path)
         chroma_dir = tmp_path / "global" / ".chroma"
         chroma_dir.mkdir(parents=True)
         report = check_db_health(config)
-        assert report.status == "legacy_detected"
-        assert report.blocking is True
+        assert report.status == "ok"
 
     def test_no_config_db_returns_ok(self) -> None:
         config = SimpleNamespace(global_settings=SimpleNamespace(global_folder=None))
