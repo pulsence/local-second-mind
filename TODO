@@ -4,9 +4,25 @@
 
 ## v0.9.0: UI ReworK
 
+### General
+- System logs should be persisted in `<GLOBAL_FOLDER>/Logs/`
+- lsm.logging.py should be merged with the logger in lsm.utils
+- lsm.paths.py should be merged with the paths in lsm.utils
+- lsm.vectorb should be a subpackage of lsm.db
+- What is lsm.finetune used for?
+
 ### Web UI
 - Create Web UI, this will be the primary way that the user interacts with the
   program. TUI will be shifted to only being used for admin related things.
+- Should be designed based on the standardized Chat UI. Main text panel
+  in the center with an input box on the bottom. And a collapsible navigation
+  pannel on the left.
+- There should be menu items for the different major screems:
+  - Ingest
+  - Agents
+  - Settings:
+    - Configuration of Remote Sources and Remote Chains should be handled in settings
+  - Remote Sources and Remote Chains query screen
 
 ### TUI Improvements
 - Right now the TUI is mouse-first instead of keyboard-first. It acts like a GUI
@@ -14,17 +30,15 @@
   UX and development than it should be.
 - Change to have a single base display:
 
-----------------------------------------------------
-|Current Screen: Insert Screen Name       Date Time|
-|--------------------------------------------------|
-| Formatted Text Content               | Global    |
-| for the current screen               | scrolling |
-|                                      | log disp  |
-|--------------------------------------------------|
-| Prompt for user type commands                    |
-|--------------------------------------------------|
-| Short cuts for current display                   |
-----------------------------------------------------
+----------------------------------------
+| Formatted Text Content               |
+| for the current screen               |
+|                                      |
+|--------------------------------------|
+| Prompt for user type commands        |
+|--------------------------------------|
+| Short cuts for current display       |
+----------------------------------------
 
 - Then each screen handles the commands from the user and modifies the display
   space. This can either be to simply update the screen with new text from the
@@ -32,13 +46,18 @@
   agent logs
   - All user input comes from input prompt
   - All output goes into the text display panel
-  - Then on the side there is a scrolling log display for the global system log.
   - Each screen should manage user autocomplete/command processing/content state
     so that it can properly output the right text.
 - There should be no buttons remaining.
-- Given the simplifications planned to the TUI is there any continuing need to
-  maintain CLI and TUI? My intuition says no.
+- Given the simplifications planned to the TUI there is not reason to maintian
+  both the CLI and TUI. Everything should combined into TUI.
 - Pair down TUI to admin focused things not for actual interactive use.
+  - All but the setting screen is folded into a single command prompt screen
+    which reads input, executes, prints results, and loops.
+  - Setting screen retained
+- There should be a health command that show the status/health of all the systems
+- There should be a log command that shows the logs
+- Ensure that the TUI can run alonside the server without causing any problems.
 
 ## v0.10.0: Refactor and Dog Food
 
@@ -163,6 +182,7 @@
 - Ensure there are PDf ingest tests and PDF OCR ingest tests
 - Expand benchmarking test framework to include the tool benchmarking
   from v0.8.0.
+- Review integration testing framework
 
 ## v0.10.1: System Refinements
 - Insert results from usage in v.0.9.0
@@ -196,6 +216,7 @@
 - Track source type (talk, book, etc.)
 - Query pipeline takes language into consideration and so will search
   the other languages in the chunks to include in the search space
+- Include Chats in query pipeline. Should they be chunked and embedded?
 
 ## v0.11.0: Extra Control Paths
 - Add ability to send email/txt notifications
@@ -251,6 +272,7 @@
 ### Web
 
 - Ensure Web interface is rock solid and following the best practices
+- Review mobile usage
 
 ### Remote Controlers
 
