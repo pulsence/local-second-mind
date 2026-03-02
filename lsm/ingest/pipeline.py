@@ -930,6 +930,20 @@ def ingest(
         )
         last_report = now
 
+    # Periodic progress reporter — emits updates every REPORT_EVERY_SECONDS
+    # regardless of which thread is active.  Without this, long-running parse
+    # jobs (OCR) cause minutes of silence because no call-site fires.
+    _progress_stop = threading.Event()
+
+    def _progress_reporter():
+        while not _progress_stop.is_set():
+            _progress_stop.wait(REPORT_EVERY_SECONDS)
+            if not _progress_stop.is_set():
+                maybe_report()
+
+    _progress_thread = threading.Thread(target=_progress_reporter, daemon=True)
+    _progress_thread.start()
+
     force_pattern = str(force_file_pattern or "").strip()
     if not force_pattern:
         force_pattern = ""
@@ -1203,6 +1217,10 @@ def ingest(
     # Wait for threads
     et.join()
     wt.join()
+
+    # Stop periodic progress reporter
+    _progress_stop.set()
+    _progress_thread.join(timeout=2)
 
     if writer_error is not None:
         raise RuntimeError(f"Ingest write stage failed: {writer_error}") from writer_error
