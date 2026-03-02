@@ -31,12 +31,7 @@ from lsm.ingest.utils import (
     format_time,
     make_chunk_id,
 )
-from lsm.utils.file_graph import (
-    build_docx_graph,
-    build_html_graph,
-    build_markdown_graph,
-    build_text_graph,
-)
+from lsm.utils.file_graph import build_file_graph
 from lsm.db.completion import detect_completion_mode, get_stale_files
 from lsm.db.schema_version import (
     SchemaVersionMismatchError,
@@ -180,16 +175,8 @@ def parse_and_chunk_job(
                 else max_heading_depth
             )
             file_graph = None
-            ext = fp.suffix.lower()
             try:
-                if ext == ".md":
-                    file_graph = build_markdown_graph(fp, raw_text)
-                elif ext in {".html", ".htm"}:
-                    file_graph = build_html_graph(fp, raw_text)
-                elif ext == ".docx":
-                    file_graph = build_docx_graph(fp, raw_text)
-                elif ext in {".txt", ".rst"}:
-                    file_graph = build_text_graph(fp, raw_text)
+                file_graph = build_file_graph(fp, raw_text)
             except Exception:
                 file_graph = None
 
