@@ -448,7 +448,7 @@ def run_migrate_cli(
     tn = _table_names(target_runtime)
 
     def progress(stage: str, current: int, total: int, message: str) -> None:
-        print(f"[{stage}] {message}")
+        logger.info("%s", message)
 
     try:
         result = migrate_db(

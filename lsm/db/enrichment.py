@@ -223,10 +223,24 @@ def run_tier1_enrichment(
 
 def _backfill_simhash(conn: sqlite3.Connection, tn: TableNames) -> int:
     """Compute and store simhash for chunks where it is NULL."""
+    import time
+    from collections import deque
+
     from lsm.ingest.dedup_hash import compute_simhash
 
     batch_size = 1000
     updated = 0
+
+    row = conn.execute(
+        f"SELECT COUNT(*) FROM {tn.chunks} WHERE simhash IS NULL AND is_current = 1",
+    ).fetchone()
+    total = int(row[0]) if row else 0
+    if total == 0:
+        return 0
+
+    # Track (timestamp, updated_count) for moving-average ETA over ~5 batches.
+    timing_samples: deque[tuple[float, int]] = deque(maxlen=6)
+    timing_samples.append((time.monotonic(), 0))
 
     while True:
         rows = conn.execute(
@@ -242,9 +256,49 @@ def _backfill_simhash(conn: sqlite3.Connection, tn: TableNames) -> int:
                 (h, chunk_id),
             )
             updated += 1
-        logger.info("Simhash backfill: %d chunks updated so far", updated)
+
+        timing_samples.append((time.monotonic(), updated))
+        eta_str = _format_enrichment_eta(timing_samples, updated, total)
+        logger.info(
+            "Simhash backfill: %s/%s chunks updated. (%s)",
+            f"{updated:,}", f"{total:,}", eta_str,
+        )
 
     return updated
+
+
+def _format_enrichment_eta(
+    samples: deque[tuple[float, int]],
+    current: int,
+    total: int,
+) -> str:
+    """Compute an ETA string from a moving window of (timestamp, count) samples."""
+    remaining = total - current
+    if remaining <= 0:
+        return "done"
+    if len(samples) < 2:
+        return "estimating..."
+
+    oldest_time, oldest_count = samples[0]
+    newest_time, newest_count = samples[-1]
+    elapsed = newest_time - oldest_time
+    items_done = newest_count - oldest_count
+
+    if elapsed <= 0 or items_done <= 0:
+        return "estimating..."
+
+    rate = items_done / elapsed
+    eta_seconds = remaining / rate
+
+    if eta_seconds < 60:
+        return f"ETA {int(eta_seconds)}s"
+    if eta_seconds < 3600:
+        minutes = int(eta_seconds) // 60
+        secs = int(eta_seconds) % 60
+        return f"ETA {minutes}m {secs:02d}s"
+    hours = int(eta_seconds) // 3600
+    minutes = (int(eta_seconds) % 3600) // 60
+    return f"ETA {hours}h {minutes:02d}m"
 
 
 def _backfill_defaults(conn: sqlite3.Connection, tn: TableNames) -> int:
