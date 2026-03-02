@@ -382,9 +382,9 @@ def run_migrate_cli(
                 to_db = to_db or detected.get("to_db")
                 source_dir = source_dir or detected.get("source_dir")
                 if from_db or from_version:
-                    print(
-                        f"Auto-detected migration: from_db={from_db}, "
-                        f"from_version={from_version}, to_db={to_db}"
+                    logger.info(
+                        "Auto-detected migration: from_db=%s, from_version=%s, to_db=%s",
+                        from_db, from_version, to_db,
                     )
         except Exception as exc:
             print(f"Auto-detection failed: {exc}")

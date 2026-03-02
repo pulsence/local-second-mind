@@ -327,6 +327,8 @@ def _backfill_defaults(conn: sqlite3.Connection, tn: TableNames) -> int:
     )
     updated += cur.rowcount
 
+    if updated > 0:
+        logger.info("Defaults backfill: %s chunks updated.", f"{updated:,}")
     return updated
 
 
@@ -336,6 +338,8 @@ def _backfill_node_type(conn: sqlite3.Connection, tn: TableNames) -> int:
         f"UPDATE {tn.chunks} SET node_type = 'chunk' WHERE node_type IS NULL OR node_type = ''"
     )
     updated = cur.rowcount
+    if updated > 0:
+        logger.info("Node-type backfill: %s chunks updated.", f"{updated:,}")
 
     # Mirror to vec_chunks if the table exists
     vec_exists = conn.execute(
@@ -369,6 +373,9 @@ def _backfill_tags(
     tn: TableNames,
 ) -> int:
     """Apply root_tags and content_type from config to chunks missing them."""
+    import time
+    from collections import deque
+
     roots = getattr(getattr(config, "ingest", None), "roots", None)
     if not roots:
         return 0
@@ -376,6 +383,7 @@ def _backfill_tags(
     from lsm.ingest.fs import collect_folder_tags
 
     updated = 0
+    batch_size = 1000
 
     # Build a mapping of resolved root paths to their config
     root_map: List[Tuple[Path, Any]] = []
@@ -383,42 +391,69 @@ def _backfill_tags(
         resolved = root_cfg.path.expanduser().resolve()
         root_map.append((resolved, root_cfg))
 
-    # Fetch chunks needing tags
-    rows = conn.execute(
-        f"""SELECT chunk_id, source_path FROM {tn.chunks}
+    # Count total chunks needing tags
+    count_row = conn.execute(
+        f"""SELECT COUNT(*) FROM {tn.chunks}
             WHERE (root_tags IS NULL OR content_type IS NULL)
-            AND is_current = 1"""
-    ).fetchall()
+            AND is_current = 1""",
+    ).fetchone()
+    remaining = int(count_row[0]) if count_row else 0
+    if remaining == 0:
+        return 0
 
-    for chunk_id, source_path in rows:
-        sp = Path(source_path)
-        matched_root = None
-        matched_cfg = None
-        for root_path, root_cfg in root_map:
-            try:
-                sp.resolve().relative_to(root_path)
-                matched_root = root_path
-                matched_cfg = root_cfg
-                break
-            except ValueError:
+    logger.info("Tag backfill: %s chunks to process.", f"{remaining:,}")
+
+    timing_samples: deque[tuple[float, int]] = deque(maxlen=6)
+    timing_samples.append((time.monotonic(), 0))
+
+    while True:
+        rows = conn.execute(
+            f"""SELECT chunk_id, source_path FROM {tn.chunks}
+                WHERE (root_tags IS NULL OR content_type IS NULL)
+                AND is_current = 1
+                LIMIT ?""",
+            (batch_size,),
+        ).fetchall()
+        if not rows:
+            break
+
+        for chunk_id, source_path in rows:
+            sp = Path(source_path)
+            matched_root = None
+            matched_cfg = None
+            for root_path, root_cfg in root_map:
+                try:
+                    sp.resolve().relative_to(root_path)
+                    matched_root = root_path
+                    matched_cfg = root_cfg
+                    break
+                except ValueError:
+                    continue
+
+            if matched_cfg is None:
                 continue
 
-        if matched_cfg is None:
-            continue
+            root_tags = json.dumps(matched_cfg.tags or [])
+            content_type = matched_cfg.content_type or ""
+            folder_tags = json.dumps(collect_folder_tags(sp, matched_root))
 
-        root_tags = json.dumps(matched_cfg.tags or [])
-        content_type = matched_cfg.content_type or ""
-        folder_tags = json.dumps(collect_folder_tags(sp, matched_root))
+            conn.execute(
+                f"""UPDATE {tn.chunks}
+                    SET root_tags = COALESCE(root_tags, ?),
+                        folder_tags = COALESCE(folder_tags, ?),
+                        content_type = COALESCE(content_type, ?)
+                    WHERE chunk_id = ?""",
+                (root_tags, folder_tags, content_type, chunk_id),
+            )
+            updated += 1
+        conn.commit()
 
-        conn.execute(
-            f"""UPDATE {tn.chunks}
-                SET root_tags = COALESCE(root_tags, ?),
-                    folder_tags = COALESCE(folder_tags, ?),
-                    content_type = COALESCE(content_type, ?)
-                WHERE chunk_id = ?""",
-            (root_tags, folder_tags, content_type, chunk_id),
+        timing_samples.append((time.monotonic(), updated))
+        eta_str = _format_enrichment_eta(timing_samples, updated, remaining)
+        logger.info(
+            "Tag backfill: %s/%s chunks updated. (%s)",
+            f"{updated:,}", f"{remaining:,}", eta_str,
         )
-        updated += 1
 
     return updated
 
