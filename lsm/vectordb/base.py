@@ -193,6 +193,13 @@ class BaseVectorDBProvider(ABC):
         """Delete non-current chunk versions that match prune criteria."""
         pass
 
+    def graph_delete_source(self, source_path: str) -> None:
+        """Delete all graph nodes and edges for a source path.
+
+        Removes orphan nodes left behind when a file is rechunked.
+        Default is a no-op for providers that don't support graphs.
+        """
+
     def graph_insert_nodes(self, nodes: List[Dict[str, Any]]) -> None:
         """Insert graph nodes into the knowledge graph.
 

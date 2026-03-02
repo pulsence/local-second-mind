@@ -491,6 +491,7 @@ def structured_chunks_to_positions(
             "start_char": sc.start_char,
             "end_char": sc.end_char,
             "length": len(sc.text),
+            "node_type": "chunk",
         }
         if sc.heading is not None:
             pos["heading"] = sc.heading

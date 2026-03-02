@@ -59,6 +59,7 @@ def chunk_text(
                     "start_char": start_offset,
                     "end_char": end_offset,
                     "length": len(chunk),
+                    "node_type": "chunk",
                 })
 
             chunk_index += 1

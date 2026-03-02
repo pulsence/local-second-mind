@@ -398,6 +398,24 @@ class SQLiteVecProvider(BaseVectorDBProvider):
     # ------------------------------------------------------------------
     # Graph operations
     # ------------------------------------------------------------------
+    def graph_delete_source(self, source_path: str) -> None:
+        """Delete all graph nodes and edges for a source path."""
+        tn = getattr(self, "_tn", DEFAULT_TABLE_NAMES)
+        # Delete edges that reference nodes belonging to this source
+        self._conn.execute(
+            f"""DELETE FROM {tn.graph_edges} WHERE src_id IN (
+                SELECT node_id FROM {tn.graph_nodes} WHERE source_path = ?
+            ) OR dst_id IN (
+                SELECT node_id FROM {tn.graph_nodes} WHERE source_path = ?
+            )""",
+            (source_path, source_path),
+        )
+        self._conn.execute(
+            f"DELETE FROM {tn.graph_nodes} WHERE source_path = ?",
+            (source_path,),
+        )
+        self._conn.commit()
+
     def graph_insert_nodes(self, nodes):
         """Insert graph nodes (upsert)."""
         if not nodes:

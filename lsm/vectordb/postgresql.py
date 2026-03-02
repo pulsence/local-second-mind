@@ -729,6 +729,30 @@ class PostgreSQLProvider(BaseVectorDBProvider):
             """.format(graph_edges=self._tn.graph_edges))
         conn.commit()
 
+    def graph_delete_source(self, source_path: str) -> None:
+        """Delete all graph nodes and edges for a source path."""
+        with self._get_conn() as conn:
+            self._ensure_graph_tables(conn)
+            with conn.cursor() as cur:
+                cur.execute(
+                    """DELETE FROM {graph_edges} WHERE src_id IN (
+                        SELECT node_id FROM {graph_nodes} WHERE source_path = %s
+                    ) OR dst_id IN (
+                        SELECT node_id FROM {graph_nodes} WHERE source_path = %s
+                    )""".format(
+                        graph_edges=self._tn.graph_edges,
+                        graph_nodes=self._tn.graph_nodes,
+                    ),
+                    (source_path, source_path),
+                )
+                cur.execute(
+                    "DELETE FROM {graph_nodes} WHERE source_path = %s".format(
+                        graph_nodes=self._tn.graph_nodes,
+                    ),
+                    (source_path,),
+                )
+            conn.commit()
+
     def graph_insert_nodes(self, nodes: List[Dict[str, Any]]) -> None:
         """Insert graph nodes (upsert)."""
         if not nodes:

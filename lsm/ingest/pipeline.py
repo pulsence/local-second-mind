@@ -690,6 +690,9 @@ def ingest(
                 # Insert graph nodes/edges if available
                 if not dry_run and (job.graph_nodes or job.graph_edges):
                     try:
+                        # Clean up old graph data when re-ingesting a file
+                        if job.had_prev:
+                            provider.graph_delete_source(job.source_path)
                         if job.graph_nodes:
                             provider.graph_insert_nodes(job.graph_nodes)
                         if job.graph_edges:
