@@ -231,12 +231,23 @@ def _backfill_simhash(conn: sqlite3.Connection, tn: TableNames) -> int:
     batch_size = 1000
     updated = 0
 
-    row = conn.execute(
+    remaining_row = conn.execute(
         f"SELECT COUNT(*) FROM {tn.chunks} WHERE simhash IS NULL AND is_current = 1",
     ).fetchone()
-    total = int(row[0]) if row else 0
-    if total == 0:
+    remaining = int(remaining_row[0]) if remaining_row else 0
+    if remaining == 0:
         return 0
+
+    already_done_row = conn.execute(
+        f"SELECT COUNT(*) FROM {tn.chunks} WHERE simhash IS NOT NULL AND is_current = 1",
+    ).fetchone()
+    already_done = int(already_done_row[0]) if already_done_row else 0
+
+    if already_done > 0:
+        logger.info(
+            "Simhash backfill: %s chunks already processed, %s remaining.",
+            f"{already_done:,}", f"{remaining:,}",
+        )
 
     # Track (timestamp, updated_count) for moving-average ETA over ~5 batches.
     timing_samples: deque[tuple[float, int]] = deque(maxlen=6)
@@ -256,12 +267,13 @@ def _backfill_simhash(conn: sqlite3.Connection, tn: TableNames) -> int:
                 (h, chunk_id),
             )
             updated += 1
+        conn.commit()
 
         timing_samples.append((time.monotonic(), updated))
-        eta_str = _format_enrichment_eta(timing_samples, updated, total)
+        eta_str = _format_enrichment_eta(timing_samples, updated, remaining)
         logger.info(
             "Simhash backfill: %s/%s chunks updated. (%s)",
-            f"{updated:,}", f"{total:,}", eta_str,
+            f"{updated:,}", f"{remaining:,}", eta_str,
         )
 
     return updated
