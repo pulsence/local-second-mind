@@ -31,7 +31,7 @@
 | 15 | Phase 3 — Graph, Multi-Hop, and Fine-Tuning | Completed | [PHASE_15.md](./plan_phases/PHASE_15.md) |
 | 16 | PostgreSQL Parity and Cross-Cutting | Completed | [PHASE_16.md](./plan_phases/PHASE_16.md) |
 | 17 | Debug Phase | Completed | [PHASE_17.md](./plan_phases/PHASE_17.md) |
-| 18 | Post-Migration Boundary-Drift Rechunk | In Progress | [PHASE_18.md](./plan_phases/PHASE_18.md) |
+| 18 | Post-Migration Boundary-Drift Rechunk | Completed | [PHASE_18.md](./plan_phases/PHASE_18.md) |
 | 19 | Final Code Review and Release | Pending | [PHASE_19.md](./plan_phases/PHASE_19.md) |
 
 ---

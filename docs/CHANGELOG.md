@@ -51,6 +51,9 @@ All notable changes to Local Second Mind are documented here.
 
 ### Added
 
+- Post-migration boundary-drift rechunk: enrichment pipeline now detects source files whose chunks were created with old fixed-size chunking (`start_char = -1`) and surfaces them as `drifted_source_paths` on `EnrichmentReport`.
+- `force_source_paths` parameter on `ingest()` and `run_ingest()` for selective path-based re-ingestion without affecting other files.
+- `--rechunk` / `--skip-rechunk` flags on `lsm migrate` for automatic or suppressed rechunking of boundary-drifted files after migration or enrichment. When neither flag is set, an interactive `[y/N]` prompt is shown.
 - New `SQLiteVecProvider` export and default factory registration.
 - Unified `lsm.db` schema setup and sqlite-vec provider test coverage.
 - Added unified schema tables/indexes for `lsm_stats_cache` and `lsm_remote_cache`.

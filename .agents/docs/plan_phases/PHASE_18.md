@@ -1,6 +1,6 @@
 # Phase 18: Post-Migration Boundary-Drift Rechunk
 
-**Status**: In Progress
+**Status**: Completed
 
 After migration from ChromaDB (or other legacy backends), the enrichment pipeline marks
 chunks with `start_char = -1` when their text cannot be located in the source file. This
