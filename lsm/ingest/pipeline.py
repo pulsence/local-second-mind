@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import datetime
 import os
 import time
 import threading
@@ -400,12 +401,17 @@ def ingest(
     stop_signal = stop_event or threading.Event()
 
     def _put(q: "queue.Queue", item: Any) -> None:
-        """Put *item* on *q* with periodic stop_signal checks to avoid deadlocks."""
+        """Put *item* on *q* with periodic stop_signal checks to avoid deadlocks.
+
+        Also emits progress while blocked, so the user sees updates even
+        when the main thread is waiting on a saturated queue.
+        """
         while not stop_signal.is_set():
             try:
                 q.put(item, timeout=0.5)
                 return
             except queue.Full:
+                maybe_report()
                 continue
 
     provider = provider or create_vectordb_provider(vectordb_config)
@@ -640,11 +646,16 @@ def ingest(
                         "ingested_at": ingested_at,
                     }
 
-                    # Merge document-level metadata
+                    # Merge document-level metadata (sanitize non-JSON types
+                    # like datetime.date from YAML frontmatter)
                     if job.metadata:
                         for key, value in job.metadata.items():
                             # Avoid overwriting base fields
                             if key not in meta and value is not None:
+                                if isinstance(value, (datetime.date, datetime.datetime)):
+                                    value = value.isoformat()
+                                elif not isinstance(value, (str, int, float, bool)):
+                                    value = str(value)
                                 meta[key] = value
 
                     # Add position information
