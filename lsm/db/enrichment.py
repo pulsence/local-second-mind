@@ -816,9 +816,11 @@ def run_enrichment_pipeline(
             logger.info("Skipping enrichment stage %s (already completed)", stage_name)
             return 0
         try:
+            logger.info("Starting enrichment stage: %s", stage_name)
             if stage_tracker:
                 stage_tracker(stage_name, "in_progress")
             updated = int(fn())
+            logger.info("Completed enrichment stage: %s (%d updated)", stage_name, updated)
             if stage_tracker:
                 stage_tracker(stage_name, "completed")
             return updated
@@ -858,6 +860,7 @@ def run_enrichment_pipeline(
     if not skip_tier2:
         if stage_tracker:
             stage_tracker("enrich_tier2", "in_progress")
+        logger.info("Tier 2: querying source files needing enrichment...")
         source_rows = conn.execute(
             f"""SELECT DISTINCT source_path FROM {tn.chunks}
                 WHERE (
@@ -868,6 +871,7 @@ def run_enrichment_pipeline(
                 AND is_current = 1"""
         ).fetchall()
         source_paths = [str(row[0]) for row in source_rows]
+        logger.info("Tier 2: %s distinct source paths found, checking disk...", f"{len(source_paths):,}")
 
         existing_paths: List[tuple[str, Path]] = []
         for source_path in source_paths:
@@ -878,12 +882,11 @@ def run_enrichment_pipeline(
                 tier2_skipped.append(source_path)
 
         total_files = len(existing_paths)
-        if total_files > 0:
-            logger.info(
-                "Tier 2 enrichment: %s source files to process (%s not found on disk).",
-                f"{total_files:,}",
-                f"{len(tier2_skipped):,}",
-            )
+        logger.info(
+            "Tier 2 enrichment: %s source files to process (%s not found on disk).",
+            f"{total_files:,}",
+            f"{len(tier2_skipped):,}",
+        )
 
         def _run_heading_path() -> int:
             updated = 0
