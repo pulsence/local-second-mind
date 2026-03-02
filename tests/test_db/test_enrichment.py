@@ -363,6 +363,37 @@ class TestTier2Enrichment:
         assert u1 >= 1
         assert u2 == 0  # Already enriched
 
+    def test_boundary_drift_sets_sentinel(self, tmp_path):
+        """Chunks that can't be matched get start_char=-1 so future runs skip them."""
+        conn = _make_conn()
+        test_file = tmp_path / "test.md"
+        test_file.write_text("completely different content", encoding="utf-8")
+
+        # Chunk text does NOT appear in the file (boundary drift)
+        _insert_chunk(
+            conn,
+            "c1",
+            source_path=str(test_file),
+            chunk_text="this text is not in the file at all",
+            start_char=None,
+            end_char=None,
+            chunk_length=None,
+        )
+        cfg = _fake_config()
+
+        u1, _ = enrichment.run_tier2_enrichment(conn, cfg)
+        assert u1 == 0  # No positions matched
+
+        row = conn.execute(
+            f"SELECT start_char, end_char FROM {DEFAULT_TABLE_NAMES.chunks} WHERE chunk_id = 'c1'"
+        ).fetchone()
+        assert row[0] == -1  # sentinel: attempted but unmatchable
+        assert row[1] == -1
+
+        # Second run should find zero files to process (sentinel excluded)
+        u2, _ = enrichment.run_tier2_enrichment(conn, cfg)
+        assert u2 == 0
+
 
 # ==================================================================
 # Tier 2b (cluster rebuild)

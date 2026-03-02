@@ -112,6 +112,12 @@ def detect_stale_chunks(
             AND (node_type = 'chunk' OR node_type IS NULL)
             AND is_current = 1"""
     ).fetchone()[0]
+    positions_drifted = conn.execute(
+        f"""SELECT COUNT(*) FROM {tn.chunks}
+            WHERE start_char = -1
+            AND (node_type = 'chunk' OR node_type IS NULL)
+            AND is_current = 1"""
+    ).fetchone()[0]
 
     # Distinct source paths needing tier 2 enrichment
     source_rows = conn.execute(
@@ -176,6 +182,7 @@ def detect_stale_chunks(
         "tier2": {
             "heading_path_null_count": heading_path_null,
             "positions_null_count": positions_null,
+            "positions_drifted_count": positions_drifted,
             "source_paths": source_paths,
             "cluster_rebuild_needed": cluster_rebuild,
         },
@@ -631,6 +638,13 @@ def _backfill_positions(
             )
             updated += 1
         else:
+            # Mark as attempted-but-unmatchable so future runs skip it.
+            conn.execute(
+                f"""UPDATE {tn.chunks}
+                    SET start_char = -1, end_char = -1, chunk_length = ?
+                    WHERE chunk_id = ?""",
+                (len(chunk_text) if chunk_text else 0, chunk_id),
+            )
             logger.debug(
                 "Chunk text prefix mismatch for %s chunk_index=%s (boundary drift → Tier 3)",
                 source_path,
@@ -863,54 +877,59 @@ def run_enrichment_pipeline(
     if not skip_tier2:
         if stage_tracker:
             stage_tracker("enrich_tier2", "in_progress")
-        logger.info("Tier 2: querying source files needing enrichment...")
-        source_rows = conn.execute(
-            f"""SELECT DISTINCT source_path FROM {tn.chunks}
-                WHERE (
-                    (heading IS NOT NULL AND heading_path IS NULL)
-                    OR start_char IS NULL
-                )
-                AND (node_type = 'chunk' OR node_type IS NULL)
-                AND is_current = 1"""
-        ).fetchall()
-        source_paths = [str(row[0]) for row in source_rows]
-        logger.info("Tier 2: %s distinct source paths found, checking disk...", f"{len(source_paths):,}")
-
-        existing_paths: List[tuple[str, Path]] = []
-        for source_path in source_paths:
-            candidate = Path(source_path)
-            if candidate.exists():
-                existing_paths.append((source_path, candidate))
-            else:
-                tier2_skipped.append(source_path)
-
-        total_files = len(existing_paths)
-        logger.info(
-            "Tier 2 enrichment: %s source files to process (%s not found on disk).",
-            f"{total_files:,}",
-            f"{len(tier2_skipped):,}",
-        )
+        def _resolve_paths(
+            where_clause: str, label: str,
+        ) -> Tuple[List[Tuple[str, Path]], int]:
+            """Query distinct source paths matching *where_clause* and resolve to disk."""
+            rows = conn.execute(
+                f"""SELECT DISTINCT source_path FROM {tn.chunks}
+                    WHERE {where_clause}
+                    AND (node_type = 'chunk' OR node_type IS NULL)
+                    AND is_current = 1"""
+            ).fetchall()
+            found: List[Tuple[str, Path]] = []
+            skipped = 0
+            for (sp,) in rows:
+                p = Path(sp)
+                if p.exists():
+                    found.append((sp, p))
+                else:
+                    tier2_skipped.append(sp)
+                    skipped += 1
+            logger.info(
+                "Tier 2 %s: %s source files to process (%s not found on disk).",
+                label, f"{len(found):,}", f"{skipped:,}",
+            )
+            return found, len(found)
 
         def _run_heading_path() -> int:
+            paths, total = _resolve_paths(
+                "heading IS NOT NULL AND heading_path IS NULL",
+                "heading_path",
+            )
             updated = 0
-            for i, (source_path, file_path) in enumerate(existing_paths, 1):
+            for i, (source_path, file_path) in enumerate(paths, 1):
                 updated += _backfill_heading_path(conn, tn, source_path, file_path)
-                if i % 5 == 0 or i == total_files:
+                if i % 5 == 0 or i == total:
                     conn.commit()
-                    logger.info("Heading-path backfill: %s/%s files (%s updated).", f"{i:,}", f"{total_files:,}", f"{updated:,}")
+                    logger.info("Heading-path backfill: %s/%s files (%s updated).", f"{i:,}", f"{total:,}", f"{updated:,}")
                 elif i == 1:
-                    logger.info("Heading-path backfill: %s/%s files (%s updated).", f"{i:,}", f"{total_files:,}", f"{updated:,}")
+                    logger.info("Heading-path backfill: %s/%s files (%s updated).", f"{i:,}", f"{total:,}", f"{updated:,}")
             return updated
 
         def _run_positions() -> int:
+            paths, total = _resolve_paths(
+                "start_char IS NULL",
+                "positions",
+            )
             updated = 0
-            for i, (source_path, file_path) in enumerate(existing_paths, 1):
+            for i, (source_path, file_path) in enumerate(paths, 1):
                 updated += _backfill_positions(conn, tn, source_path, file_path)
-                if i % 5 == 0 or i == total_files:
+                if i % 5 == 0 or i == total:
                     conn.commit()
-                    logger.info("Position backfill: %s/%s files (%s updated).", f"{i:,}", f"{total_files:,}", f"{updated:,}")
+                    logger.info("Position backfill: %s/%s files (%s updated).", f"{i:,}", f"{total:,}", f"{updated:,}")
                 elif i == 1:
-                    logger.info("Position backfill: %s/%s files (%s updated).", f"{i:,}", f"{total_files:,}", f"{updated:,}")
+                    logger.info("Position backfill: %s/%s files (%s updated).", f"{i:,}", f"{total:,}", f"{updated:,}")
             return updated
 
         tier2_updated += _run_stage("enrich_tier2_heading_path", _run_heading_path)
