@@ -255,10 +255,17 @@ def test_metadata_enrichment_updates_without_reembedding(
     assert row["content_type"] == "notes"
 
 
-def test_injected_write_failure_rolls_back_chunks_and_manifest_atomically(
+def test_injected_write_failure_stops_pipeline_and_skips_manifest(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    """Post-add_chunks failure stops the pipeline; chunks persist but manifest is not updated.
+
+    Chunks and manifest are written in separate transactions to avoid
+    sqlite-vec savepoint conflicts.  If add_chunks succeeds but something
+    fails afterward, chunks remain in the DB and the manifest entry is
+    skipped — causing a harmless re-ingest on the next run.
+    """
     docs_root = tmp_path / "docs"
     docs_root.mkdir(parents=True, exist_ok=True)
     (docs_root / "a.txt").write_text("alpha " * 200, encoding="utf-8")
@@ -285,11 +292,14 @@ def test_injected_write_failure_rolls_back_chunks_and_manifest_atomically(
     with pytest.raises(RuntimeError, match="write stage failed"):
         run_ingest(config, force=True)
 
+    # Chunks were committed by add_chunks before the injected error
     chunks_count = provider.connection.execute(
         "SELECT COUNT(*) FROM lsm_chunks"
     ).fetchone()[0]
+    assert int(chunks_count) > 0
+
+    # Manifest was never updated (error happened before upsert_manifest_entries)
     manifest_count = provider.connection.execute(
         "SELECT COUNT(*) FROM lsm_manifest"
     ).fetchone()[0]
-    assert int(chunks_count) == 0
     assert int(manifest_count) == 0

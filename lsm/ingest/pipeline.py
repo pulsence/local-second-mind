@@ -583,23 +583,28 @@ def ingest(
                     return
 
                 if not dry_run:
+                    # Write chunks first (add_chunks manages its own
+                    # transaction internally).  We intentionally do NOT
+                    # wrap add_chunks in an outer BEGIN — sqlite-vec's
+                    # vec0 virtual table operations commit internally
+                    # which destroys savepoints, causing "no such
+                    # savepoint" errors.
+                    provider.add_chunks(to_add_ids, to_add_docs, to_add_metas, to_add_embs)
+
+                    # Commit manifest entries in a separate transaction.
+                    # If this fails the file will simply be re-processed
+                    # on the next run (safe — manifest is an optimistic
+                    # skip-cache, not source-of-truth).
                     if transactional_manifest_writes and manifest_connection is not None:
-                        manifest_connection.execute("BEGIN")
                         try:
-                            provider.add_chunks(to_add_ids, to_add_docs, to_add_metas, to_add_embs)
                             upsert_manifest_entries(
                                 manifest_connection,
                                 pending_manifest_updates,
-                                commit=False,
+                                commit=True,
                                 skip_ensure_table=True,
                             )
-                            manifest_connection.commit()
                         except Exception:
-                            manifest_connection.rollback()
-                            raise
-                    else:
-                        # If this raises, we do NOT update the manifest.
-                        provider.add_chunks(to_add_ids, to_add_docs, to_add_metas, to_add_embs)
+                            pass  # manifest miss → file re-ingested next run
 
                 # Commit manifest updates only after successful write (or dry_run)
                 manifest.update(pending_manifest_updates)
