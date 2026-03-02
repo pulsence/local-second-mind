@@ -391,6 +391,7 @@ def ingest(
     force_reingest: bool = False,
     force_reingest_changed_config: bool = False,
     force_file_pattern: Optional[str] = None,
+    force_source_paths: Optional[set[str]] = None,
     provider: Optional[BaseVectorDBProvider] = None,
     enable_section_summaries: bool = False,
     enable_file_summaries: bool = False,
@@ -496,6 +497,8 @@ def ingest(
         )
     if force_file_pattern:
         emit("init", 0, 0, f"Selective ingest pattern enabled: {force_file_pattern}")
+    if force_source_paths is not None:
+        emit("init", 0, 0, f"Selective source-path ingest: {len(force_source_paths)} paths")
 
     runtime_artifact_dir = _resolve_runtime_artifact_dir(vectordb_config)
     runtime_artifact_dir.mkdir(parents=True, exist_ok=True)
@@ -890,6 +893,13 @@ def ingest(
                     maybe_report()
                     continue
 
+                if force_source_paths is not None and key not in force_source_paths:
+                    skipped += 1
+                    processed += 1
+                    completed += 1
+                    maybe_report()
+                    continue
+
                 # Stat
                 try:
                     st = fp.stat()
@@ -904,6 +914,8 @@ def ingest(
                 prev = manifest.get(key)
                 force_this_file = bool(force_pattern) or (
                     stale_file_paths is not None and key in stale_file_paths
+                ) or (
+                    force_source_paths is not None and key in force_source_paths
                 )
 
                 # Fast skip on (mtime,size) + hash present

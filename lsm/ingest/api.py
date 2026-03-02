@@ -114,6 +114,7 @@ def run_ingest(
     force: bool = False,
     force_reingest_changed_config: bool = False,
     force_file_pattern: Optional[str] = None,
+    force_source_paths: Optional[set[str]] = None,
     progress_callback: Optional[Callable[[str, int, int, str], None]] = None,
 ) -> IngestResult:
     """Run ingest pipeline and return structured result."""
@@ -165,6 +166,7 @@ def run_ingest(
         force_reingest=force,
         force_reingest_changed_config=force_reingest_changed_config,
         force_file_pattern=force_file_pattern,
+        force_source_paths=force_source_paths,
         enable_section_summaries=config.ingest.enable_section_summaries,
         enable_file_summaries=config.ingest.enable_file_summaries,
         summary_llm_config=summary_llm,
