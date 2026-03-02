@@ -113,12 +113,6 @@ def detect_stale_chunks(
             AND (node_type = 'chunk' OR node_type IS NULL)
             AND is_current = 1"""
     ).fetchone()[0]
-    positions_drifted = conn.execute(
-        f"""SELECT COUNT(*) FROM {tn.chunks}
-            WHERE start_char = -1
-            AND (node_type = 'chunk' OR node_type IS NULL)
-            AND is_current = 1"""
-    ).fetchone()[0]
 
     # Distinct source paths needing tier 2 enrichment
     source_rows = conn.execute(
@@ -192,7 +186,6 @@ def detect_stale_chunks(
         "tier2": {
             "heading_path_null_count": heading_path_null,
             "positions_null_count": positions_null,
-            "positions_drifted_count": positions_drifted,
             "source_paths": source_paths,
             "cluster_rebuild_needed": cluster_rebuild,
         },
