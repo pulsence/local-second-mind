@@ -1,6 +1,6 @@
 # Phase 17: Debug Phase
 
-**Status**: Pending
+**Status**: Completed
 
 Pre-release debug phase for resolving implementation gaps and bugs identified during the
 Phase 11–16 review, plus any additional issues surfaced by the user.
@@ -756,13 +756,6 @@ code quality.
 
 **Success criteria**: Clean test suite. All debug items resolved. Manual verification
 scenarios pass. Post-migration chunks are enriched to current pipeline standards.
-
----
-
-## 17.11: User Debug Phase
-
-User will enter additional problems found during manual testing. Example logs and
-outputs placed in `<GLOBAL_FOLDER>/Debug/`.
 
 ---
 

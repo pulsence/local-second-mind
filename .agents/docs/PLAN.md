@@ -30,7 +30,7 @@
 | 14 | Phase 2 — Multi-Vector and Clustering | Completed | [PHASE_14.md](./plan_phases/PHASE_14.md) |
 | 15 | Phase 3 — Graph, Multi-Hop, and Fine-Tuning | Completed | [PHASE_15.md](./plan_phases/PHASE_15.md) |
 | 16 | PostgreSQL Parity and Cross-Cutting | Completed | [PHASE_16.md](./plan_phases/PHASE_16.md) |
-| 17 | Debug Phase | Pending | [PHASE_17.md](./plan_phases/PHASE_17.md) |
+| 17 | Debug Phase | Completed | [PHASE_17.md](./plan_phases/PHASE_17.md) |
 | 18 | Final Code Review and Release | Pending | [PHASE_18.md](./plan_phases/PHASE_18.md) |
 
 ---
