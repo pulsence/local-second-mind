@@ -715,8 +715,11 @@ def _backfill_graph(conn: sqlite3.Connection, tn: TableNames) -> int:
         except Exception as exc:
             logger.warning("Cannot build graph for %s: %s", source_path, exc)
 
-        if processed % 200 == 0 or processed == total_files:
-            logger.info("Graph backfill: %s/%s files.", f"{processed:,}", f"{total_files:,}")
+        if processed % 5 == 0 or processed == total_files:
+            conn.commit()
+            logger.info("Graph backfill: %s/%s files (%s updated).", f"{processed:,}", f"{total_files:,}", f"{updated:,}")
+        elif processed == 1:
+            logger.info("Graph backfill: %s/%s files (%s updated).", f"{processed:,}", f"{total_files:,}", f"{updated:,}")
 
     return updated
 
@@ -892,20 +895,28 @@ def run_enrichment_pipeline(
             updated = 0
             for i, (source_path, file_path) in enumerate(existing_paths, 1):
                 updated += _backfill_heading_path(conn, tn, source_path, file_path)
-                if i % 200 == 0 or i == total_files:
-                    logger.info("Heading-path backfill: %s/%s files.", f"{i:,}", f"{total_files:,}")
+                if i % 5 == 0 or i == total_files:
+                    conn.commit()
+                    logger.info("Heading-path backfill: %s/%s files (%s updated).", f"{i:,}", f"{total_files:,}", f"{updated:,}")
+                elif i == 1:
+                    logger.info("Heading-path backfill: %s/%s files (%s updated).", f"{i:,}", f"{total_files:,}", f"{updated:,}")
             return updated
 
         def _run_positions() -> int:
             updated = 0
             for i, (source_path, file_path) in enumerate(existing_paths, 1):
                 updated += _backfill_positions(conn, tn, source_path, file_path)
-                if i % 200 == 0 or i == total_files:
-                    logger.info("Position backfill: %s/%s files.", f"{i:,}", f"{total_files:,}")
+                if i % 5 == 0 or i == total_files:
+                    conn.commit()
+                    logger.info("Position backfill: %s/%s files (%s updated).", f"{i:,}", f"{total_files:,}", f"{updated:,}")
+                elif i == 1:
+                    logger.info("Position backfill: %s/%s files (%s updated).", f"{i:,}", f"{total_files:,}", f"{updated:,}")
             return updated
 
         tier2_updated += _run_stage("enrich_tier2_heading_path", _run_heading_path)
+        conn.commit()
         tier2_updated += _run_stage("enrich_tier2_positions", _run_positions)
+        conn.commit()
         tier2_updated += _run_stage("enrich_tier2_graph", lambda: _backfill_graph(conn, tn))
         conn.commit()
         logger.info(
