@@ -1470,9 +1470,12 @@ def auto_detect_migration(
     folder = Path(global_folder).expanduser().resolve()
 
     # 1. .chroma/ exists → from_db = "chroma"
+    #    ChromaDB was the v0.7 provider and has no schema version table,
+    #    so assume v0.7 when no version can be read from the source.
     chroma_dir = folder / ".chroma"
     if chroma_dir.is_dir():
         result["from_db"] = "chroma"
+        result["from_version"] = "v0.7"
         return result
 
     # 2. lsm.db exists → from_db = "sqlite", read schema version

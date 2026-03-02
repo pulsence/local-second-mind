@@ -390,10 +390,12 @@ def run_migrate_cli(
             print(f"Auto-detection failed: {exc}")
 
     # Determine effective source and target values
-    if from_version and from_version.startswith("v0.7"):
-        source_value = "v0.7"
-    elif from_db:
+    # Prefer from_db (backend copy) over from_version (legacy format migration)
+    # so that e.g. chroma + v0.7 routes to the chroma vector-copy path.
+    if from_db:
         source_value = from_db.strip().lower()
+    elif from_version and from_version.startswith("v0.7"):
+        source_value = "v0.7"
     else:
         print("Error: cannot determine migration source. Use --from-db or --from-version.")
         return 2
@@ -410,10 +412,15 @@ def run_migrate_cli(
 
     source_payload: object
     if source_value == "chroma":
+        if source_path:
+            chroma_path = source_path
+        else:
+            global_folder = getattr(config.global_settings, "global_folder", None)
+            chroma_path = str(Path(global_folder) / ".chroma") if global_folder else ".chroma"
         source_payload = _with_overrides(
             config.db,
             provider="chromadb",
-            path=source_path or ".chroma",
+            path=chroma_path,
             collection=source_collection or config.db.collection,
             connection_string=source_connection_string,
         )
