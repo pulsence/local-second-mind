@@ -121,13 +121,15 @@ If you already have a v0.7 workspace with files like `manifest.json`, `memories.
 `schedules.json`, run migration before ingesting with v0.8:
 
 ```bash
-lsm migrate --from v0.7 --to v0.8 --source-dir <legacy_state_dir>
+lsm migrate --from-version v0.7 --to-db sqlite --source-dir <legacy_state_dir>
 ```
 
 Notes:
 - `--source-dir` should point to the folder containing your legacy files.
 - If `--source-dir` is omitted, LSM uses `global.global_folder` from your config.
 - Migration is explicit only; it does not run automatically at startup or ingest.
+- After migration, use `--enrich` to backfill metadata fields added in newer
+  versions, or `--enrich --stage <name>` to run only specific enrichment stages.
 
 ## First Query: Ask Questions
 

@@ -119,8 +119,19 @@ lsm migrate --from-db chroma --to-db sqlite  # Explicit backend migration
 lsm migrate --from-version v0.7 --to-db sqlite --source-dir /path/to/legacy
 lsm migrate --resume                         # Resume interrupted migration
 lsm migrate --enrich                         # Enrich existing database (no copy)
+lsm migrate --enrich --stage tier1           # Run only tier 1 enrichment
+lsm migrate --enrich --stage graph           # Run only graph backfill
 lsm migrate --skip-enrich                    # Copy only, skip enrichment
+lsm migrate --rechunk                        # Auto-rechunk boundary-drifted files
+lsm migrate --skip-rechunk                   # Skip rechunking prompt
 ```
+
+Use `--stage` to re-run specific enrichment stages without repeating the entire
+pipeline. This is useful after fixing a bug in a particular stage or when only
+one stage needs updating on a large corpus. The flag may be repeated to select
+multiple stages (e.g. `--stage tier1 --stage graph`). See
+[CLI_USAGE.md](CLI_USAGE.md#enrichment-stage-reference) for the full stage
+reference table.
 
 ### Post-Migration Enrichment
 

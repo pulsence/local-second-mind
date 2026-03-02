@@ -42,6 +42,66 @@ class EnrichmentReport:
 
 
 # ------------------------------------------------------------------
+# Stage name mapping
+# ------------------------------------------------------------------
+
+STAGE_ALIASES: dict[str, set[str]] = {
+    # Tier-level aliases
+    "tier1": {
+        "enrich_tier1_simhash",
+        "enrich_tier1_defaults",
+        "enrich_tier1_node_type",
+        "enrich_tier1_tags",
+    },
+    "tier2": {
+        "enrich_tier2_heading_path",
+        "enrich_tier2_positions",
+        "enrich_tier2_graph",
+    },
+    "tier2b": {"enrich_tier2_clusters"},
+    "tier3": {"enrich_tier3_gap_detection"},
+    # Individual stage aliases
+    "simhash": {"enrich_tier1_simhash"},
+    "defaults": {"enrich_tier1_defaults"},
+    "node_type": {"enrich_tier1_node_type"},
+    "tags": {"enrich_tier1_tags"},
+    "heading_path": {"enrich_tier2_heading_path"},
+    "positions": {"enrich_tier2_positions"},
+    "graph": {"enrich_tier2_graph"},
+    "clusters": {"enrich_tier2_clusters"},
+    "gap_detection": {"enrich_tier3_gap_detection"},
+}
+
+ALL_STAGE_NAMES: set[str] = set()
+for _stages in STAGE_ALIASES.values():
+    ALL_STAGE_NAMES |= _stages
+
+
+def resolve_stage_names(stage_args: list[str]) -> set[str]:
+    """Resolve friendly stage names to internal stage names.
+
+    Accepts tier-level names (``tier1``, ``tier2``, …) and individual names
+    (``simhash``, ``graph``, …).  Case-insensitive.
+
+    Raises ``ValueError`` for unknown names.
+    """
+    resolved: set[str] = set()
+    for arg in stage_args:
+        key = arg.strip().lower()
+        if key in STAGE_ALIASES:
+            resolved |= STAGE_ALIASES[key]
+        elif key in ALL_STAGE_NAMES:
+            resolved.add(key)
+        else:
+            valid = sorted(STAGE_ALIASES.keys())
+            raise ValueError(
+                f"Unknown stage name '{arg}'. "
+                f"Valid names: {', '.join(valid)}"
+            )
+    return resolved
+
+
+# ------------------------------------------------------------------
 # Stale-chunk detection
 # ------------------------------------------------------------------
 
@@ -798,6 +858,7 @@ def run_enrichment_pipeline(
     skip_tier2: bool = False,
     stage_tracker: Optional[Callable[[str, str], None]] = None,
     skip_stages: Optional[set[str]] = None,
+    only_stages: Optional[set[str]] = None,
 ) -> EnrichmentReport:
     """Orchestrate full enrichment pipeline.
 
@@ -809,14 +870,27 @@ def run_enrichment_pipeline(
         skip_tier2: Skip Tier 2 enrichment.
         stage_tracker: Optional callback(stage_name, status) for progress tracking.
         skip_stages: Optional stage names to skip (resume support).
+        only_stages: Optional set of stage names to run exclusively.
+            Mutually exclusive with *skip_stages*.
 
     Returns:
         EnrichmentReport with all results.
     """
+    if only_stages is not None and skip_stages:
+        raise ValueError("only_stages and skip_stages are mutually exclusive")
+
     tn = table_names or DEFAULT_TABLE_NAMES
     errors: List[str] = []
     failed_stages: set[str] = set()
-    skipped_stage_names = set(skip_stages or set())
+
+    if only_stages is not None:
+        skipped_stage_names = ALL_STAGE_NAMES - only_stages
+        # Auto-skip tier 2 source-path resolution when no tier 2 stages selected
+        tier2_stage_names = STAGE_ALIASES["tier2"]
+        if not (only_stages & tier2_stage_names):
+            skip_tier2 = True
+    else:
+        skipped_stage_names = set(skip_stages or set())
 
     cluster_enabled = getattr(
         getattr(config, "query", None), "cluster_enabled", False

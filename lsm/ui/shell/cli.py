@@ -79,6 +79,7 @@ def run_migrate(args) -> int:
         skip_enrich=getattr(args, "skip_enrich", False),
         rechunk=getattr(args, "rechunk", False),
         skip_rechunk=getattr(args, "skip_rechunk", False),
+        stages=getattr(args, "stages", None),
         source_path=getattr(args, "source_path", None),
         source_collection=getattr(args, "source_collection", None),
         source_connection_string=getattr(args, "source_connection_string", None),
@@ -349,6 +350,7 @@ def run_migrate_cli(
     skip_enrich: bool = False,
     rechunk: bool = False,
     skip_rechunk: bool = False,
+    stages: Optional[list[str]] = None,
     source_path: Optional[str] = None,
     source_collection: Optional[str] = None,
     source_connection_string: Optional[str] = None,
@@ -371,11 +373,28 @@ def run_migrate_cli(
         print("Error: --enrich is for in-place enrichment. Do not use with --from-db/--to-db.")
         return 2
 
+    if stages and not enrich:
+        print("Error: --stage requires --enrich.")
+        return 2
+
+    # Resolve stage names early so invalid names fail fast
+    only_stages: Optional[set[str]] = None
+    if stages:
+        from lsm.db.enrichment import resolve_stage_names
+
+        try:
+            only_stages = resolve_stage_names(stages)
+        except ValueError as exc:
+            print(f"Error: {exc}")
+            return 2
+
     config = _load_config(config_path)
 
     # Standalone enrichment mode: enrich existing database, no backend copy
     if enrich:
-        return _run_standalone_enrichment(config, rechunk=rechunk, skip_rechunk=skip_rechunk)
+        return _run_standalone_enrichment(
+            config, rechunk=rechunk, skip_rechunk=skip_rechunk, only_stages=only_stages,
+        )
 
     # Auto-detect when no explicit source specified
     if not from_db and not from_version:
@@ -499,6 +518,7 @@ def _run_standalone_enrichment(
     *,
     rechunk: bool = False,
     skip_rechunk: bool = False,
+    only_stages: Optional[set[str]] = None,
 ) -> int:
     """Run enrichment on the existing database without backend migration."""
     provider = create_vectordb_provider(config.db)
@@ -510,7 +530,9 @@ def _run_standalone_enrichment(
     from lsm.db.enrichment import run_enrichment_pipeline
 
     print("Running standalone enrichment on existing database...")
-    report = run_enrichment_pipeline(conn, config, table_names=_table_names(config))
+    report = run_enrichment_pipeline(
+        conn, config, table_names=_table_names(config), only_stages=only_stages,
+    )
     _print_enrichment_summary(report)
     _handle_rechunk_offer(config, report, rechunk=rechunk, skip_rechunk=skip_rechunk)
     return 0

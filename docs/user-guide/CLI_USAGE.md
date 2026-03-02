@@ -157,6 +157,56 @@ Options for `eval retrieval` and `eval save-baseline`:
 - `--dataset <path>` - Path to custom evaluation dataset directory (default: bundled dataset)
 - `--compare <name>` - Compare against a saved baseline (retrieval only)
 
+### Migration & Enrichment Commands
+
+Migrate data between backends or run enrichment on an existing database:
+
+```bash
+lsm migrate                                  # Auto-detect source, migrate, enrich
+lsm migrate --from-db chroma --to-db sqlite  # Explicit backend migration
+lsm migrate --from-version v0.7 --to-db sqlite --source-dir /path/to/legacy
+lsm migrate --resume                         # Resume interrupted migration
+lsm migrate --enrich                         # Enrich existing database (no copy)
+lsm migrate --enrich --stage tier1           # Run only tier 1 enrichment stages
+lsm migrate --enrich --stage graph           # Run only graph backfill
+lsm migrate --enrich --stage tier1 --stage graph  # Combine multiple stages
+lsm migrate --skip-enrich                    # Copy only, skip enrichment
+lsm migrate --rechunk                        # Auto-rechunk boundary-drifted files
+lsm migrate --skip-rechunk                   # Skip rechunking prompt
+```
+
+Options:
+- `--from-db <backend>` - Source backend (`chroma`, `sqlite`, `postgresql`)
+- `--to-db <backend>` - Target backend (`sqlite`, `postgresql`)
+- `--from-version <ver>` - Source schema version (e.g. `v0.7`)
+- `--resume` - Resume an interrupted migration
+- `--enrich` - Run enrichment on existing database (no backend copy)
+- `--skip-enrich` - Skip post-migration enrichment
+- `--stage <name>` - Run only specified enrichment stage(s). Requires `--enrich`. May be repeated
+- `--rechunk` - Automatically rechunk boundary-drifted files
+- `--skip-rechunk` - Skip rechunking of boundary-drifted files
+- `--source-path`, `--source-collection`, `--source-connection-string` - Source overrides
+- `--target-path`, `--target-collection`, `--target-connection-string` - Target overrides
+- `--batch-size <n>` - Vector migration batch size (default: 1000)
+
+#### Enrichment Stage Reference
+
+| Stage Name | Alias For | Description |
+|------------|-----------|-------------|
+| `tier1` | All tier 1 stages | simhash, defaults, node_type, tags |
+| `tier2` | All tier 2 stages | heading_path, positions, graph |
+| `tier2b` | `clusters` | Cluster rebuild from embeddings |
+| `tier3` | `gap_detection` | Boundary drift and missing summaries |
+| `simhash` | `enrich_tier1_simhash` | Compute simhash fingerprints |
+| `defaults` | `enrich_tier1_defaults` | Backfill version/is_current |
+| `node_type` | `enrich_tier1_node_type` | Backfill node_type defaults |
+| `tags` | `enrich_tier1_tags` | Backfill root/folder tags |
+| `heading_path` | `enrich_tier2_heading_path` | Rebuild heading hierarchy |
+| `positions` | `enrich_tier2_positions` | Backfill start_char/end_char |
+| `graph` | `enrich_tier2_graph` | Build graph nodes/edges |
+| `clusters` | `enrich_tier2_clusters` | Rebuild cluster assignments |
+| `gap_detection` | `enrich_tier3_gap_detection` | Detect gaps and drift |
+
 ## Configuration
 
 All modes use the same configuration file (default: `config.json`).

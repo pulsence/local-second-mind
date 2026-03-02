@@ -246,6 +246,19 @@ def build_parser() -> argparse.ArgumentParser:
         help="Skip rechunking of boundary-drifted files",
     )
     migrate_parser.add_argument(
+        "--stage",
+        dest="stages",
+        action="append",
+        default=None,
+        metavar="STAGE",
+        help=(
+            "Run only the specified enrichment stage(s). Requires --enrich. "
+            "May be repeated. Tier-level: tier1, tier2, tier2b, tier3. "
+            "Individual: simhash, defaults, node_type, tags, heading_path, "
+            "positions, graph, clusters, gap_detection."
+        ),
+    )
+    migrate_parser.add_argument(
         "--source-path",
         type=str,
         help="Source sqlite/chroma path override",

@@ -11,6 +11,11 @@ from unittest.mock import patch
 import pytest
 
 from lsm.db import enrichment
+from lsm.db.enrichment import (
+    ALL_STAGE_NAMES,
+    STAGE_ALIASES,
+    resolve_stage_names,
+)
 from lsm.db.schema import ensure_application_schema
 from lsm.db.tables import DEFAULT_TABLE_NAMES
 from lsm.ingest.dedup_hash import compute_simhash
@@ -602,3 +607,112 @@ class TestCLIEnrichmentFlags:
         _handle_rechunk_offer(None, report, rechunk=True)
         captured = capsys.readouterr()
         assert "none exist on disk" in captured.out.lower()
+
+    def test_stage_flag_parses(self):
+        from lsm.__main__ import build_parser
+
+        parser = build_parser()
+        args = parser.parse_args(["migrate", "--enrich", "--stage", "tier1", "--stage", "graph"])
+        assert args.stages == ["tier1", "graph"]
+
+    def test_stage_without_enrich_returns_error(self):
+        from lsm.ui.shell.cli import run_migrate_cli
+
+        code = run_migrate_cli(
+            "/nonexistent/config.json",
+            stages=["tier1"],
+        )
+        assert code == 2
+
+    def test_invalid_stage_name_returns_error(self):
+        from lsm.ui.shell.cli import run_migrate_cli
+
+        code = run_migrate_cli(
+            "/nonexistent/config.json",
+            enrich=True,
+            stages=["bogus"],
+        )
+        assert code == 2
+
+
+# ==================================================================
+# Stage name mapping
+# ==================================================================
+
+
+class TestStageNameMapping:
+    def test_resolve_tier1(self):
+        result = resolve_stage_names(["tier1"])
+        assert result == STAGE_ALIASES["tier1"]
+
+    def test_resolve_individual_graph(self):
+        result = resolve_stage_names(["graph"])
+        assert result == {"enrich_tier2_graph"}
+
+    def test_resolve_multiple_combined(self):
+        result = resolve_stage_names(["tier1", "graph"])
+        expected = STAGE_ALIASES["tier1"] | {"enrich_tier2_graph"}
+        assert result == expected
+
+    def test_unknown_name_raises(self):
+        with pytest.raises(ValueError, match="Unknown stage name 'bogus'"):
+            resolve_stage_names(["bogus"])
+
+    def test_case_insensitive(self):
+        result = resolve_stage_names(["Tier1", "GRAPH"])
+        expected = STAGE_ALIASES["tier1"] | {"enrich_tier2_graph"}
+        assert result == expected
+
+    def test_all_stage_names_covers_all_aliases(self):
+        combined = set()
+        for stages in STAGE_ALIASES.values():
+            combined |= stages
+        assert combined == ALL_STAGE_NAMES
+
+
+# ==================================================================
+# only_stages filtering
+# ==================================================================
+
+
+class TestOnlyStages:
+    def test_only_simhash_runs_just_simhash(self):
+        conn = _make_conn()
+        _insert_chunk(conn, "c1", simhash=None, version=None, node_type=None)
+        cfg = _fake_config()
+
+        report = enrichment.run_enrichment_pipeline(
+            conn, cfg, only_stages={"enrich_tier1_simhash"},
+        )
+        assert report.tier1_updated > 0
+
+        # version and node_type should remain NULL (those stages were skipped)
+        row = conn.execute(
+            f"SELECT version, node_type FROM {DEFAULT_TABLE_NAMES.chunks} WHERE chunk_id = 'c1'"
+        ).fetchone()
+        assert row[0] is None  # version not backfilled
+        assert row[1] is None  # node_type not backfilled
+
+    def test_only_tier1_skips_tier2(self):
+        conn = _make_conn()
+        _insert_chunk(
+            conn, "c1", simhash=None, start_char=None, source_path="/missing.md",
+        )
+        cfg = _fake_config()
+
+        report = enrichment.run_enrichment_pipeline(
+            conn, cfg, only_stages=STAGE_ALIASES["tier1"],
+        )
+        assert report.tier1_updated > 0
+        assert report.tier2_updated == 0
+
+    def test_only_stages_and_skip_stages_raises(self):
+        conn = _make_conn()
+        cfg = _fake_config()
+
+        with pytest.raises(ValueError, match="mutually exclusive"):
+            enrichment.run_enrichment_pipeline(
+                conn, cfg,
+                only_stages={"enrich_tier1_simhash"},
+                skip_stages={"enrich_tier1_tags"},
+            )
