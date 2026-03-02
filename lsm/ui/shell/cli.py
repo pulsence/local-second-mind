@@ -628,8 +628,17 @@ def _handle_rechunk_offer(
             return
 
     print(f"Rechunking {len(valid_paths)} file(s)...")
+
+    def _rechunk_progress(event: str, current: int, total: int, message: str) -> None:
+        if total > 0:
+            print(f"[{event}] {current}/{total} {message}")
+        else:
+            print(f"[{event}] {message}")
+
     try:
-        result = api_run_ingest(config, force_source_paths=valid_paths)
+        result = api_run_ingest(
+            config, force_source_paths=valid_paths, progress_callback=_rechunk_progress,
+        )
         print(
             f"Rechunk complete: {result.completed_files} file(s) processed, "
             f"{result.chunks_added} chunk(s) added."
