@@ -718,6 +718,16 @@ def _backfill_positions(
     return updated
 
 
+_BINARY_EXTENSIONS: set[str] = {
+    ".pdf", ".docx", ".doc", ".xlsx", ".xls", ".pptx", ".ppt",
+    ".odt", ".ods", ".odp", ".epub", ".rtf",
+    ".png", ".jpg", ".jpeg", ".gif", ".bmp", ".svg", ".webp",
+    ".zip", ".gz", ".tar", ".7z", ".rar",
+    ".mp3", ".mp4", ".wav", ".avi", ".mov",
+    ".exe", ".dll", ".so", ".dylib", ".bin",
+}
+
+
 def _backfill_graph(conn: sqlite3.Connection, tn: TableNames) -> int:
     """Create graph nodes/edges for source files without graph entries."""
     # Check if graph tables exist
@@ -727,6 +737,12 @@ def _backfill_graph(conn: sqlite3.Connection, tn: TableNames) -> int:
     ).fetchone()[0]
     if not graph_exists:
         return 0
+
+    # Ensure index exists for the NOT EXISTS subquery (critical for large DBs)
+    conn.execute(
+        f"CREATE INDEX IF NOT EXISTS idx_{tn.graph_nodes}_source_path "
+        f"ON {tn.graph_nodes}(source_path)"
+    )
 
     # Find source files that have chunks but no graph nodes
     rows = conn.execute(
@@ -740,21 +756,30 @@ def _backfill_graph(conn: sqlite3.Connection, tn: TableNames) -> int:
     ).fetchall()
 
     total_files = len(rows)
-    if total_files > 0:
-        logger.info("Graph backfill: %s source files without graph entries.", f"{total_files:,}")
+    if total_files == 0:
+        return 0
+
+    logger.info("Graph backfill: %s source files without graph entries.", f"{total_files:,}")
+
+    from lsm.ingest.graph_builder import build_graph_from_file_graph
+    from lsm.utils.file_graph import build_file_graph
 
     updated = 0
+    skipped = 0
     processed = 0
     for (source_path,) in rows:
         processed += 1
         sp = Path(source_path)
         if not sp.exists():
+            skipped += 1
+            continue
+
+        # Skip binary files that cannot be meaningfully re-parsed as text
+        if sp.suffix.lower() in _BINARY_EXTENSIONS:
+            skipped += 1
             continue
 
         try:
-            from lsm.ingest.graph_builder import build_graph_from_file_graph
-            from lsm.utils.file_graph import build_file_graph
-
             raw_text = sp.read_text(encoding="utf-8", errors="replace")
             fg = build_file_graph(sp, raw_text)
             db_nodes, db_edges = build_graph_from_file_graph(fg, source_path, raw_text)
@@ -790,11 +815,9 @@ def _backfill_graph(conn: sqlite3.Connection, tn: TableNames) -> int:
         except Exception as exc:
             logger.warning("Cannot build graph for %s: %s", source_path, exc)
 
-        if processed % 5 == 0 or processed == total_files:
+        if processed % 50 == 0 or processed == total_files:
             conn.commit()
-            logger.info("Graph backfill: %s/%s files (%s updated).", f"{processed:,}", f"{total_files:,}", f"{updated:,}")
-        elif processed == 1:
-            logger.info("Graph backfill: %s/%s files (%s updated).", f"{processed:,}", f"{total_files:,}", f"{updated:,}")
+            logger.info("Graph backfill: %s/%s files (%s updated, %s skipped).", f"{processed:,}", f"{total_files:,}", f"{updated:,}", f"{skipped:,}")
 
     return updated
 

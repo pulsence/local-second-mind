@@ -197,6 +197,7 @@ def ensure_application_schema(
         CREATE INDEX IF NOT EXISTS idx_{tn.agent_memories}_scope_type ON {tn.agent_memories}(scope, memory_type);
         CREATE INDEX IF NOT EXISTS idx_{tn.agent_memories}_expires_at ON {tn.agent_memories}(expires_at);
         CREATE INDEX IF NOT EXISTS idx_{tn.agent_schedules}_next_run ON {tn.agent_schedules}(next_run_at);
+        CREATE INDEX IF NOT EXISTS idx_{tn.graph_nodes}_source_path ON {tn.graph_nodes}(source_path);
         CREATE INDEX IF NOT EXISTS idx_{tn.graph_edges}_src ON {tn.graph_edges}(src_id);
         CREATE INDEX IF NOT EXISTS idx_{tn.graph_edges}_dst ON {tn.graph_edges}(dst_id);
         CREATE INDEX IF NOT EXISTS idx_{tn.stats_cache}_cached_at ON {tn.stats_cache}(cached_at);

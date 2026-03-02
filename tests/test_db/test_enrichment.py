@@ -587,6 +587,20 @@ class TestBackfillGraph:
         updated = enrichment._backfill_graph(conn, DEFAULT_TABLE_NAMES)
         assert updated == 0
 
+    def test_skips_binary_extensions(self, tmp_path):
+        conn = _make_conn()
+        tn = DEFAULT_TABLE_NAMES
+
+        # Create a PDF file (binary) — should be skipped
+        pdf_file = tmp_path / "doc.pdf"
+        pdf_file.write_bytes(b"%PDF-1.4 fake binary content")
+
+        _insert_chunk(conn, "c1", source_path=str(pdf_file), chunk_text="parsed text")
+        conn.commit()
+
+        updated = enrichment._backfill_graph(conn, tn)
+        assert updated == 0
+
     def test_idempotent(self, tmp_path):
         conn = _make_conn()
         tn = DEFAULT_TABLE_NAMES
@@ -602,6 +616,24 @@ class TestBackfillGraph:
 
         u2 = enrichment._backfill_graph(conn, tn)
         assert u2 == 0  # Nodes already exist, nothing to do
+
+    def test_creates_source_path_index(self):
+        """Verify _backfill_graph creates the source_path index if missing."""
+        conn = _make_conn()
+        tn = DEFAULT_TABLE_NAMES
+
+        # Drop the index if schema creation added it
+        conn.execute(f"DROP INDEX IF EXISTS idx_{tn.graph_nodes}_source_path")
+        conn.commit()
+
+        enrichment._backfill_graph(conn, tn)
+
+        # Verify index now exists
+        idx = conn.execute(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type='index' AND name=?",
+            (f"idx_{tn.graph_nodes}_source_path",),
+        ).fetchone()[0]
+        assert idx == 1
 
 
 # ==================================================================
