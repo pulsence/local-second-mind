@@ -193,12 +193,29 @@ class BaseVectorDBProvider(ABC):
         """Delete non-current chunk versions that match prune criteria."""
         pass
 
+    def mark_chunks_not_current(self, source_paths: List[str]) -> None:
+        """Mark all chunks for the given source paths as ``is_current = 0``.
+
+        This is a batch-optimized alternative to fetching old IDs and
+        calling ``update_metadatas`` one-by-one.  Default raises
+        ``NotImplementedError`` so callers fall back to per-ID updates.
+        """
+        raise NotImplementedError
+
     def graph_delete_source(self, source_path: str) -> None:
         """Delete all graph nodes and edges for a source path.
 
         Removes orphan nodes left behind when a file is rechunked.
         Default is a no-op for providers that don't support graphs.
         """
+
+    def graph_delete_sources(self, source_paths: List[str]) -> None:
+        """Batch-delete graph nodes and edges for multiple source paths.
+
+        Default delegates to per-path ``graph_delete_source``.
+        """
+        for sp in source_paths:
+            self.graph_delete_source(sp)
 
     def graph_insert_nodes(self, nodes: List[Dict[str, Any]]) -> None:
         """Insert graph nodes into the knowledge graph.

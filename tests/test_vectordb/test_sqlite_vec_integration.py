@@ -6,6 +6,7 @@ These tests exercise the real sqlite-vec extension to verify that:
 - The pipeline flush pattern (add_chunks + manifest in separate transactions)
   doesn't cause commit/savepoint conflicts
 - Interleaved graph and chunk writes on the same connection are safe
+- Batch operations (mark_chunks_not_current, graph_delete_sources) work
 """
 from __future__ import annotations
 
@@ -399,3 +400,228 @@ def test_multiple_flushes_with_graph_operations_between(tmp_path: Path) -> None:
     assert nodes == 10
     manifest = conn.execute("SELECT COUNT(*) FROM lsm_manifest").fetchone()[0]
     assert manifest == 10
+
+
+# ---------------------------------------------------------------------------
+# Batch mark_chunks_not_current
+# ---------------------------------------------------------------------------
+
+
+def test_mark_chunks_not_current_single_source(tmp_path: Path) -> None:
+    """mark_chunks_not_current sets is_current=0 for all chunks of a source."""
+    provider = _provider(tmp_path)
+    provider.add_chunks(
+        ids=["c1", "c2", "c3"],
+        documents=["a", "b", "c"],
+        metadatas=[_meta("/a.md"), _meta("/a.md"), _meta("/b.md")],
+        embeddings=[_vector(1.0), _vector(2.0), _vector(3.0)],
+    )
+    provider.mark_chunks_not_current(["/a.md"])
+
+    conn = provider.connection
+    rows = conn.execute(
+        f"SELECT chunk_id, is_current FROM {DEFAULT_TABLE_NAMES.chunks} ORDER BY chunk_id"
+    ).fetchall()
+    by_id = {r["chunk_id"]: r["is_current"] for r in rows}
+    assert by_id["c1"] == 0
+    assert by_id["c2"] == 0
+    assert by_id["c3"] == 1  # /b.md untouched
+
+
+def test_mark_chunks_not_current_multiple_sources(tmp_path: Path) -> None:
+    """mark_chunks_not_current handles multiple source_paths in one call."""
+    provider = _provider(tmp_path)
+    provider.add_chunks(
+        ids=["c1", "c2", "c3"],
+        documents=["a", "b", "c"],
+        metadatas=[_meta("/a.md"), _meta("/b.md"), _meta("/c.md")],
+        embeddings=[_vector(1.0), _vector(2.0), _vector(3.0)],
+    )
+    provider.mark_chunks_not_current(["/a.md", "/c.md"])
+
+    conn = provider.connection
+    rows = conn.execute(
+        f"SELECT chunk_id, is_current FROM {DEFAULT_TABLE_NAMES.chunks} ORDER BY chunk_id"
+    ).fetchall()
+    by_id = {r["chunk_id"]: r["is_current"] for r in rows}
+    assert by_id["c1"] == 0
+    assert by_id["c2"] == 1
+    assert by_id["c3"] == 0
+
+
+def test_mark_chunks_not_current_then_add_new(tmp_path: Path) -> None:
+    """New chunks for the same source get is_current=1 after marking old ones."""
+    provider = _provider(tmp_path)
+    # Old chunks
+    provider.add_chunks(
+        ids=["old1", "old2"],
+        documents=["old a", "old b"],
+        metadatas=[_meta("/a.md"), _meta("/a.md")],
+        embeddings=[_vector(1.0), _vector(2.0)],
+    )
+    # Mark old as not current
+    provider.mark_chunks_not_current(["/a.md"])
+    # Add new chunks (different IDs — rechunked)
+    provider.add_chunks(
+        ids=["new1", "new2"],
+        documents=["new a", "new b"],
+        metadatas=[_meta("/a.md"), _meta("/a.md")],
+        embeddings=[_vector(3.0), _vector(4.0)],
+    )
+
+    conn = provider.connection
+    rows = conn.execute(
+        f"SELECT chunk_id, is_current FROM {DEFAULT_TABLE_NAMES.chunks} ORDER BY chunk_id"
+    ).fetchall()
+    by_id = {r["chunk_id"]: r["is_current"] for r in rows}
+    assert by_id["old1"] == 0
+    assert by_id["old2"] == 0
+    assert by_id["new1"] == 1
+    assert by_id["new2"] == 1
+
+
+def test_mark_chunks_not_current_empty_list(tmp_path: Path) -> None:
+    """Empty list is a no-op."""
+    provider = _provider(tmp_path)
+    provider.add_chunks(
+        ids=["c1"],
+        documents=["a"],
+        metadatas=[_meta("/a.md")],
+        embeddings=[_vector(1.0)],
+    )
+    provider.mark_chunks_not_current([])
+    assert provider.connection.execute(
+        f"SELECT is_current FROM {DEFAULT_TABLE_NAMES.chunks} WHERE chunk_id = 'c1'"
+    ).fetchone()[0] == 1
+
+
+def test_mark_chunks_not_current_inside_outer_transaction(tmp_path: Path) -> None:
+    """mark_chunks_not_current works inside an outer transaction (savepoint)."""
+    provider = _provider(tmp_path)
+    conn = provider.connection
+    provider.add_chunks(
+        ids=["c1", "c2"],
+        documents=["a", "b"],
+        metadatas=[_meta("/a.md"), _meta("/a.md")],
+        embeddings=[_vector(1.0), _vector(2.0)],
+    )
+
+    conn.execute("BEGIN")
+    try:
+        provider.mark_chunks_not_current(["/a.md"])
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+
+    rows = conn.execute(
+        f"SELECT is_current FROM {DEFAULT_TABLE_NAMES.chunks}"
+    ).fetchall()
+    assert all(r[0] == 0 for r in rows)
+
+
+# ---------------------------------------------------------------------------
+# Batch graph_delete_sources
+# ---------------------------------------------------------------------------
+
+
+def test_graph_delete_sources_multiple(tmp_path: Path) -> None:
+    """graph_delete_sources removes nodes+edges for multiple source paths."""
+    provider = _provider(tmp_path)
+    provider.graph_insert_nodes([
+        {"node_id": "n1", "node_type": "heading", "label": "A", "source_path": "/a.md"},
+        {"node_id": "n2", "node_type": "heading", "label": "B", "source_path": "/b.md"},
+        {"node_id": "n3", "node_type": "heading", "label": "C", "source_path": "/c.md"},
+    ])
+    provider.graph_insert_edges([
+        {"src_id": "n1", "dst_id": "n2", "edge_type": "sibling"},
+        {"src_id": "n2", "dst_id": "n3", "edge_type": "sibling"},
+    ])
+
+    provider.graph_delete_sources(["/a.md", "/b.md"])
+
+    conn = provider.connection
+    nodes = conn.execute(
+        f"SELECT node_id FROM {DEFAULT_TABLE_NAMES.graph_nodes}"
+    ).fetchall()
+    assert [r[0] for r in nodes] == ["n3"]
+    edges = conn.execute(
+        f"SELECT COUNT(*) FROM {DEFAULT_TABLE_NAMES.graph_edges}"
+    ).fetchone()[0]
+    assert edges == 0
+
+
+def test_graph_delete_sources_empty_list(tmp_path: Path) -> None:
+    """Empty source_paths list is a no-op."""
+    provider = _provider(tmp_path)
+    provider.graph_insert_nodes([
+        {"node_id": "n1", "node_type": "heading", "label": "A", "source_path": "/a.md"},
+    ])
+    provider.graph_delete_sources([])
+    count = provider.connection.execute(
+        f"SELECT COUNT(*) FROM {DEFAULT_TABLE_NAMES.graph_nodes}"
+    ).fetchone()[0]
+    assert count == 1
+
+
+# ---------------------------------------------------------------------------
+# Simulated rechunk flush pattern (batch mark + graph + add_chunks)
+# ---------------------------------------------------------------------------
+
+
+def test_rechunk_flush_pattern_batch(tmp_path: Path) -> None:
+    """Simulate the batched flush pattern: mark old not-current, delete/insert
+    graph, then add new chunks — all in the flush cycle order."""
+    provider = _provider(tmp_path)
+
+    # Initial state: 2 files, each with 2 chunks and graph nodes
+    for source in ["/a.md", "/b.md"]:
+        provider.add_chunks(
+            ids=[f"old_{source}_0", f"old_{source}_1"],
+            documents=[f"old {source} 0", f"old {source} 1"],
+            metadatas=[_meta(source), _meta(source)],
+            embeddings=[_vector(1.0), _vector(2.0)],
+        )
+        provider.graph_insert_nodes([
+            {"node_id": f"old_n_{source}", "node_type": "heading", "label": "Old", "source_path": source},
+        ])
+
+    assert provider.count() == 4
+
+    # Simulate batched flush for rechunk of both files:
+    # 1. Mark old chunks not current
+    provider.mark_chunks_not_current(["/a.md", "/b.md"])
+
+    # 2. Delete old graph data
+    provider.graph_delete_sources(["/a.md", "/b.md"])
+
+    # 3. Insert new graph data
+    provider.graph_insert_nodes([
+        {"node_id": "new_n_a", "node_type": "heading", "label": "New A", "source_path": "/a.md"},
+        {"node_id": "new_n_b", "node_type": "heading", "label": "New B", "source_path": "/b.md"},
+    ])
+
+    # 4. Add new chunks
+    provider.add_chunks(
+        ids=["new_a_0", "new_a_1", "new_b_0"],
+        documents=["new a 0", "new a 1", "new b 0"],
+        metadatas=[_meta("/a.md"), _meta("/a.md"), _meta("/b.md")],
+        embeddings=[_vector(3.0), _vector(4.0), _vector(5.0)],
+    )
+
+    conn = provider.connection
+    # Old chunks: is_current=0, new chunks: is_current=1
+    old_current = conn.execute(
+        f"SELECT COUNT(*) FROM {DEFAULT_TABLE_NAMES.chunks} WHERE is_current = 0"
+    ).fetchone()[0]
+    new_current = conn.execute(
+        f"SELECT COUNT(*) FROM {DEFAULT_TABLE_NAMES.chunks} WHERE is_current = 1"
+    ).fetchone()[0]
+    assert old_current == 4
+    assert new_current == 3
+
+    # Graph: only new nodes
+    graph_nodes = conn.execute(
+        f"SELECT node_id FROM {DEFAULT_TABLE_NAMES.graph_nodes} ORDER BY node_id"
+    ).fetchall()
+    assert [r[0] for r in graph_nodes] == ["new_n_a", "new_n_b"]

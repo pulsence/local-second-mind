@@ -574,27 +574,88 @@ def ingest(
             seen_ids: set[str] = set()
             # Manifest updates are committed only after a successful vector DB flush.
             pending_manifest_updates: Dict[str, Dict] = {}
+            # Batched per-file operations — executed during flush() to
+            # reduce per-file transaction overhead (fsync cost).
+            pending_rechunk_paths: List[str] = []
+            pending_graph_nodes: List[Dict] = []
+            pending_graph_edges: List[Dict] = []
 
             def flush():
-                """Flush staged vectors and, only on success, commit pending manifest updates."""
-                nonlocal to_add_ids, to_add_docs, to_add_metas, to_add_embs, seen_ids, pending_manifest_updates, written_chunks
+                """Flush staged vectors and batched operations.
+
+                Order of operations:
+                1. Mark old chunks as not-current (before inserting new ones)
+                2. Delete old graph data for rechunked files
+                3. Insert new graph nodes/edges
+                4. Write new chunks via add_chunks
+                5. Commit manifest entries
+                """
+                nonlocal to_add_ids, to_add_docs, to_add_metas, to_add_embs
+                nonlocal seen_ids, pending_manifest_updates, written_chunks
+                nonlocal pending_rechunk_paths, pending_graph_nodes, pending_graph_edges
 
                 if not to_add_ids:
+                    # Even with no chunks, we may have graph ops to flush
+                    if not dry_run:
+                        if pending_rechunk_paths:
+                            try:
+                                provider.mark_chunks_not_current(pending_rechunk_paths)
+                            except Exception:
+                                pass
+                            try:
+                                provider.graph_delete_sources(pending_rechunk_paths)
+                            except Exception:
+                                pass
+                            pending_rechunk_paths.clear()
+                        if pending_graph_nodes:
+                            try:
+                                provider.graph_insert_nodes(pending_graph_nodes)
+                            except Exception:
+                                pass
+                            pending_graph_nodes.clear()
+                        if pending_graph_edges:
+                            try:
+                                provider.graph_insert_edges(pending_graph_edges)
+                            except Exception:
+                                pass
+                            pending_graph_edges.clear()
                     return
 
                 if not dry_run:
-                    # Write chunks first (add_chunks manages its own
-                    # transaction internally).  We intentionally do NOT
-                    # wrap add_chunks in an outer BEGIN — sqlite-vec's
-                    # vec0 virtual table operations commit internally
-                    # which destroys savepoints, causing "no such
-                    # savepoint" errors.
+                    # 1. Mark old chunks as not-current for rechunked files.
+                    #    Must happen BEFORE add_chunks so new chunks get
+                    #    is_current=1 via ON CONFLICT UPDATE.
+                    if pending_rechunk_paths:
+                        try:
+                            provider.mark_chunks_not_current(pending_rechunk_paths)
+                        except Exception:
+                            pass
+
+                    # 2-3. Batch graph operations (delete old, insert new)
+                    #       in separate transactions to avoid mixing with
+                    #       vec0 which destroys savepoints.
+                    try:
+                        if pending_rechunk_paths:
+                            provider.graph_delete_sources(pending_rechunk_paths)
+                        if pending_graph_nodes:
+                            provider.graph_insert_nodes(pending_graph_nodes)
+                        if pending_graph_edges:
+                            provider.graph_insert_edges(pending_graph_edges)
+                    except Exception:
+                        pass  # Graph operations are best-effort
+
+                    # 4. Write chunks (add_chunks manages its own
+                    #    transaction internally).  We intentionally do NOT
+                    #    wrap add_chunks in an outer BEGIN — sqlite-vec's
+                    #    vec0 virtual table operations commit internally
+                    #    which destroys savepoints, causing "no such
+                    #    savepoint" errors.
                     provider.add_chunks(to_add_ids, to_add_docs, to_add_metas, to_add_embs)
 
-                    # Commit manifest entries in a separate transaction.
-                    # If this fails the file will simply be re-processed
-                    # on the next run (safe — manifest is an optimistic
-                    # skip-cache, not source-of-truth).
+                    # 5. Commit manifest entries in a separate transaction.
+                    #    If this fails the file will simply be re-processed
+                    #    on the next run (safe — manifest is an optimistic
+                    #    skip-cache, not source-of-truth).
                     if transactional_manifest_writes and manifest_connection is not None:
                         try:
                             upsert_manifest_entries(
@@ -609,6 +670,9 @@ def ingest(
                 # Commit manifest updates only after successful write (or dry_run)
                 manifest.update(pending_manifest_updates)
                 pending_manifest_updates.clear()
+                pending_rechunk_paths.clear()
+                pending_graph_nodes.clear()
+                pending_graph_edges.clear()
 
                 with lock:
                     written_chunks += len(to_add_ids)
@@ -626,19 +690,9 @@ def ingest(
                 if job is None:
                     break
 
-                # Handle prior chunks
+                # Collect rechunk source paths for batch processing in flush()
                 if job.had_prev:
-                    # Versioning is always on in v0.8.0.
-                    try:
-                        old = provider.get(
-                            filters={"source_path": job.source_path}, include=["metadatas"],
-                        )
-                        old_ids = old.ids
-                        if old_ids:
-                            updated = [{"is_current": False} for _ in old_ids]
-                            provider.update_metadatas(old_ids, updated)
-                    except Exception:
-                        pass
+                    pending_rechunk_paths.append(job.source_path)
 
                 ingested_at = now_iso()
 
@@ -726,18 +780,12 @@ def ingest(
                 }
                 pending_manifest_updates[job.source_path] = manifest_entry
 
-                # Insert graph nodes/edges if available
-                if not dry_run and (job.graph_nodes or job.graph_edges):
-                    try:
-                        # Clean up old graph data when re-ingesting a file
-                        if job.had_prev:
-                            provider.graph_delete_source(job.source_path)
-                        if job.graph_nodes:
-                            provider.graph_insert_nodes(job.graph_nodes)
-                        if job.graph_edges:
-                            provider.graph_insert_edges(job.graph_edges)
-                    except Exception:
-                        pass  # Graph insertion is best-effort
+                # Collect graph operations for batch processing in flush()
+                if not dry_run:
+                    if job.graph_nodes:
+                        pending_graph_nodes.extend(job.graph_nodes)
+                    if job.graph_edges:
+                        pending_graph_edges.extend(job.graph_edges)
 
                 # Flush when we hit threshold
                 if len(to_add_ids) >= flush_threshold:

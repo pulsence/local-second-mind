@@ -169,6 +169,12 @@ def ocr_page(page: fitz.Page, *, _max_retries: int = 2) -> str:
         # leak bug on Windows that crashes during process teardown.
         tess_config = "--oem 1"
 
+        # Windows NTSTATUS exit codes that indicate transient Tesseract
+        # crashes (the OCR itself usually succeeds on retry):
+        #   0xC000013A (3221225786) — STATUS_CONTROL_C_EXIT / ObjectCache leak
+        #   0xC0000005 (3221225477) — STATUS_ACCESS_VIOLATION / segfault
+        _TRANSIENT_EXIT_CODES = {"3221225786", "3221225477"}
+
         last_err: Optional[Exception] = None
         for attempt in range(_max_retries + 1):
             try:
@@ -177,12 +183,16 @@ def ocr_page(page: fitz.Page, *, _max_retries: int = 2) -> str:
             except Exception as e:
                 last_err = e
                 err_str = str(e)
-                # Tesseract Windows ObjectCache leak — transient crash during
-                # process destructor.  Retry; the OCR itself usually works.
-                if "ObjectCache" in err_str or "LEAK" in err_str:
+                # Check for known transient Tesseract crashes on Windows
+                is_transient = (
+                    "ObjectCache" in err_str
+                    or "LEAK" in err_str
+                    or any(code in err_str for code in _TRANSIENT_EXIT_CODES)
+                )
+                if is_transient:
                     logger.debug(
-                        "Tesseract ObjectCache crash (attempt %d/%d), retrying",
-                        attempt + 1, _max_retries + 1,
+                        "Tesseract transient crash (attempt %d/%d), retrying: %s",
+                        attempt + 1, _max_retries + 1, err_str[:120],
                     )
                     continue
                 # Non-transient error — don't retry

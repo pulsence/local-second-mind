@@ -416,6 +416,63 @@ class SQLiteVecProvider(BaseVectorDBProvider):
                 (source_path,),
             )
 
+    def mark_chunks_not_current(self, source_paths: List[str]) -> None:
+        """Batch-mark chunks as ``is_current = 0`` for the given source paths.
+
+        Uses a single UPDATE on lsm_chunks (indexed on source_path) and a
+        per-chunk UPDATE on lsm_vec_chunks (vec0 requires primary-key
+        access).  Much faster than fetching IDs then calling
+        ``update_metadatas`` per row.
+        """
+        if not source_paths:
+            return
+        with transaction(self._conn):
+            placeholders = ", ".join(["?"] * len(source_paths))
+            # Batch update on the regular chunks table (fast, uses index)
+            self._conn.execute(
+                f"UPDATE {self._tn.chunks} SET is_current = 0"
+                f" WHERE source_path IN ({placeholders}) AND is_current = 1",
+                source_paths,
+            )
+            # vec0 virtual tables only support UPDATE by primary key, so
+            # fetch affected chunk_ids then update one-by-one.
+            rows = self._conn.execute(
+                f"SELECT chunk_id FROM {self._tn.chunks}"
+                f" WHERE source_path IN ({placeholders}) AND is_current = 0",
+                source_paths,
+            ).fetchall()
+            for row in rows:
+                try:
+                    self._conn.execute(
+                        f"UPDATE {self._tn.vec_chunks} SET is_current = 0"
+                        f" WHERE chunk_id = ?",
+                        (row["chunk_id"],),
+                    )
+                except Exception:
+                    pass  # vec0 UPDATE may fail; lsm_chunks is source of truth
+
+    def graph_delete_sources(self, source_paths: List[str]) -> None:
+        """Batch-delete graph nodes and edges for multiple source paths."""
+        if not source_paths:
+            return
+        tn = getattr(self, "_tn", DEFAULT_TABLE_NAMES)
+        placeholders = ", ".join(["?"] * len(source_paths))
+        with transaction(self._conn):
+            self._conn.execute(
+                f"""DELETE FROM {tn.graph_edges} WHERE src_id IN (
+                    SELECT node_id FROM {tn.graph_nodes}
+                    WHERE source_path IN ({placeholders})
+                ) OR dst_id IN (
+                    SELECT node_id FROM {tn.graph_nodes}
+                    WHERE source_path IN ({placeholders})
+                )""",
+                source_paths + source_paths,
+            )
+            self._conn.execute(
+                f"DELETE FROM {tn.graph_nodes} WHERE source_path IN ({placeholders})",
+                source_paths,
+            )
+
     def graph_insert_nodes(self, nodes):
         """Insert graph nodes (upsert)."""
         if not nodes:

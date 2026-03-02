@@ -138,6 +138,44 @@ def test_ocr_page_exhausts_retries_on_objectcache(monkeypatch: pytest.MonkeyPatc
     assert parsers.ocr_page(_FakePage(), _max_retries=1) == ""
 
 
+def test_ocr_page_retries_on_windows_exit_code(monkeypatch: pytest.MonkeyPatch) -> None:
+    """OCR retries on Windows NTSTATUS exit codes with empty error messages."""
+    monkeypatch.setattr(parsers, "OCR_AVAILABLE", True)
+    monkeypatch.setattr(parsers, "Image", SimpleNamespace(frombytes=lambda *_args, **_kwargs: "img"))
+
+    calls = {"n": 0}
+
+    def _access_violation(_img, **kw):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            # Windows Access Violation — 0xC0000005 = 3221225477
+            raise RuntimeError("(3221225477, '')")
+        return "recovered text"
+
+    monkeypatch.setattr(parsers, "pytesseract", SimpleNamespace(image_to_string=_access_violation))
+    assert parsers.ocr_page(_FakePage()) == "recovered text"
+    assert calls["n"] == 2
+
+
+def test_ocr_page_retries_on_objectcache_exit_code(monkeypatch: pytest.MonkeyPatch) -> None:
+    """OCR retries on Windows ObjectCache exit code with empty message."""
+    monkeypatch.setattr(parsers, "OCR_AVAILABLE", True)
+    monkeypatch.setattr(parsers, "Image", SimpleNamespace(frombytes=lambda *_args, **_kwargs: "img"))
+
+    calls = {"n": 0}
+
+    def _objectcache_code(_img, **kw):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            # ObjectCache exit code — 0xC000013A = 3221225786
+            raise RuntimeError("(3221225786, '')")
+        return "recovered text"
+
+    monkeypatch.setattr(parsers, "pytesseract", SimpleNamespace(image_to_string=_objectcache_code))
+    assert parsers.ocr_page(_FakePage()) == "recovered text"
+    assert calls["n"] == 2
+
+
 # ------------------------------------------------------------------
 # MuPDF repair strategy tests (task 3.4.3)
 # ------------------------------------------------------------------
