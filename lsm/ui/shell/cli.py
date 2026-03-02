@@ -448,10 +448,7 @@ def run_migrate_cli(
     tn = _table_names(target_runtime)
 
     def progress(stage: str, current: int, total: int, message: str) -> None:
-        if total > 0:
-            print(f"[{stage}] {current}/{total} {message}")
-        else:
-            print(f"[{stage}] {message}")
+        print(f"[{stage}] {message}")
 
     try:
         result = migrate_db(
@@ -465,9 +462,16 @@ def run_migrate_cli(
             skip_enrich=skip_enrich,
             table_names=tn,
         )
+    except KeyboardInterrupt:
+        print("\nMigration interrupted. Progress has been saved.")
+        print("Run `lsm migrate --resume` to continue from where you left off.")
+        return 130
     except Exception as exc:
         print(f"Error: {exc}")
         return 1
+
+    if result.get("interrupted"):
+        return 130
 
     print(
         "Migration complete: "

@@ -6,6 +6,8 @@ import hashlib
 import json
 import re
 import sqlite3
+import time
+from collections import deque
 from contextlib import ExitStack, contextmanager
 from dataclasses import dataclass, replace
 from datetime import datetime, timezone
@@ -313,12 +315,16 @@ def migrate(
     target_provider = _provider_from_target(target_enum, target_config)
 
     # Determine completed stages for resume.
+    # Always check for a prior interrupted/in-progress run so we can
+    # pick up where we left off instead of re-copying everything.
     completed_stages: set[str] = set()
-    if resume:
-        with _connection_context(target_provider) as tc:
-            if tc is not None:
-                prev_run = _get_latest_run_id(tc, tn)
-                if prev_run:
+    with _connection_context(target_provider) as tc:
+        if tc is not None:
+            _ensure_migration_progress_table(tc, tn)
+            prev_run = _get_latest_run_id(tc, tn)
+            if prev_run:
+                has_incomplete = _has_incomplete_stages(tc, prev_run, tn)
+                if resume or has_incomplete:
                     run_id = prev_run
                     completed_stages = _get_completed_stages(tc, prev_run, tn)
 
@@ -344,11 +350,12 @@ def migrate(
             _emit_progress(progress_callback, "migrate", total, total, "Skipping copy_vectors (already completed).")
             migrated = total
         else:
-            start_offset = (
-                _get_stage_rows_processed(target_conn, run_id, vector_stage, tn)
-                if resume
-                else 0
-            )
+            start_offset = _get_stage_rows_processed(target_conn, run_id, vector_stage, tn)
+            if start_offset > 0:
+                _emit_progress(
+                    progress_callback, "migrate", start_offset, total,
+                    f"Resuming from vector {start_offset:,}/{total:,}.",
+                )
             stage_id = _begin_stage(
                 target_conn,
                 run_id,
@@ -373,6 +380,20 @@ def migrate(
                 )
                 migrated = int(start_offset + copied_count)
                 _complete_stage(target_conn, stage_id, rows=migrated, tn=tn)
+            except KeyboardInterrupt:
+                _interrupt_stage(target_conn, stage_id, tn=tn)
+                _emit_progress(
+                    progress_callback, "migrate", 0, 0,
+                    f"Interrupted. Progress saved. Run `lsm migrate --resume` to continue.",
+                )
+                return {
+                    "source": source_enum.value,
+                    "target": target_enum.value,
+                    "total_vectors": total,
+                    "migrated_vectors": migrated,
+                    "validated_tables": 0,
+                    "interrupted": True,
+                }
             except Exception as exc:
                 _fail_stage(target_conn, stage_id, str(exc), tn=tn)
                 raise
@@ -536,6 +557,12 @@ def _copy_vectors(
     inferred_dim: Optional[int] = None
     last_page_ids: Optional[tuple[str, ...]] = None
 
+    # Track (timestamp, cumulative_offset) samples for moving-average ETA.
+    # Keep enough samples to cover ~5000 vectors worth of batches.
+    max_samples = max(2, 5000 // max(1, batch_size) + 1)
+    timing_samples: deque[tuple[float, int]] = deque(maxlen=max_samples)
+    timing_samples.append((time.monotonic(), offset))
+
     if rows_progress_callback is not None:
         rows_progress_callback(offset)
 
@@ -568,15 +595,53 @@ def _copy_vectors(
         offset += len(ids)
         if rows_progress_callback is not None:
             rows_progress_callback(offset)
+
+        timing_samples.append((time.monotonic(), offset))
+        eta_str = _format_eta(timing_samples, offset, total)
+
         _emit_progress(
             progress_callback,
             "vectors",
             offset,
             total,
-            f"Migrated {offset}/{total} vectors.",
+            f"Migrated {offset:,}/{total:,} vectors. ({eta_str})",
         )
 
     return migrated, total, inferred_dim
+
+
+def _format_eta(
+    samples: deque[tuple[float, int]],
+    current: int,
+    total: int,
+) -> str:
+    """Compute an ETA string from a moving window of (timestamp, offset) samples."""
+    remaining = total - current
+    if remaining <= 0:
+        return "done"
+    if len(samples) < 2:
+        return "estimating..."
+
+    oldest_time, oldest_offset = samples[0]
+    newest_time, newest_offset = samples[-1]
+    elapsed = newest_time - oldest_time
+    vectors_done = newest_offset - oldest_offset
+
+    if elapsed <= 0 or vectors_done <= 0:
+        return "estimating..."
+
+    rate = vectors_done / elapsed  # vectors per second
+    eta_seconds = remaining / rate
+
+    if eta_seconds < 60:
+        return f"ETA {int(eta_seconds)}s"
+    if eta_seconds < 3600:
+        minutes = int(eta_seconds) // 60
+        secs = int(eta_seconds) % 60
+        return f"ETA {minutes}m {secs:02d}s"
+    hours = int(eta_seconds) // 3600
+    minutes = (int(eta_seconds) % 3600) // 60
+    return f"ETA {hours}h {minutes:02d}m"
 
 
 def _aux_copy_stage_name(table_name: str, tn: TableNames) -> str:
@@ -991,6 +1056,38 @@ def _fail_stage(
         (now, error, stage_id),
     )
     _commit(conn)
+
+
+def _interrupt_stage(
+    conn: Any,
+    stage_id: int,
+    tn: TableNames = DEFAULT_TABLE_NAMES,
+) -> None:
+    """Mark a migration stage as interrupted (user cancelled)."""
+    now = datetime.now(timezone.utc).isoformat()
+    _execute(
+        conn,
+        f"UPDATE {tn.migration_progress} "
+        f"SET status = 'interrupted', completed_at = ? "
+        f"WHERE id = ?",
+        (now, stage_id),
+    )
+    _commit(conn)
+
+
+def _has_incomplete_stages(
+    conn: Any,
+    run_id: str,
+    tn: TableNames = DEFAULT_TABLE_NAMES,
+) -> bool:
+    """Check whether a run has any interrupted, in-progress, or failed stages."""
+    row = _execute(
+        conn,
+        f"SELECT COUNT(*) FROM {tn.migration_progress} "
+        f"WHERE migration_run = ? AND status IN ('in_progress', 'interrupted', 'failed')",
+        (run_id,),
+    ).fetchone()
+    return bool(row and row[0] > 0)
 
 
 def _get_stage_rows_processed(

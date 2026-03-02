@@ -215,7 +215,7 @@ def _check_partial_migration(
 
         stuck = conn.execute(
             f"SELECT COUNT(*) FROM {table_names.migration_progress} "
-            f"WHERE status IN ('in_progress', 'failed')"
+            f"WHERE status IN ('in_progress', 'interrupted', 'failed')"
         ).fetchone()
         if stuck and stuck[0] > 0:
             return DBHealthReport(
