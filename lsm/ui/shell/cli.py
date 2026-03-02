@@ -77,6 +77,8 @@ def run_migrate(args) -> int:
         resume=getattr(args, "resume", False),
         enrich=getattr(args, "enrich", False),
         skip_enrich=getattr(args, "skip_enrich", False),
+        rechunk=getattr(args, "rechunk", False),
+        skip_rechunk=getattr(args, "skip_rechunk", False),
         source_path=getattr(args, "source_path", None),
         source_collection=getattr(args, "source_collection", None),
         source_connection_string=getattr(args, "source_connection_string", None),
@@ -345,6 +347,8 @@ def run_migrate_cli(
     resume: bool = False,
     enrich: bool = False,
     skip_enrich: bool = False,
+    rechunk: bool = False,
+    skip_rechunk: bool = False,
     source_path: Optional[str] = None,
     source_collection: Optional[str] = None,
     source_connection_string: Optional[str] = None,
@@ -359,6 +363,10 @@ def run_migrate_cli(
         print("Error: --enrich and --skip-enrich are mutually exclusive.")
         return 2
 
+    if rechunk and skip_rechunk:
+        print("Error: --rechunk and --skip-rechunk are mutually exclusive.")
+        return 2
+
     if enrich and (from_db or to_db):
         print("Error: --enrich is for in-place enrichment. Do not use with --from-db/--to-db.")
         return 2
@@ -367,7 +375,7 @@ def run_migrate_cli(
 
     # Standalone enrichment mode: enrich existing database, no backend copy
     if enrich:
-        return _run_standalone_enrichment(config)
+        return _run_standalone_enrichment(config, rechunk=rechunk, skip_rechunk=skip_rechunk)
 
     # Auto-detect when no explicit source specified
     if not from_db and not from_version:
@@ -481,11 +489,17 @@ def run_migrate_cli(
     report = result.get("enrichment")
     if report is not None:
         _print_enrichment_summary(report)
+        _handle_rechunk_offer(config, report, rechunk=rechunk, skip_rechunk=skip_rechunk)
 
     return 0
 
 
-def _run_standalone_enrichment(config: LSMConfig) -> int:
+def _run_standalone_enrichment(
+    config: LSMConfig,
+    *,
+    rechunk: bool = False,
+    skip_rechunk: bool = False,
+) -> int:
     """Run enrichment on the existing database without backend migration."""
     provider = create_vectordb_provider(config.db)
     conn = getattr(provider, "connection", getattr(provider, "_conn", None))
@@ -498,6 +512,7 @@ def _run_standalone_enrichment(config: LSMConfig) -> int:
     print("Running standalone enrichment on existing database...")
     report = run_enrichment_pipeline(conn, config, table_names=_table_names(config))
     _print_enrichment_summary(report)
+    _handle_rechunk_offer(config, report, rechunk=rechunk, skip_rechunk=skip_rechunk)
     return 0
 
 
@@ -508,15 +523,77 @@ def _print_enrichment_summary(report) -> None:
     print(f"  Tier 2b enriched: {report.tier2b_updated:,} (cluster rebuild)")
     if report.tier2_skipped:
         print(f"  Tier 2 skipped: {len(report.tier2_skipped):,} (source files not found)")
-    if report.tier3_needed:
-        print(f"  Tier 3 needed: {len(report.tier3_needed):,} (chunk boundary changes + missing summaries)")
+    # Separate drifted files from other tier3 items
+    drifted_count = len(report.drifted_source_paths)
+    other_tier3 = [t for t in report.tier3_needed if not t.startswith("boundary drifted:")]
+    if drifted_count:
+        print(f"  Boundary-drifted files: {drifted_count:,} (old chunking strategy, can be rechunked)")
+    if other_tier3:
+        print(f"  Missing summaries: {len(other_tier3):,} (need re-ingest)")
         print(
-            "\nWARNING: Some files need re-ingest (chunk boundaries changed and/or summaries missing).\n"
+            "\nWARNING: Some files need re-ingest (missing summaries).\n"
             "Run `lsm ingest --force-reingest-changed-config` to re-chunk, re-embed, and regenerate summaries."
         )
     if report.errors:
         for err in report.errors:
             print(f"  Error: {err}")
+
+
+def _handle_rechunk_offer(
+    config: LSMConfig,
+    report,
+    *,
+    rechunk: bool = False,
+    skip_rechunk: bool = False,
+) -> None:
+    """Offer to rechunk boundary-drifted files after enrichment.
+
+    Behaviour:
+    - ``--skip-rechunk``: print skip message, return.
+    - ``--rechunk``: proceed automatically.
+    - Neither: interactive ``[y/N]`` prompt.
+    """
+    drifted = report.drifted_source_paths
+    if not drifted:
+        return
+
+    # Filter to paths that still exist on disk
+    valid_paths = {p for p in drifted if Path(p).exists()}
+    if not valid_paths:
+        print(
+            f"\n{len(drifted)} boundary-drifted file(s) detected, "
+            "but none exist on disk. Skipping rechunk."
+        )
+        return
+
+    print(
+        f"\n{len(valid_paths)} boundary-drifted file(s) can be rechunked with the "
+        "current structure-aware chunking strategy."
+    )
+
+    if skip_rechunk:
+        print("Skipping rechunk (--skip-rechunk).")
+        return
+
+    if not rechunk:
+        try:
+            answer = input("Rechunk these files now? [y/N] ").strip().lower()
+        except (EOFError, KeyboardInterrupt):
+            print("\nSkipping rechunk.")
+            return
+        if answer not in ("y", "yes"):
+            print("Skipping rechunk.")
+            return
+
+    print(f"Rechunking {len(valid_paths)} file(s)...")
+    try:
+        result = api_run_ingest(config, force_source_paths=valid_paths)
+        print(
+            f"Rechunk complete: {result.completed_files} file(s) processed, "
+            f"{result.chunks_added} chunk(s) added."
+        )
+    except Exception as exc:
+        print(f"Rechunk error: {exc}")
 
 
 def run_cache_clear_cli(

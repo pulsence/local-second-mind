@@ -234,6 +234,18 @@ def build_parser() -> argparse.ArgumentParser:
         help="Skip post-migration chunk enrichment",
     )
     migrate_parser.add_argument(
+        "--rechunk",
+        action="store_true",
+        default=False,
+        help="Automatically rechunk boundary-drifted files after migration/enrichment",
+    )
+    migrate_parser.add_argument(
+        "--skip-rechunk",
+        action="store_true",
+        default=False,
+        help="Skip rechunking of boundary-drifted files",
+    )
+    migrate_parser.add_argument(
         "--source-path",
         type=str,
         help="Source sqlite/chroma path override",

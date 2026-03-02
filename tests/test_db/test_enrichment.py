@@ -546,3 +546,59 @@ class TestCLIEnrichmentFlags:
             from_db="sqlite",
         )
         assert code == 2
+
+    def test_rechunk_flag_parses(self):
+        from lsm.__main__ import build_parser
+
+        parser = build_parser()
+        args = parser.parse_args(["migrate", "--rechunk"])
+        assert args.rechunk is True
+        assert args.skip_rechunk is False
+
+    def test_skip_rechunk_flag_parses(self):
+        from lsm.__main__ import build_parser
+
+        parser = build_parser()
+        args = parser.parse_args(["migrate", "--skip-rechunk"])
+        assert args.skip_rechunk is True
+        assert args.rechunk is False
+
+    def test_rechunk_mutual_exclusion_in_cli(self):
+        from lsm.ui.shell.cli import run_migrate_cli
+
+        code = run_migrate_cli(
+            "/nonexistent/config.json",
+            rechunk=True,
+            skip_rechunk=True,
+        )
+        assert code == 2
+
+    def test_handle_rechunk_offer_no_drifted(self, capsys):
+        from lsm.ui.shell.cli import _handle_rechunk_offer
+        from lsm.db.enrichment import EnrichmentReport
+
+        report = EnrichmentReport(drifted_source_paths=())
+        _handle_rechunk_offer(None, report, rechunk=True)
+        captured = capsys.readouterr()
+        # Should produce no output when no drifted paths
+        assert "rechunk" not in captured.out.lower()
+
+    def test_handle_rechunk_offer_skip_flag(self, capsys):
+        from lsm.ui.shell.cli import _handle_rechunk_offer
+        from lsm.db.enrichment import EnrichmentReport
+
+        report = EnrichmentReport(drifted_source_paths=("/nonexistent/a.md",))
+        _handle_rechunk_offer(None, report, skip_rechunk=True)
+        captured = capsys.readouterr()
+        assert "skipping rechunk" in captured.out.lower()
+
+    def test_handle_rechunk_offer_nonexistent_paths(self, capsys):
+        from lsm.ui.shell.cli import _handle_rechunk_offer
+        from lsm.db.enrichment import EnrichmentReport
+
+        report = EnrichmentReport(
+            drifted_source_paths=("/nonexistent/a.md", "/nonexistent/b.md"),
+        )
+        _handle_rechunk_offer(None, report, rechunk=True)
+        captured = capsys.readouterr()
+        assert "none exist on disk" in captured.out.lower()
