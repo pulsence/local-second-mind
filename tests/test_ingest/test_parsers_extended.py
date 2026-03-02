@@ -97,15 +97,45 @@ def test_ocr_page_unavailable(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_ocr_page_success(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(parsers, "OCR_AVAILABLE", True)
     monkeypatch.setattr(parsers, "Image", SimpleNamespace(frombytes=lambda *_args, **_kwargs: "img"))
-    monkeypatch.setattr(parsers, "pytesseract", SimpleNamespace(image_to_string=lambda _img: "ocr text"))
+    monkeypatch.setattr(parsers, "pytesseract", SimpleNamespace(image_to_string=lambda _img, **kw: "ocr text"))
     assert parsers.ocr_page(_FakePage()) == "ocr text"
 
 
 def test_ocr_page_exception(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(parsers, "OCR_AVAILABLE", True)
     monkeypatch.setattr(parsers, "Image", SimpleNamespace(frombytes=lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("bad image"))))
-    monkeypatch.setattr(parsers, "pytesseract", SimpleNamespace(image_to_string=lambda _img: "x"))
+    monkeypatch.setattr(parsers, "pytesseract", SimpleNamespace(image_to_string=lambda _img, **kw: "x"))
     assert parsers.ocr_page(_FakePage()) == ""
+
+
+def test_ocr_page_retries_on_objectcache_crash(monkeypatch: pytest.MonkeyPatch) -> None:
+    """OCR retries when Tesseract crashes with ObjectCache leak (Windows bug)."""
+    monkeypatch.setattr(parsers, "OCR_AVAILABLE", True)
+    monkeypatch.setattr(parsers, "Image", SimpleNamespace(frombytes=lambda *_args, **_kwargs: "img"))
+
+    calls = {"n": 0}
+
+    def _flaky_ocr(_img, **kw):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise RuntimeError("ObjectCache WARNING! LEAK!")
+        return "recovered text"
+
+    monkeypatch.setattr(parsers, "pytesseract", SimpleNamespace(image_to_string=_flaky_ocr))
+    assert parsers.ocr_page(_FakePage()) == "recovered text"
+    assert calls["n"] == 2
+
+
+def test_ocr_page_exhausts_retries_on_objectcache(monkeypatch: pytest.MonkeyPatch) -> None:
+    """OCR returns empty after exhausting retries on persistent ObjectCache crash."""
+    monkeypatch.setattr(parsers, "OCR_AVAILABLE", True)
+    monkeypatch.setattr(parsers, "Image", SimpleNamespace(frombytes=lambda *_args, **_kwargs: "img"))
+
+    def _always_crash(_img, **kw):
+        raise RuntimeError("ObjectCache WARNING! LEAK! object still has count 1")
+
+    monkeypatch.setattr(parsers, "pytesseract", SimpleNamespace(image_to_string=_always_crash))
+    assert parsers.ocr_page(_FakePage(), _max_retries=1) == ""
 
 
 # ------------------------------------------------------------------

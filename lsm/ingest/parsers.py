@@ -144,7 +144,7 @@ def is_page_image_based(page: fitz.Page, min_text_threshold: int = 50) -> bool:
     return len(text.strip()) < min_text_threshold
 
 
-def ocr_page(page: fitz.Page) -> str:
+def ocr_page(page: fitz.Page, *, _max_retries: int = 2) -> str:
     """
     Perform OCR on a PDF page.
 
@@ -165,10 +165,31 @@ def ocr_page(page: fitz.Page) -> str:
         # Convert to PIL Image
         img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
 
-        # Perform OCR
-        text = pytesseract.image_to_string(img)
+        # Use LSTM-only engine (--oem 1) to avoid Tesseract's ObjectCache
+        # leak bug on Windows that crashes during process teardown.
+        tess_config = "--oem 1"
 
-        return text
+        last_err: Optional[Exception] = None
+        for attempt in range(_max_retries + 1):
+            try:
+                text = pytesseract.image_to_string(img, config=tess_config)
+                return text
+            except Exception as e:
+                last_err = e
+                err_str = str(e)
+                # Tesseract Windows ObjectCache leak — transient crash during
+                # process destructor.  Retry; the OCR itself usually works.
+                if "ObjectCache" in err_str or "LEAK" in err_str:
+                    logger.debug(
+                        "Tesseract ObjectCache crash (attempt %d/%d), retrying",
+                        attempt + 1, _max_retries + 1,
+                    )
+                    continue
+                # Non-transient error — don't retry
+                break
+
+        logger.error(f"OCR failed: {last_err}")
+        return ""
     except Exception as e:
         logger.error(f"OCR failed: {e}")
         return ""
