@@ -274,6 +274,7 @@ def migrate(
 
     if source_enum == MigrationSource.V07_LEGACY:
         target_provider = _provider_from_target(target_enum, target_config)
+        enrichment_report: Optional[Any] = None
         with ExitStack() as stack:
             target_conn = stack.enter_context(_connection_context(target_provider))
             if target_conn is None:
@@ -292,6 +293,18 @@ def migrate(
                 inferred_embedding_dim=None,
                 tn=tn,
             )
+
+            # Post-import enrichment
+            if not skip_enrich and isinstance(target_conn, sqlite3.Connection):
+                from lsm.db.enrichment import run_enrichment_pipeline
+
+                _emit_progress(progress_callback, "legacy", 0, 0, "Running post-migration enrichment.")
+                enrichment_report = run_enrichment_pipeline(
+                    target_conn,
+                    target_config,
+                    table_names=tn,
+                )
+
             vector_key = _vector_validation_key(target_provider, target_conn, tn)
             expected_counts = {vector_key: _count_vector_rows(target_conn, vector_key, tn)}
             expected_counts.update(imported_counts)
@@ -302,7 +315,7 @@ def migrate(
             _record_validation_counts(target_conn, expected_counts, tn)
             validation_result = validate_migration(target_conn, tn)
 
-        return {
+        result: dict[str, Any] = {
             "source": source_enum.value,
             "target": target_enum.value,
             "total_vectors": expected_counts[vector_key],
@@ -311,6 +324,9 @@ def migrate(
             "legacy_source_dir": str(source_dir),
             "imported_counts": imported_counts,
         }
+        if enrichment_report is not None:
+            result["enrichment"] = enrichment_report
+        return result
 
     source_provider = _provider_from_source(source_enum, source_config)
     target_provider = _provider_from_target(target_enum, target_config)

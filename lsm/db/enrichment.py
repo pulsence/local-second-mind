@@ -636,21 +636,21 @@ def _build_heading_map_from_graph(fg: Any) -> Dict[str, List[str]]:
     if not hasattr(fg, "nodes"):
         return heading_map
 
-    # Build parent lookup
+    # Build parent lookup — GraphNode uses .id and .name, not .node_id/.label
     node_by_id: Dict[Any, Any] = {}
     for node in fg.nodes:
-        node_by_id[node.node_id] = node
+        node_by_id[node.id] = node
 
     for node in fg.nodes:
         if node.node_type == "heading":
-            label = node.label or ""
+            label = node.name or ""
             # Walk parent chain to build path
             path: List[str] = [label]
             current = node
             while current.parent_id is not None and current.parent_id in node_by_id:
                 parent = node_by_id[current.parent_id]
                 if parent.node_type == "heading":
-                    path.insert(0, parent.label or "")
+                    path.insert(0, parent.name or "")
                 current = parent
             heading_map[label] = path
 
@@ -752,42 +752,39 @@ def _backfill_graph(conn: sqlite3.Connection, tn: TableNames) -> int:
             continue
 
         try:
+            from lsm.ingest.graph_builder import build_graph_from_file_graph
             from lsm.utils.file_graph import build_file_graph
 
             raw_text = sp.read_text(encoding="utf-8", errors="replace")
             fg = build_file_graph(sp, raw_text)
+            db_nodes, db_edges = build_graph_from_file_graph(fg, source_path, raw_text)
 
-            for node in fg.nodes:
-                heading_path_val = None
-                if hasattr(node, "heading_path") and node.heading_path:
-                    heading_path_val = json.dumps(node.heading_path)
-
+            for db_node in db_nodes:
                 conn.execute(
                     f"""INSERT OR IGNORE INTO {tn.graph_nodes}
                         (node_id, node_type, label, source_path, heading_path)
                         VALUES (?, ?, ?, ?, ?)""",
                     (
-                        node.node_id,
-                        node.node_type,
-                        node.label or "",
+                        db_node.node_id,
+                        db_node.node_type,
+                        db_node.label or "",
                         source_path,
-                        heading_path_val,
+                        db_node.heading_path,
                     ),
                 )
 
-            if hasattr(fg, "edges"):
-                for edge in fg.edges:
-                    conn.execute(
-                        f"""INSERT OR IGNORE INTO {tn.graph_edges}
-                            (src_id, dst_id, edge_type, weight)
-                            VALUES (?, ?, ?, ?)""",
-                        (
-                            edge.src_id,
-                            edge.dst_id,
-                            getattr(edge, "edge_type", "contains"),
-                            getattr(edge, "weight", 1.0),
-                        ),
-                    )
+            for db_edge in db_edges:
+                conn.execute(
+                    f"""INSERT OR IGNORE INTO {tn.graph_edges}
+                        (src_id, dst_id, edge_type, weight)
+                        VALUES (?, ?, ?, ?)""",
+                    (
+                        db_edge.src_id,
+                        db_edge.dst_id,
+                        db_edge.edge_type,
+                        db_edge.weight,
+                    ),
+                )
 
             updated += 1
         except Exception as exc:
