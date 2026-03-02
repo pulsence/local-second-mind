@@ -661,8 +661,14 @@ def _backfill_graph(conn: sqlite3.Connection, tn: TableNames) -> int:
             )"""
     ).fetchall()
 
+    total_files = len(rows)
+    if total_files > 0:
+        logger.info("Graph backfill: %s source files without graph entries.", f"{total_files:,}")
+
     updated = 0
+    processed = 0
     for (source_path,) in rows:
+        processed += 1
         sp = Path(source_path)
         if not sp.exists():
             continue
@@ -708,6 +714,9 @@ def _backfill_graph(conn: sqlite3.Connection, tn: TableNames) -> int:
             updated += 1
         except Exception as exc:
             logger.warning("Cannot build graph for %s: %s", source_path, exc)
+
+        if processed % 200 == 0 or processed == total_files:
+            logger.info("Graph backfill: %s/%s files.", f"{processed:,}", f"{total_files:,}")
 
     return updated
 
@@ -868,16 +877,28 @@ def run_enrichment_pipeline(
             else:
                 tier2_skipped.append(source_path)
 
+        total_files = len(existing_paths)
+        if total_files > 0:
+            logger.info(
+                "Tier 2 enrichment: %s source files to process (%s not found on disk).",
+                f"{total_files:,}",
+                f"{len(tier2_skipped):,}",
+            )
+
         def _run_heading_path() -> int:
             updated = 0
-            for source_path, file_path in existing_paths:
+            for i, (source_path, file_path) in enumerate(existing_paths, 1):
                 updated += _backfill_heading_path(conn, tn, source_path, file_path)
+                if i % 200 == 0 or i == total_files:
+                    logger.info("Heading-path backfill: %s/%s files.", f"{i:,}", f"{total_files:,}")
             return updated
 
         def _run_positions() -> int:
             updated = 0
-            for source_path, file_path in existing_paths:
+            for i, (source_path, file_path) in enumerate(existing_paths, 1):
                 updated += _backfill_positions(conn, tn, source_path, file_path)
+                if i % 200 == 0 or i == total_files:
+                    logger.info("Position backfill: %s/%s files.", f"{i:,}", f"{total_files:,}")
             return updated
 
         tier2_updated += _run_stage("enrich_tier2_heading_path", _run_heading_path)
@@ -885,7 +906,7 @@ def run_enrichment_pipeline(
         tier2_updated += _run_stage("enrich_tier2_graph", lambda: _backfill_graph(conn, tn))
         conn.commit()
         logger.info(
-            "Tier 2 enrichment: %d updated, %d skipped",
+            "Tier 2 enrichment: %d updated, %d skipped.",
             tier2_updated,
             len(tier2_skipped),
         )
