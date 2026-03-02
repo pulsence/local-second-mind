@@ -48,6 +48,13 @@ All notable changes to Local Second Mind are documented here.
 - Restructured config key from `"vectordb"` to `"db"` with nested `"vector"` submodel for vector-specific settings (`provider`, `collection`, `index_type`, `pool_size`). The `DBConfig` dataclass now owns database-level settings (`table_prefix`, `path`, connection fields).
 - Replaced all hardcoded `lsm_` table name strings with a centralized `TableNames` registry (`lsm/db/tables.py`), enabling configurable `table_prefix`.
 - Restructured migration CLI: `--from`/`--to` replaced with `--from-db`/`--to-db`/`--from-version`/`--to-version`. Added `--resume`, `--enrich`, `--skip-enrich` flags.
+- Consolidated graph building to a single `build_file_graph` dispatcher in `lsm/ingest/file_graph.py`, replacing separate per-format builder calls.
+- Legacy provider detection now checks config backend setting instead of filesystem for `.chroma/` directory, preventing false positives from leftover directories.
+- Writer thread uses batch `mark_chunks_not_current()` and `graph_delete_sources()` during flush instead of per-file transactions, reducing fsync overhead from O(3N) to O(5) per flush cycle.
+- Ingest pipeline uses explicit `ThreadPoolExecutor` management with `shutdown(wait=False, cancel_futures=True)` instead of context manager for reliable Ctrl+C handling.
+- Replaced blocking future drain with non-blocking poll loop for interruptible pipeline shutdown.
+- Sentinel delivery uses direct `queue.put(timeout=2)` instead of `_put()` helper to prevent silent drops when stop signal is set.
+- Pipeline worker thread joins now have 10-second timeouts to prevent indefinite hangs during shutdown.
 
 ### Added
 
@@ -61,8 +68,8 @@ All notable changes to Local Second Mind are documented here.
 - Added DB maintenance commands: `lsm db prune` and `lsm db complete`.
 - Added ingest CLI controls: `--force-reingest-changed-config` and `--force-file-pattern`.
 - Added transactional selective re-ingest protection so chunk/vector/manifest writes rollback together on failure.
-- Added explicit `lsm migrate --from <source> --to <target>` command support for backend migrations (`chroma`, `sqlite`, `postgresql`).
-- Added legacy migration path `lsm migrate --from v0.7 --to v0.8` to import `manifest.json`, `memories.db`, `schedules.json`, `stats_cache.json`, and legacy remote cache blobs into unified `lsm.db`.
+- Added explicit `lsm migrate --from-db <source> --to-db <target>` command support for backend migrations (`chroma`, `sqlite`, `postgresql`).
+- Added legacy migration path `lsm migrate --from-version v0.7 --to-db sqlite` to import `manifest.json`, `memories.db`, `schedules.json`, `stats_cache.json`, and legacy remote cache blobs into unified `lsm.db`.
 - Added migration validation and idempotent upsert behavior to prevent duplicate records on re-run.
 - Multi-vector representation: ingest-time LLM summaries at section and file granularity (`enable_section_summaries`, `enable_file_summaries` in `IngestConfig`). Summaries are embedded alongside chunks with `node_type` distinguishing granularity (`chunk`, `section_summary`, `file_summary`).
 - Multi-vector retrieval profile (`multi_vector`): queries at chunk, section, and file levels with cross-granularity RRF fusion (weights: chunk=0.6, section=0.25, file=0.15). Section/file matches without chunk-level representation are expanded to top-k chunks from the same source.
@@ -114,6 +121,17 @@ All notable changes to Local Second Mind are documented here.
 - Moving-average ETA display on vector migration progress (computed over last ~5000 vectors).
 - Moving-average ETA display on simhash and tag backfill enrichment progress.
 - Progress logging for all Tier 1 enrichment steps (defaults, node-type, tags) to prevent silent processing.
+- `--stage` flag on `lsm migrate --enrich` for selective enrichment stage execution. Accepts tier-level names (`tier1`, `tier2`, `tier2b`, `tier3`) and individual stage names (`simhash`, `graph`, etc.). May be repeated to combine stages.
+- Stage name resolver (`resolve_stage_names()`) in `lsm/db/enrichment.py` with case-insensitive matching and friendly aliases.
+- `build_file_graph()` dispatcher in `lsm/ingest/file_graph.py` for unified graph construction across all supported file types.
+- Batch `mark_chunks_not_current()` method on vector DB providers for efficient rechunk operations (single UPDATE instead of per-chunk calls).
+- Batch `graph_delete_sources()` method on vector DB providers for multi-source graph cleanup in one transaction.
+- Periodic progress reporter thread in ingest pipeline for continuous status output during long-running parse operations (e.g., OCR).
+- Progress callback support for rechunk ingest calls.
+- Pre-filtering of `file_tuples` when `force_source_paths` is set, skipping manifest comparison for unrelated files.
+- Unit tests for `_build_heading_map_from_graph` and `_backfill_graph` graph enrichment functions.
+- Integration tests for sqlite-vec transaction and savepoint behavior.
+- Enrichment step in v0.7 legacy migration path with import summary logging.
 
 ### Fixed
 
@@ -128,6 +146,20 @@ All notable changes to Local Second Mind are documented here.
 - Fixed tag backfill appearing to hang after simhash completion. Was loading all chunks at once with no progress output; now processes in batches of 1000 with commit, progress logging, and ETA.
 - Fixed auto-detection log message missing `[INFO]` prefix (was using `print` instead of `logger.info`).
 - Consistent `[INFO]` prefix on all migration progress messages (switched CLI callback from `print` to `logger.info`).
+- Fixed graph backfill attribute mismatch: `GraphNode` uses `label` but enrichment code referenced `title`, causing `AttributeError` during tier 2 graph enrichment.
+- Fixed graph backfill hang on restart: added `source_path` index on `graph_nodes` table and skip binary/image files during graph construction.
+- Fixed rechunking not preserving enrichment metadata: new chunks now receive `node_type` defaults and stale graph entries are cleaned before re-insertion.
+- Fixed pipeline thread deadlock: replaced blocking `queue.put()` with timeout-based `_put()` helper that respects `stop_signal`.
+- Fixed Tesseract OCR crash on Windows: use LSTM-only engine (`--oem 1`) and retry on ObjectCache leak errors.
+- Fixed OCR retry not triggering for Windows NTSTATUS exit codes (`0xC0000005`, `0xC000013A`) with empty stderr messages.
+- Fixed date JSON serialization error when `datetime` objects appear in chunk metadata during ingest.
+- Fixed ingest progress not being emitted during queue backpressure (added `maybe_report()` call on queue-full events).
+- Fixed transaction commit error during rechunk ingest by wrapping operations in proper transaction boundaries.
+- Fixed savepoint error with sqlite-vec: separated chunk and manifest transactions to avoid vec0 virtual table savepoint conflicts.
+- Fixed writer thread stalling for 30+ seconds during rechunk: per-file `update_metadatas()` always failed silently (missing `source_path` in metadata dict) and per-file graph operations created 3–4 fsyncs per file.
+- Fixed ingest pipeline going silent for minutes during long OCR parse operations (no progress output between queue events).
+- Fixed Ctrl+C not terminating ingest pipeline: `ThreadPoolExecutor.__exit__()` called `shutdown(wait=True)` before `KeyboardInterrupt` handler could fire.
+- Fixed v0.7 post-migration enrichment crashing with unhandled exceptions instead of logging and continuing.
 
 ### Removed
 
