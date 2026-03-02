@@ -491,6 +491,10 @@ def ingest(
     runtime_artifact_dir.mkdir(parents=True, exist_ok=True)
 
     file_tuples = list(iter_files(roots, exts, exclude_dirs))
+    if force_source_paths is not None:
+        # Pre-filter to only the requested files instead of iterating all files
+        force_set = set(force_source_paths)
+        file_tuples = [(fp, rc) for fp, rc in file_tuples if canonical_path(fp) in force_set]
     total_files = len(file_tuples)
     emit("discovery", 0, total_files, f"Discovered {total_files:,} files to consider")
 
