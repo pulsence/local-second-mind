@@ -48,6 +48,7 @@ def build_clusters(
     """
     tn = table_names or DEFAULT_TABLE_NAMES
     # 1. Read all current embeddings
+    logger.info("Cluster build: reading embeddings from %s...", tn.vec_chunks)
     rows = conn.execute(
         f"SELECT chunk_id, embedding FROM {tn.vec_chunks} WHERE is_current = 1"
     ).fetchall()
@@ -56,20 +57,26 @@ def build_clusters(
         logger.warning("No current embeddings found — skipping clustering.")
         return {"n_clusters": 0, "n_chunks": 0, "algorithm": algorithm}
 
+    n_total = len(rows)
+    logger.info("Cluster build: unpacking %s embeddings...", f"{n_total:,}")
+
     chunk_ids: List[str] = []
     embeddings: List[List[float]] = []
 
-    for row in rows:
+    for i, row in enumerate(rows, 1):
         chunk_ids.append(str(row[0]))
         blob = bytes(row[1])
         dim = len(blob) // 4
         vec = list(unpack(f"{dim}f", blob))
         embeddings.append(vec)
+        if i % 10000 == 0 or i == n_total:
+            logger.info("Cluster build: unpacked %s/%s embeddings.", f"{i:,}", f"{n_total:,}")
 
     matrix = np.array(embeddings, dtype=np.float32)
     n_chunks = len(chunk_ids)
 
     # 2. Cluster
+    logger.info("Cluster build: running %s (k=%d) on %s vectors...", algorithm, k, f"{n_chunks:,}")
     if algorithm == "hdbscan":
         labels, centroids = _cluster_hdbscan(matrix)
     else:
@@ -77,6 +84,7 @@ def build_clusters(
         labels, centroids = _cluster_kmeans(matrix, actual_k, random_state)
 
     n_clusters = len(centroids)
+    logger.info("Cluster build: %d clusters computed.", n_clusters)
 
     # 3. Compute cluster sizes
     cluster_sizes: Dict[int, int] = {}
@@ -91,22 +99,29 @@ def build_clusters(
             f"INSERT INTO {tn.cluster_centroids} (cluster_id, centroid, size) VALUES (?, ?, ?)",
             (cluster_id, blob, cluster_sizes.get(cluster_id, 0)),
         )
+    conn.commit()
+    logger.info("Cluster build: %d centroids written.", n_clusters)
 
-    # 5. Write cluster_id and cluster_size to lsm_chunks
-    for chunk_id, label in zip(chunk_ids, labels):
+    # 5. Write cluster_id and cluster_size to lsm_chunks (batch commit)
+    batch_size = 1000
+    for i, (chunk_id, label) in enumerate(zip(chunk_ids, labels), 1):
         conn.execute(
             f"UPDATE {tn.chunks} SET cluster_id = ?, cluster_size = ? WHERE chunk_id = ?",
             (int(label), cluster_sizes.get(label, 0), chunk_id),
         )
+        if i % batch_size == 0 or i == n_chunks:
+            conn.commit()
+            logger.info("Cluster build: chunk assignments %s/%s written.", f"{i:,}", f"{n_chunks:,}")
 
-    # 6. Update vec_chunks cluster_id
-    for chunk_id, label in zip(chunk_ids, labels):
+    # 6. Update vec_chunks cluster_id (batch commit)
+    for i, (chunk_id, label) in enumerate(zip(chunk_ids, labels), 1):
         conn.execute(
             f"UPDATE {tn.vec_chunks} SET cluster_id = ? WHERE chunk_id = ?",
             (int(label), chunk_id),
         )
-
-    conn.commit()
+        if i % batch_size == 0 or i == n_chunks:
+            conn.commit()
+            logger.info("Cluster build: vec assignments %s/%s written.", f"{i:,}", f"{n_chunks:,}")
 
     logger.info(
         "Clustering complete: %d clusters, %d chunks, algorithm=%s",
