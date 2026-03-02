@@ -294,16 +294,19 @@ def migrate(
                 tn=tn,
             )
 
-            # Post-import enrichment
+            # Post-import enrichment (best-effort; schema may lack enrichment columns)
             if not skip_enrich and isinstance(target_conn, sqlite3.Connection):
-                from lsm.db.enrichment import run_enrichment_pipeline
+                try:
+                    from lsm.db.enrichment import run_enrichment_pipeline
 
-                _emit_progress(progress_callback, "legacy", 0, 0, "Running post-migration enrichment.")
-                enrichment_report = run_enrichment_pipeline(
-                    target_conn,
-                    target_config,
-                    table_names=tn,
-                )
+                    _emit_progress(progress_callback, "legacy", 0, 0, "Running post-migration enrichment.")
+                    enrichment_report = run_enrichment_pipeline(
+                        target_conn,
+                        target_config,
+                        table_names=tn,
+                    )
+                except Exception as exc:
+                    logger.warning("Post-migration enrichment skipped: %s", exc)
 
             vector_key = _vector_validation_key(target_provider, target_conn, tn)
             expected_counts = {vector_key: _count_vector_rows(target_conn, vector_key, tn)}
