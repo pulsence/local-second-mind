@@ -893,8 +893,11 @@ def ingest(
         if not stop_signal.is_set():
             flush_pending()
 
-        # Signal writer shutdown
-        _put(write_q, None)
+        # Signal writer shutdown — use direct put since stop_signal may be set
+        try:
+            write_q.put(None, timeout=2)
+        except queue.Full:
+            pass  # writer will exit via stop_signal
 
     et = threading.Thread(target=embed_worker, daemon=True)
     et.start()
@@ -948,275 +951,281 @@ def ingest(
     if not force_pattern:
         force_pattern = ""
 
+    def _drain_future(f):
+        """Process a single completed parse future.  Returns True on success."""
+        nonlocal completed, skipped
+        from concurrent.futures import CancelledError
+        try:
+            pr = f.result()
+        except CancelledError:
+            completed += 1
+            return True
+        pr.version = getattr(f, "_lsm_version", 1)
+        if pr.parse_errors:
+            error_records["page_errors"].extend(
+                {
+                    "source_path": pr.source_path,
+                    "page": err.get("page"),
+                    "stage": err.get("stage"),
+                    "error": err.get("error"),
+                }
+                for err in pr.parse_errors
+            )
+        if not pr.ok:
+            error_records["failed_documents"].append(
+                {
+                    "source_path": pr.source_path,
+                    "ext": pr.ext,
+                    "error": pr.err,
+                }
+            )
+            if not skip_errors:
+                raise RuntimeError(f"Parse failed for {pr.source_path}: {pr.err}")
+            skipped += 1
+        else:
+            _put(parse_out_q, pr)
+        completed += 1
+        return True
+
+    pool = ThreadPoolExecutor(max_workers=parse_workers)
+    futures: List[Any] = []
+    interrupted = False
+
     try:
-        with ThreadPoolExecutor(max_workers=parse_workers) as pool:
-            futures = []
+        for fp, root_cfg in file_tuples:
+            if stop_signal.is_set():
+                break
+            # Check time limit before processing next file
+            if max_seconds is not None and (time.time() - start_time) >= max_seconds:
+                emit("limit", files_submitted, total_files,
+                     f"Reached max_seconds limit ({max_seconds}s)")
+                limit_reached = True
+                break
+            scanned += 1
+            source_path = canonical_path(fp)
+            key = source_path
 
-            for fp, root_cfg in file_tuples:
-                if stop_signal.is_set():
-                    break
-                # Check time limit before processing next file
-                if max_seconds is not None and (time.time() - start_time) >= max_seconds:
-                    emit("limit", files_submitted, total_files,
-                         f"Reached max_seconds limit ({max_seconds}s)")
-                    limit_reached = True
-                    break
-                scanned += 1
-                source_path = canonical_path(fp)
-                key = source_path
-
-                if force_pattern:
-                    match_pattern = (
-                        fnmatch.fnmatch(source_path.lower(), force_pattern.lower())
-                        or fnmatch.fnmatch(fp.name.lower(), force_pattern.lower())
-                    )
-                    if not match_pattern:
-                        skipped += 1
-                        processed += 1
-                        completed += 1
-                        maybe_report()
-                        continue
-
-                if stale_file_paths is not None and key not in stale_file_paths:
-                    skipped += 1
-                    processed += 1
-                    completed += 1
-                    maybe_report()
-                    continue
-
-                # Stat
-                try:
-                    st = fp.stat()
-                    mtime_ns = st.st_mtime_ns
-                    size = st.st_size
-                except Exception:
-                    skipped += 1
-                    processed += 1
-                    completed += 1
-                    continue
-
-                prev = manifest.get(key)
-                force_this_file = bool(force_pattern) or (
-                    stale_file_paths is not None and key in stale_file_paths
-                ) or (
-                    force_source_paths is not None and key in force_source_paths
+            if force_pattern:
+                match_pattern = (
+                    fnmatch.fnmatch(source_path.lower(), force_pattern.lower())
+                    or fnmatch.fnmatch(fp.name.lower(), force_pattern.lower())
                 )
-
-                # Fast skip on (mtime,size) + hash present
-                if (
-                    not force_this_file
-                    and prev
-                    and prev.get("mtime_ns") == mtime_ns
-                    and prev.get("size") == size
-                    and prev.get("file_hash")
-                ):
+                if not match_pattern:
                     skipped += 1
                     processed += 1
                     completed += 1
                     maybe_report()
                     continue
 
-                # Hash only when needed
-                try:
-                    fhash = file_sha256(fp)
-                except Exception:
-                    skipped += 1
-                    processed += 1
-                    completed += 1
-                    maybe_report()
-                    continue
-
-                if (
-                    force_this_file
-                    and completion_mode == "metadata_enrichment"
-                    and prev
-                    and prev.get("file_hash") == fhash
-                ):
-                    existing = provider.get(
-                        filters={"source_path": key},
-                        include=["metadatas"],
-                    )
-                    existing_ids = list(existing.ids or [])
-                    existing_metas = list(existing.metadatas or [])
-                    if existing_ids:
-                        while len(existing_metas) < len(existing_ids):
-                            existing_metas.append({})
-                        folder_tags = collect_folder_tags(fp, root_cfg.path)
-                        updated_metas: List[Dict[str, Any]] = []
-                        for metadata in existing_metas[: len(existing_ids)]:
-                            merged = dict(metadata or {})
-                            if root_cfg.tags:
-                                merged["root_tags"] = json.dumps(root_cfg.tags)
-                            if root_cfg.content_type:
-                                merged["content_type"] = root_cfg.content_type
-                            if folder_tags:
-                                merged["folder_tags"] = json.dumps(folder_tags)
-                            updated_metas.append(merged)
-                        provider.update_metadatas(existing_ids, updated_metas)
-
-                    manifest[key] = {
-                        "mtime_ns": mtime_ns,
-                        "size": size,
-                        "file_hash": fhash,
-                        "version": int(prev.get("version", 1)),
-                        "embedding_model": embed_model_name,
-                        "schema_version_id": schema_version_id,
-                        "updated_at": now_iso(),
-                    }
-                    skipped += 1
-                    processed += 1
-                    completed += 1
-                    maybe_report()
-                    continue
-
-                if not force_this_file and prev and prev.get("file_hash") == fhash:
-                    # content unchanged, update manifest
-                    manifest[key] = {
-                        "mtime_ns": mtime_ns,
-                        "size": size,
-                        "file_hash": fhash,
-                        "version": int(prev.get("version", 1)) if prev else 1,
-                        "embedding_model": embed_model_name,
-                        "schema_version_id": schema_version_id,
-                        "updated_at": now_iso(),
-                    }
-                    skipped += 1
-                    processed += 1
-                    completed += 1
-                    maybe_report()
-                    continue
-
-                had_prev = prev is not None
-
-                # Versioning is always enabled.
-                version = get_next_version(
-                    manifest,
-                    key,
-                    connection=manifest_connection,
-                )
-
-                # Collect folder tags from .lsm_tags.json files
-                f_tags = collect_folder_tags(fp, root_cfg.path)
-
-                # Submit parse/chunk to pool
-                futures.append(
-                    pool.submit(
-                        parse_and_chunk_job,
-                        fp,
-                        source_path,
-                        mtime_ns,
-                        size,
-                        fhash,
-                        had_prev,
-                        enable_ocr,
-                        skip_errors,
-                        stop_signal,
-                        chunk_size,
-                        chunk_overlap,
-                        chunking_strategy,
-                        max_heading_depth,
-                        root_cfg.max_heading_depth,
-                        intelligent_heading_depth,
-                        enable_language_detection,
-                        enable_translation,
-                        translation_target,
-                        translation_llm_config,
-                        root_cfg.tags,
-                        root_cfg.content_type,
-                        f_tags or None,
-                        enable_section_summaries,
-                        enable_file_summaries,
-                        summary_llm_config,
-                    )
-                )
-                # Store version on the future so embed worker can pick it up
-                futures[-1]._lsm_version = version
+            if stale_file_paths is not None and key not in stale_file_paths:
+                skipped += 1
                 processed += 1
-                files_submitted += 1
-
-                # Check file count limit
-                if max_files is not None and files_submitted >= max_files:
-                    emit("limit", files_submitted, total_files,
-                         f"Reached max_files limit ({max_files})")
-                    limit_reached = True
-                    break
-
-                # Drain completed futures opportunistically to keep memory stable
-                if len(futures) >= parse_workers * 4:
-                    done = [f for f in futures if f.done()]
-                    for f in done:
-                        futures.remove(f)
-                        pr = f.result()
-                        pr.version = getattr(f, "_lsm_version", 1)
-                        if pr.parse_errors:
-                            error_records["page_errors"].extend(
-                                {
-                                    "source_path": pr.source_path,
-                                    "page": err.get("page"),
-                                    "stage": err.get("stage"),
-                                    "error": err.get("error"),
-                                }
-                                for err in pr.parse_errors
-                            )
-                        if not pr.ok:
-                            error_records["failed_documents"].append(
-                                {
-                                    "source_path": pr.source_path,
-                                    "ext": pr.ext,
-                                    "error": pr.err,
-                                }
-                            )
-                            if not skip_errors:
-                                raise RuntimeError(f"Parse failed for {pr.source_path}: {pr.err}")
-                            skipped += 1
-                        else:
-                            _put(parse_out_q, pr)
-                        completed += 1
-                    maybe_report()
-
-            # Drain remaining parse futures
-            for f in futures:
-                if stop_signal.is_set():
-                    break
-                pr = f.result()
-                pr.version = getattr(f, "_lsm_version", 1)
-                if pr.parse_errors:
-                    error_records["page_errors"].extend(
-                        {
-                            "source_path": pr.source_path,
-                            "page": err.get("page"),
-                            "stage": err.get("stage"),
-                            "error": err.get("error"),
-                        }
-                        for err in pr.parse_errors
-                    )
-                if not pr.ok:
-                    error_records["failed_documents"].append(
-                        {
-                            "source_path": pr.source_path,
-                            "ext": pr.ext,
-                            "error": pr.err,
-                        }
-                    )
-                    if not skip_errors:
-                        raise RuntimeError(f"Parse failed for {pr.source_path}: {pr.err}")
-                    skipped += 1
-                else:
-                    _put(parse_out_q, pr)
                 completed += 1
                 maybe_report()
+                continue
+
+            # Stat
+            try:
+                st = fp.stat()
+                mtime_ns = st.st_mtime_ns
+                size = st.st_size
+            except Exception:
+                skipped += 1
+                processed += 1
+                completed += 1
+                continue
+
+            prev = manifest.get(key)
+            force_this_file = bool(force_pattern) or (
+                stale_file_paths is not None and key in stale_file_paths
+            ) or (
+                force_source_paths is not None and key in force_source_paths
+            )
+
+            # Fast skip on (mtime,size) + hash present
+            if (
+                not force_this_file
+                and prev
+                and prev.get("mtime_ns") == mtime_ns
+                and prev.get("size") == size
+                and prev.get("file_hash")
+            ):
+                skipped += 1
+                processed += 1
+                completed += 1
+                maybe_report()
+                continue
+
+            # Hash only when needed
+            try:
+                fhash = file_sha256(fp)
+            except Exception:
+                skipped += 1
+                processed += 1
+                completed += 1
+                maybe_report()
+                continue
+
+            if (
+                force_this_file
+                and completion_mode == "metadata_enrichment"
+                and prev
+                and prev.get("file_hash") == fhash
+            ):
+                existing = provider.get(
+                    filters={"source_path": key},
+                    include=["metadatas"],
+                )
+                existing_ids = list(existing.ids or [])
+                existing_metas = list(existing.metadatas or [])
+                if existing_ids:
+                    while len(existing_metas) < len(existing_ids):
+                        existing_metas.append({})
+                    folder_tags = collect_folder_tags(fp, root_cfg.path)
+                    updated_metas: List[Dict[str, Any]] = []
+                    for metadata in existing_metas[: len(existing_ids)]:
+                        merged = dict(metadata or {})
+                        if root_cfg.tags:
+                            merged["root_tags"] = json.dumps(root_cfg.tags)
+                        if root_cfg.content_type:
+                            merged["content_type"] = root_cfg.content_type
+                        if folder_tags:
+                            merged["folder_tags"] = json.dumps(folder_tags)
+                        updated_metas.append(merged)
+                    provider.update_metadatas(existing_ids, updated_metas)
+
+                manifest[key] = {
+                    "mtime_ns": mtime_ns,
+                    "size": size,
+                    "file_hash": fhash,
+                    "version": int(prev.get("version", 1)),
+                    "embedding_model": embed_model_name,
+                    "schema_version_id": schema_version_id,
+                    "updated_at": now_iso(),
+                }
+                skipped += 1
+                processed += 1
+                completed += 1
+                maybe_report()
+                continue
+
+            if not force_this_file and prev and prev.get("file_hash") == fhash:
+                # content unchanged, update manifest
+                manifest[key] = {
+                    "mtime_ns": mtime_ns,
+                    "size": size,
+                    "file_hash": fhash,
+                    "version": int(prev.get("version", 1)) if prev else 1,
+                    "embedding_model": embed_model_name,
+                    "schema_version_id": schema_version_id,
+                    "updated_at": now_iso(),
+                }
+                skipped += 1
+                processed += 1
+                completed += 1
+                maybe_report()
+                continue
+
+            had_prev = prev is not None
+
+            # Versioning is always enabled.
+            version = get_next_version(
+                manifest,
+                key,
+                connection=manifest_connection,
+            )
+
+            # Collect folder tags from .lsm_tags.json files
+            f_tags = collect_folder_tags(fp, root_cfg.path)
+
+            # Submit parse/chunk to pool
+            futures.append(
+                pool.submit(
+                    parse_and_chunk_job,
+                    fp,
+                    source_path,
+                    mtime_ns,
+                    size,
+                    fhash,
+                    had_prev,
+                    enable_ocr,
+                    skip_errors,
+                    stop_signal,
+                    chunk_size,
+                    chunk_overlap,
+                    chunking_strategy,
+                    max_heading_depth,
+                    root_cfg.max_heading_depth,
+                    intelligent_heading_depth,
+                    enable_language_detection,
+                    enable_translation,
+                    translation_target,
+                    translation_llm_config,
+                    root_cfg.tags,
+                    root_cfg.content_type,
+                    f_tags or None,
+                    enable_section_summaries,
+                    enable_file_summaries,
+                    summary_llm_config,
+                )
+            )
+            # Store version on the future so embed worker can pick it up
+            futures[-1]._lsm_version = version
+            processed += 1
+            files_submitted += 1
+
+            # Check file count limit
+            if max_files is not None and files_submitted >= max_files:
+                emit("limit", files_submitted, total_files,
+                     f"Reached max_files limit ({max_files})")
+                limit_reached = True
+                break
+
+            # Drain completed futures opportunistically to keep memory stable
+            if len(futures) >= parse_workers * 4:
+                done = [f for f in futures if f.done()]
+                for f in done:
+                    futures.remove(f)
+                    _drain_future(f)
+                maybe_report()
+
+        # Drain remaining parse futures — poll with short sleeps so
+        # KeyboardInterrupt can always be delivered promptly.
+        while futures and not stop_signal.is_set():
+            done = [f for f in futures if f.done()]
+            for f in done:
+                futures.remove(f)
+                _drain_future(f)
+            if done:
+                maybe_report()
+            elif futures:
+                # All remaining futures still running — sleep briefly
+                # (interruptible by KeyboardInterrupt)
+                time.sleep(0.2)
+
     except KeyboardInterrupt:
         stop_signal.set()
         interrupted = True
-    else:
-        interrupted = False
+        # Cancel futures that haven't started yet
+        for f in futures:
+            f.cancel()
+    finally:
+        # Shut down parse pool without waiting for running workers.
+        # cancel_futures=True prevents queued-but-not-started tasks from
+        # running.  Running workers continue as daemon threads but won't
+        # block the main thread.
+        pool.shutdown(wait=False, cancel_futures=True)
 
-    # Signal embedder shutdown
-    _put(parse_out_q, None)
+    # Signal embedder shutdown.  _put() exits without putting when
+    # stop_signal is set, so use direct put with a timeout.
+    try:
+        parse_out_q.put(None, timeout=2)
+    except queue.Full:
+        pass  # embed worker will exit via stop_signal
 
-    # Wait for threads
-    et.join()
-    wt.join()
+    # Wait for threads with bounded timeouts so Ctrl+C isn't swallowed.
+    et.join(timeout=10)
+    wt.join(timeout=10)
 
     # Stop periodic progress reporter
     _progress_stop.set()
