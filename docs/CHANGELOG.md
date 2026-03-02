@@ -2,16 +2,99 @@
 
 All notable changes to Local Second Mind are documented here.
 
-## 0.8.2 - 2026-03-01
+## Unreleased
 
 ### Changed
 
+- Switched default vector backend to SQLite + sqlite-vec (`vectordb.provider = "sqlite"`).
+- Updated vector DB config shape from `vectordb.persist_dir` to `vectordb.path`.
+- Removed Chroma-specific ingest/vector config fields (`ingest.manifest`, `ingest.chroma_flush_interval`, `ingest.enable_versioning`, `vectordb.chroma_hnsw_space`).
+- Updated the vector DB factory to reject `chromadb` as a production provider and direct users to migration tooling.
+- Added compatibility cleanup across tests/fixtures to remove legacy `persist_dir` usage and align with the v0.8.0 config schema.
+- Migrated agent memory to the shared vector DB connection (`lsm_agent_memories`, `lsm_agent_memory_candidates`) and removed `agents.memory.sqlite_path`.
+- Migrated agent scheduler persistence from `schedules.json` to `lsm_agent_schedules` with deterministic schedule IDs.
+- Migrated ingest manifest persistence from `manifest.json` to `lsm_manifest` (DB-backed version tracking).
+- Migrated runtime sidecar caches from JSON blobs to DB tables (`lsm_stats_cache`, `lsm_remote_cache`) for SQLite-backed runs.
+- Updated query planning to always enforce `is_current = true` filtering for versioned chunks.
+- Ingest now checks active schema compatibility before writes and records schema provenance on each run.
+- Re-ingest versioning is now unconditional for chunk history (`is_current=0` for prior versions; no hard-delete during normal ingest).
+- Added selective completion ingest paths for config drift without forcing a full corpus rebuild.
+- Added explicit migration guidance in the getting-started guide for v0.7 users moving to v0.8.
+- Introduced `RetrievalPipeline` three-stage API (`build_sources → synthesize_context → execute`) in `lsm/query/pipeline.py`, centralizing retrieval, reranking, context building, and synthesis into a single testable pipeline.
+- Added pipeline data types (`QueryRequest`, `ContextPackage`, `QueryResponse`, `FilterSet`, `ScoreBreakdown`, `Citation`, `RetrievalTrace`, `CostEntry`, `RemoteSource`, `StageTimings`) in `lsm/query/pipeline_types.py`.
+- Rewired `lsm/query/api.py` to delegate to `RetrievalPipeline.run()` — removed inline `_apply_reranking()`, `_synthesize_answer()`, `_update_state()`.
+- Replaced `SessionState.llm_server_cache_ids` dict with scalar `conversation_id` and `prior_response_id` fields for cleaner conversation chaining.
+- Added `last_retrieval_trace` to `SessionState` for post-query diagnostics.
+- Extended `Candidate` with `score_breakdown` and `embedding` fields for hybrid retrieval scoring.
+- Extracted database layer foundation into `lsm.db` — connection management (`create_sqlite_connection`, `resolve_db_path`), application schema ownership (`ensure_application_schema`, `APPLICATION_TABLES`), and savepoint-aware transaction helper (`transaction`).
+- Refactored `SQLiteVecProvider` to delegate connection setup, non-vector schema creation, and transaction management to `lsm.db`, keeping only vector-specific DDL (`vec_chunks`, `chunks_fts`, FTS triggers).
+- Consolidated duplicated connection resolution logic from `memory/store.py` (4 functions) and `scheduler.py` (3 methods) into `lsm.db.connection` (`resolve_sqlite_connection`, `resolve_postgres_connection_factory`, `resolve_vectordb_provider_name`).
+- Updated `stats_cache.py` and `remote/storage.py` fallback connections to use `create_sqlite_connection()` for consistent WAL/FK/busy_timeout configuration.
+- Redirected `schema_version._ensure_schema_versions_table()` to `lsm.db.schema.ensure_application_schema()` to eliminate schema DDL duplication.
+- Simplified `BaseLLMProvider` to a transport-only contract (`send_message`, `send_streaming_message`) and removed domain helper methods (`synthesize`, `stream_synthesize`, `rerank`, `generate_tags`).
+- Updated query, reranking, tagging, translation, and direct LLM tool paths to call provider transport methods directly with module-owned prompt/input shaping.
+- Removed Azure OpenAI provider support (`lsm/providers/azure_openai.py`), factory registration, related config fields, and Azure-specific provider tests.
+- Aligned provider implementations with signature parity across streaming and non-streaming calls, including prompt caching/response-chain parameter forwarding where supported.
+- Restructured `ModeConfig` for v0.8 composition presets with explicit `retrieval_profile`, `synthesis_instructions`, and split policy objects (`local_policy`, `remote_policy`, `model_knowledge_policy`).
+- Replaced `k_rerank` in mode-local policy with `k` as the post-rerank final-local budget.
+- Moved synthesis instructions out of provider helpers into `lsm/query/prompts.py` and updated built-in mode presets (`grounded`, `insight`, `hybrid`) to own instruction defaults.
+- Moved LLM rerank prompt assets and parsing to `lsm/query/stages/llm_rerank.py`; moved tag-generation prompt assets to `lsm/ingest/tagging.py`.
+- Reduced `lsm/providers/helpers.py` to provider-generic utilities only (`parse_json_payload`, `UnsupportedParamTracker`).
+- Added structure chunking heading controls: global `ingest.max_heading_depth`, per-root `roots[].max_heading_depth`, and adaptive `ingest.intelligent_heading_depth`.
+- Integrated FileGraph-aware heading boundary selection for structure chunking, including recursive child-heading splits for oversized sections and regex fallback when no graph is available.
+- Added `heading_path` hierarchy metadata on structured chunks and persisted it in chunk metadata (`lsm_chunks.heading_path`) while retaining flat `heading` for indexing.
+- Added public text/markdown/docx/html FileGraph builders for ingest-time graph construction from parsed content.
+- Added `Candidate.heading_path` accessor for normalized heading hierarchy access in query/session workflows.
 - Restructured config key from `"vectordb"` to `"db"` with nested `"vector"` submodel for vector-specific settings (`provider`, `collection`, `index_type`, `pool_size`). The `DBConfig` dataclass now owns database-level settings (`table_prefix`, `path`, connection fields).
 - Replaced all hardcoded `lsm_` table name strings with a centralized `TableNames` registry (`lsm/db/tables.py`), enabling configurable `table_prefix`.
 - Restructured migration CLI: `--from`/`--to` replaced with `--from-db`/`--to-db`/`--from-version`/`--to-version`. Added `--resume`, `--enrich`, `--skip-enrich` flags.
 
 ### Added
 
+- New `SQLiteVecProvider` export and default factory registration.
+- Unified `lsm.db` schema setup and sqlite-vec provider test coverage.
+- Added unified schema tables/indexes for `lsm_stats_cache` and `lsm_remote_cache`.
+- Added `lsm_schema_versions` tracking and `schema_version_id` manifest linkage for per-run ingest provenance.
+- Added DB maintenance commands: `lsm db prune` and `lsm db complete`.
+- Added ingest CLI controls: `--force-reingest-changed-config` and `--force-file-pattern`.
+- Added transactional selective re-ingest protection so chunk/vector/manifest writes rollback together on failure.
+- Added explicit `lsm migrate --from <source> --to <target>` command support for backend migrations (`chroma`, `sqlite`, `postgresql`).
+- Added legacy migration path `lsm migrate --from v0.7 --to v0.8` to import `manifest.json`, `memories.db`, `schedules.json`, `stats_cache.json`, and legacy remote cache blobs into unified `lsm.db`.
+- Added migration validation and idempotent upsert behavior to prevent duplicate records on re-run.
+- Multi-vector representation: ingest-time LLM summaries at section and file granularity (`enable_section_summaries`, `enable_file_summaries` in `IngestConfig`). Summaries are embedded alongside chunks with `node_type` distinguishing granularity (`chunk`, `section_summary`, `file_summary`).
+- Multi-vector retrieval profile (`multi_vector`): queries at chunk, section, and file levels with cross-granularity RRF fusion (weights: chunk=0.6, section=0.25, file=0.15). Section/file matches without chunk-level representation are expanded to top-k chunks from the same source.
+- Cluster-aware retrieval: `lsm cluster build` assigns k-means or HDBSCAN clusters to embeddings, stores centroids in `lsm_cluster_centroids`. When `cluster_enabled=True`, query-time pre-filters to top-N clusters before KNN.
+- New `QueryConfig` fields: `cluster_enabled`, `cluster_algorithm`, `cluster_k`, `cluster_top_n`.
+- Retrieval evaluation harness (`lsm/eval/`) with BEIR-format dataset support, standard IR metrics (recall@k, MRR, nDCG@k, diversity@k, latency stats), baseline save/load/compare, and bundled synthetic dataset (55 queries, 52 documents).
+- CLI commands: `lsm eval retrieval --profile <profile>`, `lsm eval save-baseline --name <name>`, `lsm eval list-baselines`.
+- Five retrieval profiles (`dense_only`, `hybrid_rrf`, `hyde_hybrid`, `dense_cross_rerank`, `llm_rerank`) with profile routing in `RetrievalPipeline.build_sources()`.
+- Three retrieval stages: `lsm/query/stages/dense_recall.py` (vector similarity), `lsm/query/stages/sparse_recall.py` (BM25/FTS5), `lsm/query/stages/rrf_fusion.py` (Reciprocal Rank Fusion).
+- `fts_query()` method on `BaseVectorDBProvider` for BM25 full-text search, implemented in `SQLiteVecProvider` with FTS5 and `_sanitize_fts_query()` injection prevention.
+- Per-candidate `ScoreBreakdown` with `dense_score`, `dense_rank`, `sparse_score`, `sparse_rank`, `fused_score` populated across all retrieval stages.
+- Graceful degradation: `hybrid_rrf` falls back to `dense_only` with a warning when FTS5 is unavailable.
+- New `QueryConfig` fields: `retrieval_profile`, `k_dense`, `k_sparse`, `rrf_dense_weight`, `rrf_sparse_weight`.
+- Cross-encoder reranking stage (`lsm/query/stages/cross_encoder.py`) with `CrossEncoderReranker` for the `dense_cross_rerank` profile. Lazy model loading and graceful degradation when model unavailable.
+- HyDE (Hypothetical Document Embeddings) stage (`lsm/query/stages/hyde.py`) for the `hyde_hybrid` profile. Generates hypothetical answer documents via LLM, pools embeddings, and uses them for retrieval. Graceful degradation on LLM failure.
+- New `QueryConfig` fields: `cross_encoder_model`, `hyde_num_samples`, `hyde_temperature`, `hyde_pooling`.
+- MinHash near-duplicate detection (`lsm/query/stages/dedup.py`) with configurable Jaccard threshold for suppressing redundant chunks.
+- Maximal Marginal Relevance (MMR) diversity selection (`lsm/query/stages/diversity.py`) with configurable lambda parameter and per-section heading caps.
+- Temporal-aware ranking (`lsm/query/stages/temporal.py`) with recency boost and time-range filtering using `mtime_ns` metadata.
+- New `QueryConfig` fields: `dedup_threshold`, `mmr_lambda`, `max_per_section`, `temporal_boost_enabled`, `temporal_boost_days`, `temporal_boost_factor`.
+- Pipeline-backed agent tools (`query_context`, `execute_context`, `query_and_synthesize`) replacing `query_knowledge_base`. Three granularity levels: retrieval-only, synthesis on pre-built context, and full pipeline.
+- Agent mode validation (`lsm/agents/tools/mode_validation.py`): prevents agents from using invalid retrieval profiles or enabling remote sources without sandbox URL access permission.
+- Cache-aware `query_llm` tool with `previous_response_id`, `prompt_cache_key`, `prompt_cache_retention` parameters and `response_id` in output for conversation chaining.
+- Per-context conversation chain tracking in `AgentHarness`: `_context_chain_state` tracks `last_response_id` per `context_label`, with deterministic reset on `continue_context=False` and cross-label isolation.
+- `create_default_tool_registry()` accepts optional `pipeline` parameter; registers pipeline tools when provided, falls back to `query_knowledge_base` otherwise.
+- Knowledge graph construction at ingest time (`lsm/ingest/graph_builder.py`): extracts heading hierarchy, wikilinks, markdown internal links, and DOI citations into `lsm_graph_nodes` and `lsm_graph_edges`. Graph data flows through the ingest pipeline (ParseResult → WriteJob → writer thread).
+- Graph-augmented retrieval (`lsm/query/stages/graph_expansion.py`): post-retrieval expansion via recursive CTE graph traversal with decaying `graph_expansion_score`. Configurable via `graph_expansion_enabled` and `graph_expansion_hops` in `QueryConfig`.
+- Graph methods on `BaseVectorDBProvider`: `graph_insert_nodes()`, `graph_insert_edges()`, `graph_traverse()` with bidirectional recursive CTE traversal in SQLite.
+- Multi-hop retrieval (`lsm/query/multi_hop.py`): parallel strategy (decompose → retrieve all → merge) and iterative strategy (hop-by-hop with LLM-guided follow-ups and `prior_response_id` chaining).
+- Embedding fine-tuning package (`lsm/finetune/`): contrastive learning with heading-content pairs using `MultipleNegativesRankingLoss`. Model registry (`lsm_embedding_models`) for tracking fine-tuned models with active model state.
+- CLI commands: `lsm finetune train`, `lsm finetune list`, `lsm finetune activate`.
+- New `QueryConfig` fields: `graph_expansion_enabled`, `graph_expansion_hops`.
+- PostgreSQL provider parity: `fts_query()` via native `tsvector`/`tsquery` with `ts_rank`, graph methods (`graph_insert_nodes`, `graph_insert_edges`, `graph_traverse`) with recursive CTE, `prune_old_versions()` with version/age criteria, embedding models table DDL.
+- TUI startup advisories (`lsm/db/job_status.py`): non-blocking notifications for stale cluster builds (>20% corpus growth) and missing fine-tuned embedding models. Displayed via `notify()` during background initialization.
+- Scale guidance in `docs/user-guide/VECTOR_DATABASES.md`: SQLite thresholds (250k, 1M), PostgreSQL migration triggers, memory estimation formula, privacy labels for all features.
 - Database health check at startup (TUI and CLI). Detects schema mismatches, missing databases, legacy providers, partial migrations, and stale chunks with actionable guidance.
 - One-shot migration auto-detection: `lsm migrate` with no args detects source backend and version from filesystem heuristics.
 - Migration progress tracking with `lsm_migration_progress` table. Each copy and enrichment stage is checkpointed for resume support.
@@ -43,109 +126,9 @@ All notable changes to Local Second Mind are documented here.
 - Fixed auto-detection log message missing `[INFO]` prefix (was using `print` instead of `logger.info`).
 - Consistent `[INFO]` prefix on all migration progress messages (switched CLI callback from `print` to `logger.info`).
 
-## 0.8.1 - 2026-02-28
-
-### Changed
-
-- Introduced `RetrievalPipeline` three-stage API (`build_sources → synthesize_context → execute`) in `lsm/query/pipeline.py`, centralizing retrieval, reranking, context building, and synthesis into a single testable pipeline.
-- Added pipeline data types (`QueryRequest`, `ContextPackage`, `QueryResponse`, `FilterSet`, `ScoreBreakdown`, `Citation`, `RetrievalTrace`, `CostEntry`, `RemoteSource`, `StageTimings`) in `lsm/query/pipeline_types.py`.
-- Rewired `lsm/query/api.py` to delegate to `RetrievalPipeline.run()` — removed inline `_apply_reranking()`, `_synthesize_answer()`, `_update_state()`.
-- Replaced `SessionState.llm_server_cache_ids` dict with scalar `conversation_id` and `prior_response_id` fields for cleaner conversation chaining.
-- Added `last_retrieval_trace` to `SessionState` for post-query diagnostics.
-- Extended `Candidate` with `score_breakdown` and `embedding` fields for hybrid retrieval scoring.
-- Extracted database layer foundation into `lsm.db` — connection management (`create_sqlite_connection`, `resolve_db_path`), application schema ownership (`ensure_application_schema`, `APPLICATION_TABLES`), and savepoint-aware transaction helper (`transaction`).
-- Refactored `SQLiteVecProvider` to delegate connection setup, non-vector schema creation, and transaction management to `lsm.db`, keeping only vector-specific DDL (`vec_chunks`, `chunks_fts`, FTS triggers).
-- Consolidated duplicated connection resolution logic from `memory/store.py` (4 functions) and `scheduler.py` (3 methods) into `lsm.db.connection` (`resolve_sqlite_connection`, `resolve_postgres_connection_factory`, `resolve_vectordb_provider_name`).
-- Updated `stats_cache.py` and `remote/storage.py` fallback connections to use `create_sqlite_connection()` for consistent WAL/FK/busy_timeout configuration.
-- Redirected `schema_version._ensure_schema_versions_table()` to `lsm.db.schema.ensure_application_schema()` to eliminate schema DDL duplication.
-- Simplified `BaseLLMProvider` to a transport-only contract (`send_message`, `send_streaming_message`) and removed domain helper methods (`synthesize`, `stream_synthesize`, `rerank`, `generate_tags`).
-- Updated query, reranking, tagging, translation, and direct LLM tool paths to call provider transport methods directly with module-owned prompt/input shaping.
-- Removed Azure OpenAI provider support (`lsm/providers/azure_openai.py`), factory registration, related config fields, and Azure-specific provider tests.
-- Aligned provider implementations with signature parity across streaming and non-streaming calls, including prompt caching/response-chain parameter forwarding where supported.
-- Restructured `ModeConfig` for v0.8 composition presets with explicit `retrieval_profile`, `synthesis_instructions`, and split policy objects (`local_policy`, `remote_policy`, `model_knowledge_policy`).
-- Replaced `k_rerank` in mode-local policy with `k` as the post-rerank final-local budget.
-- Moved synthesis instructions out of provider helpers into `lsm/query/prompts.py` and updated built-in mode presets (`grounded`, `insight`, `hybrid`) to own instruction defaults.
-- Moved LLM rerank prompt assets and parsing to `lsm/query/stages/llm_rerank.py`; moved tag-generation prompt assets to `lsm/ingest/tagging.py`.
-- Reduced `lsm/providers/helpers.py` to provider-generic utilities only (`parse_json_payload`, `UnsupportedParamTracker`).
-- Added structure chunking heading controls: global `ingest.max_heading_depth`, per-root `roots[].max_heading_depth`, and adaptive `ingest.intelligent_heading_depth`.
-- Integrated FileGraph-aware heading boundary selection for structure chunking, including recursive child-heading splits for oversized sections and regex fallback when no graph is available.
-- Added `heading_path` hierarchy metadata on structured chunks and persisted it in chunk metadata (`lsm_chunks.heading_path`) while retaining flat `heading` for indexing.
-- Added public text/markdown/docx/html FileGraph builders for ingest-time graph construction from parsed content.
-- Added `Candidate.heading_path` accessor for normalized heading hierarchy access in query/session workflows.
-
-### Added
-
-- Multi-vector representation: ingest-time LLM summaries at section and file granularity (`enable_section_summaries`, `enable_file_summaries` in `IngestConfig`). Summaries are embedded alongside chunks with `node_type` distinguishing granularity (`chunk`, `section_summary`, `file_summary`).
-- Multi-vector retrieval profile (`multi_vector`): queries at chunk, section, and file levels with cross-granularity RRF fusion (weights: chunk=0.6, section=0.25, file=0.15). Section/file matches without chunk-level representation are expanded to top-k chunks from the same source.
-- Cluster-aware retrieval: `lsm cluster build` assigns k-means or HDBSCAN clusters to embeddings, stores centroids in `lsm_cluster_centroids`. When `cluster_enabled=True`, query-time pre-filters to top-N clusters before KNN.
-- New `QueryConfig` fields: `cluster_enabled`, `cluster_algorithm`, `cluster_k`, `cluster_top_n`.
-- Retrieval evaluation harness (`lsm/eval/`) with BEIR-format dataset support, standard IR metrics (recall@k, MRR, nDCG@k, diversity@k, latency stats), baseline save/load/compare, and bundled synthetic dataset (55 queries, 52 documents).
-- CLI commands: `lsm eval retrieval --profile <profile>`, `lsm eval save-baseline --name <name>`, `lsm eval list-baselines`.
-- Five retrieval profiles (`dense_only`, `hybrid_rrf`, `hyde_hybrid`, `dense_cross_rerank`, `llm_rerank`) with profile routing in `RetrievalPipeline.build_sources()`.
-- Three retrieval stages: `lsm/query/stages/dense_recall.py` (vector similarity), `lsm/query/stages/sparse_recall.py` (BM25/FTS5), `lsm/query/stages/rrf_fusion.py` (Reciprocal Rank Fusion).
-- `fts_query()` method on `BaseVectorDBProvider` for BM25 full-text search, implemented in `SQLiteVecProvider` with FTS5 and `_sanitize_fts_query()` injection prevention.
-- Per-candidate `ScoreBreakdown` with `dense_score`, `dense_rank`, `sparse_score`, `sparse_rank`, `fused_score` populated across all retrieval stages.
-- Graceful degradation: `hybrid_rrf` falls back to `dense_only` with a warning when FTS5 is unavailable.
-- New `QueryConfig` fields: `retrieval_profile`, `k_dense`, `k_sparse`, `rrf_dense_weight`, `rrf_sparse_weight`.
-- Cross-encoder reranking stage (`lsm/query/stages/cross_encoder.py`) with `CrossEncoderReranker` for the `dense_cross_rerank` profile. Lazy model loading and graceful degradation when model unavailable.
-- HyDE (Hypothetical Document Embeddings) stage (`lsm/query/stages/hyde.py`) for the `hyde_hybrid` profile. Generates hypothetical answer documents via LLM, pools embeddings, and uses them for retrieval. Graceful degradation on LLM failure.
-- New `QueryConfig` fields: `cross_encoder_model`, `hyde_num_samples`, `hyde_temperature`, `hyde_pooling`.
-- MinHash near-duplicate detection (`lsm/query/stages/dedup.py`) with configurable Jaccard threshold for suppressing redundant chunks.
-- Maximal Marginal Relevance (MMR) diversity selection (`lsm/query/stages/diversity.py`) with configurable lambda parameter and per-section heading caps.
-- Temporal-aware ranking (`lsm/query/stages/temporal.py`) with recency boost and time-range filtering using `mtime_ns` metadata.
-- New `QueryConfig` fields: `dedup_threshold`, `mmr_lambda`, `max_per_section`, `temporal_boost_enabled`, `temporal_boost_days`, `temporal_boost_factor`.
-- Pipeline-backed agent tools (`query_context`, `execute_context`, `query_and_synthesize`) replacing `query_knowledge_base`. Three granularity levels: retrieval-only, synthesis on pre-built context, and full pipeline.
-- Agent mode validation (`lsm/agents/tools/mode_validation.py`): prevents agents from using invalid retrieval profiles or enabling remote sources without sandbox URL access permission.
-- Cache-aware `query_llm` tool with `previous_response_id`, `prompt_cache_key`, `prompt_cache_retention` parameters and `response_id` in output for conversation chaining.
-- Per-context conversation chain tracking in `AgentHarness`: `_context_chain_state` tracks `last_response_id` per `context_label`, with deterministic reset on `continue_context=False` and cross-label isolation.
-- `create_default_tool_registry()` accepts optional `pipeline` parameter; registers pipeline tools when provided, falls back to `query_knowledge_base` otherwise.
-
-- Knowledge graph construction at ingest time (`lsm/ingest/graph_builder.py`): extracts heading hierarchy, wikilinks, markdown internal links, and DOI citations into `lsm_graph_nodes` and `lsm_graph_edges`. Graph data flows through the ingest pipeline (ParseResult → WriteJob → writer thread).
-- Graph-augmented retrieval (`lsm/query/stages/graph_expansion.py`): post-retrieval expansion via recursive CTE graph traversal with decaying `graph_expansion_score`. Configurable via `graph_expansion_enabled` and `graph_expansion_hops` in `QueryConfig`.
-- Graph methods on `BaseVectorDBProvider`: `graph_insert_nodes()`, `graph_insert_edges()`, `graph_traverse()` with bidirectional recursive CTE traversal in SQLite.
-- Multi-hop retrieval (`lsm/query/multi_hop.py`): parallel strategy (decompose → retrieve all → merge) and iterative strategy (hop-by-hop with LLM-guided follow-ups and `prior_response_id` chaining).
-- Embedding fine-tuning package (`lsm/finetune/`): contrastive learning with heading-content pairs using `MultipleNegativesRankingLoss`. Model registry (`lsm_embedding_models`) for tracking fine-tuned models with active model state.
-- CLI commands: `lsm finetune train`, `lsm finetune list`, `lsm finetune activate`.
-- New `QueryConfig` fields: `graph_expansion_enabled`, `graph_expansion_hops`.
-- PostgreSQL provider parity: `fts_query()` via native `tsvector`/`tsquery` with `ts_rank`, graph methods (`graph_insert_nodes`, `graph_insert_edges`, `graph_traverse`) with recursive CTE, `prune_old_versions()` with version/age criteria, embedding models table DDL.
-- TUI startup advisories (`lsm/db/job_status.py`): non-blocking notifications for stale cluster builds (>20% corpus growth) and missing fine-tuned embedding models. Displayed via `notify()` during background initialization.
-- Scale guidance in `docs/user-guide/VECTOR_DATABASES.md`: SQLite thresholds (250k, 1M), PostgreSQL migration triggers, memory estimation formula, privacy labels for all features.
-
 ### Removed
 
 - Removed legacy `QueryConfig` fields: `rerank_strategy`, `no_rerank`, `local_pool`, `max_per_file`, `DEFAULT_MAX_PER_FILE`.
-
-## 0.8.0 - 2026-02-28
-
-### Changed
-
-- Switched default vector backend to SQLite + sqlite-vec (`vectordb.provider = "sqlite"`).
-- Updated vector DB config shape from `vectordb.persist_dir` to `vectordb.path`.
-- Removed Chroma-specific ingest/vector config fields (`ingest.manifest`, `ingest.chroma_flush_interval`, `ingest.enable_versioning`, `vectordb.chroma_hnsw_space`).
-- Updated the vector DB factory to reject `chromadb` as a production provider and direct users to migration tooling.
-- Added compatibility cleanup across tests/fixtures to remove legacy `persist_dir` usage and align with the v0.8.0 config schema.
-- Migrated agent memory to the shared vector DB connection (`lsm_agent_memories`, `lsm_agent_memory_candidates`) and removed `agents.memory.sqlite_path`.
-- Migrated agent scheduler persistence from `schedules.json` to `lsm_agent_schedules` with deterministic schedule IDs.
-- Migrated ingest manifest persistence from `manifest.json` to `lsm_manifest` (DB-backed version tracking).
-- Migrated runtime sidecar caches from JSON blobs to DB tables (`lsm_stats_cache`, `lsm_remote_cache`) for SQLite-backed runs.
-- Updated query planning to always enforce `is_current = true` filtering for versioned chunks.
-- Ingest now checks active schema compatibility before writes and records schema provenance on each run.
-- Re-ingest versioning is now unconditional for chunk history (`is_current=0` for prior versions; no hard-delete during normal ingest).
-- Added selective completion ingest paths for config drift without forcing a full corpus rebuild.
-- Added explicit migration guidance in the getting-started guide for v0.7 users moving to v0.8.
-
-### Added
-
-- New `SQLiteVecProvider` export and default factory registration.
-- Unified `lsm.db` schema setup and sqlite-vec provider test coverage.
-- Added unified schema tables/indexes for `lsm_stats_cache` and `lsm_remote_cache`.
-- Added `lsm_schema_versions` tracking and `schema_version_id` manifest linkage for per-run ingest provenance.
-- Added DB maintenance commands: `lsm db prune` and `lsm db complete`.
-- Added ingest CLI controls: `--force-reingest-changed-config` and `--force-file-pattern`.
-- Added transactional selective re-ingest protection so chunk/vector/manifest writes rollback together on failure.
-- Added explicit `lsm migrate --from <source> --to <target>` command support for backend migrations (`chroma`, `sqlite`, `postgresql`).
-- Added legacy migration path `lsm migrate --from v0.7 --to v0.8` to import `manifest.json`, `memories.db`, `schedules.json`, `stats_cache.json`, and legacy remote cache blobs into unified `lsm.db`.
-- Added migration validation and idempotent upsert behavior to prevent duplicate records on re-run.
 
 ## 0.7.1 - 2026-02-27
 
