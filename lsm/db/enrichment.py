@@ -37,6 +37,7 @@ class EnrichmentReport:
     tier2b_updated: int = 0
     tier2_skipped: tuple[str, ...] = ()
     tier3_needed: tuple[str, ...] = ()
+    drifted_source_paths: tuple[str, ...] = ()
     errors: tuple[str, ...] = ()
 
 
@@ -139,6 +140,15 @@ def detect_stale_chunks(
         ).fetchone()[0]
         cluster_rebuild = null_cluster > 0
 
+    # Distinct source paths with boundary-drifted chunks (start_char = -1)
+    drifted_rows = conn.execute(
+        f"""SELECT DISTINCT source_path FROM {tn.chunks}
+            WHERE start_char = -1
+            AND (node_type = 'chunk' OR node_type IS NULL)
+            AND is_current = 1"""
+    ).fetchall()
+    drifted_source_paths = [row[0] for row in drifted_rows]
+
     # --- Tier 3 ---
     missing_section_files: List[str] = []
     missing_file_files: List[str] = []
@@ -170,7 +180,7 @@ def detect_stale_chunks(
         ).fetchall()
         missing_file_files = [r[0] for r in file_rows]
 
-    needs_reingest = bool(missing_section_files or missing_file_files)
+    needs_reingest = bool(missing_section_files or missing_file_files or drifted_source_paths)
 
     return {
         "tier1": {
@@ -190,6 +200,7 @@ def detect_stale_chunks(
             "schema_diff": {},
             "missing_section_summary_files": missing_section_files,
             "missing_file_summary_files": missing_file_files,
+            "drifted_source_paths": drifted_source_paths,
             "needs_reingest": needs_reingest,
         },
     }
@@ -972,16 +983,19 @@ def run_enrichment_pipeline(
 
     # Tier 3 advisory
     tier3_needed: List[str] = []
+    drifted_source_paths: List[str] = []
     if "enrich_tier3_gap_detection" in skipped_stage_names:
         logger.info("Skipping enrichment stage enrich_tier3_gap_detection (already completed)")
     else:
         if stage_tracker:
             stage_tracker("enrich_tier3_gap_detection", "in_progress")
-        if stale["tier3"]["needs_reingest"]:
-            for f in stale["tier3"]["missing_section_summary_files"]:
-                tier3_needed.append(f"missing section summary: {f}")
-            for f in stale["tier3"]["missing_file_summary_files"]:
-                tier3_needed.append(f"missing file summary: {f}")
+        for f in stale["tier3"]["missing_section_summary_files"]:
+            tier3_needed.append(f"missing section summary: {f}")
+        for f in stale["tier3"]["missing_file_summary_files"]:
+            tier3_needed.append(f"missing file summary: {f}")
+        for f in stale["tier3"]["drifted_source_paths"]:
+            tier3_needed.append(f"boundary drifted: {f}")
+        drifted_source_paths = list(stale["tier3"]["drifted_source_paths"])
         if stage_tracker:
             stage_tracker("enrich_tier3_gap_detection", "completed")
 
@@ -991,5 +1005,6 @@ def run_enrichment_pipeline(
         tier2b_updated=tier2b_updated,
         tier2_skipped=tuple(tier2_skipped),
         tier3_needed=tuple(tier3_needed),
+        drifted_source_paths=tuple(drifted_source_paths),
         errors=tuple(errors),
     )

@@ -197,6 +197,21 @@ class TestDetectStaleChunks:
         assert "/f.md" in result["tier3"]["missing_section_summary_files"]
         assert "/f.md" in result["tier3"]["missing_file_summary_files"]
 
+    def test_drifted_source_paths_detected(self):
+        conn = _make_conn()
+        _insert_chunk(conn, "c1", source_path="/a.md", start_char=-1, end_char=-1, chunk_length=10)
+        _insert_chunk(conn, "c2", source_path="/a.md", start_char=-1, end_char=-1, chunk_length=20)
+        _insert_chunk(conn, "c3", source_path="/b.md", start_char=-1, end_char=-1, chunk_length=15)
+        _insert_chunk(conn, "c4", source_path="/c.md", start_char=0, end_char=10, chunk_length=10)
+        result = enrichment.detect_stale_chunks(conn)
+        assert set(result["tier3"]["drifted_source_paths"]) == {"/a.md", "/b.md"}
+
+    def test_needs_reingest_true_when_drifted_paths_exist(self):
+        conn = _make_conn()
+        _insert_chunk(conn, "c1", source_path="/a.md", start_char=-1, end_char=-1, chunk_length=10)
+        result = enrichment.detect_stale_chunks(conn)
+        assert result["tier3"]["needs_reingest"] is True
+
     def test_no_table_returns_empty(self):
         conn = sqlite3.connect(":memory:")
         result = enrichment.detect_stale_chunks(conn)
@@ -466,6 +481,23 @@ class TestEnrichmentPipeline:
         report = enrichment.run_enrichment_pipeline(conn, cfg)
         # Should report missing summaries as tier3 needed
         assert len(report.tier3_needed) > 0
+
+    def test_drifted_source_paths_in_report(self):
+        conn = _make_conn()
+        _insert_chunk(
+            conn, "c1", source_path="/drifted.md",
+            start_char=-1, end_char=-1, chunk_length=10,
+        )
+        _insert_chunk(
+            conn, "c2", source_path="/ok.md",
+            start_char=0, end_char=10, chunk_length=10,
+        )
+        cfg = _fake_config()
+
+        report = enrichment.run_enrichment_pipeline(conn, cfg)
+        assert "/drifted.md" in report.drifted_source_paths
+        assert "/ok.md" not in report.drifted_source_paths
+        assert any("boundary drifted" in t for t in report.tier3_needed)
 
 
 # ==================================================================
