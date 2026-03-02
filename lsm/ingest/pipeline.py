@@ -16,6 +16,7 @@ from lsm.ingest.chunking import chunk_text
 from lsm.ingest.dedup_hash import compute_simhash
 from lsm.ingest.fs import iter_files, collect_folder_tags
 from lsm.ingest.manifest import (
+    _ensure_manifest_table,
     get_next_version,
     load_manifest,
     save_manifest,
@@ -554,6 +555,13 @@ def ingest(
         and is_sqlite_provider
     )
 
+    # Ensure manifest table exists BEFORE any transaction begins.
+    # DDL (CREATE TABLE) inside an explicit BEGIN can implicitly commit
+    # the transaction on some Python/SQLite builds, causing
+    # "cannot commit - no transaction is active".
+    if manifest_connection is not None:
+        _ensure_manifest_table(manifest_connection)
+
     # ---- Writer thread (sole DB owner) ----
     def writer_thread():
         nonlocal written_chunks, writer_error
@@ -583,6 +591,7 @@ def ingest(
                                 manifest_connection,
                                 pending_manifest_updates,
                                 commit=False,
+                                skip_ensure_table=True,
                             )
                             manifest_connection.commit()
                         except Exception:

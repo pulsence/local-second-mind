@@ -107,6 +107,9 @@ def save_manifest(
 ) -> None:
     tn = table_names or DEFAULT_TABLE_NAMES
     if connection is not None:
+        # Ensure table exists BEFORE starting the transaction.
+        # DDL inside an explicit BEGIN can cause implicit commits
+        # on some Python/SQLite builds.
         _ensure_manifest_table(connection, table_names=tn)
         connection.execute("BEGIN")
         try:
@@ -177,10 +180,12 @@ def upsert_manifest_entries(
     *,
     commit: bool = False,
     table_names: TableNames | None = None,
+    skip_ensure_table: bool = False,
 ) -> None:
     """Upsert a subset of manifest entries without deleting other rows."""
     tn = table_names or DEFAULT_TABLE_NAMES
-    _ensure_manifest_table(connection, table_names=tn)
+    if not skip_ensure_table:
+        _ensure_manifest_table(connection, table_names=tn)
     for source_path, entry in entries.items():
         if not isinstance(entry, dict):
             continue

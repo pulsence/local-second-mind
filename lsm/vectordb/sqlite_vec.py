@@ -401,58 +401,58 @@ class SQLiteVecProvider(BaseVectorDBProvider):
     def graph_delete_source(self, source_path: str) -> None:
         """Delete all graph nodes and edges for a source path."""
         tn = getattr(self, "_tn", DEFAULT_TABLE_NAMES)
-        # Delete edges that reference nodes belonging to this source
-        self._conn.execute(
-            f"""DELETE FROM {tn.graph_edges} WHERE src_id IN (
-                SELECT node_id FROM {tn.graph_nodes} WHERE source_path = ?
-            ) OR dst_id IN (
-                SELECT node_id FROM {tn.graph_nodes} WHERE source_path = ?
-            )""",
-            (source_path, source_path),
-        )
-        self._conn.execute(
-            f"DELETE FROM {tn.graph_nodes} WHERE source_path = ?",
-            (source_path,),
-        )
-        self._conn.commit()
+        with transaction(self._conn):
+            # Delete edges that reference nodes belonging to this source
+            self._conn.execute(
+                f"""DELETE FROM {tn.graph_edges} WHERE src_id IN (
+                    SELECT node_id FROM {tn.graph_nodes} WHERE source_path = ?
+                ) OR dst_id IN (
+                    SELECT node_id FROM {tn.graph_nodes} WHERE source_path = ?
+                )""",
+                (source_path, source_path),
+            )
+            self._conn.execute(
+                f"DELETE FROM {tn.graph_nodes} WHERE source_path = ?",
+                (source_path,),
+            )
 
     def graph_insert_nodes(self, nodes):
         """Insert graph nodes (upsert)."""
         if not nodes:
             return
         tn = getattr(self, "_tn", DEFAULT_TABLE_NAMES)
-        for node in nodes:
-            self._conn.execute(
-                f"""INSERT OR REPLACE INTO {tn.graph_nodes}
-                   (node_id, node_type, label, source_path, heading_path)
-                   VALUES (?, ?, ?, ?, ?)""",
-                (
-                    node["node_id"],
-                    node.get("node_type", ""),
-                    node.get("label", ""),
-                    node.get("source_path", ""),
-                    node.get("heading_path"),
-                ),
-            )
-        self._conn.commit()
+        with transaction(self._conn):
+            for node in nodes:
+                self._conn.execute(
+                    f"""INSERT OR REPLACE INTO {tn.graph_nodes}
+                       (node_id, node_type, label, source_path, heading_path)
+                       VALUES (?, ?, ?, ?, ?)""",
+                    (
+                        node["node_id"],
+                        node.get("node_type", ""),
+                        node.get("label", ""),
+                        node.get("source_path", ""),
+                        node.get("heading_path"),
+                    ),
+                )
 
     def graph_insert_edges(self, edges):
         """Insert graph edges."""
         if not edges:
             return
         tn = getattr(self, "_tn", DEFAULT_TABLE_NAMES)
-        for edge in edges:
-            self._conn.execute(
-                f"""INSERT INTO {tn.graph_edges} (src_id, dst_id, edge_type, weight)
-                   VALUES (?, ?, ?, ?)""",
-                (
-                    edge["src_id"],
-                    edge["dst_id"],
-                    edge.get("edge_type", ""),
-                    edge.get("weight", 1.0),
-                ),
-            )
-        self._conn.commit()
+        with transaction(self._conn):
+            for edge in edges:
+                self._conn.execute(
+                    f"""INSERT INTO {tn.graph_edges} (src_id, dst_id, edge_type, weight)
+                       VALUES (?, ?, ?, ?)""",
+                    (
+                        edge["src_id"],
+                        edge["dst_id"],
+                        edge.get("edge_type", ""),
+                        edge.get("weight", 1.0),
+                    ),
+                )
 
     def graph_traverse(self, start_ids, max_hops=2, edge_types=None):
         """Traverse knowledge graph using recursive CTE.
