@@ -25,6 +25,23 @@ All notable changes to Local Second Mind are documented here.
 - `--enrich` flag for standalone enrichment on existing database without backend copy.
 - `--skip-enrich` flag to suppress post-migration enrichment.
 - `detect_stale_chunks()` for querying what enrichment is needed per tier.
+- Moving-average ETA display on vector migration progress (computed over last ~5000 vectors).
+- Moving-average ETA display on simhash and tag backfill enrichment progress.
+- Progress logging for all Tier 1 enrichment steps (defaults, node-type, tags) to prevent silent processing.
+
+### Fixed
+
+- Fixed `lsm migrate` blocked by startup health check: the health check detected legacy ChromaDB and returned a blocking error before the migrate command could dispatch. Health check is now skipped for the `migrate` command.
+- Fixed ChromaDB source path resolving against CWD instead of `global_folder`, causing a spurious `.chroma/` directory to be created in the project root during migration.
+- Fixed auto-detection not setting `from_version` when migrating from ChromaDB. Now assumes `v0.7` since ChromaDB was the v0.7 provider and has no schema version table.
+- Fixed CLI routing prioritizing `from_version` over `from_db`, which could incorrectly route a chroma migration to the v0.7 legacy manifest path. `from_db` now takes priority.
+- Fixed `KeyboardInterrupt` during vector migration losing all progress. The `except Exception` handler did not catch `KeyboardInterrupt` (a `BaseException`). Migration now catches interrupts, saves checkpoint progress, and prints resume instructions.
+- Fixed migration not auto-resuming from prior interrupted runs. Migration now always checks for incomplete stages in the target database and resumes from the saved offset without requiring `--resume`.
+- Health check now detects `interrupted` migration status alongside `in_progress` and `failed`.
+- Fixed simhash backfill losing all progress on interrupt. Updates were only committed after all Tier 1 steps completed; now commits after each batch of 1000 chunks.
+- Fixed tag backfill appearing to hang after simhash completion. Was loading all chunks at once with no progress output; now processes in batches of 1000 with commit, progress logging, and ETA.
+- Fixed auto-detection log message missing `[INFO]` prefix (was using `print` instead of `logger.info`).
+- Consistent `[INFO]` prefix on all migration progress messages (switched CLI callback from `print` to `logger.info`).
 
 ## 0.8.1 - 2026-02-28
 
