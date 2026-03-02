@@ -398,6 +398,16 @@ def ingest(
             progress_callback(event, current, total, message)
 
     stop_signal = stop_event or threading.Event()
+
+    def _put(q: "queue.Queue", item: Any) -> None:
+        """Put *item* on *q* with periodic stop_signal checks to avoid deadlocks."""
+        while not stop_signal.is_set():
+            try:
+                q.put(item, timeout=0.5)
+                return
+            except queue.Full:
+                continue
+
     provider = provider or create_vectordb_provider(vectordb_config)
     manifest_connection = getattr(provider, "connection", None)
     if not isinstance(manifest_connection, sqlite3.Connection):
@@ -775,7 +785,7 @@ def ingest(
                     graph_nodes=pr.graph_nodes,
                     graph_edges=pr.graph_edges,
                 )
-                write_q.put(wj)
+                _put(write_q, wj)
 
                 with lock:
                     embedded_files += 1
@@ -811,7 +821,7 @@ def ingest(
             flush_pending()
 
         # Signal writer shutdown
-        write_q.put(None)
+        _put(write_q, None)
 
     et = threading.Thread(target=embed_worker, daemon=True)
     et.start()
@@ -881,13 +891,6 @@ def ingest(
                         continue
 
                 if stale_file_paths is not None and key not in stale_file_paths:
-                    skipped += 1
-                    processed += 1
-                    completed += 1
-                    maybe_report()
-                    continue
-
-                if force_source_paths is not None and key not in force_source_paths:
                     skipped += 1
                     processed += 1
                     completed += 1
@@ -1080,7 +1083,7 @@ def ingest(
                                 raise RuntimeError(f"Parse failed for {pr.source_path}: {pr.err}")
                             skipped += 1
                         else:
-                            parse_out_q.put(pr)
+                            _put(parse_out_q, pr)
                         completed += 1
                     maybe_report()
 
@@ -1112,7 +1115,7 @@ def ingest(
                         raise RuntimeError(f"Parse failed for {pr.source_path}: {pr.err}")
                     skipped += 1
                 else:
-                    parse_out_q.put(pr)
+                    _put(parse_out_q, pr)
                 completed += 1
                 maybe_report()
     except KeyboardInterrupt:
@@ -1122,7 +1125,7 @@ def ingest(
         interrupted = False
 
     # Signal embedder shutdown
-    parse_out_q.put(None)
+    _put(parse_out_q, None)
 
     # Wait for threads
     et.join()
