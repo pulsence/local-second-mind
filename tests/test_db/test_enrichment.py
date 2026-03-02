@@ -416,6 +416,195 @@ class TestTier2Enrichment:
 
 
 # ==================================================================
+# _build_heading_map_from_graph  /  _backfill_graph  (unit tests)
+# ==================================================================
+
+
+class TestBuildHeadingMapFromGraph:
+    """Direct tests for _build_heading_map_from_graph using real GraphNode objects."""
+
+    @staticmethod
+    def _gn(id: str, node_type: str, name: str, parent_id=None):
+        """Convenience builder for a GraphNode."""
+        from lsm.utils.file_graph import GraphNode
+
+        return GraphNode(
+            id=id,
+            node_type=node_type,
+            name=name,
+            start_line=1,
+            end_line=1,
+            start_char=0,
+            end_char=1,
+            depth=0,
+            parent_id=parent_id,
+            children=(),
+            metadata={},
+            line_hash="abc",
+        )
+
+    def test_flat_headings(self):
+        from lsm.utils.file_graph import FileGraph
+
+        fg = FileGraph(
+            path="test.md",
+            content_hash="aaa",
+            nodes=(
+                self._gn("h1", "heading", "Introduction"),
+                self._gn("h2", "heading", "Conclusion"),
+            ),
+            root_ids=("h1", "h2"),
+        )
+        heading_map = enrichment._build_heading_map_from_graph(fg)
+        assert heading_map["Introduction"] == ["Introduction"]
+        assert heading_map["Conclusion"] == ["Conclusion"]
+
+    def test_nested_headings_build_path(self):
+        from lsm.utils.file_graph import FileGraph
+
+        fg = FileGraph(
+            path="test.md",
+            content_hash="aaa",
+            nodes=(
+                self._gn("h1", "heading", "Chapter 1"),
+                self._gn("h2", "heading", "Section A", parent_id="h1"),
+                self._gn("h3", "heading", "Subsection i", parent_id="h2"),
+            ),
+            root_ids=("h1",),
+        )
+        heading_map = enrichment._build_heading_map_from_graph(fg)
+        assert heading_map["Chapter 1"] == ["Chapter 1"]
+        assert heading_map["Section A"] == ["Chapter 1", "Section A"]
+        assert heading_map["Subsection i"] == ["Chapter 1", "Section A", "Subsection i"]
+
+    def test_non_heading_parents_skipped_in_path(self):
+        from lsm.utils.file_graph import FileGraph
+
+        fg = FileGraph(
+            path="test.md",
+            content_hash="aaa",
+            nodes=(
+                self._gn("root", "document", "doc"),
+                self._gn("h1", "heading", "Title", parent_id="root"),
+            ),
+            root_ids=("root",),
+        )
+        heading_map = enrichment._build_heading_map_from_graph(fg)
+        # "document" parent should not appear in the heading path
+        assert heading_map["Title"] == ["Title"]
+
+    def test_empty_graph_returns_empty(self):
+        heading_map = enrichment._build_heading_map_from_graph(SimpleNamespace(nodes=[]))
+        assert heading_map == {}
+
+    def test_no_nodes_attr_returns_empty(self):
+        heading_map = enrichment._build_heading_map_from_graph(object())
+        assert heading_map == {}
+
+
+class TestBackfillGraph:
+    """Direct tests for _backfill_graph inserting nodes/edges from source files."""
+
+    def test_inserts_graph_nodes_and_edges(self, tmp_path):
+        conn = _make_conn()
+        tn = DEFAULT_TABLE_NAMES
+
+        # Create a markdown file with heading structure
+        test_file = tmp_path / "doc.md"
+        test_file.write_text("# Heading\n\nSome content here.\n", encoding="utf-8")
+
+        # Insert a chunk referencing this file, with no graph nodes yet
+        _insert_chunk(
+            conn,
+            "c1",
+            source_path=str(test_file),
+            chunk_text="Some content here.",
+        )
+        conn.commit()
+
+        updated = enrichment._backfill_graph(conn, tn)
+        assert updated == 1
+
+        # Verify graph nodes were created
+        node_rows = conn.execute(
+            f"SELECT node_id, node_type, label, source_path FROM {tn.graph_nodes}"
+        ).fetchall()
+        assert len(node_rows) >= 1
+        # All nodes should reference this source file
+        for row in node_rows:
+            assert row["source_path"] == str(test_file)
+
+    def test_skips_files_already_in_graph(self, tmp_path):
+        conn = _make_conn()
+        tn = DEFAULT_TABLE_NAMES
+
+        test_file = tmp_path / "doc.md"
+        test_file.write_text("# Hello\n\nWorld.\n", encoding="utf-8")
+
+        _insert_chunk(conn, "c1", source_path=str(test_file), chunk_text="World.")
+
+        # Pre-insert a graph node for this source — should cause skip
+        conn.execute(
+            f"INSERT INTO {tn.graph_nodes} (node_id, node_type, label, source_path) "
+            f"VALUES (?, ?, ?, ?)",
+            ("existing", "heading", "Hello", str(test_file)),
+        )
+        conn.commit()
+
+        updated = enrichment._backfill_graph(conn, tn)
+        assert updated == 0
+
+    def test_skips_nonexistent_files(self):
+        conn = _make_conn()
+        tn = DEFAULT_TABLE_NAMES
+
+        _insert_chunk(conn, "c1", source_path="/no/such/file.md", chunk_text="test")
+        conn.commit()
+
+        updated = enrichment._backfill_graph(conn, tn)
+        assert updated == 0
+
+    def test_no_graph_tables_returns_zero(self):
+        """If graph_nodes table doesn't exist, should return 0 gracefully."""
+        conn = sqlite3.connect(":memory:")
+        conn.row_factory = sqlite3.Row
+        # Create just the chunks table, no graph tables
+        conn.execute(
+            """CREATE TABLE lsm_chunks (
+                chunk_id TEXT PRIMARY KEY,
+                chunk_text TEXT,
+                source_path TEXT,
+                node_type TEXT DEFAULT 'chunk',
+                is_current INTEGER DEFAULT 1
+            )"""
+        )
+        conn.execute(
+            "INSERT INTO lsm_chunks (chunk_id, chunk_text, source_path) VALUES (?, ?, ?)",
+            ("c1", "test", "/tmp/test.md"),
+        )
+        conn.commit()
+
+        updated = enrichment._backfill_graph(conn, DEFAULT_TABLE_NAMES)
+        assert updated == 0
+
+    def test_idempotent(self, tmp_path):
+        conn = _make_conn()
+        tn = DEFAULT_TABLE_NAMES
+
+        test_file = tmp_path / "doc.md"
+        test_file.write_text("# Title\n\nParagraph.\n", encoding="utf-8")
+
+        _insert_chunk(conn, "c1", source_path=str(test_file), chunk_text="Paragraph.")
+        conn.commit()
+
+        u1 = enrichment._backfill_graph(conn, tn)
+        assert u1 == 1
+
+        u2 = enrichment._backfill_graph(conn, tn)
+        assert u2 == 0  # Nodes already exist, nothing to do
+
+
+# ==================================================================
 # Tier 2b (cluster rebuild)
 # ==================================================================
 
