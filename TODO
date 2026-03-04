@@ -2,6 +2,22 @@
 
 **The curren plan is for version [0.8.0](.agents/docs/PLAN.md).**
 
+## v0.8.1: Migration Tooling
+- Need to clarify DB version numbering and how that is tracked and stored
+- Need to clarify DB version migration support:
+  - From v0.7.0 -> lastest until 0.9.0
+  - From the immediate previous version -> immediate following version
+  - From LTR until next LTR
+- Create `lsm.migration` package for migration tooling
+  - Home for running the actual migration from one version to another version and
+    launching migration between dbs (SQLite <-> PG)
+- Tool to create a "golden data set" which creates a snapshot of all the files,
+  dbs, db schemas, etc. for a particular version to test migrating from one version
+  to another.
+  - We need to create such a set for Chroma/SQLite/PG so full integration testing
+    moving from Chroma -> SQLite/PG and SQLite <-> PG can be run on real data.
+
+
 ## v0.9.0: UI ReworK
 
 ### General
@@ -120,6 +136,8 @@
   agent they are adjusting and then defines the name, category, opening prompt, and
   the tools and folders available to the agent. This agent should then appear in
   the TUI screen.
+- They will be defined in App and stored in DB. There will be a json import/export
+  ability for portability.
 
 ### Research Agent
 - Need to add greater exploration in each phase to bring in a diversity of sources.
@@ -183,6 +201,16 @@
 - Expand benchmarking test framework to include the tool benchmarking
   from v0.8.0.
 - Review integration testing framework
+- In test package:
+  - benchmarks should be moved to lsm.eval
+  - performance good
+  - all test_* should be moved into a single unit/ folder/package
+  - all integration tests should be moved to a new integration
+    folder package.
+  - New test package structure:
+    - `tests.performance` for all the performance testing
+    - `tests.integration` for all the integration testing
+    - `tests.unit` for all the unit testing
 
 ## v0.10.1: System Refinements
 - Insert results from usage in v.0.9.0
@@ -217,6 +245,8 @@
 - Query pipeline takes language into consideration and so will search
   the other languages in the chunks to include in the search space
 - Include Chats in query pipeline. Should they be chunked and embedded?
+  - Add Chat "projects" to group chats for focused context. Enable linking
+    files and embedding to particular projects.
 
 ## v0.11.0: Extra Control Paths
 - Add ability to send email/txt notifications
@@ -272,7 +302,7 @@
 ### Web
 
 - Ensure Web interface is rock solid and following the best practices
-- Review mobile usage
+- Ensure mobile quality.
 
 ### Remote Controlers
 
@@ -307,6 +337,8 @@
     connect over an encrypted channel. Over this channel the hub makes API calls and then
     renders them normally. This basically recreates a VPN to the Local LSM that is transparent
     to the user.
+- Research what would be required and complexities involved in creating a basic Andriod/Apple
+  app.
 
 ## v1.2.0: Webpage Navigation
 
