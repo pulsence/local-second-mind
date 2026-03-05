@@ -2,383 +2,479 @@
 
 **Status**: Pending
 
-When `db.provider = "postgresql"`, only vector operations work. All application tables (manifest, schema_versions, chunks metadata, graph, clustering, job_status, stats_cache, etc.) are SQLite-only and silently disabled for PostgreSQL. The requirement: when PG is configured, ALL operations use PG; when SQLite is configured, ALL operations use SQLite. The vector and application DB must be the same at all times.
+When `db.provider = "postgresql"`, vector operations are available but many application
+features are still SQLite-only. This phase removes those backend gaps and makes migration
+behavior explicit and testable across SQLite, PostgreSQL, and legacy v0.7 sidecar inputs.
 
-Currently `lsm/ingest/pipeline.py:419-421` drops non-SQLite connections:
-```python
-manifest_connection = getattr(provider, "connection", None)
-if not isinstance(manifest_connection, sqlite3.Connection):
-    manifest_connection = None  # All app features silently disabled
-```
+### Cross-Phase DB Test Isolation Requirement (Applies to 19.1-19.7)
 
-This phase makes the entire `lsm/db/` layer DB-agnostic and ensures PostgreSQL gets full application table support.
+All DB-related tests introduced in this phase must be isolation-safe and leave no persistent
+artifacts behind.
 
----
-
-## 19.1: DB Compatibility Layer + Unified Provider Interface
-
-### 19.1.1: Create `lsm/db/compat.py` — DB abstraction helpers
-
-**Tasks:**
-- Create `lsm/db/compat.py` with dialect-aware utility functions
-- Functions: `dialect(conn)`, `is_sqlite(conn)`, `is_postgres(conn)`, `ph(conn)`, `convert_placeholders(query, conn)`, `execute(conn, query, params)`, `executemany(conn, query, params)`, `executescript(conn, script)`, `fetchone(conn, query, params)`, `fetchall(conn, query, params)`, `commit(conn)`, `table_exists(conn, table_name)`, `insert_returning_id(conn, query, params)`, `autoincrement_pk(conn, col)`, `integer_type(conn)`, `real_type(conn)`, `blob_type(conn)`, `fetchone_dict(conn, query, params)`
-- All functions accept `conn: Any`, dispatch via `isinstance(conn, sqlite3.Connection)`
-- `execute()` auto-converts `?` → `%s` for PostgreSQL
-- `executescript()` splits on `;` for PostgreSQL (psycopg2 has no executescript)
-- `table_exists()` uses `sqlite_master` for SQLite, `to_regclass()` for PostgreSQL
-- `insert_returning_id()` uses `cursor.lastrowid` for SQLite, `RETURNING id` for PostgreSQL
-- Write comprehensive unit tests in `tests/test_db/test_compat.py`
-- Export from `lsm/db/__init__.py`
-
-**Files:** `lsm/db/compat.py` (new), `lsm/db/__init__.py`, `tests/test_db/test_compat.py` (new)
-
-**Success criteria:** All compat helpers work for both SQLite (real) and PostgreSQL (mocked) connections. Tests pass.
-
-### 19.1.2: Unified provider connection interface
-
-**Tasks:**
-- Add abstract `get_connection()` context manager to `BaseVectorDBProvider`
-- SQLiteVecProvider: implement as `yield self._conn`
-- PostgreSQLProvider: implement as delegate to `_get_conn()`
-- Add `resolve_connection(provider)` helper to `lsm/db/connection.py` that works with either provider type
-- Write tests for both providers' `get_connection()`
-
-**Files:** `lsm/vectordb/base.py`, `lsm/vectordb/sqlite_vec.py`, `lsm/vectordb/postgresql.py`, `lsm/db/connection.py`, `tests/test_vectordb/test_postgresql.py`, `tests/test_db/test_connection.py`
-
-**Success criteria:** `with provider.get_connection() as conn:` works uniformly for both SQLite and PostgreSQL providers. Existing tests still pass.
-
-### 19.1.3: Code review — Phase 19.1
-
-**Tasks:**
-- Review `compat.py` for completeness and edge cases
-- Review backwards compatibility of `get_connection()` addition
-- Ensure no dead code or unused imports
-- Run full test suite: `pytest tests/ -v`
-- Commit and push
+- Every test that creates tables/indexes/triggers/schemas must clean them up in teardown, or
+  run inside an isolated temporary database/schema that is fully dropped after the test.
+- SQLite tests must use temporary DB files or in-memory DBs and close all connections after
+  completion.
+- PostgreSQL tests must use isolated test schemas/databases and explicitly drop them (for
+  example via `DROP SCHEMA ... CASCADE`) after completion.
+- Connection/cursor lifecycle must be closed or returned to pools in teardown paths, including
+  failure paths.
+- Test fixtures should include teardown verification that no known test-created tables/schemas
+  remain after the suite completes.
 
 ---
 
-## 19.2: Dual-Dialect Schema + PostgreSQL Application Tables
+## 19.1: DB Compatibility Primitives and Connection Resolution
 
-### 19.2.1: Convert `lsm/db/schema.py` to dual-dialect DDL
+**Description**: Create a reusable SQL compatibility layer and a single connection-resolution
+path so DB modules stop reimplementing dialect logic.
 
-**Tasks:**
-- Change `ensure_application_schema(conn: sqlite3.Connection, ...)` to accept `conn: Any`
-- Replace `conn.executescript()` with `compat.executescript()`
-- Generate dialect-aware DDL for all 14 application tables:
-  - `AUTOINCREMENT` → `BIGSERIAL PRIMARY KEY` for PostgreSQL
-  - `INTEGER` → `BIGINT` for PostgreSQL
-  - `REAL` → `DOUBLE PRECISION` for PostgreSQL
-  - `BLOB` → `BYTEA` for PostgreSQL
-- Keep existing `get_application_tables()` unchanged (no SQL, just names)
-- Add indexes for both dialects (same syntax works for both)
-- Update tests in `tests/test_db/test_schema.py` (if exists) or create new tests
+**Tasks**:
+- Create `lsm/db/compat.py` with shared helpers currently duplicated in `migration.py` and
+  `job_status.py`:
+  - `dialect(conn)`, `is_sqlite(conn)`, `is_postgres(conn)`
+  - `convert_placeholders(query, conn)` for `?` vs `%s`
+  - `execute(conn, query, params=())`, `executemany(conn, query, params_seq)`
+  - `execute_ddl_script(conn, sql)` — splits multi-statement DDL and executes individually,
+    replacing SQLite-only `executescript()` usage (PostgreSQL has no equivalent)
+  - `fetchone(conn, query, params=())`, `fetchall(conn, query, params=())`
+  - `commit(conn)`, `table_exists(conn, table_name)`
+  - `row_to_dict(row, columns)` for tuple/`sqlite3.Row`/mapping rows
+  - `insert_returning_id(conn, query, params=())` for SQLite `lastrowid` and PostgreSQL `RETURNING`
+  - `safe_identifier(value)` — SQL identifier validation (extract from migration.py `_safe_ident`)
+  - `upsert_rows(conn, table, pk, rows)` — dialect-aware UPSERT (extract from migration.py)
+  - `count_rows(conn, table_name)` — row counting helper
+  - `db_error(*exc_types)` — context manager or helper that catches both `sqlite3.OperationalError`
+    and `psycopg2.Error` subtypes, re-raising as a common `DBOperationalError` to normalize
+    exception handling across backends
+- Ensure `compat.py` keeps PostgreSQL dependencies optional:
+  - no unconditional `psycopg2` import at module import time
+  - sqlite-only environments must continue to work without PostgreSQL extras installed
+- Replace migration-internal duplicates (`_dialect`, `_execute`, `_commit`, `_safe_ident`,
+  `_fetch_table_rows`, `_fetch_query_rows`, `_upsert_rows`, `_table_exists`, `_count_table_rows`,
+  and row conversion helpers) with `lsm.db.compat` imports.
+- Replace `job_status.py`-internal duplicates (`_ph`, `_fetchone`) with `lsm.db.compat` imports.
+- Add a unified SQL resolver/context manager in `lsm/db/connection.py`:
+  - accepts provider instances and config objects
+  - yields SQLite `.connection` or PostgreSQL `._get_conn()` connection
+  - documents ownership semantics: SQLite yields a persistent reference (caller must not close),
+    PostgreSQL yields a pool-borrowed connection (returned on context exit)
+  - documents autocommit differences: sqlite3 uses implicit transactions by default,
+    psycopg2 uses explicit transaction blocks — resolver should establish consistent semantics
+    for callers (e.g., always autocommit=off, caller uses `compat.commit()`)
+  - raises clear errors when provider does not expose SQL access
+- Replace ad-hoc `getattr(provider, "connection", ...)` / `getattr(provider, "_get_conn", ...)`
+  usage in DB/CLI modules with the new resolver.
+- Export compat/resolver API via `lsm/db/__init__.py` if needed by external callers.
+- Add tests in `tests/test_db/test_compat.py`:
+  - placeholder conversion for both dialects
+  - table existence checks for SQLite and PostgreSQL query styles
+  - `insert_returning_id` behavior
+  - row normalization behavior
+  - `execute_ddl_script` splits and runs multi-statement DDL
+  - `safe_identifier` accepts valid identifiers, rejects injection attempts
+  - `db_error` normalizes exceptions from both backends
+  - sqlite-only runtime import test (compat module imports without psycopg2 installed)
+- Extend `tests/test_db/test_connection.py` for resolver coverage:
+  - SQLite provider instance
+  - PostgreSQL provider instance
+  - invalid provider error path
+  - ownership and commit semantics for both backends
+- Ensure all DB tests in this sub-phase satisfy the cross-phase cleanup/isolation requirement.
+- Commit and push changes for this sub-phase using the format in `../COMMIT_MESSAGE.md`.
 
-**Files:** `lsm/db/schema.py`, tests
+**Files**:
+- `lsm/db/compat.py` (new)
+- `lsm/db/connection.py`
+- `lsm/db/migration.py`
+- `lsm/db/job_status.py`
+- `lsm/db/__init__.py`
+- `tests/test_db/test_compat.py` (new)
+- `tests/test_db/test_connection.py`
 
-**Success criteria:** `ensure_application_schema()` creates all 14 tables correctly on both SQLite and PostgreSQL connections. Existing SQLite tests pass unchanged.
-
-### 19.2.2: PostgreSQLProvider creates application tables
-
-**Tasks:**
-- In `PostgreSQLProvider._ensure_pool()`, after pool creation, call `ensure_application_schema(conn)` with a PG connection
-- Remove redundant `_ensure_graph_tables()` and `_ensure_embedding_models_table()` from PostgreSQLProvider if they're now covered by `ensure_application_schema()`
-- Verify `ensure_application_schema()` is idempotent (uses `CREATE TABLE IF NOT EXISTS`)
-
-**Files:** `lsm/vectordb/postgresql.py`, `tests/test_vectordb/test_postgresql.py`
-
-**Success criteria:** When PostgreSQLProvider initializes, all 14 application tables plus vector tables exist in the same PG database.
-
-### 19.2.3: Migrate `lsm/db/migration.py` to use `compat`
-
-**Tasks:**
-- Replace `_dialect()`, `_execute()`, `_commit()` in migration.py with `compat.dialect()`, `compat.execute()`, `compat.commit()`
-- Replace `_begin_stage()` dual-path with `compat.insert_returning_id()`
-- Remove duplicated helper functions that are now in `compat.py`
-- Existing migration tests must pass unchanged
-
-**Files:** `lsm/db/migration.py`, `tests/test_db/test_migration.py`
-
-**Success criteria:** Migration uses centralized compat helpers. All existing migration tests pass.
-
-### 19.2.4: Code review — Phase 19.2
-
-**Tasks:**
-- Review schema DDL for correctness against both dialects
-- Review PostgreSQLProvider init flow for table creation order
-- Verify no duplicate table creation (schema.py vs provider-specific methods)
-- Run full test suite
-- Commit and push
-
----
-
-## 19.3: Make `lsm/db/` Modules DB-Agnostic
-
-### 19.3.1: Convert `lsm/db/schema_version.py`
-
-**Tasks:**
-- Replace `conn: sqlite3.Connection` → `conn: Any`
-- Replace `conn.execute()` → `compat.execute()`
-- Replace `cursor.lastrowid` → `compat.insert_returning_id()`
-- Replace `sqlite3.Row` check with generic dict/tuple handling
-- Update tests
-
-**Files:** `lsm/db/schema_version.py`, `tests/test_db/test_schema_version.py`
-
-**Success criteria:** `check_schema_compatibility()`, `record_schema_version()`, `get_active_schema_version()` work with both connection types.
-
-### 19.3.2: Convert `lsm/db/job_status.py`
-
-**Tasks:**
-- Replace inline `_ph()`, `_fetchone()` with `compat.ph()`, `compat.fetchone()`
-- Remove `import sqlite3` (only used for isinstance, now in compat)
-- Update `record_job_status()` to use `compat.execute()` instead of raw conn.execute/cursor.execute branching
-- Verify `ON CONFLICT ... EXCLUDED` upsert works for both (it does — same syntax)
-- Update tests
-
-**Files:** `lsm/db/job_status.py`, `tests/test_db/test_job_status.py`
-
-**Success criteria:** All job_status functions work with both connection types using compat helpers.
-
-### 19.3.3: Convert `lsm/db/health.py`
-
-**Tasks:**
-- Replace `sqlite_master` queries → `compat.table_exists()`
-- Enable full health check for PostgreSQL (currently short-circuits)
-- Replace `sqlite3.Connection` type hints → `Any`
-- Update schema compatibility check to work with PG connections
-- Update tests
-
-**Files:** `lsm/db/health.py`, `tests/test_db/test_health.py`
-
-**Success criteria:** `check_db_health()` works when provider is PostgreSQL, checking PG tables.
-
-### 19.3.4: Convert `lsm/db/completion.py`
-
-**Tasks:**
-- Replace `sqlite3.OperationalError` catches with generic `Exception` handling
-- Replace `conn: sqlite3.Connection` → `conn: Any`
-- Replace `?` placeholders via `compat.execute()`
-- Update tests
-
-**Files:** `lsm/db/completion.py`, `tests/test_db/test_completion.py`
-
-**Success criteria:** Completion mode detection works with PostgreSQL connections.
-
-### 19.3.5: Convert `lsm/db/clustering.py`
-
-**Tasks:**
-- Add `get_embeddings_for_clustering()` method to `BaseVectorDBProvider` (abstract)
-- Implement in `SQLiteVecProvider`: query `vec_chunks` with struct.pack/unpack
-- Implement in `PostgreSQLProvider`: query `chunks_*` table, return embeddings as lists
-- Update `build_clusters()` and `get_top_clusters()` to accept a provider or connection
-- Replace direct `vec_chunks` SQL with provider API call
-- Replace `?` placeholders for centroid storage via `compat.execute()`
-- Update tests
-
-**Files:** `lsm/db/clustering.py`, `lsm/vectordb/base.py`, `lsm/vectordb/sqlite_vec.py`, `lsm/vectordb/postgresql.py`, tests
-
-**Success criteria:** Clustering works end-to-end with both SQLite and PostgreSQL providers.
-
-### 19.3.6: Convert `lsm/db/enrichment.py`
-
-**Tasks:**
-- Replace all 4 `sqlite_master` queries → `compat.table_exists()`
-- Replace `conn: sqlite3.Connection` → `conn: Any`
-- Replace all `?` placeholders via `compat.execute()`
-- Handle `vec_chunks` references: for PostgreSQL, enrichment syncs are done on the PG chunks table directly
-- Replace `conn.commit()` → `compat.commit()`
-- Update tests
-
-**Files:** `lsm/db/enrichment.py`, `tests/test_db/test_enrichment.py`
-
-**Success criteria:** All enrichment tiers work with PostgreSQL connections.
-
-### 19.3.7: Code review — Phase 19.3
-
-**Tasks:**
-- Review all 6 converted modules for correctness
-- Verify no remaining `sqlite3.Connection` type hints in `lsm/db/` (except `connection.py` resolvers)
-- Verify no remaining `sqlite_master` queries in `lsm/db/`
-- Verify no remaining raw `?` placeholders (all go through compat)
-- Run full test suite
-- Commit and push
+**Success criteria**: Shared SQL compatibility logic exists in one place, migration and DB
+modules consume it, connection resolution no longer relies on ad-hoc provider introspection,
+and exception handling is normalized across backends.
 
 ---
 
-## 19.4: Convert Consumer Modules Outside `lsm/db/`
+## 19.2: Dual-Dialect Schema Ownership
 
-### 19.4.1: Convert `lsm/ingest/pipeline.py`
+**Description**: Make `lsm/db/schema.py` the canonical source of application-table DDL for
+both SQLite and PostgreSQL, then remove provider-local schema drift.
 
-**Tasks:**
-- Replace lines 419-421 (`if not isinstance(manifest_connection, sqlite3.Connection): manifest_connection = None`) with `provider.get_connection()` usage
-- Replace all raw SQL (manifest writes, graph edges, reranker cache) with `compat.execute()` calls
-- Replace `INSERT OR IGNORE` with `compat`-based upsert
-- Enable transactional manifest writes for PostgreSQL
-- Update tests
+**Tasks**:
+- Convert `ensure_application_schema()` to backend-agnostic execution:
+  - support SQLite and PostgreSQL connections
+  - replace `executescript()` (SQLite-only) with `compat.execute_ddl_script()` so DDL
+    statements are split and executed individually on PostgreSQL
+  - keep `TableNames` as the only table-name source
+  - ensure all 14 application tables are covered (explicit list for verification):
+    1. `chunks` — main chunk store
+    2. `schema_versions` — schema version tracking
+    3. `manifest` — ingest manifest
+    4. `reranker_cache` — cross-encoder score cache
+    5. `agent_memories` — agent long-term memory
+    6. `agent_memory_candidates` — agent memory candidates
+    7. `agent_schedules` — agent schedule persistence
+    8. `cluster_centroids` — clustering centroid storage
+    9. `graph_nodes` — knowledge graph nodes
+    10. `graph_edges` — knowledge graph edges
+    11. `embedding_models` — fine-tuned model registry
+    12. `job_status` — offline job status tracking
+    13. `stats_cache` — collection stats cache
+    14. `remote_cache` — remote provider cache
+- Address the chunks table structural divergence between backends:
+  - SQLite uses the `chunks` table from schema.py with 24+ normalized metadata columns
+  - PostgreSQL provider creates separate `chunks_{collection}` tables with JSONB metadata
+  - Decide and document whether PostgreSQL will adopt normalized columns, schema.py will
+    emit different DDL per dialect for the chunks table, or the divergence is preserved
+    with explicit rationale
+- Normalize dialect-specific type usage:
+  - integer columns (`INTEGER` vs `BIGINT`)
+  - floating point columns (`REAL` vs `DOUBLE PRECISION`)
+  - binary columns (`BLOB` vs `BYTEA`) where applicable
+  - auto-increment primary keys (`INTEGER PRIMARY KEY AUTOINCREMENT` vs
+    `SERIAL PRIMARY KEY` or `GENERATED ALWAYS AS IDENTITY`) — affects `schema_versions`
+    and `graph_edges` tables
+- Ensure all required indexes are created idempotently on both backends.
+- Ensure PostgreSQL provider initialization calls shared `ensure_application_schema()`
+  before DB-backed app features run.
+- Remove or reduce duplicate provider DDL that overlaps shared schema ownership
+  (`_ensure_graph_tables`, `_ensure_embedding_models_table`, and related call paths).
+- Keep scheduler persistence schema aligned with shared table definitions.
+- Add/expand schema tests:
+  - `tests/test_db/test_schema.py` for SQLite idempotency/table/index coverage
+  - PostgreSQL-path schema assertions in `tests/test_vectordb/test_postgresql.py`
+    (verify all 14 tables are created with correct column types and indexes)
+- Ensure all DB tests in this sub-phase satisfy the cross-phase cleanup/isolation requirement.
+- Commit and push changes for this sub-phase using the format in `../COMMIT_MESSAGE.md`.
 
-**Files:** `lsm/ingest/pipeline.py`, `tests/test_ingest/test_pipeline.py`
+**Files**:
+- `lsm/db/schema.py`
+- `lsm/db/tables.py` (table name reference — verify APPLICATION_TABLES matches the 14-table list)
+- `lsm/vectordb/postgresql.py`
+- `lsm/agents/scheduler.py`
+- `tests/test_db/test_schema.py`
+- `tests/test_vectordb/test_postgresql.py`
 
-**Success criteria:** Full ingest pipeline works with PostgreSQL provider — manifest tracked, schema version recorded, enrichment runs.
-
-### 19.4.2: Convert `lsm/ingest/manifest.py`
-
-**Tasks:**
-- Replace `conn: Optional[sqlite3.Connection]` → `conn: Optional[Any]`
-- Replace `?` placeholders via `compat.execute()`
-- Replace `INSERT ... ON CONFLICT` syntax to work with both dialects (already standard SQL, just needs placeholder conversion)
-- Update tests
-
-**Files:** `lsm/ingest/manifest.py`, `tests/test_ingest/test_manifest.py`
-
-**Success criteria:** Manifest CRUD works on PostgreSQL.
-
-### 19.4.3: Convert `lsm/ingest/stats_cache.py`
-
-**Tasks:**
-- Replace `sqlite3.Connection` → `Any`
-- Replace `?` placeholders via `compat.execute()`
-- Replace `INSERT OR REPLACE` with `ON CONFLICT DO UPDATE`
-- Update connection creation to support PG via provider
-- Update tests
-
-**Files:** `lsm/ingest/stats_cache.py`, `tests/test_ingest/test_stats_cache.py`
-
-**Success criteria:** Stats cache works on PostgreSQL.
-
-### 19.4.4: Convert `lsm/query/stages/cross_encoder.py`
-
-**Tasks:**
-- Replace `INSERT OR REPLACE` with `ON CONFLICT DO UPDATE`
-- Replace `datetime('now')` with `compat`-aware timestamp
-- Replace `?` placeholders via `compat.execute()`
-- Update tests
-
-**Files:** `lsm/query/stages/cross_encoder.py`, tests
-
-**Success criteria:** Reranker cache works on PostgreSQL.
-
-### 19.4.5: Convert `lsm/query/stages/graph_expansion.py`
-
-**Tasks:**
-- Replace raw `conn.execute()` with `compat.execute()`
-- Replace `getattr(db, "connection", ...)` with `provider.get_connection()`
-- Update tests
-
-**Files:** `lsm/query/stages/graph_expansion.py`, tests
-
-**Success criteria:** Graph expansion queries work on PostgreSQL.
-
-### 19.4.6: Convert `lsm/remote/storage.py`
-
-**Tasks:**
-- Replace `sqlite3.Connection` types → `Any`
-- Replace `INSERT OR REPLACE` with `ON CONFLICT DO UPDATE`
-- Replace `?` placeholders via `compat.execute()`
-- Update `_open_cache_connection()` to support PG connections
-- Update tests
-
-**Files:** `lsm/remote/storage.py`, tests
-
-**Success criteria:** Remote cache works on PostgreSQL.
-
-### 19.4.7: Convert `lsm/finetune/registry.py`
-
-**Tasks:**
-- Replace `conn: sqlite3.Connection` → `conn: Any`
-- Replace `INSERT OR REPLACE` with `ON CONFLICT DO UPDATE`
-- Replace `?` placeholders via `compat.execute()`
-- Update tests
-
-**Files:** `lsm/finetune/registry.py`, tests
-
-**Success criteria:** Embedding model registry works on PostgreSQL.
-
-### 19.4.8: Convert `lsm/ui/shell/cli.py` raw SQL
-
-**Tasks:**
-- Replace raw SQL in cache clear, cluster visualize, graph build commands
-- Use `provider.get_connection()` instead of `getattr(provider, "connection", None)`
-- Replace `?` placeholders and `INSERT OR IGNORE` with compat calls
-- Update tests
-
-**Files:** `lsm/ui/shell/cli.py`, tests
-
-**Success criteria:** All CLI commands work with PostgreSQL provider.
-
-### 19.4.9: Update `lsm/db/connection.py`
-
-**Tasks:**
-- Add unified `resolve_connection(provider) -> ContextManager` that works for both provider types
-- Deprecate `resolve_sqlite_connection()` (keep for backward compat, add deprecation warning)
-- Update tests
-
-**Files:** `lsm/db/connection.py`, tests
-
-**Success criteria:** Single resolver works for both backends.
-
-### 19.4.10: Code review — Phase 19.4
-
-**Tasks:**
-- Verify no remaining `import sqlite3` outside `lsm/db/` and `lsm/vectordb/` (except tests)
-- Verify no remaining raw SQL outside `lsm/db/` that isn't wrapped by compat
-- Verify no remaining `getattr(provider, "connection", None)` patterns (replaced by `get_connection()`)
-- Run full test suite
-- Commit and push
+**Success criteria**: Shared schema DDL is the single source of truth and creates equivalent
+application tables/indexes for both providers without provider-local duplication drift. The
+chunks table architecture is explicitly decided and documented.
 
 ---
 
-## 19.5: Debug Phase
+## 19.3: Migration Completeness (PG <-> SQLite + Legacy v0.7 Sidecars)
 
-**Tasks:**
-- User will manually test PostgreSQL end-to-end: configure `db.provider = "postgresql"`, run `lsm migrate`, then `lsm ingest`, then `lsm query`
-- Debug output will be placed in `.lsm/Debug/`
-- Fix any issues discovered during manual testing
+**Description**: Expand migration scope and tests so cross-backend migration and v0.7 legacy
+imports are deterministic, complete, and auditable.
+
+**Tasks**:
+- Define and document a migration matrix for every application table (all 14 from 19.2 +
+  the vector table + FTS index + migration bookkeeping tables):
+  - migrated as data (specify per-table)
+  - rebuilt post-migration (specify per-table)
+  - intentionally excluded (with rationale per-table)
+- Explicitly define handling for migration bookkeeping tables:
+  - `migration_progress` and `migration_validation` are target-local operational tables
+  - they are not copied from source and must be recreated/reset on target
+- Update migration table-copy specs and stage naming so migrated tables are explicit and resume-safe.
+- Ensure validation bookkeeping (`lsm_migration_validation`) records all migrated table counts.
+- Handle embedding format conversion between backends:
+  - SQLite vec0 stores embeddings as binary BLOBs (packed floats via `struct.pack`)
+  - PostgreSQL pgvector uses the `vector` type (Python list of floats)
+  - Migration must correctly convert between formats in both directions
+  - Round-trip tests must verify embedding data survives format conversion within tolerance
+- Handle FTS rebuild after cross-backend migration:
+  - After PostgreSQL -> SQLite migration, FTS5 virtual table (`chunks_fts`) and its
+    sync triggers need rebuilding since they don't exist on PostgreSQL
+  - After SQLite -> PostgreSQL migration, the `tsvector` generated column and GIN index
+    need creation
+- Verify schema evolution logic handles both dialects safely after migration.
+- Preserve and harden full v0.7 sidecar import coverage:
+  - `manifest.json`
+  - `memories.db` (legacy names and prefixed names)
+  - `schedules.json`
+  - `stats_cache.json`
+  - `Downloads/**/*.json` and `remote/**/*.json` caches
+- Keep legacy file resolution precedence (`root -> .ingest -> Agents`) and test it.
+- Update CLI/help text to reflect full legacy input set (not only manifest/memories/schedules).
+- Expand tests in `tests/test_vectordb/test_migration_v07.py`:
+  - manifest mapping/defaults
+  - memory and memory-candidate imports
+  - schedule list and mapping forms, fallback schedule IDs
+  - stats cache envelope/map variants
+  - remote cache import and cache-key derivation (`query:*`, `feed:rss:*`, `legacy:*`)
+  - missing sidecar files are warning-only and non-fatal
+- Expand tests in `tests/test_vectordb/test_migration.py`:
+  - SQLite -> PostgreSQL -> SQLite round-trip checks
+  - PostgreSQL -> SQLite -> PostgreSQL round-trip checks
+  - validation mismatch failure behavior remains intact
+  - per-table round-trip assertions: row counts, data equality, metadata preservation,
+    embedding similarity within floating-point tolerance, and index existence verification
+  - FTS index rebuild verification after cross-backend migration
+- Ensure all DB tests in this sub-phase satisfy the cross-phase cleanup/isolation requirement.
+- Commit and push changes for this sub-phase using the format in `../COMMIT_MESSAGE.md`.
+
+**Files**:
+- `lsm/db/migration.py`
+- `lsm/db/schema.py`
+- `lsm/ui/shell/cli.py`
+- `lsm/__main__.py`
+- `tests/test_vectordb/test_migration.py`
+- `tests/test_vectordb/test_migration_v07.py`
+
+**Success criteria**: Migration behavior is table-explicit, v0.7 sidecar handling is complete,
+embedding format conversion is correct in both directions, FTS indexes are rebuilt after
+cross-backend migration, and regression tests cover both round-trip backend migration and
+legacy sidecar imports with concrete per-table assertions.
 
 ---
 
-## 19.6: Final Review
+## 19.4: Convert Remaining SQLite-Only `lsm/db` Modules
 
-### Code Review
+**Description**: Remove SQLite-only assumptions from the core DB package so PostgreSQL cannot
+silently lose application functionality.
 
-**Tasks:**
-- Review all phases and ensure no gaps or bugs
-- Review all changes for backwards compatibility
-- Review for deprecated code, dead code, or legacy compatibility shims — remove them
-- Review all new modules for proper error handling and logging
-- Review test suite:
-  - No mocks or stubs on database operations (unit tests may use mocks for PG connections)
-  - No auto-pass tests
-  - Test structure matches project module structure
-  - All new features have unit + integration tests
-- Review security:
-  - All queries use parameterized queries (never string interpolation for values)
-  - Table names validated via `TableNames` registry
-- Commit and push
+**Tasks**:
+- Convert `lsm/db/schema_version.py`:
+  - accept backend-agnostic connections
+  - use compat execution helpers and backend-safe row handling
+  - replace `isinstance(row, sqlite3.Row)` checks with `compat.row_to_dict()`
+  - preserve existing mismatch error semantics
+- Convert `lsm/db/health.py`:
+  - replace SQLite-only table existence checks (`sqlite_master` queries) with
+    `compat.table_exists()`
+  - support partial-migration checks on PostgreSQL paths
+  - keep status model and blocking semantics unchanged
+- Convert `lsm/db/completion.py`:
+  - remove SQLite-only typing/exception assumptions
+  - replace `sqlite3.OperationalError` catches with `compat.db_error()` pattern
+  - replace positional row indexing (`row[0]`, `row[1]`) with dict-based access
+  - use compat query execution and placeholder handling
+  - preserve completion mode decisions
+- Convert `lsm/db/job_status.py`:
+  - replace local `_ph()` and `_fetchone()` helpers with `lsm.db.compat` imports
+  - replace positional row indexing with dict-based access where applicable
+- Convert `lsm/db/transaction.py`:
+  - remove `sqlite3.Connection` type annotation — accept backend-agnostic connections
+  - replace `conn.in_transaction` (SQLite-specific attribute) with backend-safe check
+    (PostgreSQL uses `conn.status` or `conn.info.transaction_status`)
+  - SAVEPOINT/RELEASE syntax works on both backends, verify semantics match
+  - if PostgreSQL transaction model is fundamentally incompatible, document the
+    limitation and guard with `compat.is_sqlite()` check
+- Refactor `lsm/db/clustering.py`:
+  - remove direct `vec_chunks` dependency and `struct.unpack` binary blob parsing
+    (SQLite vec0-specific — PostgreSQL pgvector returns Python float lists)
+  - add provider-facing embedding retrieval API in `lsm/vectordb/base.py`:
+    - `get_embeddings(filters=None, only_current=True) -> Tuple[List[str], List[List[float]]]`
+      — batch retrieve chunk IDs and embedding vectors
+    - `update_cluster_assignments(updates: List[Tuple[str, int]]) -> None`
+      — batch update cluster_id on chunks
+  - implement `get_embeddings()` and `update_cluster_assignments()` in both
+    `sqlite_vec.py` (reading from vec0 with blob deserialization) and
+    `postgresql.py` (reading from pgvector column)
+  - address centroid storage on PostgreSQL — `cluster_centroids` table is only created
+    by schema.py for SQLite; ensure it is also created on PostgreSQL (19.2 covers DDL,
+    but clustering read/write must use compat execution)
+  - support centroid read/write on both backends using compat helpers
+- Convert `lsm/db/enrichment.py`:
+  - remove SQLite-only table checks (`sqlite_master` queries) and placeholder assumptions
+  - make PostgreSQL behavior explicit (full support or explicit actionable failure)
+  - avoid silent no-op on PostgreSQL
+- Add/expand module tests:
+  - `tests/test_vectordb/test_schema_version.py` — add PostgreSQL-path tests
+  - `tests/test_db/test_health.py` — add PostgreSQL table existence and partial-migration tests
+  - `tests/test_vectordb/test_completion.py` — add PostgreSQL-path tests
+  - `tests/test_db/test_enrichment.py` — add PostgreSQL-path tests
+  - `tests/test_db/test_job_status.py` — verify compat import adoption, no behavior change
+  - `tests/test_db/test_transaction.py` — add PostgreSQL-path transaction/savepoint tests
+  - clustering tests for both provider paths:
+    - `get_embeddings()` returns correct data from both providers
+    - centroid read/write works on both backends
+    - cluster assignment updates propagate correctly
+- Ensure all DB tests in this sub-phase satisfy the cross-phase cleanup/isolation requirement.
+- Commit and push changes for this sub-phase using the format in `../COMMIT_MESSAGE.md`.
 
-### Integration Testing
+**Files**:
+- `lsm/db/schema_version.py`
+- `lsm/db/health.py`
+- `lsm/db/completion.py`
+- `lsm/db/job_status.py`
+- `lsm/db/transaction.py`
+- `lsm/db/clustering.py`
+- `lsm/db/enrichment.py`
+- `lsm/vectordb/base.py`
+- `lsm/vectordb/sqlite_vec.py`
+- `lsm/vectordb/postgresql.py`
+- `tests/test_db/`
+- `tests/test_vectordb/`
 
-**Tasks:**
-- Run full test suite: `pytest tests/ -v --cov=lsm --cov-report=html`
-- Run end-to-end with SQLite provider (regression)
-- Run end-to-end with PostgreSQL provider (new capability)
+**Success criteria**: Core DB modules execute with backend-aware behavior on both SQLite and
+PostgreSQL, do not silently disable processing paths on PostgreSQL, and no module retains its
+own dialect-detection or placeholder helpers (all use `lsm.db.compat`).
 
-### Architecture Documentation Update
+---
 
-**Tasks:**
-- Update `.agents/docs/architecture/` files to reflect DB-agnostic layer
-- Update `ARCHITECTURE.md` top-level overview
-- Commit and push
+## 19.5: Consumer Module Parity and Embedding Model Visibility
 
-**Files:** All architecture docs
+**Description**: Convert remaining non-DB modules and CLI flows that still rely on SQLite-only
+connection assumptions.
 
-**Success criteria:** Architecture docs accurately reflect codebase.
+**Tasks**:
+- Convert ingest/query/cache consumers:
+  - `lsm/ingest/pipeline.py` (remove SQLite gate for manifest/schema tracking)
+  - `lsm/ingest/api.py` (replace `isinstance(connection, sqlite3.Connection)` check,
+    replace `getattr(provider, "connection", None)` with resolver, make `_build_stats_cache`
+    backend-agnostic instead of branching on `config.db.provider == "sqlite"`)
+  - `lsm/ingest/manifest.py` (backend-agnostic CRUD/upsert path)
+  - `lsm/ingest/stats_cache.py` (DB cache path parity)
+  - `lsm/query/stages/cross_encoder.py` (replace `INSERT OR REPLACE` and SQLite `datetime('now')`
+    with `compat.upsert_rows()` and `CURRENT_TIMESTAMP`/backend-appropriate function)
+  - `lsm/query/stages/graph_expansion.py` (replace `getattr(db, "connection", ...)`
+    with connection resolver)
+  - `lsm/remote/storage.py` (backend-agnostic DB cache storage path)
+- Convert `lsm/finetune/registry.py` to backend-agnostic SQL and upsert semantics
+  (replace `INSERT OR REPLACE` with `compat.upsert_rows()`, replace `?` placeholders).
+- Convert `lsm/finetune/embedding.py`:
+  - replace positional row indexing (`row[0]`, `row[1]`, `row[2]`) with dict-based access
+  - use compat execution helpers for chunk table queries
+- Review agent modules for compat layer adoption:
+  - `lsm/agents/memory/store.py` — `SQLiteMemoryStore` uses `executescript()`, `PRAGMA`,
+    `sqlite3.Row`, `sqlite3.IntegrityError`; while `PostgreSQLMemoryStore` exists separately,
+    both stores should use `lsm.db.compat` where applicable to reduce duplicated dialect logic
+  - `lsm/agents/scheduler.py` — already has dual-backend support but implements its own
+    helper patterns (`_ensure_schedule_state_schema()` for SQLite, separate PG path);
+    adopt compat imports for placeholder conversion, DDL execution, and row handling
+- Update finetune CLI commands to remove SQLite-only restrictions for:
+  - listing models
+  - activating models
+  - model registry updates after training
+- Update remaining raw SQL call sites in `lsm/ui/shell/cli.py` (cache/graph/clustering/finetune
+  helpers) to use resolver + compat patterns.
+- Update TUI startup advisory DB access to use resolver/compat instead of ad-hoc provider
+  attribute checks:
+  - `lsm/ui/tui/app.py` currently branches on `.connection` and `._get_conn()` directly
+  - replace with shared resolver path used by CLI/DB modules
+- Add/expand tests:
+  - `tests/test_ingest/test_manifest.py`
+  - `tests/test_ingest/test_stats_cache.py`
+  - `tests/test_ingest/test_api.py` (test `_build_stats_cache` backend branching)
+  - `tests/test_query/test_cross_encoder.py`
+  - `tests/test_query/test_graph_expansion.py`
+  - `tests/test_providers/remote/test_storage.py`
+  - finetune registry/CLI tests for backend parity (`tests/test_finetune/`)
+  - `tests/test_ui/shell/test_cli.py` for updated command behavior
+  - `tests/test_ui/tui/test_app.py` startup advisory DB-access parity checks
+- Ensure all DB tests in this sub-phase satisfy the cross-phase cleanup/isolation requirement.
+- Commit and push changes for this sub-phase using the format in `../COMMIT_MESSAGE.md`.
 
-### Changelog
+**Files**:
+- `lsm/ingest/pipeline.py`
+- `lsm/ingest/api.py`
+- `lsm/ingest/manifest.py`
+- `lsm/ingest/stats_cache.py`
+- `lsm/query/stages/cross_encoder.py`
+- `lsm/query/stages/graph_expansion.py`
+- `lsm/remote/storage.py`
+- `lsm/finetune/registry.py`
+- `lsm/finetune/embedding.py`
+- `lsm/agents/memory/store.py`
+- `lsm/agents/scheduler.py`
+- `lsm/ui/shell/cli.py`
+- `lsm/ui/tui/app.py`
+- `tests/test_ingest/`
+- `tests/test_query/`
+- `tests/test_providers/remote/`
+- `tests/test_finetune/`
+- `tests/test_ui/shell/test_cli.py`
+- `tests/test_ui/tui/test_app.py`
 
-**Tasks:**
-- Update `docs/CHANGELOG.md` with Phase 19 changes
-- Commit and push
+**Success criteria**: Consumer modules and CLI features operate with equivalent behavior on
+SQLite and PostgreSQL, including embedding model registry visibility and activation flows.
+No consumer module retains ad-hoc `getattr` connection access or SQLite-specific SQL syntax
+in CLI or TUI code paths.
+
+
+---
+
+## 19.6: Debug Phase
+
+User-reported issues and bugs encountered during 19.1–19.5 implementation are resolved
+here. The user will provide example output in `<GLOBAL_FOLDER>/Debug/` as needed.
+
+**Tasks**:
+- Reproduce each issue from `<GLOBAL_FOLDER>/Debug/` artifacts and capture root cause.
+- Implement fixes with explicit regression tests for every reproduced issue.
+- Re-run affected sub-phase test suites before closure.
+- Ensure all DB tests in this sub-phase satisfy the cross-phase cleanup/isolation requirement.
+- Commit and push changes for this sub-phase using the format in `../COMMIT_MESSAGE.md`.
+
+**Files**:
+- Files identified by debug artifacts and associated regression tests
+
+**Success criteria**: Reported debug issues are reproducible, fixed, regression-tested, and
+verified in follow-up runs.
+
+---
+
+## 19.7: Code Review and Changelog
+
+**Description**: Final phase-level review and documentation pass to ensure Phase 19 exits with
+no unresolved parity or migration gaps.
+
+**Tasks**:
+- Review all 19.1–19.6 changes for completeness and unintended regressions.
+- Review for deprecated code, dead code, compatibility shims, and circular import risks:
+  - verify `lsm/db/compat.py` does not create circular imports — it will be imported by
+    many modules (migration, schema, health, completion, clustering, enrichment, job_status,
+    transaction, and all consumer modules); ensure the dependency graph is acyclic
+  - verify no module retains its own `_dialect`, `_ph`, `_fetchone`, or `_execute` helpers
+  - verify no module retains ad-hoc `getattr(provider, "connection", ...)` patterns
+- Performance validation:
+  - the compat layer adds function call overhead on every SQL operation; verify no measurable
+    regression in hot paths (ingest pipeline, query retrieval) via profiling or timing
+  - if overhead is significant, consider inlining critical paths or using module-level
+    function references
+- Validate autocommit/transaction semantics:
+  - verify consistent behavior across both backends after conversion — sqlite3 implicit
+    transactions vs psycopg2 explicit transaction blocks must produce equivalent commit
+    visibility for all consumer modules
+- Validate test quality:
+  - no auto-pass tests
+  - no inappropriate DB mocks for integration behavior
+  - coverage includes SQLite and PostgreSQL paths for every converted module
+  - coverage includes full v0.7 sidecar artifact set
+  - DB tests explicitly verify teardown cleanup and leave no leftover test tables/schemas
+    after run completion
+  - verify test coverage metrics have not decreased from pre-Phase-19 baseline
+- Run full suite: `pytest tests/ -v`.
+- Run live PostgreSQL integration subsets where available:
+  - `tests/test_vectordb/test_live_postgresql.py`
+  - `tests/test_agents/test_live_memory_store_postgresql.py`
+- Run targeted migration sanity checks:
+  - legacy v0.7 import path
+  - PG <-> SQLite migration path
+  - embedding format round-trip integrity (verify embeddings survive SQLite blob <-> pgvector
+    conversion within floating-point tolerance)
+  - FTS index rebuild verification after cross-backend migration
+- Update documentation:
+  - `.agents/docs/architecture/` where DB architecture changed
+  - user-facing migration/backend docs
+  - `example_config.json` and `.env.example` if options changed
+- Update `docs/CHANGELOG.md` with a complete Phase 19 entry.
+- Commit and push changes for this sub-phase using the format in `../COMMIT_MESSAGE.md`.
+
+**Files**:
+- All files modified in 19.1–19.6
+- `.agents/docs/architecture/`
+- `docs/CHANGELOG.md`
+- `example_config.json`
+- `.env.example`
+
+**Success criteria**: Phase 19 changes are fully reviewed, tested, documented, and released
+with explicit changelog coverage, no unresolved parity blockers, no circular imports, and
+no performance regressions in critical paths.
 
 ---
 

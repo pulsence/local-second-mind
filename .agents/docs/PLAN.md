@@ -97,7 +97,7 @@ Pre-release debug phase for resolving implementation gaps and bugs identified du
 Detects boundary-drifted chunks after migration (old fixed-size chunking), surfaces them in the enrichment report, and offers interactive re-chunking with the current structure-aware strategy. Sub-tasks: 18.1–18.5.
 
 ### [Phase 19: DB-Agnostic Application Layer](./plan_phases/PHASE_19.md)
-Makes the entire `lsm/db/` layer DB-agnostic so PostgreSQL gets full application table support. Creates `lsm/db/compat.py` abstraction, converts all 6 SQLite-only modules, and updates 8 consumer modules. Sub-tasks: 19.1–19.6.
+Makes the application DB layer backend-agnostic so PostgreSQL reaches feature parity with SQLite, including migration completeness for PG↔SQLite and full v0.7 sidecar imports. Sub-tasks: 19.1–19.7.
 
 ### [Phase 20: Final Code Review and Release](./plan_phases/PHASE_20.md)
 Comprehensive review, integration testing, architecture docs, and release preparation. Sub-tasks: 20.1–20.4.

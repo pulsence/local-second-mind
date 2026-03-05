@@ -2,7 +2,7 @@
 
 **The curren plan is for version [0.8.0](.agents/docs/PLAN.md).**
 
-## v0.8.1: Migration Tooling
+## v0.8.1: DB Tooling
 - Need to clarify DB version numbering and how that is tracked and stored
 - Need to clarify DB version migration support:
   - From v0.7.0 -> lastest until 0.9.0
@@ -16,7 +16,9 @@
   to another.
   - We need to create such a set for Chroma/SQLite/PG so full integration testing
     moving from Chroma -> SQLite/PG and SQLite <-> PG can be run on real data.
-
+- Should there be a DB install tool that can be run automatically when the system starts
+  with a new DB? Right now we kind of haphazardly deterct when the db doesn't exist and
+  then build tables on the fly.
 
 ## v0.9.0: UI ReworK
 
@@ -211,6 +213,7 @@
     - `tests.performance` for all the performance testing
     - `tests.integration` for all the integration testing
     - `tests.unit` for all the unit testing
+- Remove Chroma testing outside of migration
 
 ## v0.10.1: System Refinements
 - Insert results from usage in v.0.9.0
