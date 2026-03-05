@@ -10,10 +10,10 @@ connections via DB-API 2.0 cursor-based operations.
 
 from __future__ import annotations
 
-import sqlite3
 from dataclasses import dataclass
 from typing import Any, List, Optional
 
+from lsm.db.compat import convert_placeholders, fetchone as _compat_fetchone
 from lsm.db.tables import TableNames, DEFAULT_TABLE_NAMES
 from lsm.logging import get_logger
 
@@ -31,18 +31,13 @@ class Advisory:
 
 def _ph(conn: Any) -> str:
     """Return the SQL parameter placeholder for the connection type."""
-    if isinstance(conn, sqlite3.Connection):
-        return "?"
-    return "%s"
+    from lsm.db.compat import is_sqlite
+    return "?" if is_sqlite(conn) else "%s"
 
 
 def _fetchone(conn: Any, query: str, params: tuple = ()) -> Optional[tuple]:
     """Execute a query and fetch one row, compatible with both backends."""
-    if isinstance(conn, sqlite3.Connection):
-        return conn.execute(query, params).fetchone()
-    cur = conn.cursor()
-    cur.execute(query, params)
-    return cur.fetchone()
+    return _compat_fetchone(conn, query, params)
 
 
 def check_job_advisories(
@@ -259,6 +254,7 @@ def record_job_status(
         corpus_size: Current corpus size at completion time.
     """
     from datetime import datetime, timezone
+    from lsm.db.compat import execute as compat_execute, commit as compat_commit
 
     tn = table_names or DEFAULT_TABLE_NAMES
     now = datetime.now(timezone.utc).isoformat()
@@ -272,10 +268,5 @@ def record_job_status(
         f"corpus_size = EXCLUDED.corpus_size"
     )
 
-    if isinstance(conn, sqlite3.Connection):
-        conn.execute(upsert_sql, (job_name, status, now, corpus_size))
-    else:
-        cur = conn.cursor()
-        cur.execute(upsert_sql, (job_name, status, now, corpus_size))
-
-    conn.commit()
+    compat_execute(conn, upsert_sql, (job_name, status, now, corpus_size))
+    compat_commit(conn)

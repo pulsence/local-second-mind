@@ -2,9 +2,31 @@
 
 from lsm.vectordb.factory import create_vectordb_provider
 
+from .compat import (
+    DBOperationalError,
+    commit,
+    convert_placeholders,
+    count_rows,
+    db_error,
+    dialect,
+    execute,
+    execute_ddl_script,
+    executemany,
+    fetch_rows_as_dicts,
+    fetchall,
+    fetchone,
+    insert_returning_id,
+    is_postgres,
+    is_sqlite,
+    row_to_dict,
+    safe_identifier,
+    table_exists,
+    upsert_rows,
+)
 from .completion import detect_completion_mode, get_stale_files
 from .connection import (
     create_sqlite_connection,
+    resolve_connection,
     resolve_db_path,
     resolve_postgres_connection_factory,
     resolve_sqlite_connection,
@@ -37,7 +59,29 @@ from .tables import DEFAULT_TABLE_NAMES, TableNames
 from .transaction import transaction
 
 __all__ = [
+    # compat
+    "DBOperationalError",
+    "commit",
+    "convert_placeholders",
+    "count_rows",
+    "db_error",
+    "dialect",
+    "execute",
+    "execute_ddl_script",
+    "executemany",
+    "fetch_rows_as_dicts",
+    "fetchall",
+    "fetchone",
+    "insert_returning_id",
+    "is_postgres",
+    "is_sqlite",
+    "row_to_dict",
+    "safe_identifier",
+    "table_exists",
+    "upsert_rows",
+    # connection
     "create_sqlite_connection",
+    "resolve_connection",
     "resolve_db_path",
     "resolve_postgres_connection_factory",
     "resolve_sqlite_connection",

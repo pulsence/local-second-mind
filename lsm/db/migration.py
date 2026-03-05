@@ -1354,104 +1354,31 @@ def _ensure_validation_table(conn: Any, tn: TableNames = DEFAULT_TABLE_NAMES) ->
 
 
 def _table_exists(conn: Any, table_name: str) -> bool:
-    safe_table = _safe_ident(table_name)
-    if _dialect(conn) == "sqlite":
-        row = _execute(
-            conn,
-            "SELECT 1 FROM sqlite_master WHERE type='table' AND name = ?",
-            (safe_table,),
-        ).fetchone()
-        return row is not None
-
-    row = _execute(conn, "SELECT to_regclass(%s)", (safe_table,)).fetchone()
-    return bool(row and row[0])
+    from lsm.db.compat import table_exists as _compat_table_exists
+    return _compat_table_exists(conn, table_name)
 
 
 def _fetch_table_rows(conn: Any, table_name: str) -> list[dict[str, Any]]:
-    safe_table = _safe_ident(table_name)
-    if not _table_exists(conn, safe_table):
+    from lsm.db.compat import safe_identifier, table_exists as _te, fetch_rows_as_dicts
+    safe_table = safe_identifier(table_name)
+    if not _te(conn, safe_table):
         return []
-    cursor = _execute(conn, f"SELECT * FROM {safe_table}")
-    rows = cursor.fetchall()
-    columns = [item[0] for item in (cursor.description or [])]
-    output: list[dict[str, Any]] = []
-    for row in rows:
-        if isinstance(row, sqlite3.Row):
-            output.append({column: row[column] for column in columns})
-        elif isinstance(row, Mapping):
-            output.append(dict(row))
-        else:
-            output.append(dict(zip(columns, row)))
-    return output
+    return fetch_rows_as_dicts(conn, f"SELECT * FROM {safe_table}")
 
 
 def _fetch_query_rows(conn: Any, query: str, params: Iterable[Any] = ()) -> list[dict[str, Any]]:
-    cursor = _execute(conn, query, tuple(params))
-    rows = cursor.fetchall()
-    columns = [item[0] for item in (cursor.description or [])]
-    output: list[dict[str, Any]] = []
-    for row in rows:
-        if isinstance(row, sqlite3.Row):
-            output.append({column: row[column] for column in columns})
-        elif isinstance(row, Mapping):
-            output.append(dict(row))
-        else:
-            output.append(dict(zip(columns, row)))
-    return output
+    from lsm.db.compat import fetch_rows_as_dicts
+    return fetch_rows_as_dicts(conn, query, params)
 
 
 def _upsert_rows(conn: Any, table_name: str, primary_key: str, rows: Iterable[dict[str, Any]]) -> None:
-    rows_list = list(rows)
-    if not rows_list:
-        return
-
-    safe_table = _safe_ident(table_name)
-    safe_pk = _safe_ident(primary_key)
-    columns = list(rows_list[0].keys())
-    for key in columns:
-        _safe_ident(key)
-    update_columns = [column for column in columns if column != safe_pk]
-
-    dialect = _dialect(conn)
-    if dialect == "sqlite":
-        placeholders = ", ".join(["?"] * len(columns))
-        assignments = ", ".join(f"{column}=excluded.{column}" for column in update_columns)
-        conflict_sql = (
-            f"ON CONFLICT({safe_pk}) DO UPDATE SET {assignments}"
-            if assignments
-            else f"ON CONFLICT({safe_pk}) DO NOTHING"
-        )
-        sql_text = (
-            f"INSERT INTO {safe_table} ({', '.join(columns)}) "
-            f"VALUES ({placeholders}) {conflict_sql}"
-        )
-    else:
-        placeholders = ", ".join(["%s"] * len(columns))
-        assignments = ", ".join(f"{column}=EXCLUDED.{column}" for column in update_columns)
-        conflict_sql = (
-            f"ON CONFLICT ({safe_pk}) DO UPDATE SET {assignments}"
-            if assignments
-            else f"ON CONFLICT ({safe_pk}) DO NOTHING"
-        )
-        sql_text = (
-            f"INSERT INTO {safe_table} ({', '.join(columns)}) "
-            f"VALUES ({placeholders}) {conflict_sql}"
-        )
-
-    for row in rows_list:
-        values = [row.get(column) for column in columns]
-        _execute(conn, sql_text, tuple(values))
-    _commit(conn)
+    from lsm.db.compat import upsert_rows as _compat_upsert
+    _compat_upsert(conn, table_name, primary_key, rows)
 
 
 def _count_table_rows(conn: Any, table_name: str) -> int:
-    safe_table = _safe_ident(table_name)
-    if not _table_exists(conn, safe_table):
-        return 0
-    row = _execute(conn, f"SELECT COUNT(*) FROM {safe_table}").fetchone()
-    if row is None:
-        return 0
-    return int(row[0] or 0)
+    from lsm.db.compat import count_rows as _compat_count
+    return _compat_count(conn, table_name)
 
 
 def _count_vector_rows_for_key(
@@ -1525,31 +1452,23 @@ def _next_schema_version_id(conn: Any, tn: TableNames = DEFAULT_TABLE_NAMES) -> 
 
 
 def _dialect(conn: Any) -> str:
-    return "sqlite" if isinstance(conn, sqlite3.Connection) else "postgresql"
+    from lsm.db.compat import dialect as _compat_dialect
+    return _compat_dialect(conn)
 
 
 def _commit(conn: Any) -> None:
-    commit = getattr(conn, "commit", None)
-    if callable(commit):
-        commit()
+    from lsm.db.compat import commit as _compat_commit
+    _compat_commit(conn)
 
 
 def _execute(conn: Any, query: str, params: Iterable[Any] = ()) -> Any:
-    if _dialect(conn) == "postgresql":
-        query = query.replace("?", "%s")
-    execute = getattr(conn, "execute", None)
-    if callable(execute):
-        return execute(query, tuple(params))
-    cursor = conn.cursor()
-    cursor.execute(query, tuple(params))
-    return cursor
+    from lsm.db.compat import execute as _compat_execute
+    return _compat_execute(conn, query, params)
 
 
 def _safe_ident(value: str) -> str:
-    candidate = str(value).strip()
-    if not _VALID_IDENTIFIER.match(candidate):
-        raise ValueError(f"Unsafe SQL identifier: {value!r}")
-    return candidate
+    from lsm.db.compat import safe_identifier
+    return safe_identifier(value)
 
 
 def _resolve_v07_source_dir(source_config: Any) -> Path:

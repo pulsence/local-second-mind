@@ -1,15 +1,33 @@
-"""Connection management for the unified SQLite database.
+"""Connection management for the unified database.
 
 Provides a single source of truth for creating and resolving database
 connections so every subsystem gets consistent PRAGMA configuration
 (WAL journal, foreign keys, busy timeout, ``sqlite3.Row`` factory).
+
+Includes a unified ``resolve_connection()`` context manager that yields
+a raw DB-API connection from any provider instance, regardless of
+backend.
+
+Ownership semantics
+-------------------
+- **SQLite**: yields the provider's persistent ``.connection`` reference.
+  The caller must **not** close it — the provider owns the lifecycle.
+- **PostgreSQL**: yields a pool-borrowed connection via ``._get_conn()``.
+  The connection is returned to the pool when the context exits.
+
+Transaction semantics
+---------------------
+Both backends operate with autocommit **off** by default.  Callers
+should use ``compat.commit()`` explicitly when they want to persist
+changes.
 """
 
 from __future__ import annotations
 
 import sqlite3
+from contextlib import contextmanager
 from pathlib import Path
-from typing import Any, Callable, Optional, Tuple, Union
+from typing import Any, Callable, Iterator, Optional, Tuple, Union
 
 
 def create_vectordb_provider(config: Any) -> Any:
@@ -107,6 +125,56 @@ def resolve_postgres_connection_factory(
     if callable(get_conn):
         return get_conn
     return None
+
+
+@contextmanager
+def resolve_connection(provider: Any) -> Iterator[Any]:
+    """Yield a raw DB-API connection from a vector-DB provider instance.
+
+    Works for both SQLite and PostgreSQL providers.
+
+    - **SQLite**: yields ``provider.connection`` (persistent — do NOT close).
+    - **PostgreSQL**: yields ``provider._get_conn()`` (pool-borrowed —
+      returned on context exit automatically by the pool's semantics).
+
+    Raises:
+        ValueError: If *provider* does not expose a SQL connection.
+
+    Usage::
+
+        with resolve_connection(provider) as conn:
+            compat.execute(conn, "SELECT 1")
+    """
+    name = resolve_vectordb_provider_name(provider)
+
+    if name == "sqlite":
+        connection = getattr(provider, "connection", None)
+        if connection is None:
+            raise ValueError(
+                "SQLite provider does not expose a .connection attribute."
+            )
+        yield connection
+        return
+
+    if name == "postgresql":
+        get_conn = getattr(provider, "_get_conn", None)
+        if not callable(get_conn):
+            raise ValueError(
+                "PostgreSQL provider does not expose a _get_conn() callable."
+            )
+        conn = get_conn()
+        try:
+            yield conn
+        finally:
+            # Pool-borrowed connections are returned automatically
+            # when the caller's transaction is complete.
+            pass
+        return
+
+    raise ValueError(
+        f"Provider '{name}' does not expose SQL access. "
+        f"Supported providers: sqlite, postgresql."
+    )
 
 
 def _is_provider_instance(vectordb: Any) -> bool:

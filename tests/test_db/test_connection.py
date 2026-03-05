@@ -9,6 +9,7 @@ import pytest
 from lsm.config.models import DBConfig
 from lsm.db.connection import (
     create_sqlite_connection,
+    resolve_connection,
     resolve_db_path,
     resolve_postgres_connection_factory,
     resolve_sqlite_connection,
@@ -114,3 +115,70 @@ def test_resolve_vectordb_provider_name_from_provider() -> None:
 def test_resolve_vectordb_provider_name_from_config() -> None:
     config = DBConfig(provider="postgresql", path=Path("/tmp"))
     assert resolve_vectordb_provider_name(config) == "postgresql"
+
+
+# ------------------------------------------------------------------
+# resolve_connection tests
+# ------------------------------------------------------------------
+
+
+def test_resolve_connection_sqlite_provider(tmp_path: Path) -> None:
+    """SQLite provider yields persistent connection."""
+    inner_conn = sqlite3.connect(str(tmp_path / "test.db"))
+    try:
+        provider = SimpleNamespace(
+            name="sqlite",
+            config=DBConfig(provider="sqlite", path=tmp_path),
+            connection=inner_conn,
+        )
+        with resolve_connection(provider) as conn:
+            assert conn is inner_conn
+            # Can execute SQL
+            conn.execute("SELECT 1")
+    finally:
+        inner_conn.close()
+
+
+def test_resolve_connection_postgresql_provider() -> None:
+    """PostgreSQL provider yields pool-borrowed connection."""
+    fake_pg_conn = SimpleNamespace(execute=lambda q: None)
+    provider = SimpleNamespace(
+        name="postgresql",
+        config=SimpleNamespace(provider="postgresql"),
+        _get_conn=lambda: fake_pg_conn,
+    )
+    with resolve_connection(provider) as conn:
+        assert conn is fake_pg_conn
+
+
+def test_resolve_connection_invalid_provider() -> None:
+    """Unknown provider raises ValueError."""
+    provider = SimpleNamespace(
+        name="unknown_backend",
+        config=SimpleNamespace(provider="unknown_backend"),
+    )
+    with pytest.raises(ValueError, match="does not expose SQL access"):
+        with resolve_connection(provider):
+            pass
+
+
+def test_resolve_connection_sqlite_no_connection() -> None:
+    """SQLite provider without .connection raises ValueError."""
+    provider = SimpleNamespace(
+        name="sqlite",
+        config=SimpleNamespace(provider="sqlite"),
+    )
+    with pytest.raises(ValueError, match="does not expose a .connection"):
+        with resolve_connection(provider):
+            pass
+
+
+def test_resolve_connection_postgresql_no_get_conn() -> None:
+    """PostgreSQL provider without _get_conn raises ValueError."""
+    provider = SimpleNamespace(
+        name="postgresql",
+        config=SimpleNamespace(provider="postgresql"),
+    )
+    with pytest.raises(ValueError, match="does not expose a _get_conn"):
+        with resolve_connection(provider):
+            pass
