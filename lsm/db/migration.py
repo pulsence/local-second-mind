@@ -1033,15 +1033,28 @@ def _begin_stage(
     """Record the start of a migration stage. Returns the row id."""
     _ensure_migration_progress_table(conn, tn)
     now = datetime.now(timezone.utc).isoformat()
-    cursor = _execute(
-        conn,
-        f"INSERT INTO {tn.migration_progress} "
-        f"(migration_run, started_at, source_type, target_type, stage, status) "
-        f"VALUES (?, ?, ?, ?, ?, 'in_progress')",
-        (run_id, now, source_type, target_type, stage),
-    )
-    _commit(conn)
-    return cursor.lastrowid
+    params = (run_id, now, source_type, target_type, stage)
+    if _dialect(conn) == "postgresql":
+        cursor = _execute(
+            conn,
+            f"INSERT INTO {tn.migration_progress} "
+            f"(migration_run, started_at, source_type, target_type, stage, status) "
+            f"VALUES (?, ?, ?, ?, ?, 'in_progress') RETURNING id",
+            params,
+        )
+        row = cursor.fetchone()
+        _commit(conn)
+        return row[0]
+    else:
+        cursor = _execute(
+            conn,
+            f"INSERT INTO {tn.migration_progress} "
+            f"(migration_run, started_at, source_type, target_type, stage, status) "
+            f"VALUES (?, ?, ?, ?, ?, 'in_progress')",
+            params,
+        )
+        _commit(conn)
+        return cursor.lastrowid
 
 
 def _complete_stage(
