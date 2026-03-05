@@ -7,7 +7,7 @@ Folder Path: `lsm/`
 
 - [lsm.agents](lsm.agents.md): Agent framework, tools, sandbox, memory, scheduler
 - [lsm.config](lsm.config.md): Configuration loading and models
-- lsm.db: Database abstraction layer — cross-backend SQL compatibility (`compat.py`), connection resolution (`connection.py`), schema ownership (`schema.py`), migration (`migration.py`), health checks, clustering, enrichment, transactions
+- [lsm.db](lsm.db.md): Database abstraction layer — cross-backend SQL compatibility, connection resolution, schema ownership, migration, health checks, clustering, enrichment, transactions
 - [lsm.ingest](lsm.ingest.md): Document parsing, chunking, embedding pipeline
 - [lsm.providers](lsm.providers.md): LLM provider implementations
 - [lsm.query](lsm.query.md): Query retrieval, reranking, synthesis
