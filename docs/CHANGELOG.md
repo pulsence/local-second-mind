@@ -17,6 +17,7 @@ All notable changes to Local Second Mind are documented here.
   - Added dual-dialect DDL in `lsm/db/schema.py` for all application tables (SQLite TEXT vs PostgreSQL TIMESTAMPTZ, REAL vs DOUBLE PRECISION).
   - Added provider-level `get_embeddings()` and `update_cluster_assignments()` APIs on `BaseVectorDBProvider`, implemented in both `SQLiteVecProvider` and `PostgreSQLProvider`, so clustering operates through the provider abstraction instead of raw SQL.
   - Refactored `build_clusters()` to accept a provider (preferred) or raw connection, using provider API for embedding retrieval and cluster assignment updates.
+  - Hardened backend fallback behavior so PostgreSQL-configured flows no longer create implicit local SQLite databases for remote cache or stats cache helpers when SQL access is unavailable.
   - Replaced all duplicate migration helper wrappers (`_dialect`, `_execute`, `_commit`, `_safe_ident`, `_table_exists`, `_fetch_table_rows`, `_upsert_rows`, `_count_table_rows`) in `migration.py` with direct `lsm.db.compat` imports.
   - Replaced all duplicate helpers (`_ph`, `_fetchone`) in `job_status.py` with direct `lsm.db.compat` imports.
   - Replaced ad-hoc `getattr(provider, "connection", ...)` patterns in CLI, TUI, ingest, and query modules with `resolve_connection()` context manager.
@@ -187,6 +188,10 @@ All notable changes to Local Second Mind are documented here.
 - Fixed ingest pipeline going silent for minutes during long OCR parse operations (no progress output between queue events).
 - Fixed Ctrl+C not terminating ingest pipeline: `ThreadPoolExecutor.__exit__()` called `shutdown(wait=True)` before `KeyboardInterrupt` handler could fire.
 - Fixed v0.7 post-migration enrichment crashing with unhandled exceptions instead of logging and continuing.
+- Fixed PostgreSQL-configured remote caching and RSS feed caching falling back to a synthesized local `lsm.db` under `db.path` when no explicit DB connection was provided. These flows now stay on the filesystem JSON fallback instead of silently switching backends.
+- Fixed `StatsCache` opening a local SQLite cache database from `db_path` even when `db.provider = "postgresql"`. PostgreSQL-configured connectionless cache use now stays on the JSON runtime cache path.
+- Fixed tier-2b cluster enrichment still depending on SQLite `vec_chunks` existence. PostgreSQL cluster rebuilds now run through the provider embedding API instead of silently no-oping on non-SQLite backends.
+- Fixed raw clustering calls on non-SQLite connections from proceeding through SQLite-only assumptions. Non-SQLite clustering now requires a vector provider explicitly.
 
 ### Removed
 

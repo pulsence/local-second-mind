@@ -11,7 +11,7 @@ Folder Path: `lsm/remote/`
 - [chain.py](../lsm/remote/chain.py): RemoteProviderChain for multi-provider orchestration with field-mapping validation
 - [chains.py](../lsm/remote/chains.py): Preconfigured chain definitions (e.g., ScholarlyDiscoveryChain); `build_chain()` enables/disables chains via `remote.chains` config
 - [oauth.py](../lsm/remote/oauth.py): OAuth2 authorization code flow, encrypted token storage, and automatic token refresh
-- [storage.py](../lsm/remote/storage.py): Result caching helpers and RSS/Atom feed cache (FeedCache)
+- [storage.py](../lsm/remote/storage.py): Result caching helpers and RSS/Atom feed cache (FeedCache); uses unified DB cache tables when SQL access is available and filesystem JSON fallback otherwise, without synthesizing SQLite when PostgreSQL is configured
 - [utils.py](../lsm/remote/utils.py): Shared utility helpers
 
 ## Provider Sub-Packages

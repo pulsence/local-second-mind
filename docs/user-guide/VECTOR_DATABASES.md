@@ -63,6 +63,8 @@ PostgreSQL + pgvector
 - Full-text search via native `tsvector`/`tsquery` with `ts_rank`.
 - Knowledge graph tables (`lsm_graph_nodes`, `lsm_graph_edges`) with recursive CTE traversal.
 - Embedding model registry (`lsm_embedding_models`) for fine-tuned model tracking.
+- No implicit SQLite fallback when PostgreSQL is configured. If PostgreSQL is unreachable, startup health checks block with an actionable error instead of silently switching storage backends.
+- Connectionless helper caches fall back to JSON files under the global runtime folder, not to a synthesized local `lsm.db`.
 - Useful when operating at larger scale or in shared/server environments.
 
 ChromaDB (migration-only)
@@ -143,7 +145,8 @@ by newer ingest pipeline phases. The enrichment pipeline backfills these:
 - **Tier 2** (automatic if source files available): heading_path hierarchy,
   start_char/end_char positions, graph nodes/edges.
 - **Tier 2b** (automatic if clustering enabled): cluster_id/cluster_size
-  rebuild from existing embeddings.
+  rebuild from existing embeddings. On PostgreSQL this runs through the
+  configured provider API rather than SQLite-only `vec_chunks` tables.
 - **Tier 3** (advisory): chunk boundary changes or missing section/file
   summaries. Run `lsm ingest --force-reingest-changed-config` after migration.
 
@@ -155,7 +158,7 @@ is passed. Use `--enrich` to run enrichment standalone on an existing database.
 LSM checks database health at startup (TUI and CLI). Detected issues:
 
 - **missing**: No database file (first run, non-blocking).
-- **legacy_detected**: `.chroma/` directory found, migration recommended.
+- **legacy_detected**: Config selects legacy `chromadb`/`chroma`, migration recommended.
 - **mismatch**: Schema version differs from current config.
 - **corrupt**: Database unreachable or missing required tables.
 - **partial_migration**: Interrupted migration detected. Use `--resume`.

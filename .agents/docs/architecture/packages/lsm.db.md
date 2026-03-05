@@ -12,8 +12,8 @@ Folder Path: `lsm/db/`
 - [tables.py](../lsm/db/tables.py): Centralized table name registry (`TableNames`, `DEFAULT_TABLE_NAMES`)
 - [migration.py](../lsm/db/migration.py): Cross-backend state transfer migration framework
 - [health.py](../lsm/db/health.py): Startup diagnostics — version mismatches, missing/corrupt databases, legacy provider detection, partial migration detection
-- [clustering.py](../lsm/db/clustering.py): Cluster-aware retrieval infrastructure — k-means/HDBSCAN assignment, centroid storage, cluster-filtered queries
-- [enrichment.py](../lsm/db/enrichment.py): Post-migration chunk enrichment pipeline (backfills missing metadata in three tiers)
+- [clustering.py](../lsm/db/clustering.py): Cluster-aware retrieval infrastructure — k-means/HDBSCAN assignment, centroid storage, cluster-filtered queries; provider API is the canonical non-SQLite path and raw-connection fallback is SQLite-only
+- [enrichment.py](../lsm/db/enrichment.py): Post-migration chunk enrichment pipeline (backfills missing metadata in three tiers); tier 2b cluster rebuild uses the configured provider for PostgreSQL paths
 - [transaction.py](../lsm/db/transaction.py): Savepoint-aware transaction context manager (`transaction()`) — `BEGIN/COMMIT` for top-level, `SAVEPOINT/RELEASE` for nested
 - [completion.py](../lsm/db/completion.py): Incremental completion mode detection for selective re-ingest
 - [job_status.py](../lsm/db/job_status.py): Startup advisory checks for offline jobs (stale/unrun job detection)
