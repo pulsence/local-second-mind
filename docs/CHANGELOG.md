@@ -58,6 +58,8 @@ All notable changes to Local Second Mind are documented here.
 
 ### Added
 
+- PostgreSQL auto-create database: `PostgreSQLProvider` now automatically creates the target database if it doesn't exist when connecting, using a maintenance connection to the `postgres` database.
+- PostgreSQL auto-enable pgvector: after database creation or verification, the provider connects to the target database and runs `CREATE EXTENSION IF NOT EXISTS vector` to ensure pgvector is available.
 - Post-migration boundary-drift rechunk: enrichment pipeline now detects source files whose chunks were created with old fixed-size chunking (`start_char = -1`) and surfaces them as `drifted_source_paths` on `EnrichmentReport`.
 - `force_source_paths` parameter on `ingest()` and `run_ingest()` for selective path-based re-ingestion without affecting other files.
 - `--rechunk` / `--skip-rechunk` flags on `lsm migrate` for automatic or suppressed rechunking of boundary-drifted files after migration or enrichment. When neither flag is set, an interactive `[y/N]` prompt is shown.
@@ -135,6 +137,12 @@ All notable changes to Local Second Mind are documented here.
 
 ### Fixed
 
+- Fixed PostgreSQL DSN parsing corruption during auto-create database: `str.replace()` on the DSN mangled paths containing the database name substring. Now uses `urlparse`/`urlunparse` for safe DSN manipulation.
+- Fixed migration progress table DDL using SQLite-specific `AUTOINCREMENT` keyword on PostgreSQL. Added PostgreSQL-specific DDL with `SERIAL PRIMARY KEY`.
+- Fixed migration `?` placeholder syntax not being converted to `%s` for PostgreSQL connections in `_execute()`.
+- Fixed `cursor.lastrowid` returning `None` on PostgreSQL (no OIDs). Migration stage tracking now uses `RETURNING id` for PostgreSQL.
+- Fixed TUI ingest screen migration guidance showing deprecated `--from`/`--to` flags instead of `--from-db`/`--to-db`.
+- Fixed live PostgreSQL tests leaking orphaned `chunks_test_pg_*` tables. Test fixtures now `DROP TABLE` on teardown instead of only clearing rows.
 - Fixed `lsm migrate` blocked by startup health check: the health check detected legacy ChromaDB and returned a blocking error before the migrate command could dispatch. Health check is now skipped for the `migrate` command.
 - Fixed ChromaDB source path resolving against CWD instead of `global_folder`, causing a spurious `.chroma/` directory to be created in the project root during migration.
 - Fixed auto-detection not setting `from_version` when migrating from ChromaDB. Now assumes `v0.7` since ChromaDB was the v0.7 provider and has no schema version table.
