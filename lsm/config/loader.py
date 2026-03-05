@@ -490,17 +490,19 @@ def build_db_config(raw: Dict[str, Any]) -> DBConfig:
             index_type=vector_raw.get("index_type", "hnsw"),
             pool_size=int(vector_raw.get("pool_size", 5)),
         )
-        return DBConfig(
-            table_prefix=db_raw.get("table_prefix", "lsm_"),
-            path=db_raw.get("path", DBConfig.path),
-            connection_string=db_raw.get("connection_string"),
-            host=db_raw.get("host"),
-            port=db_raw.get("port"),
-            database=db_raw.get("database"),
-            user=db_raw.get("user"),
-            password=db_raw.get("password"),
-            vector=vector,
-        )
+        db_kwargs: dict[str, Any] = {
+            "table_prefix": db_raw.get("table_prefix", "lsm_"),
+            "connection_string": db_raw.get("connection_string"),
+            "host": db_raw.get("host"),
+            "port": db_raw.get("port"),
+            "database": db_raw.get("database"),
+            "user": db_raw.get("user"),
+            "password": db_raw.get("password"),
+            "vector": vector,
+        }
+        if db_raw.get("path") not in {None, ""}:
+            db_kwargs["path"] = db_raw.get("path")
+        return DBConfig(**db_kwargs)
 
     # Neither key present — use defaults
     return DBConfig()

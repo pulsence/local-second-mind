@@ -998,20 +998,23 @@ def _to_vectordb_config(raw: Any, provider_hint: Optional[str] = None) -> DBConf
         if "vector" in db_raw and isinstance(db_raw["vector"], Mapping):
             vector_raw = db_raw["vector"]
         provider = provider_hint or str(vector_raw.get("provider", "sqlite"))
-        path_value = db_raw.get("path", Path(".lsm"))
         collection = str(vector_raw.get("collection", "local_kb"))
+        db_kwargs: dict[str, Any] = {
+            "provider": provider,
+            "collection": collection,
+            "connection_string": db_raw.get("connection_string"),
+            "host": db_raw.get("host"),
+            "port": db_raw.get("port"),
+            "database": db_raw.get("database"),
+            "user": db_raw.get("user"),
+            "password": db_raw.get("password"),
+            "index_type": vector_raw.get("index_type", "hnsw"),
+            "pool_size": int(vector_raw.get("pool_size", 5)),
+        }
+        if db_raw.get("path") not in {None, ""}:
+            db_kwargs["path"] = Path(db_raw.get("path"))
         return DBConfig(
-            provider=provider,
-            collection=collection,
-            path=Path(path_value),
-            connection_string=db_raw.get("connection_string"),
-            host=db_raw.get("host"),
-            port=db_raw.get("port"),
-            database=db_raw.get("database"),
-            user=db_raw.get("user"),
-            password=db_raw.get("password"),
-            index_type=vector_raw.get("index_type", "hnsw"),
-            pool_size=int(vector_raw.get("pool_size", 5)),
+            **db_kwargs,
         )
 
     raise ValueError("Unable to derive DBConfig for migration source/target.")

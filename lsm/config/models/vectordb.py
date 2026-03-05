@@ -8,7 +8,13 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
 
+from lsm.paths import get_global_folder
+
 from .constants import DEFAULT_COLLECTION, DEFAULT_VDB_PATH, DEFAULT_VDB_PROVIDER
+
+
+def _default_db_path() -> Path:
+    return get_global_folder() / DEFAULT_VDB_PATH
 
 
 @dataclass
@@ -43,7 +49,7 @@ class DBConfig:
     table_prefix: str = "lsm_"
     """Prefix for all SQL table names."""
 
-    path: Path = Path(DEFAULT_VDB_PATH)
+    path: Path = field(default_factory=_default_db_path)
     """Directory containing the unified ``lsm.db`` file."""
 
     connection_string: Optional[str] = None
@@ -59,7 +65,9 @@ class DBConfig:
     """Nested vector-specific configuration."""
 
     def __post_init__(self):
-        if isinstance(self.path, str):
+        if self.path in {None, ""}:
+            self.path = _default_db_path()
+        elif isinstance(self.path, str):
             self.path = Path(self.path)
 
     # ------------------------------------------------------------------
