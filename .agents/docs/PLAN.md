@@ -33,7 +33,8 @@
 | 17 | Debug Phase | Completed | [PHASE_17.md](./plan_phases/PHASE_17.md) |
 | 18 | Post-Migration Boundary-Drift Rechunk | Completed | [PHASE_18.md](./plan_phases/PHASE_18.md) |
 | 19 | DB-Agnostic Application Layer | Completed | [PHASE_19.md](./plan_phases/PHASE_19.md) |
-| 20 | Final Code Review and Release | Pending | [PHASE_20.md](./plan_phases/PHASE_20.md) |
+| 20 | Moving-Average ETA and Migration Graph Index Cleanup | Pending | [PHASE_20.md](./plan_phases/PHASE_20.md) |
+| 21 | Final Code Review and Release | Pending | [PHASE_21.md](./plan_phases/PHASE_21.md) |
 
 ---
 
@@ -99,8 +100,11 @@ Detects boundary-drifted chunks after migration (old fixed-size chunking), surfa
 ### [Phase 19: DB-Agnostic Application Layer](./plan_phases/PHASE_19.md)
 Makes the application DB layer backend-agnostic so PostgreSQL reaches feature parity with SQLite, including migration completeness for PG↔SQLite and full v0.7 sidecar imports. Sub-tasks: 19.1–19.7.
 
-### [Phase 20: Final Code Review and Release](./plan_phases/PHASE_20.md)
-Comprehensive review, integration testing, architecture docs, and release preparation. Sub-tasks: 20.1–20.4.
+### [Phase 20: Moving-Average ETA and Migration Graph Index Cleanup](./plan_phases/PHASE_20.md)
+Replaces whole-run ETA estimates with moving-average progress reporting for ingest/migration work, fixes misleading position-backfill metrics, adds durable batch-flush rules for migration stages on both SQLite and PostgreSQL targets, controls SQLite WAL growth during long writes, and moves graph-node index creation out of runtime backfill logic into schema creation. Sub-tasks: 20.1–20.7.
+
+### [Phase 21: Final Code Review and Release](./plan_phases/PHASE_21.md)
+Comprehensive review, integration testing, architecture docs, and release preparation. Sub-tasks: 21.1–21.4.
 
 ---
 

@@ -572,10 +572,11 @@ Recommended archive layout per supported historical version:
 
 Each archive should contain:
 
-- backend snapshot or dump
+- slimmed backend snapshot or dump generated from a larger live DB when needed
 - `golden_manifest.json`
 - `config.json`
-- corpus/source files or references to the shared corpus bundle
+- archived corpus/source files copied from DB-discovered `source_path` values
+- path remap metadata for any rewritten source paths
 - checksum metadata for internal contents
 
 ### 4.4 What Should Be Golden
@@ -584,13 +585,13 @@ Recommended golden assets:
 
 | Asset | Recommendation |
 |-------|----------------|
-| Source corpus | Include in the archive set or a shared corpus archive |
-| SQLite DB snapshot | Store as an archive member |
-| Chroma snapshot | Store for legacy-coverage versions that still need Chroma migration tests |
-| PostgreSQL state | Store as a logical dump archive and support runtime materialization as a fallback |
+| Source corpus | Copy the selected files directly from DB-discovered `source_path` values into the archive; do not rely on a manual file list |
+| SQLite DB snapshot | Store a slim SQLite snapshot derived from the live DB, not the full production-sized DB |
+| Chroma snapshot | Store a slim export derived from the live collection for legacy-coverage versions that still need Chroma migration tests |
+| PostgreSQL state | Store a slim logical dump derived from the live DB and support runtime materialization as a fallback |
 | Metadata manifest | Include in each archive |
 | Config snapshot | Include in each archive |
-| Expected row counts | Include in each archive manifest |
+| Expected row counts | Include in each archive manifest, including pre-slim and post-slim counts |
 
 ### 4.5 PostgreSQL Archive vs Runtime Materialization
 
@@ -632,23 +633,56 @@ An explicit golden creation tool is useful, but it should follow repo convention
 Recommended command:
 
 ```text
-lsm db golden-create --output <dir> [--backend sqlite|postgresql|chroma] [--archive tar.gz]
+lsm db golden-create --output <dir> [--backend sqlite|postgresql|chroma] [--archive tar.gz] [--max-files N]
 ```
 
 Recommended behavior:
 
-1. validate the source DB state first
-2. export `config.json`
-3. package the result as a tar archive
-4. write `golden_manifest.json` with:
+1. accept a live backend/DB as the source of truth rather than requiring a pre-curated
+   small fixture DB
+2. validate the live source DB state first
+3. discover the canonical file set from the DB itself:
+   - use `lsm_manifest.source_path` as the primary source list
+   - fall back to distinct `lsm_chunks.source_path` rows if manifest state is incomplete
+4. resolve those source paths on disk and copy the selected files into the archive
+5. deterministically slim the live DB into a portable test fixture:
+   - select a bounded source-file subset when the live DB is too large for practical tests
+   - copy all dependent rows for the selected `source_path` values
+   - preserve required shared/reference tables in full where filtering would break semantics
+6. rewrite archived `source_path` values to portable archive-relative paths instead of
+   keeping machine-specific absolute paths from the live environment
+7. export `config.json`
+8. package the result as a tar archive
+9. write `golden_manifest.json` with:
    - backend
    - DB schema version
    - corpus version / provenance record
+   - original live DB identity
+   - slimming policy and selection parameters
+   - original-to-archived source-path remap
+   - counts before and after slimming
    - row counts per table
    - collection/table prefix
    - creation timestamp
    - archive checksum
-5. emit or copy backend-specific artifacts
+10. emit or copy backend-specific artifacts
+
+The key requirement from the latest feedback is that the golden tool must not just repackage
+large live DBs verbatim. It needs to manufacture a smaller, self-contained, portable archive
+from a live production-like database automatically.
+
+Backend-specific implementation guidance:
+
+- SQLite: materialize a new temporary slim SQLite DB and archive that file
+- PostgreSQL: copy selected rows into an isolated temporary DB/schema or temp-prefixed tables,
+  then dump the slimmed result
+- Chroma: materialize a temporary slim collection/export rather than archiving the full live
+  collection directory
+
+Failure policy should be explicit:
+
+- default: fail if a DB-referenced local file cannot be found and copied into the archive
+- optional relaxed mode: allow missing files but record them in `golden_manifest.json`
 
 ### 4.8 Recommended Pragmatic Scope
 
@@ -662,6 +696,11 @@ For v0.8.1, the minimum useful archive set is:
 This satisfies the user's requirement that the golden data exist for Chroma, SQLite, and
 PostgreSQL, while keeping the implementation centered on external archive artifacts rather
 than git-tracked fixture directories.
+
+The source historical databases for those archives may be large full databases. The golden
+workflow should treat those large DBs as inputs to `lsm db golden-create`, not as the
+artifacts consumed directly by tests. The test-facing artifacts should be slimmed,
+self-contained archives derived from those live DBs.
 
 ### 4.9 Golden Test Matrix
 
