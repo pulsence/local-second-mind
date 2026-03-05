@@ -443,18 +443,40 @@ class TestPostgreSQLEnsureDatabase:
 
         # Should connect to "postgres" maintenance DB
         mock_psycopg2.connect.assert_called_once()
-        dsn_arg = mock_psycopg2.connect.call_args
-        assert "postgres" in str(dsn_arg)
+        dsn_arg = str(mock_psycopg2.connect.call_args)
+        assert "/postgres" in dsn_arg
 
         # Should check for DB existence and create it
         assert mock_cursor.execute.call_count == 2
-        # First call: SELECT from pg_database
         first_call_args = mock_cursor.execute.call_args_list[0]
         assert "pg_database" in str(first_call_args)
-        # Second call: CREATE DATABASE
         second_call_args = mock_cursor.execute.call_args_list[1]
         assert "mydb" in str(second_call_args)
         mock_conn.close.assert_called_once()
+
+    def test_connection_string_with_db_name_in_user(self, mock_pg_deps):
+        """DSN replacement must not corrupt usernames containing the DB name."""
+        from lsm.vectordb.postgresql import PostgreSQLProvider
+
+        # Username "lsm_user" contains "lsm" which is also the DB name
+        provider = PostgreSQLProvider(
+            _pg_config(connection_string="postgresql://lsm_user:abc123@localhost:5432/lsm")
+        )
+
+        mock_conn = MagicMock()
+        mock_cursor = MagicMock()
+        mock_cursor.fetchone.return_value = (1,)  # DB exists
+        mock_conn.cursor.return_value.__enter__ = lambda s: mock_cursor
+        mock_conn.cursor.return_value.__exit__ = MagicMock(return_value=False)
+
+        mock_psycopg2 = mock_pg_deps["psycopg2"]
+        mock_psycopg2.connect.return_value = mock_conn
+        provider._ensure_database()
+
+        dsn = mock_psycopg2.connect.call_args[1]["dsn"]
+        # Username must be preserved, only path changed
+        assert "lsm_user" in dsn
+        assert dsn.endswith("/postgres")
 
     def test_skips_creation_when_database_exists(self, mock_pg_deps):
         """No CREATE DATABASE when the database already exists."""

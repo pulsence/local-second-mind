@@ -111,16 +111,18 @@ class PostgreSQLProvider(BaseVectorDBProvider):
 
     def _ensure_database(self) -> None:
         """Create the target database and enable pgvector if they don't exist."""
+        if psycopg2 is None:
+            return
+
         if self.config.connection_string:
-            from urllib.parse import urlparse
+            from urllib.parse import urlparse, urlunparse
 
             parsed = urlparse(self.config.connection_string)
             db_name = (parsed.path or "").lstrip("/")
             if not db_name:
                 return
-            maint_dsn = self.config.connection_string.replace(
-                f"/{db_name}", "/postgres", 1
-            )
+            maint_parsed = parsed._replace(path="/postgres")
+            maint_dsn = urlunparse(maint_parsed)
             maint_kwargs = {"dsn": maint_dsn}
         else:
             db_name = self.config.database
@@ -135,6 +137,7 @@ class PostgreSQLProvider(BaseVectorDBProvider):
             }
 
         try:
+            logger.debug("Checking if database '%s' exists...", db_name)
             conn = psycopg2.connect(**maint_kwargs)
             conn.autocommit = True
             with conn.cursor() as cur:
@@ -142,17 +145,22 @@ class PostgreSQLProvider(BaseVectorDBProvider):
                     "SELECT 1 FROM pg_database WHERE datname = %s", (db_name,)
                 )
                 if not cur.fetchone():
+                    logger.info("Creating PostgreSQL database '%s'...", db_name)
                     cur.execute(
                         sql.SQL("CREATE DATABASE {}").format(
                             sql.Identifier(db_name)
                         )
                     )
                     logger.info("Created PostgreSQL database '%s'", db_name)
+                else:
+                    logger.debug("Database '%s' already exists", db_name)
             conn.close()
-        except psycopg2.OperationalError:
+        except psycopg2.OperationalError as exc:
             # Can't connect to maintenance DB — let pool creation fail
             # with the original error so the user sees the real problem.
-            pass
+            logger.debug("Cannot auto-create database: %s", exc)
+        except Exception as exc:
+            logger.warning("Failed to auto-create database '%s': %s", db_name, exc)
 
     def _ensure_pool(self) -> None:
         if self._pool is not None:
