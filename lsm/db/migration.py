@@ -53,11 +53,22 @@ from typing import Any, Callable, Dict, Iterable, Mapping, Optional
 
 from lsm import __version__ as LSM_VERSION
 from lsm.config.models import DBConfig
+from lsm.db.compat import commit as compat_commit
+from lsm.db.compat import dialect as compat_dialect
+from lsm.db.compat import execute as compat_execute
+from lsm.db.compat import safe_identifier
+from lsm.db.connection import resolve_connection
 from lsm.db.tables import DEFAULT_TABLE_NAMES, TableNames
 from lsm.logging import get_logger
 from lsm.vectordb import create_vectordb_provider
 
 logger = get_logger(__name__)
+
+# Backward-compatible internal aliases used by existing tests and patch hooks.
+_execute = compat_execute
+_commit = compat_commit
+_dialect = compat_dialect
+_safe_ident = safe_identifier
 
 ProgressCallback = Callable[[str, int, int, str], None]
 
@@ -1061,11 +1072,11 @@ def _ensure_migration_progress_table(
     tn: TableNames = DEFAULT_TABLE_NAMES,
 ) -> None:
     """Create the migration_progress table if it does not exist."""
-    dialect = _dialect(conn)
+    dialect = compat_dialect(conn)
     template = _MIGRATION_PROGRESS_DDL_SQLITE if dialect == "sqlite" else _MIGRATION_PROGRESS_DDL_POSTGRES
     ddl = template.format(table=tn.migration_progress)
-    _execute(conn, ddl)
-    _commit(conn)
+    compat_execute(conn, ddl)
+    compat_commit(conn)
 
 
 def _begin_stage(
@@ -1080,8 +1091,8 @@ def _begin_stage(
     _ensure_migration_progress_table(conn, tn)
     now = datetime.now(timezone.utc).isoformat()
     params = (run_id, now, source_type, target_type, stage)
-    if _dialect(conn) == "postgresql":
-        cursor = _execute(
+    if compat_dialect(conn) == "postgresql":
+        cursor = compat_execute(
             conn,
             f"INSERT INTO {tn.migration_progress} "
             f"(migration_run, started_at, source_type, target_type, stage, status) "
@@ -1089,17 +1100,17 @@ def _begin_stage(
             params,
         )
         row = cursor.fetchone()
-        _commit(conn)
+        compat_commit(conn)
         return row[0]
     else:
-        cursor = _execute(
+        cursor = compat_execute(
             conn,
             f"INSERT INTO {tn.migration_progress} "
             f"(migration_run, started_at, source_type, target_type, stage, status) "
             f"VALUES (?, ?, ?, ?, ?, 'in_progress')",
             params,
         )
-        _commit(conn)
+        compat_commit(conn)
         return cursor.lastrowid
 
 
@@ -1111,14 +1122,14 @@ def _complete_stage(
 ) -> None:
     """Mark a migration stage as completed."""
     now = datetime.now(timezone.utc).isoformat()
-    _execute(
+    compat_execute(
         conn,
         f"UPDATE {tn.migration_progress} "
         f"SET status = 'completed', completed_at = ?, rows_processed = ? "
         f"WHERE id = ?",
         (now, rows, stage_id),
     )
-    _commit(conn)
+    compat_commit(conn)
 
 
 def _set_stage_rows_processed(
@@ -1128,12 +1139,12 @@ def _set_stage_rows_processed(
     tn: TableNames = DEFAULT_TABLE_NAMES,
 ) -> None:
     """Update in-progress row count for a stage checkpoint."""
-    _execute(
+    compat_execute(
         conn,
         f"UPDATE {tn.migration_progress} SET rows_processed = ? WHERE id = ?",
         (int(rows), stage_id),
     )
-    _commit(conn)
+    compat_commit(conn)
 
 
 def _fail_stage(
@@ -1144,14 +1155,14 @@ def _fail_stage(
 ) -> None:
     """Mark a migration stage as failed with an error message."""
     now = datetime.now(timezone.utc).isoformat()
-    _execute(
+    compat_execute(
         conn,
         f"UPDATE {tn.migration_progress} "
         f"SET status = 'failed', completed_at = ?, error_message = ? "
         f"WHERE id = ?",
         (now, error, stage_id),
     )
-    _commit(conn)
+    compat_commit(conn)
 
 
 def _interrupt_stage(
@@ -1161,14 +1172,14 @@ def _interrupt_stage(
 ) -> None:
     """Mark a migration stage as interrupted (user cancelled)."""
     now = datetime.now(timezone.utc).isoformat()
-    _execute(
+    compat_execute(
         conn,
         f"UPDATE {tn.migration_progress} "
         f"SET status = 'interrupted', completed_at = ? "
         f"WHERE id = ?",
         (now, stage_id),
     )
-    _commit(conn)
+    compat_commit(conn)
 
 
 def _has_incomplete_stages(
@@ -1177,7 +1188,7 @@ def _has_incomplete_stages(
     tn: TableNames = DEFAULT_TABLE_NAMES,
 ) -> bool:
     """Check whether a run has any interrupted, in-progress, or failed stages."""
-    row = _execute(
+    row = compat_execute(
         conn,
         f"SELECT COUNT(*) FROM {tn.migration_progress} "
         f"WHERE migration_run = ? AND status IN ('in_progress', 'interrupted', 'failed')",
@@ -1194,7 +1205,7 @@ def _get_stage_rows_processed(
 ) -> int:
     """Return the highest checkpoint row count for a stage in a run."""
     _ensure_migration_progress_table(conn, tn)
-    row = _execute(
+    row = compat_execute(
         conn,
         f"SELECT COALESCE(MAX(rows_processed), 0) FROM {tn.migration_progress} "
         f"WHERE migration_run = ? AND stage = ?",
@@ -1210,7 +1221,7 @@ def _get_completed_stages(
 ) -> set[str]:
     """Get stage names that completed in a given migration run."""
     _ensure_migration_progress_table(conn, tn)
-    rows = _execute(
+    rows = compat_execute(
         conn,
         f"SELECT stage FROM {tn.migration_progress} "
         f"WHERE migration_run = ? AND status = 'completed'",
@@ -1225,7 +1236,7 @@ def _get_latest_run_id(
 ) -> Optional[str]:
     """Get the most recent migration_run id."""
     _ensure_migration_progress_table(conn, tn)
-    row = _execute(
+    row = compat_execute(
         conn,
         f"SELECT migration_run FROM {tn.migration_progress} "
         f"ORDER BY id DESC LIMIT 1",
@@ -1286,17 +1297,17 @@ def _evolve_schema(
     from lsm.db.schema import ensure_application_schema
 
     # Column-level evolution first (adds missing columns to existing tables)
-    dialect = _dialect(conn)
+    dialect = compat_dialect(conn)
     if dialect == "sqlite":
         _evolve_sqlite_columns(conn, tn)
-    _commit(conn)
+    compat_commit(conn)
 
     # Now safe to create tables/indexes that reference the new columns
     try:
         ensure_application_schema(conn, table_names=tn)
     except Exception:
         logger.debug("Schema evolution: ensure_application_schema partial failure", exc_info=True)
-    _commit(conn)
+    compat_commit(conn)
 
 
 def _evolve_sqlite_columns(conn: Any, tn: TableNames) -> None:
@@ -1397,35 +1408,32 @@ def _connection_context(provider: Any):
     if provider is None:
         yield None
         return
-
-    connection = getattr(provider, "connection", None)
-    if connection is not None:
-        yield connection
-        return
-
-    get_conn = getattr(provider, "_get_conn", None)
-    if callable(get_conn):
-        with get_conn() as conn:
+    conn_cm = resolve_connection(provider)
+    entered = False
+    try:
+        with conn_cm as conn:
+            entered = True
             yield conn
-        return
-
-    yield None
+    except Exception:
+        if entered:
+            raise
+        yield None
 
 
 def _ensure_aux_tables(conn: Any, tn: TableNames = DEFAULT_TABLE_NAMES) -> None:
-    dialect = _dialect(conn)
+    dialect = compat_dialect(conn)
     for spec in _build_aux_table_specs(tn):
         ddl = spec.sqlite_ddl if dialect == "sqlite" else spec.postgres_ddl
-        _execute(conn, ddl)
+        compat_execute(conn, ddl)
     _ensure_validation_table(conn, tn)
-    _commit(conn)
+    compat_commit(conn)
 
 
 def _ensure_validation_table(conn: Any, tn: TableNames = DEFAULT_TABLE_NAMES) -> None:
-    dialect = _dialect(conn)
+    dialect = compat_dialect(conn)
     table = tn.migration_validation
     if dialect == "sqlite":
-        _execute(
+        compat_execute(
             conn,
             f"""
             CREATE TABLE IF NOT EXISTS {table} (
@@ -1436,7 +1444,7 @@ def _ensure_validation_table(conn: Any, tn: TableNames = DEFAULT_TABLE_NAMES) ->
             """,
         )
     else:
-        _execute(
+        compat_execute(
             conn,
             f"""
             CREATE TABLE IF NOT EXISTS {table} (
@@ -1446,7 +1454,7 @@ def _ensure_validation_table(conn: Any, tn: TableNames = DEFAULT_TABLE_NAMES) ->
             )
             """,
         )
-    _commit(conn)
+    compat_commit(conn)
 
 
 def _table_exists(conn: Any, table_name: str) -> bool:
@@ -1495,7 +1503,7 @@ def _count_vector_rows_for_key(
         row = _execute(conn, f"SELECT COUNT(*) FROM {tn.chunks}").fetchone()
         return int(row[0] or 0) if row is not None else 0
 
-    if _dialect(conn) == "postgresql":
+    if compat_dialect(conn) == "postgresql":
         rows = _fetch_query_rows(
             conn,
             """
@@ -1531,7 +1539,7 @@ def _vector_validation_key(
         candidate = table_name.strip()
         if candidate:
             try:
-                _safe_ident(candidate)
+                safe_identifier(candidate)
             except ValueError:
                 return "vector_rows"
             return f"vector_rows:{candidate}"
@@ -1545,26 +1553,6 @@ def _next_schema_version_id(conn: Any, tn: TableNames = DEFAULT_TABLE_NAMES) -> 
     ).fetchone()
     current = int(row[0] or 0) if row is not None else 0
     return current + 1
-
-
-def _dialect(conn: Any) -> str:
-    from lsm.db.compat import dialect as _compat_dialect
-    return _compat_dialect(conn)
-
-
-def _commit(conn: Any) -> None:
-    from lsm.db.compat import commit as _compat_commit
-    _compat_commit(conn)
-
-
-def _execute(conn: Any, query: str, params: Iterable[Any] = ()) -> Any:
-    from lsm.db.compat import execute as _compat_execute
-    return _compat_execute(conn, query, params)
-
-
-def _safe_ident(value: str) -> str:
-    from lsm.db.compat import safe_identifier
-    return safe_identifier(value)
 
 
 def _resolve_v07_source_dir(source_config: Any) -> Path:

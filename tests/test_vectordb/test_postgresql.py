@@ -682,3 +682,48 @@ class TestPostgreSQLFTSQuery:
         assert result.documents == ["The quick brown fox"]
         assert result.metadatas == [{"key": "val"}]
         assert result.distances == [-0.8]
+
+
+class TestPostgreSQLClusterEmbeddingAPI:
+    """Tests for get_embeddings/update_cluster_assignments API parity hooks."""
+
+    def test_get_embeddings_returns_ids_and_vectors(self, provider, mocker):
+        mock_conn = MagicMock()
+        mock_cursor = MagicMock()
+        mock_cursor.fetchall.return_value = [
+            ("c1", [1.0, 2.0]),
+            ("c2", (3.0, 4.0)),
+        ]
+        mock_conn.cursor.return_value.__enter__ = lambda s: mock_cursor
+        mock_conn.cursor.return_value.__exit__ = MagicMock(return_value=False)
+
+        mocker.patch.object(provider, "_table_exists", return_value=True)
+        with patch.object(provider, "_get_conn") as ctx:
+            ctx.return_value.__enter__ = lambda s: mock_conn
+            ctx.return_value.__exit__ = MagicMock(return_value=False)
+            ids, vectors = provider.get_embeddings(
+                filters={"source_path": "/docs/a.md"},
+                only_current=True,
+            )
+
+        assert ids == ["c1", "c2"]
+        assert vectors == [[1.0, 2.0], [3.0, 4.0]]
+        assert mock_cursor.execute.called
+
+    def test_update_cluster_assignments_updates_metadata_and_chunks(self, provider, mocker):
+        mock_conn = MagicMock()
+        mock_cursor = MagicMock()
+        # First fetchone() call is for to_regclass(chunks_table)
+        mock_cursor.fetchone.return_value = ("lsm_chunks",)
+        mock_conn.cursor.return_value.__enter__ = lambda s: mock_cursor
+        mock_conn.cursor.return_value.__exit__ = MagicMock(return_value=False)
+
+        mocker.patch.object(provider, "_table_exists", return_value=True)
+        with patch.object(provider, "_get_conn") as ctx:
+            ctx.return_value.__enter__ = lambda s: mock_conn
+            ctx.return_value.__exit__ = MagicMock(return_value=False)
+            provider.update_cluster_assignments([("c1", 7), ("c2", 3)])
+
+        # to_regclass + 2 updates on vector table + 2 updates on chunks table
+        assert mock_cursor.execute.call_count == 5
+        mock_conn.commit.assert_called_once()

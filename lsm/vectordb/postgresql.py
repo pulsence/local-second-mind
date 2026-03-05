@@ -943,6 +943,82 @@ class PostgreSQLProvider(BaseVectorDBProvider):
 
         return [str(row[0]) for row in rows]
 
+    def get_embeddings(
+        self,
+        filters: Optional[Dict[str, Any]] = None,
+        only_current: bool = True,
+    ) -> tuple[List[str], List[List[float]]]:
+        """Batch retrieve chunk IDs and embedding vectors."""
+        with self._get_conn() as conn:
+            if not self._table_exists(conn):
+                return [], []
+
+            table_ident = sql.Identifier(self._table_name)
+            where_parts: List[sql.Composable] = []
+            params: List[Any] = []
+
+            if only_current:
+                where_parts.append(sql.SQL("COALESCE((metadata->>'is_current')::int, 1) = 1"))
+            if filters:
+                normalized = self._normalize_filters(filters)
+                where_parts.append(sql.SQL("metadata @> %s::jsonb"))
+                params.append(json.dumps(normalized))
+
+            query = sql.SQL("SELECT id, embedding FROM {table}").format(table=table_ident)
+            if where_parts:
+                query += sql.SQL(" WHERE ") + sql.SQL(" AND ").join(where_parts)
+            query += sql.SQL(" ORDER BY id")
+
+            with conn.cursor() as cur:
+                cur.execute(query, params)
+                rows = cur.fetchall()
+
+        chunk_ids: List[str] = []
+        embeddings: List[List[float]] = []
+        for row in rows:
+            emb = row[1]
+            if emb is None:
+                continue
+            chunk_ids.append(str(row[0]))
+            embeddings.append([float(v) for v in list(emb)])
+        return chunk_ids, embeddings
+
+    def update_cluster_assignments(self, updates: List[tuple[str, int]]) -> None:
+        """Batch update cluster_id on vector metadata and application chunks table."""
+        if not updates:
+            return
+        with self._get_conn() as conn:
+            if not self._table_exists(conn):
+                return
+
+            table_ident = sql.Identifier(self._table_name)
+            with conn.cursor() as cur:
+                cur.execute("SELECT to_regclass(%s)", (self._tn.chunks,))
+                chunks_table_exists = cur.fetchone()[0] is not None
+
+                for chunk_id, cluster_id in updates:
+                    cur.execute(
+                        sql.SQL(
+                            """
+                            UPDATE {table}
+                            SET metadata = jsonb_set(
+                                COALESCE(metadata, '{{}}'::jsonb),
+                                '{{cluster_id}}',
+                                to_jsonb(%s::int),
+                                true
+                            )
+                            WHERE id = %s
+                            """
+                        ).format(table=table_ident),
+                        (int(cluster_id), str(chunk_id)),
+                    )
+                    if chunks_table_exists:
+                        cur.execute(
+                            f"UPDATE {self._tn.chunks} SET cluster_id = %s WHERE chunk_id = %s",
+                            (int(cluster_id), str(chunk_id)),
+                        )
+            conn.commit()
+
     # ------------------------------------------------------------------
     # Embedding model registry helper tables
     # ------------------------------------------------------------------

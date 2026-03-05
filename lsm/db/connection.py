@@ -27,7 +27,7 @@ from __future__ import annotations
 import sqlite3
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Any, Callable, Iterator, Optional, Tuple, Union
+from typing import Any, Callable, Iterator, Optional, Tuple
 
 
 def create_vectordb_provider(config: Any) -> Any:
@@ -129,9 +129,13 @@ def resolve_postgres_connection_factory(
 
 @contextmanager
 def resolve_connection(provider: Any) -> Iterator[Any]:
-    """Yield a raw DB-API connection from a vector-DB provider instance.
+    """Yield a raw DB-API connection from a provider instance or DB config.
 
-    Works for both SQLite and PostgreSQL providers.
+    Works for both SQLite and PostgreSQL providers and accepts:
+
+    - provider instances
+    - config objects (for example ``DBConfig``), in which case a temporary
+      provider is created for this context
 
     - **SQLite**: yields ``provider.connection`` (persistent — do NOT close).
     - **PostgreSQL**: yields ``provider._get_conn()`` (pool-borrowed —
@@ -145,35 +149,48 @@ def resolve_connection(provider: Any) -> Iterator[Any]:
         with resolve_connection(provider) as conn:
             compat.execute(conn, "SELECT 1")
     """
-    name = resolve_vectordb_provider_name(provider)
-
-    if name == "sqlite":
-        connection = getattr(provider, "connection", None)
-        if connection is None:
-            raise ValueError(
-                "SQLite provider does not expose a .connection attribute."
-            )
+    # Generic path first: any object exposing a concrete .connection value.
+    connection = getattr(provider, "connection", None)
+    if connection is not None:
         yield connection
         return
 
-    if name == "postgresql":
-        get_conn = getattr(provider, "_get_conn", None)
-        if not callable(get_conn):
-            raise ValueError(
-                "PostgreSQL provider does not expose a _get_conn() callable."
-            )
-        conn = get_conn()
-        try:
-            yield conn
-        finally:
-            # Pool-borrowed connections are returned automatically
-            # when the caller's transaction is complete.
-            pass
+    # Generic pool path: any object exposing a callable _get_conn.
+    # Supports both:
+    #   1) _get_conn() -> raw connection
+    #   2) _get_conn() -> context manager yielding a connection
+    get_conn = getattr(provider, "_get_conn", None)
+    if callable(get_conn):
+        acquired = get_conn()
+        if acquired is None:
+            raise ValueError("Provider _get_conn() returned None; SQL access unavailable.")
+        if hasattr(acquired, "__enter__") and hasattr(acquired, "__exit__"):
+            with acquired as conn:
+                yield conn
+            return
+        yield acquired
         return
+
+    # Config objects: build a temporary provider for this context.
+    if not _is_provider_instance(provider):
+        created_provider = create_vectordb_provider(provider)
+        try:
+            with resolve_connection(created_provider) as conn:
+                yield conn
+            return
+        finally:
+            _close_temp_provider(created_provider)
+
+    # Backend-specific error messages for known providers.
+    name = resolve_vectordb_provider_name(provider)
+    if name == "sqlite":
+        raise ValueError("SQLite provider does not expose a .connection attribute.")
+    if name == "postgresql":
+        raise ValueError("PostgreSQL provider does not expose a _get_conn() callable.")
 
     raise ValueError(
         f"Provider '{name}' does not expose SQL access. "
-        f"Supported providers: sqlite, postgresql."
+        "Expected .connection or _get_conn()."
     )
 
 
@@ -187,3 +204,21 @@ def _is_provider_instance(vectordb: Any) -> bool:
     except ImportError:
         pass
     return hasattr(vectordb, "name") and hasattr(vectordb, "config")
+
+
+def _close_temp_provider(provider: Any) -> None:
+    """Best-effort cleanup for providers created from config input."""
+    conn = getattr(provider, "connection", None)
+    if isinstance(conn, sqlite3.Connection):
+        try:
+            conn.close()
+        except Exception:
+            pass
+
+    pool_obj = getattr(provider, "_pool", None)
+    closeall = getattr(pool_obj, "closeall", None)
+    if callable(closeall):
+        try:
+            closeall()
+        except Exception:
+            pass

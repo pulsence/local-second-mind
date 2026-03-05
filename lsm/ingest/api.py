@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any, Callable, Dict, Optional
 
 from lsm.config.models import LSMConfig
+from lsm.db.connection import resolve_connection
 from lsm.ingest.stats import (
     get_collection_info as _get_collection_info,
     get_collection_stats as _get_collection_stats,
@@ -84,17 +85,25 @@ def get_collection_stats(
             progress_callback(analyzed, count)
 
     runtime_dir = _runtime_artifact_dir(config)
-    stats_cache = _build_stats_cache(
-        config,
-        connection=getattr(provider, "connection", None),
-    )
-    stats = _get_collection_stats(
-        provider,
-        limit=None,
-        error_report_path=runtime_dir / "ingest_error_report.json",
-        progress_callback=report_progress,
-        stats_cache=stats_cache,
-    )
+    try:
+        with resolve_connection(provider) as conn:
+            stats_cache = _build_stats_cache(config, connection=conn)
+            stats = _get_collection_stats(
+                provider,
+                limit=None,
+                error_report_path=runtime_dir / "ingest_error_report.json",
+                progress_callback=report_progress,
+                stats_cache=stats_cache,
+            )
+    except Exception:
+        stats_cache = _build_stats_cache(config)
+        stats = _get_collection_stats(
+            provider,
+            limit=None,
+            error_report_path=runtime_dir / "ingest_error_report.json",
+            progress_callback=report_progress,
+            stats_cache=stats_cache,
+        )
 
     top_files = [
         {"source_path": path, "chunk_count": chunks}
@@ -171,8 +180,17 @@ def run_ingest(
         summary_llm_config=summary_llm,
     )
 
-    # Invalidate stats cache after ingest
-    _build_stats_cache(config).invalidate()
+    # Invalidate stats cache after ingest.
+    cache_invalidated = False
+    try:
+        provider = create_vectordb_provider(config.db)
+        with resolve_connection(provider) as conn:
+            _build_stats_cache(config, connection=conn).invalidate()
+            cache_invalidated = True
+    except Exception:
+        pass
+    if not cache_invalidated:
+        _build_stats_cache(config).invalidate()
 
     return IngestResult(
         total_files=int(result.get("total_files", 0)),

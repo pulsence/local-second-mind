@@ -578,6 +578,63 @@ class SQLiteVecProvider(BaseVectorDBProvider):
         rows = self._conn.execute(sql, params).fetchall()
         return [row[0] for row in rows]
 
+    def get_embeddings(
+        self,
+        filters: Optional[Dict[str, Any]] = None,
+        only_current: bool = True,
+    ) -> tuple[List[str], List[List[float]]]:
+        """Batch retrieve chunk IDs and embedding vectors."""
+        if not self._extension_loaded:
+            return [], []
+
+        where: List[str] = []
+        params: List[Any] = []
+
+        if only_current:
+            where.append("c.is_current = 1")
+        if filters:
+            filter_sql, filter_params = self._sql_filters(filters, alias="c")
+            if filter_sql:
+                where.append(filter_sql)
+                params.extend(filter_params)
+
+        query = (
+            f"SELECT c.chunk_id, v.embedding "
+            f"FROM {self._tn.chunks} c "
+            f"JOIN {self._tn.vec_chunks} v ON v.chunk_id = c.chunk_id"
+        )
+        if where:
+            query += " WHERE " + " AND ".join(where)
+        query += " ORDER BY c.rowid"
+
+        rows = self._conn.execute(query, params).fetchall()
+        chunk_ids: List[str] = []
+        embeddings: List[List[float]] = []
+        for row in rows:
+            embedding = self._deserialize_embedding(row["embedding"])
+            if not embedding:
+                continue
+            chunk_ids.append(str(row["chunk_id"]))
+            embeddings.append(embedding)
+        return chunk_ids, embeddings
+
+    def update_cluster_assignments(self, updates: List[tuple[str, int]]) -> None:
+        """Batch update cluster_id on both chunks and vec_chunks tables."""
+        if not updates:
+            return
+        with transaction(self._conn):
+            for chunk_id, cluster_id in updates:
+                cid = str(chunk_id)
+                cluster_val = int(cluster_id)
+                self._conn.execute(
+                    f"UPDATE {self._tn.chunks} SET cluster_id = ? WHERE chunk_id = ?",
+                    (cluster_val, cid),
+                )
+                self._conn.execute(
+                    f"UPDATE {self._tn.vec_chunks} SET cluster_id = ? WHERE chunk_id = ?",
+                    (cluster_val, cid),
+                )
+
     def fts_query(self, text: str, top_k: int) -> VectorDBQueryResult:
         """Run a BM25 full-text search against the chunks_fts table.
 

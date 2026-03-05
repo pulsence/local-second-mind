@@ -221,6 +221,48 @@ def test_health_check_passes_and_fails_for_missing_extension(tmp_path: Path) -> 
     assert "extension" in health_fail["error"]
 
 
+def test_get_embeddings_returns_current_rows(tmp_path: Path) -> None:
+    provider = _provider(tmp_path)
+    provider.add_chunks(
+        ids=["e1", "e2"],
+        documents=["d1", "d2"],
+        metadatas=[
+            {"source_path": "/docs/e1.md", "is_current": True, "node_type": "chunk"},
+            {"source_path": "/docs/e2.md", "is_current": False, "node_type": "chunk"},
+        ],
+        embeddings=[_vector(1.0), _vector(2.0)],
+    )
+
+    ids, vectors = provider.get_embeddings(only_current=True)
+    assert ids == ["e1"]
+    assert len(vectors) == 1
+    assert len(vectors[0]) == 384
+
+
+def test_update_cluster_assignments_updates_chunk_and_vec_tables(tmp_path: Path) -> None:
+    provider = _provider(tmp_path)
+    provider.add_chunks(
+        ids=["c1", "c2"],
+        documents=["a", "b"],
+        metadatas=[
+            {"source_path": "/docs/c1.md", "is_current": True, "node_type": "chunk"},
+            {"source_path": "/docs/c2.md", "is_current": True, "node_type": "chunk"},
+        ],
+        embeddings=[_vector(1.0), _vector(2.0)],
+    )
+
+    provider.update_cluster_assignments([("c1", 7), ("c2", 3)])
+
+    chunk_rows = provider.connection.execute(
+        "SELECT chunk_id, cluster_id FROM lsm_chunks ORDER BY chunk_id"
+    ).fetchall()
+    vec_rows = provider.connection.execute(
+        "SELECT chunk_id, cluster_id FROM vec_chunks ORDER BY chunk_id"
+    ).fetchall()
+    assert [(r["chunk_id"], r["cluster_id"]) for r in chunk_rows] == [("c1", 7), ("c2", 3)]
+    assert [(r["chunk_id"], r["cluster_id"]) for r in vec_rows] == [("c1", 7), ("c2", 3)]
+
+
 # ---------------------------------------------------------------------------
 # FTS5 query tests
 # ---------------------------------------------------------------------------

@@ -15,6 +15,7 @@ from typing import Any, Dict, List, Optional, Tuple
 import numpy as np
 
 from lsm.db.compat import commit, execute, fetchall, fetchone, is_sqlite, table_exists
+from lsm.db.connection import resolve_connection
 from lsm.db.tables import TableNames, DEFAULT_TABLE_NAMES
 
 logger = logging.getLogger(__name__)
@@ -25,7 +26,7 @@ logger = logging.getLogger(__name__)
 # ------------------------------------------------------------------
 
 def build_clusters(
-    conn: Any,
+    db_or_conn: Any,
     algorithm: str = "kmeans",
     k: int = 50,
     random_state: int = 42,
@@ -38,7 +39,7 @@ def build_clusters(
     and stores centroids in ``lsm_cluster_centroids``.
 
     Args:
-        conn: Database connection (SQLite or PostgreSQL).
+        db_or_conn: Vector provider (preferred) or raw DB connection.
         algorithm: ``"kmeans"`` or ``"hdbscan"``.
         k: Number of clusters (k-means only).
         random_state: Reproducibility seed.
@@ -47,38 +48,43 @@ def build_clusters(
         Summary dict with ``n_clusters``, ``n_chunks``, ``algorithm``.
     """
     tn = table_names or DEFAULT_TABLE_NAMES
-    # 1. Read all current embeddings
-    logger.info("Cluster build: reading embeddings from %s...", tn.vec_chunks)
-    rows = fetchall(
-        conn,
-        f"SELECT chunk_id, embedding FROM {tn.vec_chunks} WHERE is_current = 1",
-    )
-
-    if not rows:
-        logger.warning("No current embeddings found — skipping clustering.")
-        return {"n_clusters": 0, "n_chunks": 0, "algorithm": algorithm}
-
-    n_total = len(rows)
-    logger.info("Cluster build: unpacking %s embeddings...", f"{n_total:,}")
+    provider = db_or_conn if hasattr(db_or_conn, "get_embeddings") else None
 
     chunk_ids: List[str] = []
     embeddings: List[List[float]] = []
-    _sqlite = is_sqlite(conn)
 
-    for i, row in enumerate(rows, 1):
-        chunk_ids.append(str(row[0]))
-        raw = row[1]
-        if _sqlite:
-            # SQLite vec0: binary BLOB of packed floats
-            blob = bytes(raw)
-            dim = len(blob) // 4
-            vec = list(unpack(f"{dim}f", blob))
-        else:
-            # PostgreSQL pgvector: returns Python list of floats
-            vec = list(raw) if not isinstance(raw, list) else raw
-        embeddings.append(vec)
-        if i % 10000 == 0 or i == n_total:
-            logger.info("Cluster build: unpacked %s/%s embeddings.", f"{i:,}", f"{n_total:,}")
+    if provider is not None:
+        logger.info("Cluster build: reading embeddings from provider API...")
+        try:
+            chunk_ids, embeddings = provider.get_embeddings(only_current=True)
+        except NotImplementedError:
+            provider = None
+
+    if provider is None:
+        conn = db_or_conn
+        logger.info("Cluster build: reading embeddings from %s...", tn.vec_chunks)
+        rows = fetchall(
+            conn,
+            f"SELECT chunk_id, embedding FROM {tn.vec_chunks} WHERE is_current = 1",
+        )
+        if rows:
+            _sqlite = is_sqlite(conn)
+            for i, row in enumerate(rows, 1):
+                chunk_ids.append(str(row[0]))
+                raw = row[1]
+                if _sqlite:
+                    blob = bytes(raw)
+                    dim = len(blob) // 4
+                    vec = list(unpack(f"{dim}f", blob))
+                else:
+                    vec = list(raw) if not isinstance(raw, list) else raw
+                embeddings.append(vec)
+                if i % 10000 == 0 or i == len(rows):
+                    logger.info("Cluster build: unpacked %s/%s embeddings.", f"{i:,}", f"{len(rows):,}")
+
+    if not chunk_ids or not embeddings:
+        logger.warning("No current embeddings found — skipping clustering.")
+        return {"n_clusters": 0, "n_chunks": 0, "algorithm": algorithm}
 
     matrix = np.array(embeddings, dtype=np.float32)
     n_chunks = len(chunk_ids)
@@ -99,44 +105,17 @@ def build_clusters(
     for label in labels:
         cluster_sizes[label] = cluster_sizes.get(label, 0) + 1
 
-    # 4. Write centroids
-    execute(conn, f"DELETE FROM {tn.cluster_centroids}")
-    for cluster_id, centroid in enumerate(centroids):
-        if _sqlite:
-            centroid_val = pack(f"{len(centroid)}f", *centroid)
-        else:
-            centroid_val = centroid  # PostgreSQL: store as list/array
-        execute(
-            conn,
-            f"INSERT INTO {tn.cluster_centroids} (cluster_id, centroid, size) VALUES (?, ?, ?)",
-            (cluster_id, centroid_val, cluster_sizes.get(cluster_id, 0)),
-        )
-    commit(conn)
-    logger.info("Cluster build: %d centroids written.", n_clusters)
+    updates = [(chunk_id, int(label)) for chunk_id, label in zip(chunk_ids, labels)]
 
-    # 5. Write cluster_id and cluster_size to lsm_chunks (batch commit)
-    batch_size = 1000
-    for i, (chunk_id, label) in enumerate(zip(chunk_ids, labels), 1):
-        execute(
-            conn,
-            f"UPDATE {tn.chunks} SET cluster_id = ?, cluster_size = ? WHERE chunk_id = ?",
-            (int(label), cluster_sizes.get(label, 0), chunk_id),
-        )
-        if i % batch_size == 0 or i == n_chunks:
-            commit(conn)
-            logger.info("Cluster build: chunk assignments %s/%s written.", f"{i:,}", f"{n_chunks:,}")
-
-    # 6. Update vec_chunks cluster_id (batch commit)
-    if table_exists(conn, tn.vec_chunks):
-        for i, (chunk_id, label) in enumerate(zip(chunk_ids, labels), 1):
-            execute(
-                conn,
-                f"UPDATE {tn.vec_chunks} SET cluster_id = ? WHERE chunk_id = ?",
-                (int(label), chunk_id),
-            )
-            if i % batch_size == 0 or i == n_chunks:
-                commit(conn)
-                logger.info("Cluster build: vec assignments %s/%s written.", f"{i:,}", f"{n_chunks:,}")
+    if provider is not None and hasattr(provider, "update_cluster_assignments"):
+        provider.update_cluster_assignments(updates)
+        with resolve_connection(provider) as conn:
+            _write_centroids(conn, centroids, cluster_sizes, tn)
+            _write_cluster_sizes(conn, chunk_ids, labels, cluster_sizes, tn)
+    else:
+        conn = db_or_conn
+        _write_centroids(conn, centroids, cluster_sizes, tn)
+        _write_cluster_assignments(conn, chunk_ids, labels, cluster_sizes, tn)
 
     logger.info(
         "Clustering complete: %d clusters, %d chunks, algorithm=%s",
@@ -152,7 +131,7 @@ def build_clusters(
 
 def get_top_clusters(
     query_embedding: List[float],
-    conn: Any,
+    db_or_conn: Any,
     top_n: int = 5,
     table_names: TableNames | None = None,
 ) -> List[int]:
@@ -162,12 +141,99 @@ def get_top_clusters(
 
     Args:
         query_embedding: Query vector.
-        conn: Database connection (SQLite or PostgreSQL).
+        db_or_conn: Vector provider or DB connection.
         top_n: Number of clusters to return.
 
     Returns:
         Sorted list of cluster IDs (most similar first).
     """
+    if hasattr(db_or_conn, "name"):
+        try:
+            with resolve_connection(db_or_conn) as conn:
+                return _get_top_clusters_from_conn(query_embedding, conn, top_n, table_names)
+        except Exception:
+            return []
+    return _get_top_clusters_from_conn(query_embedding, db_or_conn, top_n, table_names)
+
+
+def _write_centroids(
+    conn: Any,
+    centroids: List[List[float]],
+    cluster_sizes: Dict[int, int],
+    table_names: TableNames,
+) -> None:
+    _sqlite = is_sqlite(conn)
+    execute(conn, f"DELETE FROM {table_names.cluster_centroids}")
+    for cluster_id, centroid in enumerate(centroids):
+        if _sqlite:
+            centroid_value = pack(f"{len(centroid)}f", *centroid)
+        else:
+            centroid_value = centroid
+        execute(
+            conn,
+            f"INSERT INTO {table_names.cluster_centroids} (cluster_id, centroid, size) VALUES (?, ?, ?)",
+            (cluster_id, centroid_value, cluster_sizes.get(cluster_id, 0)),
+        )
+    commit(conn)
+    logger.info("Cluster build: %d centroids written.", len(centroids))
+
+
+def _write_cluster_assignments(
+    conn: Any,
+    chunk_ids: List[str],
+    labels: List[int],
+    cluster_sizes: Dict[int, int],
+    table_names: TableNames,
+) -> None:
+    batch_size = 1000
+    n_chunks = len(chunk_ids)
+    for i, (chunk_id, label) in enumerate(zip(chunk_ids, labels), 1):
+        execute(
+            conn,
+            f"UPDATE {table_names.chunks} SET cluster_id = ?, cluster_size = ? WHERE chunk_id = ?",
+            (int(label), cluster_sizes.get(label, 0), chunk_id),
+        )
+        if i % batch_size == 0 or i == n_chunks:
+            commit(conn)
+            logger.info("Cluster build: chunk assignments %s/%s written.", f"{i:,}", f"{n_chunks:,}")
+
+    if table_exists(conn, table_names.vec_chunks):
+        for i, (chunk_id, label) in enumerate(zip(chunk_ids, labels), 1):
+            execute(
+                conn,
+                f"UPDATE {table_names.vec_chunks} SET cluster_id = ? WHERE chunk_id = ?",
+                (int(label), chunk_id),
+            )
+            if i % batch_size == 0 or i == n_chunks:
+                commit(conn)
+                logger.info("Cluster build: vec assignments %s/%s written.", f"{i:,}", f"{n_chunks:,}")
+
+
+def _write_cluster_sizes(
+    conn: Any,
+    chunk_ids: List[str],
+    labels: List[int],
+    cluster_sizes: Dict[int, int],
+    table_names: TableNames,
+) -> None:
+    batch_size = 1000
+    n_chunks = len(chunk_ids)
+    for i, (chunk_id, label) in enumerate(zip(chunk_ids, labels), 1):
+        execute(
+            conn,
+            f"UPDATE {table_names.chunks} SET cluster_size = ? WHERE chunk_id = ?",
+            (cluster_sizes.get(label, 0), chunk_id),
+        )
+        if i % batch_size == 0 or i == n_chunks:
+            commit(conn)
+
+
+def _get_top_clusters_from_conn(
+    query_embedding: List[float],
+    conn: Any,
+    top_n: int,
+    table_names: TableNames | None = None,
+) -> List[int]:
     tn = table_names or DEFAULT_TABLE_NAMES
     rows = fetchall(
         conn,

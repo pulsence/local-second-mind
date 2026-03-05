@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import sqlite3
 from struct import pack, unpack
+from types import SimpleNamespace
 from typing import Any, Dict, List
 
 import numpy as np
@@ -167,6 +168,56 @@ def test_build_clusters_updates_vec_chunks():
     rows = conn.execute("SELECT cluster_id FROM vec_chunks").fetchall()
     for row in rows:
         assert row[0] is not None
+
+
+def test_build_clusters_provider_api_path():
+    conn = _create_test_db_with_vec()
+
+    np.random.seed(42)
+    for i in range(8):
+        vec = np.random.randn(4).astype(np.float32).tolist()
+        _insert_chunk(conn, f"chunk_{i}", vec)
+
+    class _FakeProvider:
+        def __init__(self, connection: sqlite3.Connection):
+            self.connection = connection
+            self.name = "sqlite"
+            self.config = SimpleNamespace(provider="sqlite")
+
+        def get_embeddings(self, filters=None, only_current=True):
+            _ = filters
+            rows = self.connection.execute(
+                "SELECT chunk_id, embedding FROM vec_chunks WHERE is_current = 1"
+            ).fetchall()
+            ids = [str(r[0]) for r in rows]
+            vecs = []
+            for r in rows:
+                raw = bytes(r[1])
+                dim = len(raw) // 4
+                vecs.append(list(unpack(f"{dim}f", raw)))
+            return ids, vecs
+
+        def update_cluster_assignments(self, updates):
+            for chunk_id, cluster_id in updates:
+                self.connection.execute(
+                    "UPDATE lsm_chunks SET cluster_id = ? WHERE chunk_id = ?",
+                    (int(cluster_id), chunk_id),
+                )
+                self.connection.execute(
+                    "UPDATE vec_chunks SET cluster_id = ? WHERE chunk_id = ?",
+                    (int(cluster_id), chunk_id),
+                )
+            self.connection.commit()
+
+    provider = _FakeProvider(conn)
+    result = build_clusters(provider, algorithm="kmeans", k=3)
+    assert result["n_clusters"] == 3
+    assert result["n_chunks"] == 8
+
+    cluster_sizes = conn.execute(
+        "SELECT COUNT(*) FROM lsm_chunks WHERE cluster_size IS NOT NULL"
+    ).fetchone()[0]
+    assert cluster_sizes == 8
 
 
 def test_build_clusters_empty_db():

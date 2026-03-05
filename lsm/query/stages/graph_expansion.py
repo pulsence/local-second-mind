@@ -11,6 +11,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Dict, List, Optional, Set
 
 from lsm.db.compat import fetchall
+from lsm.db.connection import resolve_connection
 from lsm.db.tables import DEFAULT_TABLE_NAMES
 from lsm.query.pipeline_types import ScoreBreakdown
 from lsm.query.session import Candidate
@@ -77,23 +78,16 @@ def expand_via_graph(
         return candidates
 
     # Find new source paths from reachable graph nodes
-    conn = getattr(db, "connection", None)
-    if conn is None:
-        _get = getattr(db, "_get_conn", None)
-        if callable(_get):
-            conn = _get()
-    if conn is None:
-        return candidates
-
     new_source_paths: Set[str] = set()
     try:
-        placeholders = ", ".join(["?"] * len(reachable_ids))
-        rows = fetchall(
-            conn,
-            f"SELECT DISTINCT source_path FROM {DEFAULT_TABLE_NAMES.graph_nodes} "
-            f"WHERE node_id IN ({placeholders}) AND source_path != ''",
-            reachable_ids,
-        )
+        with resolve_connection(db) as conn:
+            placeholders = ", ".join(["?"] * len(reachable_ids))
+            rows = fetchall(
+                conn,
+                f"SELECT DISTINCT source_path FROM {DEFAULT_TABLE_NAMES.graph_nodes} "
+                f"WHERE node_id IN ({placeholders}) AND source_path != ''",
+                reachable_ids,
+            )
         for row in rows:
             sp = row[0]
             if sp and sp not in source_paths:

@@ -6,6 +6,7 @@ Provides build, tag, and wipe command runners for non-interactive usage.
 
 from __future__ import annotations
 
+from contextlib import contextmanager
 from dataclasses import replace
 from pathlib import Path
 from typing import Any, Optional
@@ -13,6 +14,7 @@ from typing import Any, Optional
 from lsm.config import load_config_from_file
 from lsm.config.models import LSMConfig, DBConfig
 from lsm.db.compat import commit as compat_commit, execute, fetchall, fetchone
+from lsm.db.connection import resolve_connection
 from lsm.db.tables import TableNames
 from lsm.logging import get_logger
 from lsm.db.migration import migrate as migrate_db
@@ -27,15 +29,16 @@ def _table_names(config: LSMConfig) -> TableNames:
     return TableNames(prefix=config.db.table_prefix)
 
 
-def _resolve_conn(provider: Any) -> Any:
-    """Resolve a DB connection from a vector DB provider (SQLite or PostgreSQL)."""
-    conn = getattr(provider, "connection", None)
-    if conn is not None:
-        return conn
-    _get = getattr(provider, "_get_conn", None)
-    if callable(_get):
-        return _get()
-    return None
+@contextmanager
+def _resolve_conn(provider: Any):
+    """Yield a SQL connection from a vector DB provider when available."""
+    try:
+        with resolve_connection(provider) as conn:
+            yield conn
+            return
+    except Exception:
+        pass
+    yield None
 
 
 def run_ingest(args) -> int:
@@ -136,10 +139,10 @@ def _print_post_ingest_advisories(config: LSMConfig) -> None:
         from lsm.db.job_status import check_job_advisories
 
         provider = create_vectordb_provider(config.db)
-        conn = _resolve_conn(provider)
-        if conn is None:
-            return
-        advisories = check_job_advisories(conn, config)
+        with _resolve_conn(provider) as conn:
+            if conn is None:
+                return
+            advisories = check_job_advisories(conn, config)
 
         for adv in advisories:
             print(f"\n[advisory] {adv.message}")
@@ -535,20 +538,20 @@ def _run_standalone_enrichment(
 ) -> int:
     """Run enrichment on the existing database without backend migration."""
     provider = create_vectordb_provider(config.db)
-    conn = _resolve_conn(provider)
-    if conn is None:
-        print("Error: Enrichment requires a backend with direct SQL access.")
-        return 1
+    with _resolve_conn(provider) as conn:
+        if conn is None:
+            print("Error: Enrichment requires a backend with direct SQL access.")
+            return 1
 
-    from lsm.db.enrichment import run_enrichment_pipeline
+        from lsm.db.enrichment import run_enrichment_pipeline
 
-    print("Running standalone enrichment on existing database...")
-    report = run_enrichment_pipeline(
-        conn, config, table_names=_table_names(config), only_stages=only_stages,
-    )
-    _print_enrichment_summary(report)
-    _handle_rechunk_offer(config, report, rechunk=rechunk, skip_rechunk=skip_rechunk)
-    return 0
+        print("Running standalone enrichment on existing database...")
+        report = run_enrichment_pipeline(
+            conn, config, table_names=_table_names(config), only_stages=only_stages,
+        )
+        _print_enrichment_summary(report)
+        _handle_rechunk_offer(config, report, rechunk=rechunk, skip_rechunk=skip_rechunk)
+        return 0
 
 
 def _print_legacy_import_summary(imported: dict[str, int]) -> None:
@@ -664,32 +667,32 @@ def run_cache_clear_cli(
         clear_reranker = True
 
     provider = create_vectordb_provider(config.db)
-    conn = _resolve_conn(provider)
     tn = _table_names(config)
-    if conn is None:
-        print("Error: Reranker cache clear requires a backend with direct SQL access.")
-        return 1
-    try:
-        execute(
-            conn,
-            f"""
-            CREATE TABLE IF NOT EXISTS {tn.reranker_cache} (
-                cache_key TEXT PRIMARY KEY,
-                score REAL,
-                created_at TEXT
+    with _resolve_conn(provider) as conn:
+        if conn is None:
+            print("Error: Reranker cache clear requires a backend with direct SQL access.")
+            return 1
+        try:
+            execute(
+                conn,
+                f"""
+                CREATE TABLE IF NOT EXISTS {tn.reranker_cache} (
+                    cache_key TEXT PRIMARY KEY,
+                    score REAL,
+                    created_at TEXT
+                )
+                """,
             )
-            """,
-        )
-        row = fetchone(
-            conn,
-            f"SELECT COUNT(*) FROM {tn.reranker_cache}",
-        )
-        removed = int(row[0]) if row else 0
-        execute(conn, f"DELETE FROM {tn.reranker_cache}")
-        compat_commit(conn)
-    except Exception as exc:
-        print(f"Error clearing reranker cache: {exc}")
-        return 1
+            row = fetchone(
+                conn,
+                f"SELECT COUNT(*) FROM {tn.reranker_cache}",
+            )
+            removed = int(row[0]) if row else 0
+            execute(conn, f"DELETE FROM {tn.reranker_cache}")
+            compat_commit(conn)
+        except Exception as exc:
+            print(f"Error clearing reranker cache: {exc}")
+            return 1
 
     print(f"Cleared reranker cache entries: {removed}")
     return 0
@@ -728,14 +731,10 @@ def run_cluster_build_cli(
     tn = _table_names(config)
 
     provider = create_vectordb_provider(config.db)
-    conn = _resolve_conn(provider)
-    if conn is None:
-        print("Error: Clustering requires a backend with direct connection access.")
-        return 1
 
     print(f"Building clusters: algorithm={algorithm}, k={k}")
     try:
-        result = build_clusters(conn, algorithm=algorithm, k=k, table_names=tn)
+        result = build_clusters(provider, algorithm=algorithm, k=k, table_names=tn)
     except ImportError as exc:
         print(f"Error: {exc}")
         return 1
@@ -747,14 +746,16 @@ def run_cluster_build_cli(
         f"Clustering complete: {result['n_clusters']} clusters, "
         f"{result['n_chunks']} chunks, algorithm={result['algorithm']}"
     )
-    try:
-        record_job_status(
-            conn,
-            "cluster_build",
-            corpus_size=int(result.get("n_chunks", 0)),
-        )
-    except Exception:
-        logger.debug("Failed to record cluster_build job status", exc_info=True)
+    with _resolve_conn(provider) as conn:
+        if conn is not None:
+            try:
+                record_job_status(
+                    conn,
+                    "cluster_build",
+                    corpus_size=int(result.get("n_chunks", 0)),
+                )
+            except Exception:
+                logger.debug("Failed to record cluster_build job status", exc_info=True)
     return 0
 
 
@@ -778,44 +779,41 @@ def run_cluster_visualize_cli(
         return 1
 
     provider = create_vectordb_provider(config.db)
-    conn = _resolve_conn(provider)
-    tn = _table_names(config)
-    if conn is None:
-        print("Error: Cluster visualization requires a backend with direct connection access.")
-        return 1
 
     print("Loading embeddings and cluster assignments...")
     try:
-        from lsm.db.compat import is_sqlite as _is_sqlite
-
-        rows = fetchall(
-            conn,
-            f"SELECT c.chunk_id, c.cluster_id, v.embedding "
-            f"FROM {tn.chunks} c "
-            f"JOIN {tn.vec_chunks} v ON c.chunk_id = v.chunk_id "
-            f"WHERE c.is_current = 1 AND c.cluster_id IS NOT NULL",
+        rows = provider.get(
+            filters={"is_current": True, "node_type": "chunk"},
+            include=["embeddings", "metadatas"],
+            limit=None,
         )
     except Exception as exc:
         print(f"Error loading data: {exc}")
         return 1
 
-    if not rows:
+    if not rows.ids:
         print("No clustered chunks found. Run `lsm cluster build` first.")
         return 1
 
-    from struct import unpack
-
-    _sqlite = _is_sqlite(conn)
-    chunk_ids = [r[0] for r in rows]
-    cluster_ids = [int(r[1]) for r in rows]
+    chunk_ids = []
+    cluster_ids = []
     embeddings = []
-    for r in rows:
-        raw = r[2]
-        if _sqlite and isinstance(raw, (bytes, memoryview)):
-            dim = len(raw) // 4
-            embeddings.append(list(unpack(f"{dim}f", raw)))
-        else:
-            embeddings.append([float(v) for v in raw])
+    metadatas = rows.metadatas or []
+    vectors = rows.embeddings or []
+    for idx, chunk_id in enumerate(rows.ids):
+        meta = metadatas[idx] if idx < len(metadatas) and isinstance(metadatas[idx], dict) else {}
+        cluster_id = meta.get("cluster_id")
+        embedding = vectors[idx] if idx < len(vectors) else None
+        if cluster_id is None or embedding is None:
+            continue
+        chunk_ids.append(str(chunk_id))
+        cluster_ids.append(int(cluster_id))
+        embeddings.append([float(v) for v in embedding])
+
+    if not embeddings:
+        print("No clustered embeddings found. Run `lsm cluster build` first.")
+        return 1
+
     embeddings_np = np.array(embeddings, dtype=np.float32)
 
     print(f"Running UMAP on {len(chunk_ids)} chunks...")
@@ -893,61 +891,61 @@ def run_finetune_train_cli(
     from lsm.db.job_status import record_job_status
 
     provider = create_vectordb_provider(config.db)
-    conn = _resolve_conn(provider)
     tn = _table_names(config)
-    if conn is None:
-        print("Error: Fine-tuning requires a backend with direct connection access.")
-        return 1
+    with _resolve_conn(provider) as conn:
+        if conn is None:
+            print("Error: Fine-tuning requires a backend with direct connection access.")
+            return 1
 
-    print("Extracting training pairs from corpus...")
-    pairs = extract_training_pairs(conn, max_pairs=max_pairs, table_names=tn)
-    if not pairs:
-        print("Error: No training pairs found. Ingest data first.")
-        return 1
-    print(f"Found {len(pairs)} training pairs.")
+        print("Extracting training pairs from corpus...")
+        pairs = extract_training_pairs(conn, max_pairs=max_pairs, table_names=tn)
+        if not pairs:
+            print("Error: No training pairs found. Ingest data first.")
+            return 1
+        print(f"Found {len(pairs)} training pairs.")
 
-    print(f"Fine-tuning {base_model} for {epochs} epochs...")
-    try:
-        result = finetune_embedding_model(
-            pairs=pairs,
-            base_model=base_model,
-            output_path=output,
-            epochs=epochs,
+        print(f"Fine-tuning {base_model} for {epochs} epochs...")
+        try:
+            result = finetune_embedding_model(
+                pairs=pairs,
+                base_model=base_model,
+                output_path=output,
+                epochs=epochs,
+            )
+        except ImportError as exc:
+            print(f"Error: {exc}")
+            return 1
+        except Exception as exc:
+            print(f"Error during fine-tuning: {exc}")
+            return 1
+
+        # Register in model registry
+        entry = register_model(
+            conn=conn,
+            model_id=result["model_id"],
+            base_model=result["base_model"],
+            path=result["output_path"],
+            dimension=result["dimension"],
+            table_names=tn,
         )
-    except ImportError as exc:
-        print(f"Error: {exc}")
-        return 1
-    except Exception as exc:
-        print(f"Error during fine-tuning: {exc}")
-        return 1
+        set_active_model(conn, entry.model_id, table_names=tn)
 
-    # Register in model registry
-    entry = register_model(
-        conn=conn,
-        model_id=result["model_id"],
-        base_model=result["base_model"],
-        path=result["output_path"],
-        dimension=result["dimension"],
-        table_names=tn,
-    )
-    set_active_model(conn, entry.model_id, table_names=tn)
+        print("Fine-tuning complete:")
+        print(f"  Model ID: {entry.model_id}")
+        print(f"  Path: {entry.path}")
+        print(f"  Dimension: {entry.dimension}")
+        print(f"  Training pairs: {result['num_pairs']}")
+        print("  Status: active")
 
-    print(f"Fine-tuning complete:")
-    print(f"  Model ID: {entry.model_id}")
-    print(f"  Path: {entry.path}")
-    print(f"  Dimension: {entry.dimension}")
-    print(f"  Training pairs: {result['num_pairs']}")
-    print(f"  Status: active")
-
-    try:
-        row = fetchone(
-            conn,
-            f"SELECT COUNT(*) FROM {tn.chunks} WHERE is_current = 1",
-        )
-        corpus_size = int(row[0]) if row else None
-        record_job_status(conn, "finetune_embedding", corpus_size=corpus_size)
-    except Exception:
-        logger.debug("Failed to record finetune_embedding job status", exc_info=True)
+        try:
+            row = fetchone(
+                conn,
+                f"SELECT COUNT(*) FROM {tn.chunks} WHERE is_current = 1",
+            )
+            corpus_size = int(row[0]) if row else None
+            record_job_status(conn, "finetune_embedding", corpus_size=corpus_size)
+        except Exception:
+            logger.debug("Failed to record finetune_embedding job status", exc_info=True)
 
     return 0
 
@@ -957,23 +955,23 @@ def run_finetune_list_cli(config: LSMConfig) -> int:
     from lsm.finetune.registry import list_models
 
     provider = create_vectordb_provider(config.db)
-    conn = _resolve_conn(provider)
-    if conn is None:
-        print("Error: Model registry requires a backend with direct connection access.")
-        return 1
+    with _resolve_conn(provider) as conn:
+        if conn is None:
+            print("Error: Model registry requires a backend with direct connection access.")
+            return 1
 
-    tn = _table_names(config)
-    models = list_models(conn, table_names=tn)
-    if not models:
-        print("No fine-tuned models registered.")
+        tn = _table_names(config)
+        models = list_models(conn, table_names=tn)
+        if not models:
+            print("No fine-tuned models registered.")
+            return 0
+
+        print(f"{'Model ID':<30} {'Base Model':<35} {'Dim':>5} {'Active':>7} {'Created'}")
+        print("-" * 100)
+        for m in models:
+            active = "  *" if m.is_active else ""
+            print(f"{m.model_id:<30} {m.base_model:<35} {m.dimension:>5} {active:>7} {m.created_at}")
         return 0
-
-    print(f"{'Model ID':<30} {'Base Model':<35} {'Dim':>5} {'Active':>7} {'Created'}")
-    print("-" * 100)
-    for m in models:
-        active = "  *" if m.is_active else ""
-        print(f"{m.model_id:<30} {m.base_model:<35} {m.dimension:>5} {active:>7} {m.created_at}")
-    return 0
 
 
 def run_finetune_activate_cli(config: LSMConfig, model_id: str) -> int:
@@ -981,22 +979,22 @@ def run_finetune_activate_cli(config: LSMConfig, model_id: str) -> int:
     from lsm.finetune.registry import get_active_model, list_models, set_active_model
 
     provider = create_vectordb_provider(config.db)
-    conn = _resolve_conn(provider)
-    if conn is None:
-        print("Error: Model registry requires a backend with direct connection access.")
-        return 1
+    with _resolve_conn(provider) as conn:
+        if conn is None:
+            print("Error: Model registry requires a backend with direct connection access.")
+            return 1
 
-    # Check model exists
-    tn = _table_names(config)
-    models = list_models(conn, table_names=tn)
-    ids = [m.model_id for m in models]
-    if model_id not in ids:
-        print(f"Error: Model '{model_id}' not found. Available: {', '.join(ids) or 'none'}")
-        return 1
+        # Check model exists
+        tn = _table_names(config)
+        models = list_models(conn, table_names=tn)
+        ids = [m.model_id for m in models]
+        if model_id not in ids:
+            print(f"Error: Model '{model_id}' not found. Available: {', '.join(ids) or 'none'}")
+            return 1
 
-    set_active_model(conn, model_id, table_names=tn)
-    print(f"Activated model: {model_id}")
-    return 0
+        set_active_model(conn, model_id, table_names=tn)
+        print(f"Activated model: {model_id}")
+        return 0
 
 
 def run_graph(args, config: LSMConfig) -> int:
@@ -1026,44 +1024,38 @@ def run_graph_build_links_cli(
         return 1
 
     provider = create_vectordb_provider(config.db)
-    conn = _resolve_conn(provider)
-    tn = _table_names(config)
-    if conn is None:
-        print("Error: Graph link building requires a backend with direct connection access.")
-        return 1
 
     print(f"Building thematic links: threshold={threshold}, batch_size={batch_size}")
 
     # Load all current chunk embeddings
     try:
-        from struct import unpack
-        from lsm.db.compat import is_sqlite as _is_sqlite
-
-        _sqlite = _is_sqlite(conn)
-        rows = fetchall(
-            conn,
-            f"SELECT c.chunk_id, v.embedding "
-            f"FROM {tn.chunks} c "
-            f"JOIN {tn.vec_chunks} v ON c.chunk_id = v.chunk_id "
-            f"WHERE c.is_current = 1",
+        rows = provider.get(
+            filters={"is_current": True, "node_type": "chunk"},
+            include=["embeddings"],
+            limit=None,
         )
     except Exception as exc:
         print(f"Error loading embeddings: {exc}")
         return 1
 
-    if not rows:
+    if not rows.ids:
         print("No chunks found. Run `lsm ingest build` first.")
         return 1
 
-    chunk_ids = [r[0] for r in rows]
+    chunk_ids = []
     embeddings = []
-    for r in rows:
-        raw = r[1]
-        if _sqlite and isinstance(raw, (bytes, memoryview)):
-            dim = len(raw) // 4
-            embeddings.append(list(unpack(f"{dim}f", raw)))
-        else:
-            embeddings.append([float(v) for v in raw])
+    vectors = rows.embeddings or []
+    for idx, chunk_id in enumerate(rows.ids):
+        embedding = vectors[idx] if idx < len(vectors) else None
+        if embedding is None:
+            continue
+        chunk_ids.append(str(chunk_id))
+        embeddings.append([float(v) for v in embedding])
+
+    if not embeddings:
+        print("No chunk embeddings available. Re-run ingest before building links.")
+        return 1
+
     emb_matrix = np.array(embeddings, dtype=np.float32)
 
     # Normalize for cosine similarity
@@ -1073,6 +1065,7 @@ def run_graph_build_links_cli(
 
     print(f"Comparing {len(chunk_ids)} chunks in batches of {batch_size}...")
     edges_created = 0
+    pending_edges: list[dict[str, Any]] = []
 
     for i in range(0, len(chunk_ids), batch_size):
         batch_end = min(i + batch_size, len(chunk_ids))
@@ -1092,28 +1085,34 @@ def run_graph_build_links_cli(
                     if global_i >= global_j:
                         continue  # skip self and already-seen pairs
                     if sim[bi, ci] >= threshold:
-                        src_id = chunk_ids[global_i]
-                        dst_id = chunk_ids[global_j]
-                        execute(
-                            conn,
-                            f"INSERT INTO {tn.graph_edges} "
-                            "(src_id, dst_id, edge_type, weight) "
-                            "VALUES (?, ?, 'thematic', ?) "
-                            "ON CONFLICT DO NOTHING",
-                            (src_id, dst_id, float(sim[bi, ci])),
+                        pending_edges.append(
+                            {
+                                "src_id": chunk_ids[global_i],
+                                "dst_id": chunk_ids[global_j],
+                                "edge_type": "thematic",
+                                "weight": float(sim[bi, ci]),
+                            }
                         )
-                        edges_created += 1
+                        if len(pending_edges) >= 2000:
+                            provider.graph_insert_edges(pending_edges)
+                            edges_created += len(pending_edges)
+                            pending_edges = []
 
-    compat_commit(conn)
+    if pending_edges:
+        provider.graph_insert_edges(pending_edges)
+        edges_created += len(pending_edges)
+
     print(f"Link building complete: {edges_created} thematic edges created.")
     try:
         from lsm.db.job_status import record_job_status
 
-        record_job_status(
-            conn,
-            "graph_build_links",
-            corpus_size=len(chunk_ids),
-        )
+        with _resolve_conn(provider) as conn:
+            if conn is not None:
+                record_job_status(
+                    conn,
+                    "graph_build_links",
+                    corpus_size=len(chunk_ids),
+                )
     except Exception:
         logger.debug("Failed to record graph_build_links job status", exc_info=True)
     return 0

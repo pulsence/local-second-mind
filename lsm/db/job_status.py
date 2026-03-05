@@ -13,8 +13,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, List, Optional
 
-from lsm.db.compat import convert_placeholders, fetchone as _compat_fetchone
-from lsm.db.tables import TableNames, DEFAULT_TABLE_NAMES
+from lsm.db.compat import convert_placeholders, fetchone as compat_fetchone
+from lsm.db.tables import DEFAULT_TABLE_NAMES, TableNames
 from lsm.logging import get_logger
 
 logger = get_logger(__name__)
@@ -29,34 +29,12 @@ class Advisory:
     action: str  # CLI command to resolve
 
 
-def _ph(conn: Any) -> str:
-    """Return the SQL parameter placeholder for the connection type."""
-    from lsm.db.compat import is_sqlite
-    return "?" if is_sqlite(conn) else "%s"
-
-
-def _fetchone(conn: Any, query: str, params: tuple = ()) -> Optional[tuple]:
-    """Execute a query and fetch one row, compatible with both backends."""
-    return _compat_fetchone(conn, query, params)
-
-
 def check_job_advisories(
     conn: Any,
     config: Any = None,
     table_names: TableNames | None = None,
 ) -> List[Advisory]:
-    """Check for stale or missing offline jobs.
-
-    Inspects lsm_job_status and corpus state to produce advisory
-    messages for jobs that should be run.
-
-    Args:
-        conn: Database connection (sqlite3 or psycopg2).
-        config: Optional LSMConfig for checking enabled features.
-
-    Returns:
-        List of Advisory objects (may be empty).
-    """
+    """Check for stale or missing offline jobs."""
     tn = table_names or DEFAULT_TABLE_NAMES
     advisories: List[Advisory] = []
 
@@ -74,24 +52,25 @@ def _get_corpus_size(conn: Any, table_names: TableNames | None = None) -> int:
     """Get current corpus size (active chunks)."""
     tn = table_names or DEFAULT_TABLE_NAMES
     try:
-        row = _fetchone(conn, f"SELECT COUNT(*) FROM {tn.chunks} WHERE is_current = 1")
+        row = compat_fetchone(conn, f"SELECT COUNT(*) FROM {tn.chunks} WHERE is_current = 1")
         return int(row[0]) if row else 0
     except Exception:
         return 0
 
 
 def _get_job_status(
-    conn: Any, job_name: str, table_names: TableNames | None = None,
+    conn: Any,
+    job_name: str,
+    table_names: TableNames | None = None,
 ) -> Optional[dict]:
     """Get a job's status record."""
     tn = table_names or DEFAULT_TABLE_NAMES
     try:
-        ph = _ph(conn)
-        row = _fetchone(
+        sql = convert_placeholders(
+            f"SELECT status, completed_at, corpus_size FROM {tn.job_status} WHERE job_name = ?",
             conn,
-            f"SELECT status, completed_at, corpus_size FROM {tn.job_status} WHERE job_name = {ph}",
-            (job_name,),
         )
+        row = compat_fetchone(conn, sql, (job_name,))
         if row is None:
             return None
         return {
@@ -104,12 +83,13 @@ def _get_job_status(
 
 
 def _check_cluster_status(
-    conn: Any, config: Any, table_names: TableNames | None = None,
+    conn: Any,
+    config: Any,
+    table_names: TableNames | None = None,
 ) -> List[Advisory]:
     """Check if clustering needs to be run or updated."""
     advisories: List[Advisory] = []
 
-    # Check if clustering is enabled in config
     cluster_enabled = False
     if config is not None:
         try:
@@ -125,40 +105,43 @@ def _check_cluster_status(
     corpus_size = _get_corpus_size(conn, table_names=tn)
 
     if job is None:
-        # Never run
         if corpus_size > 0:
-            advisories.append(Advisory(
-                level="info",
-                message=(
-                    f"Clustering is enabled but has never been built "
-                    f"({corpus_size} chunks in corpus)."
-                ),
-                action="lsm cluster build",
-            ))
+            advisories.append(
+                Advisory(
+                    level="info",
+                    message=(
+                        f"Clustering is enabled but has never been built "
+                        f"({corpus_size} chunks in corpus)."
+                    ),
+                    action="lsm cluster build",
+                )
+            )
     elif job.get("corpus_size", 0) > 0:
-        # Check staleness (>20% corpus growth)
         old_size = job["corpus_size"]
         if corpus_size > old_size * 1.2:
-            advisories.append(Advisory(
-                level="info",
-                message=(
-                    f"Corpus has grown {corpus_size - old_size} chunks since "
-                    f"last cluster build ({old_size} → {corpus_size}). "
-                    f"Consider rebuilding clusters."
-                ),
-                action="lsm cluster build",
-            ))
+            advisories.append(
+                Advisory(
+                    level="info",
+                    message=(
+                        f"Corpus has grown {corpus_size - old_size} chunks since "
+                        f"last cluster build ({old_size} → {corpus_size}). "
+                        "Consider rebuilding clusters."
+                    ),
+                    action="lsm cluster build",
+                )
+            )
 
     return advisories
 
 
 def _check_finetune_status(
-    conn: Any, config: Any, table_names: TableNames | None = None,
+    conn: Any,
+    config: Any,
+    table_names: TableNames | None = None,
 ) -> List[Advisory]:
     """Check if embedding fine-tuning should be run."""
     advisories: List[Advisory] = []
 
-    # Check whether fine-tuning advisories are enabled.
     finetune_enabled = True
     if config is not None:
         try:
@@ -167,38 +150,43 @@ def _check_finetune_status(
                 finetune_enabled = bool(gs.finetune_enabled)
         except Exception:
             pass
+
     tn = table_names or DEFAULT_TABLE_NAMES
     if not finetune_enabled:
         return advisories
 
-    # Check for active fine-tuned model
     try:
-        row = _fetchone(
+        row = compat_fetchone(
             conn,
             f"SELECT COUNT(*) FROM {tn.embedding_models} WHERE is_active = 1",
         )
         has_active = int(row[0]) > 0 if row else False
     except Exception:
-        # Table might not exist
         return advisories
 
     if not has_active:
         corpus_size = _get_corpus_size(conn, table_names=tn)
         if corpus_size >= 100:
-            advisories.append(Advisory(
-                level="info",
-                message=(
-                    f"No fine-tuned embedding model is active. "
-                    f"With {corpus_size} chunks, fine-tuning may improve retrieval quality."
-                ),
-                action="lsm finetune train",
-            ))
+            advisories.append(
+                Advisory(
+                    level="info",
+                    message=(
+                        "No fine-tuned embedding model is active. "
+                        f"With {corpus_size} chunks, fine-tuning may improve retrieval quality."
+                    ),
+                    action="lsm finetune train",
+                )
+            )
 
     return advisories
 
 
-def _check_graph_status(conn: Any, config: Any, table_names: TableNames | None = None) -> List[Advisory]:
-    """Check whether thematic graph links were built when graph expansion is enabled."""
+def _check_graph_status(
+    conn: Any,
+    config: Any,
+    table_names: TableNames | None = None,
+) -> List[Advisory]:
+    """Check whether thematic links were built when graph expansion is enabled."""
     advisories: List[Advisory] = []
 
     graph_enabled = False
@@ -213,13 +201,12 @@ def _check_graph_status(conn: Any, config: Any, table_names: TableNames | None =
         return advisories
 
     try:
-        row = _fetchone(
+        row = compat_fetchone(
             conn,
             f"SELECT COUNT(*) FROM {tn.graph_edges} WHERE edge_type = 'thematic'",
         )
         thematic_edges = int(row[0]) if row else 0
     except Exception:
-        # Missing table or backend mismatch: skip silently.
         return advisories
 
     if thematic_edges <= 0:
@@ -245,27 +232,24 @@ def record_job_status(
     corpus_size: Optional[int] = None,
     table_names: TableNames | None = None,
 ) -> None:
-    """Record a job's completion status.
-
-    Args:
-        conn: Database connection (sqlite3 or psycopg2).
-        job_name: Job identifier (e.g., 'cluster_build').
-        status: Job status string.
-        corpus_size: Current corpus size at completion time.
-    """
+    """Record a job's completion status."""
     from datetime import datetime, timezone
-    from lsm.db.compat import execute as compat_execute, commit as compat_commit
+
+    from lsm.db.compat import commit as compat_commit
+    from lsm.db.compat import execute as compat_execute
 
     tn = table_names or DEFAULT_TABLE_NAMES
     now = datetime.now(timezone.utc).isoformat()
-    ph = _ph(conn)
 
-    upsert_sql = (
-        f"INSERT INTO {tn.job_status} (job_name, status, completed_at, corpus_size) "
-        f"VALUES ({ph}, {ph}, {ph}, {ph}) "
-        f"ON CONFLICT (job_name) DO UPDATE SET "
-        f"status = EXCLUDED.status, completed_at = EXCLUDED.completed_at, "
-        f"corpus_size = EXCLUDED.corpus_size"
+    upsert_sql = convert_placeholders(
+        (
+            f"INSERT INTO {tn.job_status} (job_name, status, completed_at, corpus_size) "
+            "VALUES (?, ?, ?, ?) "
+            "ON CONFLICT (job_name) DO UPDATE SET "
+            "status = EXCLUDED.status, completed_at = EXCLUDED.completed_at, "
+            "corpus_size = EXCLUDED.corpus_size"
+        ),
+        conn,
     )
 
     compat_execute(conn, upsert_sql, (job_name, status, now, corpus_size))

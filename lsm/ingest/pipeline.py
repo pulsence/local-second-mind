@@ -34,6 +34,7 @@ from lsm.ingest.utils import (
 )
 from lsm.utils.file_graph import build_file_graph
 from lsm.db.completion import detect_completion_mode, get_stale_files
+from lsm.db.connection import resolve_connection
 from lsm.db.schema_version import (
     SchemaVersionMismatchError,
     check_schema_compatibility,
@@ -415,13 +416,8 @@ def ingest(
                 continue
 
     provider = provider or create_vectordb_provider(vectordb_config)
-    # Obtain a persistent connection for manifest/schema operations.
-    # SQLite providers expose .connection; PG providers expose ._get_conn().
-    manifest_connection = getattr(provider, "connection", None)
-    if manifest_connection is None:
-        _get = getattr(provider, "_get_conn", None)
-        if callable(_get):
-            manifest_connection = _get()
+    manifest_connection = None
+    manifest_connection_ctx = None
 
     emit("init", 0, 0, f"Model device: {device}")
     from sentence_transformers import SentenceTransformer
@@ -452,6 +448,11 @@ def ingest(
     schema_version_id: Optional[int] = None
     completion_mode: Optional[str] = None
     stale_file_paths: Optional[set[str]] = None
+    try:
+        manifest_connection_ctx = resolve_connection(provider)
+        manifest_connection = manifest_connection_ctx.__enter__()
+    except Exception:
+        manifest_connection = None
     if manifest_connection is not None:
         compatible, diff = check_schema_compatibility(
             manifest_connection,
@@ -1235,6 +1236,8 @@ def ingest(
     _progress_thread.join(timeout=2)
 
     if writer_error is not None:
+        if manifest_connection_ctx is not None:
+            manifest_connection_ctx.__exit__(None, None, None)
         raise RuntimeError(f"Ingest write stage failed: {writer_error}") from writer_error
 
     if interrupted:
@@ -1264,6 +1267,8 @@ def ingest(
             f"collection={vectordb_config.collection} dry_run={dry_run}"
         ),
     )
+    if manifest_connection_ctx is not None:
+        manifest_connection_ctx.__exit__(None, None, None)
 
     return {
         "total_files": total_files,

@@ -14,11 +14,13 @@ from __future__ import annotations
 import asyncio
 import re
 import time
+from contextlib import ExitStack
 from copy import deepcopy
 from dataclasses import replace
 from typing import Any, Callable, Dict, List, Optional, TYPE_CHECKING
 
 from lsm.config.models import LSMConfig
+from lsm.db.connection import resolve_connection
 from lsm.config.models.modes import GROUNDED_MODE, ModeConfig
 from lsm.logging import get_logger
 from lsm.providers import create_provider
@@ -138,8 +140,7 @@ class RetrievalPipeline:
         cluster_ids: Optional[List[int]] = None
         if local_policy.enabled and self.config.query.cluster_enabled:
             try:
-                conn = getattr(self.db, "connection", None)
-                if conn is not None:
+                with resolve_connection(self.db) as conn:
                     from lsm.db.clustering import get_top_clusters
                     from lsm.query.planning import embed_text
 
@@ -471,17 +472,21 @@ class RetrievalPipeline:
             "cross-encoder/ms-marco-MiniLM-L-6-v2",
         )
         device = getattr(self.config, "device", "cpu")
-        cache_conn = getattr(self.db, "connection", getattr(self.db, "_conn", None))
-        reranker = CrossEncoderReranker(
-            model_name=model_name,
-            device=device,
-            cache_conn=cache_conn,
-        )
         k = min(
             max(plan.k, int(getattr(self.config.query, "k_dense", plan.k) or plan.k)),
             len(plan.filtered),
         )
-        local_candidates = reranker.rerank(request.question, plan.filtered, top_k=k)
+        with ExitStack() as stack:
+            try:
+                cache_conn = stack.enter_context(resolve_connection(self.db))
+            except Exception:
+                cache_conn = None
+            reranker = CrossEncoderReranker(
+                model_name=model_name,
+                device=device,
+                cache_conn=cache_conn,
+            )
+            local_candidates = reranker.rerank(request.question, plan.filtered, top_k=k)
 
         trace.stages_executed.append("cross_encoder_rerank")
         trace.reranked_candidates_count = len(local_candidates)

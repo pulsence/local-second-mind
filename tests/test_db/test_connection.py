@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sqlite3
+from contextlib import contextmanager
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -149,6 +150,68 @@ def test_resolve_connection_postgresql_provider() -> None:
     )
     with resolve_connection(provider) as conn:
         assert conn is fake_pg_conn
+
+
+def test_resolve_connection_postgresql_provider_contextmanager_factory() -> None:
+    """PostgreSQL provider _get_conn may return a context manager."""
+    fake_pg_conn = SimpleNamespace(execute=lambda q: None)
+    entered = {"value": False}
+    exited = {"value": False}
+
+    @contextmanager
+    def _factory():
+        entered["value"] = True
+        try:
+            yield fake_pg_conn
+        finally:
+            exited["value"] = True
+
+    provider = SimpleNamespace(
+        name="postgresql",
+        config=SimpleNamespace(provider="postgresql"),
+        _get_conn=_factory,
+    )
+    with resolve_connection(provider) as conn:
+        assert conn is fake_pg_conn
+        assert entered["value"] is True
+        assert exited["value"] is False
+    assert exited["value"] is True
+
+
+def test_resolve_connection_generic_provider_with_connection_attr(tmp_path: Path) -> None:
+    """Objects exposing .connection are accepted even without provider metadata."""
+    inner_conn = sqlite3.connect(str(tmp_path / "test.db"))
+    try:
+        provider = SimpleNamespace(connection=inner_conn)
+        with resolve_connection(provider) as conn:
+            assert conn is inner_conn
+    finally:
+        inner_conn.close()
+
+
+def test_resolve_connection_from_config_creates_and_closes_temp_sqlite_provider(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Config input creates a temporary provider and closes owned SQLite connection."""
+    temp_conn = sqlite3.connect(str(tmp_path / "temp.db"))
+
+    class _FakeProvider:
+        name = "sqlite"
+        config = DBConfig(provider="sqlite", path=tmp_path)
+        connection = temp_conn
+
+    monkeypatch.setattr(
+        "lsm.db.connection.create_vectordb_provider",
+        lambda cfg: _FakeProvider(),
+    )
+
+    with resolve_connection(DBConfig(provider="sqlite", path=tmp_path)) as conn:
+        assert conn is temp_conn
+        conn.execute("SELECT 1")
+
+    with pytest.raises(sqlite3.ProgrammingError):
+        temp_conn.execute("SELECT 1")
 
 
 def test_resolve_connection_invalid_provider() -> None:
