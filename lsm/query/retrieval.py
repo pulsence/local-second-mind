@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Optional
 
+from lsm.config.models import DEFAULT_COLLECTION, DEFAULT_EMBED_MODEL
 from lsm.logging import get_logger
 from lsm.vectordb.base import BaseVectorDBProvider
 from .session import Candidate
@@ -27,10 +28,6 @@ def _import_sentence_transformer():
 # -----------------------------
 # Constants
 # -----------------------------
-DEFAULT_COLLECTION = "local_kb"
-DEFAULT_EMBED_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
-
-
 # -----------------------------
 # Embeddings
 # -----------------------------

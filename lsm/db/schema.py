@@ -24,11 +24,12 @@ from __future__ import annotations
 
 from typing import Any
 
+from lsm.config.models import DBConfig
 from .compat import execute_ddl_script, is_sqlite
 from .tables import DEFAULT_TABLE_NAMES, TableNames
 
 
-def get_application_tables(prefix: str = "lsm_") -> tuple[str, ...]:
+def get_application_tables(prefix: str = DBConfig.table_prefix) -> tuple[str, ...]:
     """Return resolved application table names for the given prefix."""
     return TableNames(prefix=prefix).application_tables()
 

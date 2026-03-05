@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any, Optional
 
 from lsm import __version__ as LSM_VERSION
+from lsm.config.models import DBConfig, VectorConfig
 from lsm.db.compat import (
     execute,
     fetchone,
@@ -59,10 +60,10 @@ def _check_db_reachable(config: Any) -> Optional[DBHealthReport]:
     if provider is None:
         return None
 
-    provider_name = getattr(provider, "provider", "sqlite")
+    provider_name = getattr(provider, "provider", VectorConfig.provider)
 
     if provider_name == "sqlite":
-        db_path = resolve_db_path(getattr(provider, "path", Path(".")))
+        db_path = resolve_db_path(getattr(provider, "path", DBConfig().path))
         if not db_path.exists():
             return DBHealthReport(
                 status="missing",
@@ -354,10 +355,10 @@ def check_db_health(
     if db_cfg is None:
         return _OK
 
-    provider_name = getattr(db_cfg, "provider", "sqlite")
+    provider_name = getattr(db_cfg, "provider", VectorConfig.provider)
 
     if provider_name == "sqlite":
-        db_path = resolve_db_path(getattr(db_cfg, "path", Path(".")))
+        db_path = resolve_db_path(getattr(db_cfg, "path", DBConfig().path))
         if not db_path.exists():
             return _OK  # already handled by reachability check
 

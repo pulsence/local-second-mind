@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, Optional
 
+from lsm.config.models import VectorConfig
 from textual.app import ComposeResult
 from textual.containers import Container, Horizontal
 from textual.widgets import Button, Static
@@ -112,7 +113,7 @@ class VectorDBSettingsTab(BaseSettingsTab):
                 vdb.password = text
             return True
         if field_id == "settings-vdb-index-type":
-            vdb.index_type = text or "hnsw"
+            vdb.index_type = text or VectorConfig.index_type
             return True
         if field_id == "settings-vdb-pool-size" and text:
             vdb.pool_size = int(text)

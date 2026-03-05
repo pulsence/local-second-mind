@@ -487,11 +487,11 @@ def build_db_config(raw: Dict[str, Any]) -> DBConfig:
         vector = VectorConfig(
             provider=vector_raw.get("provider", VectorConfig.provider),
             collection=vector_raw.get("collection", VectorConfig.collection),
-            index_type=vector_raw.get("index_type", "hnsw"),
-            pool_size=int(vector_raw.get("pool_size", 5)),
+            index_type=vector_raw.get("index_type", VectorConfig.index_type),
+            pool_size=int(vector_raw.get("pool_size", VectorConfig.pool_size)),
         )
         db_kwargs: dict[str, Any] = {
-            "table_prefix": db_raw.get("table_prefix", "lsm_"),
+            "table_prefix": db_raw.get("table_prefix", DBConfig.table_prefix),
             "connection_string": db_raw.get("connection_string"),
             "host": db_raw.get("host"),
             "port": db_raw.get("port"),
@@ -567,14 +567,14 @@ def build_notes_config(raw: Dict[str, Any]) -> NotesConfig:
         NotesConfig instance
     """
     return NotesConfig(
-        enabled=bool(raw.get("enabled", True)),
-        dir=raw.get("dir", "notes"),
-        template=raw.get("template", "default"),
-        filename_format=raw.get("filename_format", "timestamp"),
-        integration=raw.get("integration", "none"),
-        wikilinks=bool(raw.get("wikilinks", False)),
-        backlinks=bool(raw.get("backlinks", False)),
-        include_tags=bool(raw.get("include_tags", False)),
+        enabled=bool(raw.get("enabled", NotesConfig.enabled)),
+        dir=raw.get("dir", NotesConfig.dir),
+        template=raw.get("template", NotesConfig.template),
+        filename_format=raw.get("filename_format", NotesConfig.filename_format),
+        integration=raw.get("integration", NotesConfig.integration),
+        wikilinks=bool(raw.get("wikilinks", NotesConfig.wikilinks)),
+        backlinks=bool(raw.get("backlinks", NotesConfig.backlinks)),
+        include_tags=bool(raw.get("include_tags", NotesConfig.include_tags)),
     )
 
 
@@ -589,10 +589,10 @@ def build_chats_config(raw: Dict[str, Any]) -> ChatsConfig:
         ChatsConfig instance
     """
     return ChatsConfig(
-        enabled=bool(raw.get("enabled", True)),
-        dir=str(raw.get("dir", "Chats")),
-        auto_save=bool(raw.get("auto_save", True)),
-        format=str(raw.get("format", "markdown")),
+        enabled=bool(raw.get("enabled", ChatsConfig.enabled)),
+        dir=str(raw.get("dir", ChatsConfig.dir)),
+        auto_save=bool(raw.get("auto_save", ChatsConfig.auto_save)),
+        format=str(raw.get("format", ChatsConfig.format)),
     )
 
 

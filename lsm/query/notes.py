@@ -13,6 +13,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, List, Optional, Dict, Any
 
+from lsm.config.models import NotesConfig
 from lsm.logging import get_logger
 from lsm.paths import get_notes_folder
 import tempfile
@@ -64,7 +65,7 @@ def generate_timestamp() -> str:
 
 def get_note_filename(
     query: str,
-    format: str = "timestamp",
+    format: str = NotesConfig.filename_format,
 ) -> str:
     """
     Generate a filename for a note.
@@ -365,7 +366,7 @@ def write_note(
     local_sources: Optional[List[Dict[str, Any]]] = None,
     remote_sources: Optional[List[Dict[str, Any]]] = None,
     mode: str = "grounded",
-    filename_format: str = "timestamp",
+    filename_format: str = NotesConfig.filename_format,
 ) -> Path:
     """
     Write a query session note to Markdown.
@@ -409,10 +410,10 @@ def resolve_notes_dir(config: "LSMConfig", notes_dir_value: str) -> Path:
     """
     Resolve notes directory with global-folder defaults.
 
-    If notes.dir is left at the default "notes", write into:
+    If notes.dir is left at the default notes directory, write into:
     <global_folder>/Notes
     """
-    if notes_dir_value.strip().lower() == "notes":
+    if notes_dir_value.strip().lower() == NotesConfig.dir:
         return get_notes_folder(config.global_folder)
 
     candidate = Path(notes_dir_value).expanduser()

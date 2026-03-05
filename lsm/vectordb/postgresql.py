@@ -11,7 +11,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
 from lsm.logging import get_logger
-from lsm.config.models import DBConfig
+from lsm.config.models import DBConfig, VectorConfig
 from lsm.db.tables import TableNames
 from .base import BaseVectorDBProvider, PruneCriteria, VectorDBGetResult, VectorDBQueryResult
 
@@ -64,7 +64,7 @@ class PostgreSQLProvider(BaseVectorDBProvider):
         super().__init__(config)
         self._tn = TableNames(prefix=config.table_prefix)
         self._pool = None
-        self._table_name = self._sanitize_table_name(config.collection or "local_kb")
+        self._table_name = self._sanitize_table_name(config.collection or VectorConfig.collection)
         self._embedding_dim: Optional[int] = None
 
     @property
@@ -75,7 +75,7 @@ class PostgreSQLProvider(BaseVectorDBProvider):
     def _sanitize_table_name(value: str) -> str:
         safe = re.sub(r"[^a-zA-Z0-9_]+", "_", value).strip("_").lower()
         if not safe:
-            safe = "local_kb"
+            safe = VectorConfig.collection
         return f"chunks_{safe}"
 
     @staticmethod
@@ -259,7 +259,7 @@ class PostgreSQLProvider(BaseVectorDBProvider):
 
     def _ensure_indexes(self, conn) -> None:
         table_ident = sql.Identifier(self._table_name)
-        index_type = (self.config.index_type or "hnsw").lower()
+        index_type = (self.config.index_type or VectorConfig.index_type).lower()
 
         with conn.cursor() as cur:
             if index_type == "hnsw":

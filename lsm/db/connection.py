@@ -29,6 +29,8 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Callable, Iterator, Optional, Tuple
 
+from lsm.config.models import VectorConfig
+
 
 def create_vectordb_provider(config: Any) -> Any:
     """Create a vector DB provider via the canonical db-level entrypoint."""
@@ -70,7 +72,7 @@ def resolve_vectordb_provider_name(
     if _is_provider_instance(vectordb):
         return str(getattr(vectordb, "name", "") or "").strip().lower()
     # Assume DBConfig
-    return str(getattr(vectordb, "provider", "") or "sqlite").strip().lower()
+    return str(getattr(vectordb, "provider", "") or VectorConfig.provider).strip().lower()
 
 
 def resolve_sqlite_connection(

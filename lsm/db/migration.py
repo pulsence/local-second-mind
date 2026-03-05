@@ -52,7 +52,7 @@ from pathlib import Path
 from typing import Any, Callable, Dict, Iterable, Mapping, Optional
 
 from lsm import __version__ as LSM_VERSION
-from lsm.config.models import DBConfig
+from lsm.config.models import DBConfig, VectorConfig
 from lsm.db.compat import commit as compat_commit
 from lsm.db.compat import count_rows as compat_count_rows
 from lsm.db.compat import dialect as compat_dialect
@@ -997,8 +997,8 @@ def _to_vectordb_config(raw: Any, provider_hint: Optional[str] = None) -> DBConf
         vector_raw: Mapping[str, Any] = db_raw
         if "vector" in db_raw and isinstance(db_raw["vector"], Mapping):
             vector_raw = db_raw["vector"]
-        provider = provider_hint or str(vector_raw.get("provider", "sqlite"))
-        collection = str(vector_raw.get("collection", "local_kb"))
+        provider = provider_hint or str(vector_raw.get("provider", VectorConfig.provider))
+        collection = str(vector_raw.get("collection", VectorConfig.collection))
         db_kwargs: dict[str, Any] = {
             "provider": provider,
             "collection": collection,
@@ -1008,8 +1008,8 @@ def _to_vectordb_config(raw: Any, provider_hint: Optional[str] = None) -> DBConf
             "database": db_raw.get("database"),
             "user": db_raw.get("user"),
             "password": db_raw.get("password"),
-            "index_type": vector_raw.get("index_type", "hnsw"),
-            "pool_size": int(vector_raw.get("pool_size", 5)),
+            "index_type": vector_raw.get("index_type", VectorConfig.index_type),
+            "pool_size": int(vector_raw.get("pool_size", VectorConfig.pool_size)),
         }
         if db_raw.get("path") not in {None, ""}:
             db_kwargs["path"] = Path(db_raw.get("path"))

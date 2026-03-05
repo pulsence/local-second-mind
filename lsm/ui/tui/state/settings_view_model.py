@@ -11,14 +11,17 @@ from typing import Any, Callable, Optional
 
 from lsm.config.loader import build_config_from_raw, clone_config, config_to_raw, save_config_to_file
 from lsm.config.models import (
+    ChatsConfig,
     ChainLink,
     LLMProviderConfig,
     LLMServiceConfig,
     LSMConfig,
+    NotesConfig,
     RemoteProviderChainConfig,
     RemoteProviderConfig,
     RemoteProviderRef,
     RootConfig,
+    VectorConfig,
 )
 
 
@@ -600,7 +603,7 @@ class SettingsViewModel:
             if text:
                 cfg.db.password = text
         elif field_id == "settings-vdb-index-type":
-            cfg.db.index_type = text or "hnsw"
+            cfg.db.index_type = text or VectorConfig.index_type
         elif field_id == "settings-vdb-pool-size" and text:
             cfg.db.pool_size = int(text)
         elif field_id == "settings-modes-mode":
@@ -608,13 +611,13 @@ class SettingsViewModel:
         elif field_id == "settings-notes-enabled":
             cfg.notes.enabled = bool(value)
         elif field_id == "settings-notes-dir":
-            cfg.notes.dir = text or "notes"
+            cfg.notes.dir = text or NotesConfig.dir
         elif field_id == "settings-notes-template":
-            cfg.notes.template = text or "default"
+            cfg.notes.template = text or NotesConfig.template
         elif field_id == "settings-notes-filename-format":
-            cfg.notes.filename_format = text or "timestamp"
+            cfg.notes.filename_format = text or NotesConfig.filename_format
         elif field_id == "settings-notes-integration":
-            cfg.notes.integration = text or "none"
+            cfg.notes.integration = text or NotesConfig.integration
         elif field_id == "settings-notes-wikilinks":
             cfg.notes.wikilinks = bool(value)
         elif field_id == "settings-notes-backlinks":
@@ -624,11 +627,11 @@ class SettingsViewModel:
         elif field_id == "settings-chats-enabled":
             cfg.chats.enabled = bool(value)
         elif field_id == "settings-chats-dir":
-            cfg.chats.dir = text or "Chats"
+            cfg.chats.dir = text or ChatsConfig.dir
         elif field_id == "settings-chats-auto-save":
             cfg.chats.auto_save = bool(value)
         elif field_id == "settings-chats-format":
-            cfg.chats.format = text or "markdown"
+            cfg.chats.format = text or ChatsConfig.format
         else:
             return False
 

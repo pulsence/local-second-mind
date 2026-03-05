@@ -8,7 +8,7 @@ from importlib import import_module
 from typing import Dict, Type
 
 from lsm.logging import get_logger
-from lsm.config.models import DBConfig
+from lsm.config.models import DBConfig, VectorConfig
 from .base import BaseVectorDBProvider
 
 logger = get_logger(__name__)
@@ -37,7 +37,7 @@ def create_vectordb_provider(config: DBConfig) -> BaseVectorDBProvider:
     Returns:
         Initialized provider instance
     """
-    provider_name = (config.provider or "sqlite").lower()
+    provider_name = (config.provider or VectorConfig.provider).lower()
 
     if provider_name == "chromadb":
         raise ValueError(

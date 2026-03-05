@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from lsm.config.models import ChatsConfig, NotesConfig
 from textual.app import ComposeResult
 from textual.containers import Container
 from textual.widgets import Static
@@ -68,29 +69,29 @@ class ChatsNotesSettingsTab(BaseSettingsTab):
             chats.enabled = bool(value)
             return True
         if field_id == "settings-chats-dir" and chats is not None:
-            chats.dir = text or "Chats"
+            chats.dir = text or ChatsConfig.dir
             return True
         if field_id == "settings-chats-auto-save" and chats is not None:
             chats.auto_save = bool(value)
             return True
         if field_id == "settings-chats-format" and chats is not None:
-            chats.format = text or "markdown"
+            chats.format = text or ChatsConfig.format
             return True
 
         if field_id == "settings-notes-enabled" and notes is not None:
             notes.enabled = bool(value)
             return True
         if field_id == "settings-notes-dir" and notes is not None:
-            notes.dir = text or "notes"
+            notes.dir = text or NotesConfig.dir
             return True
         if field_id == "settings-notes-template" and notes is not None:
-            notes.template = text or "default"
+            notes.template = text or NotesConfig.template
             return True
         if field_id == "settings-notes-filename-format" and notes is not None:
-            notes.filename_format = text or "timestamp"
+            notes.filename_format = text or NotesConfig.filename_format
             return True
         if field_id == "settings-notes-integration" and notes is not None:
-            notes.integration = text or "none"
+            notes.integration = text or NotesConfig.integration
             return True
         if field_id == "settings-notes-wikilinks" and notes is not None:
             notes.wikilinks = bool(value)
