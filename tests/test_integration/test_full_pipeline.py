@@ -331,6 +331,28 @@ def test_full_pipeline_with_postgresql_store(
             collection.delete_all()
         except Exception:
             pass
+        # Drop the test table so we don't leave orphaned tables behind.
+        try:
+            table_name = getattr(collection, "_table_name", None)
+            pool = getattr(collection, "_pool", None)
+            if table_name and pool:
+                from psycopg2 import sql as pg_sql
+                with collection._get_conn() as conn:
+                    with conn.cursor() as cur:
+                        cur.execute(
+                            pg_sql.SQL("DROP TABLE IF EXISTS {}").format(
+                                pg_sql.Identifier(table_name)
+                            )
+                        )
+                    conn.commit()
+        except Exception:
+            pass
+        pool = getattr(collection, "_pool", None)
+        if pool is not None:
+            try:
+                pool.closeall()
+            except Exception:
+                pass
 
 
 @pytest.mark.performance
