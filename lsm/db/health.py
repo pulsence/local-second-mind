@@ -6,7 +6,6 @@ and partially completed migrations. Provides clear guidance on resolution.
 
 from __future__ import annotations
 
-import sqlite3
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Optional
@@ -18,7 +17,7 @@ from lsm.db.compat import (
     is_sqlite,
     table_exists,
 )
-from lsm.db.connection import resolve_db_path
+from lsm.db.connection import create_sqlite_connection, resolve_db_path
 from lsm.db.tables import DEFAULT_TABLE_NAMES, TableNames
 
 
@@ -363,8 +362,7 @@ def check_db_health(
             return _OK  # already handled by reachability check
 
         try:
-            conn = sqlite3.connect(str(db_path), check_same_thread=False)
-            conn.row_factory = sqlite3.Row
+            conn = create_sqlite_connection(db_path)
         except Exception as exc:
             return DBHealthReport(
                 status="corrupt",

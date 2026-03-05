@@ -803,16 +803,13 @@ def _backfill_graph(conn: Any, tn: TableNames) -> int:
             fg = build_file_graph(sp, raw_text)
             db_nodes, db_edges = build_graph_from_file_graph(fg, source_path, raw_text)
 
-            from lsm.db.compat import is_sqlite as _is_sq
-
-            _ignore = "OR IGNORE" if _is_sq(conn) else ""
-            _conflict = "" if _is_sq(conn) else " ON CONFLICT DO NOTHING"
             for db_node in db_nodes:
                 execute(
                     conn,
-                    f"""INSERT {_ignore} INTO {tn.graph_nodes}
+                    f"""INSERT INTO {tn.graph_nodes}
                         (node_id, node_type, label, source_path, heading_path)
-                        VALUES (?, ?, ?, ?, ?){_conflict}""",
+                        VALUES (?, ?, ?, ?, ?)
+                        ON CONFLICT DO NOTHING""",
                     (
                         db_node.node_id,
                         db_node.node_type,
@@ -825,9 +822,10 @@ def _backfill_graph(conn: Any, tn: TableNames) -> int:
             for db_edge in db_edges:
                 execute(
                     conn,
-                    f"""INSERT {_ignore} INTO {tn.graph_edges}
+                    f"""INSERT INTO {tn.graph_edges}
                         (src_id, dst_id, edge_type, weight)
-                        VALUES (?, ?, ?, ?){_conflict}""",
+                        VALUES (?, ?, ?, ?)
+                        ON CONFLICT DO NOTHING""",
                     (
                         db_edge.src_id,
                         db_edge.dst_id,

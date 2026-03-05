@@ -333,6 +333,87 @@ def test_db_error_passes_normal_exceptions() -> None:
 # Module imports without psycopg2
 # ------------------------------------------------------------------
 
+# ------------------------------------------------------------------
+# PostgreSQL-path tests via fake connection
+# ------------------------------------------------------------------
+
+def test_execute_postgres_delegates_to_cursor() -> None:
+    """Verify execute() routes through cursor for PG connections."""
+    pg = _FakePgConn()
+    execute(pg, "INSERT INTO t VALUES (?)", ("val",))
+    # compat converts ? to %s for PG
+    assert pg._cursor.last_query == "INSERT INTO t VALUES (%s)"
+    assert pg._cursor.last_params == ("val",)
+
+
+def test_executemany_postgres() -> None:
+    pg = _FakePgConn()
+    executemany(pg, "INSERT INTO t VALUES (?)", [("a",), ("b",)])
+    # Last call should have been the second params
+    assert pg._cursor.last_query == "INSERT INTO t VALUES (%s)"
+    assert pg._cursor.last_params == ("b",)
+
+
+def test_fetchone_postgres() -> None:
+    pg = _FakePgConn()
+    pg._cursor._rows = [("hello", 42)]
+    row = fetchone(pg, "SELECT v, n FROM t")
+    assert row == ("hello", 42)
+
+
+def test_fetchone_postgres_empty() -> None:
+    pg = _FakePgConn()
+    pg._cursor._rows = []
+    row = fetchone(pg, "SELECT v FROM t")
+    assert row is None
+
+
+def test_fetchall_postgres() -> None:
+    pg = _FakePgConn()
+    pg._cursor._rows = [("a",), ("b",), ("c",)]
+    rows = fetchall(pg, "SELECT v FROM t")
+    assert len(rows) == 3
+    assert rows[0] == ("a",)
+
+
+def test_commit_postgres() -> None:
+    pg = _FakePgConn()
+    assert pg.committed is False
+    commit(pg)
+    assert pg.committed is True
+
+
+def test_execute_ddl_script_postgres() -> None:
+    """Verify DDL script is split into individual statements for PG."""
+    pg = _FakePgConn()
+    ddl = """
+        CREATE TABLE a (id INT);
+        CREATE TABLE b (id INT);
+    """
+    execute_ddl_script(pg, ddl)
+    # Should have executed both statements (last one captured)
+    assert "CREATE TABLE b" in (pg._cursor.last_query or "")
+
+
+def test_table_exists_postgres() -> None:
+    """Verify table_exists uses to_regclass for PG path."""
+    pg = _FakePgConn()
+    # Simulate to_regclass returning non-null (table exists)
+    pg._cursor._rows = [("public.my_table",)]
+    result = table_exists(pg, "my_table")
+    assert result is True
+    assert "to_regclass" in (pg._cursor.last_query or "")
+
+    # Simulate to_regclass returning null (table doesn't exist)
+    pg._cursor._rows = [(None,)]
+    result = table_exists(pg, "nonexistent")
+    assert result is False
+
+
+# ------------------------------------------------------------------
+# Module imports without psycopg2
+# ------------------------------------------------------------------
+
 def test_compat_imports_without_psycopg2() -> None:
     """Verify that compat module can be imported in SQLite-only environments."""
     import importlib
