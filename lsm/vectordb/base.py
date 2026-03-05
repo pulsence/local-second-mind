@@ -247,6 +247,33 @@ class BaseVectorDBProvider(ABC):
         """
         return []
 
+    def get_embeddings(
+        self,
+        filters: Optional[Dict[str, Any]] = None,
+        only_current: bool = True,
+    ) -> tuple[List[str], List[List[float]]]:
+        """Batch retrieve chunk IDs and embedding vectors.
+
+        Args:
+            filters: Optional metadata filter dict.
+            only_current: If True, only return embeddings for current chunks.
+
+        Returns:
+            Tuple of (chunk_ids, embeddings) — parallel lists.
+        """
+        raise NotImplementedError
+
+    def update_cluster_assignments(
+        self,
+        updates: List[tuple[str, int]],
+    ) -> None:
+        """Batch update cluster_id on chunks.
+
+        Args:
+            updates: List of (chunk_id, cluster_id) tuples.
+        """
+        raise NotImplementedError
+
     def fts_query(self, text: str, top_k: int) -> VectorDBQueryResult:
         """Run a full-text search query and return BM25-ranked results.
 

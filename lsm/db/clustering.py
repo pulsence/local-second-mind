@@ -9,12 +9,12 @@ retrieval via ``get_top_clusters()``.
 from __future__ import annotations
 
 import logging
-import sqlite3
 from struct import pack, unpack
 from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
 
+from lsm.db.compat import commit, execute, fetchall, fetchone, is_sqlite, table_exists
 from lsm.db.tables import TableNames, DEFAULT_TABLE_NAMES
 
 logger = logging.getLogger(__name__)
@@ -25,7 +25,7 @@ logger = logging.getLogger(__name__)
 # ------------------------------------------------------------------
 
 def build_clusters(
-    conn: sqlite3.Connection,
+    conn: Any,
     algorithm: str = "kmeans",
     k: int = 50,
     random_state: int = 42,
@@ -38,7 +38,7 @@ def build_clusters(
     and stores centroids in ``lsm_cluster_centroids``.
 
     Args:
-        conn: Open SQLite connection (with sqlite-vec loaded).
+        conn: Database connection (SQLite or PostgreSQL).
         algorithm: ``"kmeans"`` or ``"hdbscan"``.
         k: Number of clusters (k-means only).
         random_state: Reproducibility seed.
@@ -49,9 +49,10 @@ def build_clusters(
     tn = table_names or DEFAULT_TABLE_NAMES
     # 1. Read all current embeddings
     logger.info("Cluster build: reading embeddings from %s...", tn.vec_chunks)
-    rows = conn.execute(
-        f"SELECT chunk_id, embedding FROM {tn.vec_chunks} WHERE is_current = 1"
-    ).fetchall()
+    rows = fetchall(
+        conn,
+        f"SELECT chunk_id, embedding FROM {tn.vec_chunks} WHERE is_current = 1",
+    )
 
     if not rows:
         logger.warning("No current embeddings found — skipping clustering.")
@@ -62,12 +63,19 @@ def build_clusters(
 
     chunk_ids: List[str] = []
     embeddings: List[List[float]] = []
+    _sqlite = is_sqlite(conn)
 
     for i, row in enumerate(rows, 1):
         chunk_ids.append(str(row[0]))
-        blob = bytes(row[1])
-        dim = len(blob) // 4
-        vec = list(unpack(f"{dim}f", blob))
+        raw = row[1]
+        if _sqlite:
+            # SQLite vec0: binary BLOB of packed floats
+            blob = bytes(raw)
+            dim = len(blob) // 4
+            vec = list(unpack(f"{dim}f", blob))
+        else:
+            # PostgreSQL pgvector: returns Python list of floats
+            vec = list(raw) if not isinstance(raw, list) else raw
         embeddings.append(vec)
         if i % 10000 == 0 or i == n_total:
             logger.info("Cluster build: unpacked %s/%s embeddings.", f"{i:,}", f"{n_total:,}")
@@ -92,36 +100,43 @@ def build_clusters(
         cluster_sizes[label] = cluster_sizes.get(label, 0) + 1
 
     # 4. Write centroids
-    conn.execute(f"DELETE FROM {tn.cluster_centroids}")
+    execute(conn, f"DELETE FROM {tn.cluster_centroids}")
     for cluster_id, centroid in enumerate(centroids):
-        blob = pack(f"{len(centroid)}f", *centroid)
-        conn.execute(
+        if _sqlite:
+            centroid_val = pack(f"{len(centroid)}f", *centroid)
+        else:
+            centroid_val = centroid  # PostgreSQL: store as list/array
+        execute(
+            conn,
             f"INSERT INTO {tn.cluster_centroids} (cluster_id, centroid, size) VALUES (?, ?, ?)",
-            (cluster_id, blob, cluster_sizes.get(cluster_id, 0)),
+            (cluster_id, centroid_val, cluster_sizes.get(cluster_id, 0)),
         )
-    conn.commit()
+    commit(conn)
     logger.info("Cluster build: %d centroids written.", n_clusters)
 
     # 5. Write cluster_id and cluster_size to lsm_chunks (batch commit)
     batch_size = 1000
     for i, (chunk_id, label) in enumerate(zip(chunk_ids, labels), 1):
-        conn.execute(
+        execute(
+            conn,
             f"UPDATE {tn.chunks} SET cluster_id = ?, cluster_size = ? WHERE chunk_id = ?",
             (int(label), cluster_sizes.get(label, 0), chunk_id),
         )
         if i % batch_size == 0 or i == n_chunks:
-            conn.commit()
+            commit(conn)
             logger.info("Cluster build: chunk assignments %s/%s written.", f"{i:,}", f"{n_chunks:,}")
 
     # 6. Update vec_chunks cluster_id (batch commit)
-    for i, (chunk_id, label) in enumerate(zip(chunk_ids, labels), 1):
-        conn.execute(
-            f"UPDATE {tn.vec_chunks} SET cluster_id = ? WHERE chunk_id = ?",
-            (int(label), chunk_id),
-        )
-        if i % batch_size == 0 or i == n_chunks:
-            conn.commit()
-            logger.info("Cluster build: vec assignments %s/%s written.", f"{i:,}", f"{n_chunks:,}")
+    if table_exists(conn, tn.vec_chunks):
+        for i, (chunk_id, label) in enumerate(zip(chunk_ids, labels), 1):
+            execute(
+                conn,
+                f"UPDATE {tn.vec_chunks} SET cluster_id = ? WHERE chunk_id = ?",
+                (int(label), chunk_id),
+            )
+            if i % batch_size == 0 or i == n_chunks:
+                commit(conn)
+                logger.info("Cluster build: vec assignments %s/%s written.", f"{i:,}", f"{n_chunks:,}")
 
     logger.info(
         "Clustering complete: %d clusters, %d chunks, algorithm=%s",
@@ -137,7 +152,7 @@ def build_clusters(
 
 def get_top_clusters(
     query_embedding: List[float],
-    conn: sqlite3.Connection,
+    conn: Any,
     top_n: int = 5,
     table_names: TableNames | None = None,
 ) -> List[int]:
@@ -147,16 +162,17 @@ def get_top_clusters(
 
     Args:
         query_embedding: Query vector.
-        conn: Open SQLite connection.
+        conn: Database connection (SQLite or PostgreSQL).
         top_n: Number of clusters to return.
 
     Returns:
         Sorted list of cluster IDs (most similar first).
     """
     tn = table_names or DEFAULT_TABLE_NAMES
-    rows = conn.execute(
-        f"SELECT cluster_id, centroid FROM {tn.cluster_centroids}"
-    ).fetchall()
+    rows = fetchall(
+        conn,
+        f"SELECT cluster_id, centroid FROM {tn.cluster_centroids}",
+    )
 
     if not rows:
         return []
@@ -166,12 +182,17 @@ def get_top_clusters(
     if query_norm == 0:
         return []
 
+    _sqlite = is_sqlite(conn)
     scores: List[Tuple[int, float]] = []
     for row in rows:
         cluster_id = int(row[0])
-        blob = bytes(row[1])
-        dim = len(blob) // 4
-        centroid = np.array(unpack(f"{dim}f", blob), dtype=np.float32)
+        raw = row[1]
+        if _sqlite:
+            blob = bytes(raw)
+            dim = len(blob) // 4
+            centroid = np.array(unpack(f"{dim}f", blob), dtype=np.float32)
+        else:
+            centroid = np.array(raw if isinstance(raw, list) else list(raw), dtype=np.float32)
         centroid_norm = np.linalg.norm(centroid)
         if centroid_norm == 0:
             continue

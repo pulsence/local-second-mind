@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-import sqlite3
 from pathlib import Path
 from typing import Any, Mapping, Optional
 
 from lsm.config.models.ingest import RootConfig
+from lsm.db.compat import db_error, execute, fetchone, fetchall
 from lsm.db.schema_version import check_schema_compatibility
 from lsm.db.tables import TableNames, DEFAULT_TABLE_NAMES
 from lsm.ingest.fs import iter_files
@@ -67,20 +67,20 @@ def _configured_excludes(config: Any) -> set[str]:
 
 
 def _manifest_source_paths(
-    conn: sqlite3.Connection,
+    conn: Any,
     table_names: TableNames | None = None,
 ) -> set[str]:
     tn = table_names or DEFAULT_TABLE_NAMES
-    rows = conn.execute(f"SELECT source_path FROM {tn.manifest}").fetchall()
+    rows = fetchall(conn, f"SELECT source_path FROM {tn.manifest}")
     return {str(row[0]) for row in rows if row and row[0]}
 
 
 def _manifest_exts(
-    conn: sqlite3.Connection,
+    conn: Any,
     table_names: TableNames | None = None,
 ) -> set[str]:
     tn = table_names or DEFAULT_TABLE_NAMES
-    rows = conn.execute(f"SELECT source_path FROM {tn.manifest}").fetchall()
+    rows = fetchall(conn, f"SELECT source_path FROM {tn.manifest}")
     exts = set()
     for row in rows:
         if not row or not row[0]:
@@ -102,7 +102,7 @@ def _discover_source_paths(config: Any) -> set[str]:
 
 
 def _detect_metadata_enrichment(
-    conn: sqlite3.Connection,
+    conn: Any,
     config: Any,
     table_names: TableNames | None = None,
 ) -> bool:
@@ -111,14 +111,16 @@ def _detect_metadata_enrichment(
     if not roots:
         return False
     try:
-        rows = conn.execute(
-            f"""
-            SELECT source_path, root_tags, content_type
-            FROM {tn.chunks}
-            WHERE is_current = 1
-            """
-        ).fetchall()
-    except sqlite3.OperationalError:
+        with db_error():
+            rows = fetchall(
+                conn,
+                f"""
+                SELECT source_path, root_tags, content_type
+                FROM {tn.chunks}
+                WHERE is_current = 1
+                """,
+            )
+    except Exception:
         return False
     if not rows:
         return False
@@ -151,7 +153,7 @@ def _detect_metadata_enrichment(
 
 
 def detect_completion_mode(
-    conn: sqlite3.Connection,
+    conn: Any,
     config: Any,
     table_names: TableNames | None = None,
 ) -> Optional[CompletionMode]:
@@ -180,7 +182,7 @@ def detect_completion_mode(
 
 
 def get_stale_files(
-    conn: sqlite3.Connection,
+    conn: Any,
     config: Any,
     mode: CompletionMode,
     table_names: TableNames | None = None,
@@ -207,15 +209,17 @@ def get_stale_files(
 
     if mode == "metadata_enrichment":
         try:
-            rows = conn.execute(
-                f"""
-                SELECT DISTINCT source_path
-                FROM {tn.chunks}
-                WHERE is_current = 1
-                  AND (root_tags IS NULL OR root_tags = '' OR content_type IS NULL OR content_type = '')
-                """
-            ).fetchall()
-        except sqlite3.OperationalError:
+            with db_error():
+                rows = fetchall(
+                    conn,
+                    f"""
+                    SELECT DISTINCT source_path
+                    FROM {tn.chunks}
+                    WHERE is_current = 1
+                      AND (root_tags IS NULL OR root_tags = '' OR content_type IS NULL OR content_type = '')
+                    """,
+                )
+        except Exception:
             return sorted(manifest_paths)
         stale = {str(row[0]) for row in rows if row and row[0]}
         if stale:

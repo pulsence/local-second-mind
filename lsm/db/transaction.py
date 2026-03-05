@@ -1,16 +1,21 @@
-"""Savepoint-aware transaction context manager for SQLite.
+"""Savepoint-aware transaction context manager.
 
 Provides a single ``transaction()`` context manager that transparently
 uses ``BEGIN/COMMIT`` for top-level transactions and ``SAVEPOINT/RELEASE``
 for nested calls, removing the need for per-provider state tracking.
+
+Supports both SQLite (``sqlite3.Connection``) and PostgreSQL (``psycopg2``)
+connections.  PostgreSQL always operates inside a transaction block, so the
+context manager uses savepoints unconditionally on that backend.
 """
 
 from __future__ import annotations
 
-import sqlite3
 import threading
 from contextlib import contextmanager
-from typing import Iterator
+from typing import Any, Iterator
+
+from lsm.db.compat import execute, is_sqlite
 
 _local = threading.local()
 
@@ -22,37 +27,65 @@ def _next_savepoint_id() -> int:
     return counter
 
 
+def _in_transaction(conn: Any) -> bool:
+    """Check whether *conn* is already inside a transaction.
+
+    SQLite exposes ``conn.in_transaction``.  PostgreSQL (psycopg2) uses
+    ``conn.status`` where ``STATUS_IN_TRANSACTION`` (2) and
+    ``STATUS_INTRANS`` (2) indicate an active block.
+    """
+    if is_sqlite(conn):
+        return bool(conn.in_transaction)
+    # psycopg2
+    try:
+        import psycopg2.extensions as ext  # type: ignore[import-untyped]
+
+        return conn.status == ext.STATUS_IN_TRANSACTION
+    except (ImportError, AttributeError):
+        # Fallback: assume inside a transaction (safe default for PG)
+        return True
+
+
 @contextmanager
-def transaction(conn: sqlite3.Connection) -> Iterator[None]:
+def transaction(conn: Any) -> Iterator[None]:
     """Savepoint-aware transaction context manager.
 
-    * If a transaction is already active (``conn.in_transaction``), uses a
-      named savepoint so the inner block can roll back independently.
+    * If a transaction is already active, uses a named savepoint so the
+      inner block can roll back independently.
     * Otherwise starts a top-level ``BEGIN … COMMIT`` block.
 
     Usage::
 
         with transaction(conn):
-            conn.execute("INSERT …")
+            execute(conn, "INSERT …")
             with transaction(conn):          # nested — uses savepoint
-                conn.execute("UPDATE …")
+                execute(conn, "UPDATE …")
     """
-    if conn.in_transaction:
+    if _in_transaction(conn):
         savepoint = f"lsm_sp_{_next_savepoint_id()}"
-        conn.execute(f"SAVEPOINT {savepoint}")
+        execute(conn, f"SAVEPOINT {savepoint}")
         try:
             yield
-            conn.execute(f"RELEASE SAVEPOINT {savepoint}")
+            execute(conn, f"RELEASE SAVEPOINT {savepoint}")
         except Exception:
-            conn.execute(f"ROLLBACK TO SAVEPOINT {savepoint}")
-            conn.execute(f"RELEASE SAVEPOINT {savepoint}")
+            execute(conn, f"ROLLBACK TO SAVEPOINT {savepoint}")
+            execute(conn, f"RELEASE SAVEPOINT {savepoint}")
             raise
         return
 
-    try:
-        conn.execute("BEGIN")
-        yield
-        conn.commit()
-    except Exception:
-        conn.rollback()
-        raise
+    if is_sqlite(conn):
+        try:
+            conn.execute("BEGIN")
+            yield
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+    else:
+        # PostgreSQL: psycopg2 auto-opens a transaction on first statement.
+        try:
+            yield
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise

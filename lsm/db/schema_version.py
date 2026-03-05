@@ -2,11 +2,18 @@
 
 from __future__ import annotations
 
-import sqlite3
 from datetime import datetime, timezone
 from typing import Any, Mapping, Optional, Tuple
 
 from lsm import __version__ as LSM_VERSION
+from lsm.db.compat import (
+    commit,
+    execute,
+    fetch_rows_as_dicts,
+    insert_returning_id,
+    is_sqlite,
+    row_to_dict,
+)
 from lsm.db.tables import TableNames, DEFAULT_TABLE_NAMES
 
 
@@ -40,15 +47,13 @@ def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-def _ensure_schema_versions_table(conn: sqlite3.Connection) -> None:
-    """Ensure the lsm_schema_versions table exists.
+def _ensure_schema_versions_table(conn: Any) -> None:
+    """Ensure the schema_versions table exists.
 
-    .. note::
-
-       When using the full provider path (``SQLiteVecProvider``), the table
-       is already created by ``lsm.db.schema.ensure_application_schema``.
-       This function is retained for standalone callers (e.g. tests, CLI
-       migration commands) that operate on a connection without a provider.
+    When using the full provider path (``SQLiteVecProvider``), the table
+    is already created by ``lsm.db.schema.ensure_application_schema``.
+    This function is retained for standalone callers (e.g. tests, CLI
+    migration commands) that operate on a connection without a provider.
     """
     from lsm.db.schema import ensure_application_schema
 
@@ -73,13 +78,15 @@ def _normalize_schema_config(config: Any) -> dict[str, Any]:
 
 
 def get_active_schema_version(
-    conn: sqlite3.Connection,
+    conn: Any,
     table_names: TableNames | None = None,
 ) -> Optional[dict[str, Any]]:
     """Return the most recent schema version row."""
     tn = table_names or DEFAULT_TABLE_NAMES
     _ensure_schema_versions_table(conn)
-    row = conn.execute(
+
+    cursor = execute(
+        conn,
         f"""
         SELECT
             id,
@@ -95,22 +102,18 @@ def get_active_schema_version(
         FROM {tn.schema_versions}
         ORDER BY id DESC
         LIMIT 1
-        """
-    ).fetchone()
+        """,
+    )
+    row = cursor.fetchone()
     if row is None:
         return None
-    columns = [item[0] for item in (conn.execute(f"SELECT * FROM {tn.schema_versions} LIMIT 1").description or [])]
-    if columns:
-        # Preserve compatibility for sqlite3.Row and tuple-style rows.
-        if isinstance(row, sqlite3.Row):
-            return {column: row[column] for column in columns if column in row.keys()}
-        return dict(zip(columns, row))
-    # Fallback for uncommon cursor metadata behavior.
-    return dict(row) if isinstance(row, sqlite3.Row) else None
+
+    columns = [item[0] for item in (cursor.description or [])]
+    return row_to_dict(row, columns)
 
 
 def record_schema_version(
-    conn: sqlite3.Connection,
+    conn: Any,
     config: Any,
     table_names: TableNames | None = None,
 ) -> int:
@@ -119,7 +122,9 @@ def record_schema_version(
     _ensure_schema_versions_table(conn)
     normalized = _normalize_schema_config(config)
     now = _now_iso()
-    cursor = conn.execute(
+
+    row_id = insert_returning_id(
+        conn,
         f"""
         INSERT INTO {tn.schema_versions} (
             manifest_version,
@@ -145,12 +150,12 @@ def record_schema_version(
             now,
         ),
     )
-    conn.commit()
-    return int(cursor.lastrowid)
+    commit(conn)
+    return row_id
 
 
 def check_schema_compatibility(
-    conn: sqlite3.Connection,
+    conn: Any,
     config: Any,
     *,
     raise_on_mismatch: bool = False,
@@ -175,4 +180,3 @@ def check_schema_compatibility(
     if not compatible and raise_on_mismatch:
         raise SchemaVersionMismatchError(diff)
     return compatible, diff
-

@@ -13,11 +13,11 @@ from __future__ import annotations
 
 import json
 import logging
-import sqlite3
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
+from lsm.db.compat import commit, execute, fetchall, fetchone, table_exists
 from lsm.db.tables import DEFAULT_TABLE_NAMES, TableNames
 
 logger = logging.getLogger(__name__)
@@ -107,7 +107,7 @@ def resolve_stage_names(stage_args: list[str]) -> set[str]:
 
 
 def detect_stale_chunks(
-    conn: sqlite3.Connection,
+    conn: Any,
     table_names: TableNames | None = None,
     *,
     cluster_enabled: bool = False,
@@ -120,11 +120,7 @@ def detect_stale_chunks(
     tn = table_names or DEFAULT_TABLE_NAMES
 
     # Check if chunks table exists
-    exists = conn.execute(
-        "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name=?",
-        (tn.chunks,),
-    ).fetchone()[0]
-    if not exists:
+    if not table_exists(conn, tn.chunks):
         return {
             "tier1": {
                 "simhash_null_count": 0,
@@ -147,60 +143,69 @@ def detect_stale_chunks(
         }
 
     # --- Tier 1 counts ---
-    simhash_null = conn.execute(
-        f"SELECT COUNT(*) FROM {tn.chunks} WHERE simhash IS NULL AND is_current = 1"
-    ).fetchone()[0]
-    version_null = conn.execute(
-        f"SELECT COUNT(*) FROM {tn.chunks} WHERE version IS NULL"
-    ).fetchone()[0]
-    node_type_null = conn.execute(
-        f"SELECT COUNT(*) FROM {tn.chunks} WHERE node_type IS NULL OR node_type = ''"
-    ).fetchone()[0]
-    tags_missing = conn.execute(
-        f"SELECT COUNT(*) FROM {tn.chunks} WHERE (root_tags IS NULL OR content_type IS NULL) AND is_current = 1"
-    ).fetchone()[0]
+    simhash_null = fetchone(
+        conn,
+        f"SELECT COUNT(*) FROM {tn.chunks} WHERE simhash IS NULL AND is_current = 1",
+    )[0]
+    version_null = fetchone(
+        conn,
+        f"SELECT COUNT(*) FROM {tn.chunks} WHERE version IS NULL",
+    )[0]
+    node_type_null = fetchone(
+        conn,
+        f"SELECT COUNT(*) FROM {tn.chunks} WHERE node_type IS NULL OR node_type = ''",
+    )[0]
+    tags_missing = fetchone(
+        conn,
+        f"SELECT COUNT(*) FROM {tn.chunks} WHERE (root_tags IS NULL OR content_type IS NULL) AND is_current = 1",
+    )[0]
 
     # --- Tier 2 counts ---
-    heading_path_null = conn.execute(
+    heading_path_null = fetchone(
+        conn,
         f"""SELECT COUNT(*) FROM {tn.chunks}
             WHERE heading IS NOT NULL AND heading_path IS NULL
             AND (node_type = 'chunk' OR node_type IS NULL)
-            AND is_current = 1"""
-    ).fetchone()[0]
-    positions_null = conn.execute(
+            AND is_current = 1""",
+    )[0]
+    positions_null = fetchone(
+        conn,
         f"""SELECT COUNT(*) FROM {tn.chunks}
             WHERE start_char IS NULL
             AND (node_type = 'chunk' OR node_type IS NULL)
-            AND is_current = 1"""
-    ).fetchone()[0]
+            AND is_current = 1""",
+    )[0]
 
     # Distinct source paths needing tier 2 enrichment
-    source_rows = conn.execute(
+    source_rows = fetchall(
+        conn,
         f"""SELECT DISTINCT source_path FROM {tn.chunks}
             WHERE (
                 (heading IS NOT NULL AND heading_path IS NULL)
                 OR start_char IS NULL
             )
             AND (node_type = 'chunk' OR node_type IS NULL)
-            AND is_current = 1"""
-    ).fetchall()
+            AND is_current = 1""",
+    )
     source_paths = [row[0] for row in source_rows]
 
     # Cluster rebuild needed?
     cluster_rebuild = False
     if cluster_enabled:
-        null_cluster = conn.execute(
-            f"SELECT COUNT(*) FROM {tn.chunks} WHERE cluster_id IS NULL AND is_current = 1"
-        ).fetchone()[0]
+        null_cluster = fetchone(
+            conn,
+            f"SELECT COUNT(*) FROM {tn.chunks} WHERE cluster_id IS NULL AND is_current = 1",
+        )[0]
         cluster_rebuild = null_cluster > 0
 
     # Distinct source paths with boundary-drifted chunks (start_char = -1)
-    drifted_rows = conn.execute(
+    drifted_rows = fetchall(
+        conn,
         f"""SELECT DISTINCT source_path FROM {tn.chunks}
             WHERE start_char = -1
             AND (node_type = 'chunk' OR node_type IS NULL)
-            AND is_current = 1"""
-    ).fetchall()
+            AND is_current = 1""",
+    )
     drifted_source_paths = [row[0] for row in drifted_rows]
 
     # --- Tier 3 ---
@@ -208,7 +213,8 @@ def detect_stale_chunks(
     missing_file_files: List[str] = []
     if summaries_enabled:
         # Files that have chunk rows but no section_summary rows
-        section_rows = conn.execute(
+        section_rows = fetchall(
+            conn,
             f"""SELECT DISTINCT c.source_path FROM {tn.chunks} c
                 WHERE c.is_current = 1
                 AND c.node_type = 'chunk'
@@ -217,11 +223,12 @@ def detect_stale_chunks(
                     WHERE s.source_path = c.source_path
                     AND s.node_type = 'section_summary'
                     AND s.is_current = 1
-                )"""
-        ).fetchall()
+                )""",
+        )
         missing_section_files = [r[0] for r in section_rows]
 
-        file_rows = conn.execute(
+        file_rows = fetchall(
+            conn,
             f"""SELECT DISTINCT c.source_path FROM {tn.chunks} c
                 WHERE c.is_current = 1
                 AND c.node_type = 'chunk'
@@ -230,8 +237,8 @@ def detect_stale_chunks(
                     WHERE s.source_path = c.source_path
                     AND s.node_type = 'file_summary'
                     AND s.is_current = 1
-                )"""
-        ).fetchall()
+                )""",
+        )
         missing_file_files = [r[0] for r in file_rows]
 
     needs_reingest = bool(missing_section_files or missing_file_files or drifted_source_paths)
@@ -265,7 +272,7 @@ def detect_stale_chunks(
 
 
 def run_tier1_enrichment(
-    conn: sqlite3.Connection,
+    conn: Any,
     config: Any,
     table_names: TableNames | None = None,
 ) -> int:
@@ -288,11 +295,11 @@ def run_tier1_enrichment(
     # 4. Tag enrichment from config roots
     total += _backfill_tags(conn, config, tn)
 
-    conn.commit()
+    commit(conn)
     return total
 
 
-def _backfill_simhash(conn: sqlite3.Connection, tn: TableNames) -> int:
+def _backfill_simhash(conn: Any, tn: TableNames) -> int:
     """Compute and store simhash for chunks where it is NULL."""
     import time
     from collections import deque
@@ -302,16 +309,18 @@ def _backfill_simhash(conn: sqlite3.Connection, tn: TableNames) -> int:
     batch_size = 1000
     updated = 0
 
-    remaining_row = conn.execute(
+    remaining_row = fetchone(
+        conn,
         f"SELECT COUNT(*) FROM {tn.chunks} WHERE simhash IS NULL AND is_current = 1",
-    ).fetchone()
+    )
     remaining = int(remaining_row[0]) if remaining_row else 0
     if remaining == 0:
         return 0
 
-    already_done_row = conn.execute(
+    already_done_row = fetchone(
+        conn,
         f"SELECT COUNT(*) FROM {tn.chunks} WHERE simhash IS NOT NULL AND is_current = 1",
-    ).fetchone()
+    )
     already_done = int(already_done_row[0]) if already_done_row else 0
 
     if already_done > 0:
@@ -325,20 +334,22 @@ def _backfill_simhash(conn: sqlite3.Connection, tn: TableNames) -> int:
     timing_samples.append((time.monotonic(), 0))
 
     while True:
-        rows = conn.execute(
+        rows = fetchall(
+            conn,
             f"SELECT chunk_id, chunk_text FROM {tn.chunks} WHERE simhash IS NULL AND is_current = 1 LIMIT ?",
             (batch_size,),
-        ).fetchall()
+        )
         if not rows:
             break
         for chunk_id, chunk_text in rows:
             h = compute_simhash(chunk_text or "")
-            conn.execute(
+            execute(
+                conn,
                 f"UPDATE {tn.chunks} SET simhash = ? WHERE chunk_id = ?",
                 (h, chunk_id),
             )
             updated += 1
-        conn.commit()
+        commit(conn)
 
         timing_samples.append((time.monotonic(), updated))
         eta_str = _format_enrichment_eta(timing_samples, updated, remaining)
@@ -384,17 +395,19 @@ def _format_enrichment_eta(
     return f"ETA {hours}h {minutes:02d}m"
 
 
-def _backfill_defaults(conn: sqlite3.Connection, tn: TableNames) -> int:
+def _backfill_defaults(conn: Any, tn: TableNames) -> int:
     """Set version and is_current defaults where NULL."""
     updated = 0
 
-    cur = conn.execute(
-        f"UPDATE {tn.chunks} SET version = 1 WHERE version IS NULL"
+    cur = execute(
+        conn,
+        f"UPDATE {tn.chunks} SET version = 1 WHERE version IS NULL",
     )
     updated += cur.rowcount
 
-    cur = conn.execute(
-        f"UPDATE {tn.chunks} SET is_current = 1 WHERE is_current IS NULL"
+    cur = execute(
+        conn,
+        f"UPDATE {tn.chunks} SET is_current = 1 WHERE is_current IS NULL",
     )
     updated += cur.rowcount
 
@@ -403,43 +416,42 @@ def _backfill_defaults(conn: sqlite3.Connection, tn: TableNames) -> int:
     return updated
 
 
-def _backfill_node_type(conn: sqlite3.Connection, tn: TableNames) -> int:
+def _backfill_node_type(conn: Any, tn: TableNames) -> int:
     """Set node_type to 'chunk' where NULL or empty, and sync to vec table."""
-    cur = conn.execute(
-        f"UPDATE {tn.chunks} SET node_type = 'chunk' WHERE node_type IS NULL OR node_type = ''"
+    cur = execute(
+        conn,
+        f"UPDATE {tn.chunks} SET node_type = 'chunk' WHERE node_type IS NULL OR node_type = ''",
     )
     updated = cur.rowcount
     if updated > 0:
         logger.info("Node-type backfill: %s chunks updated.", f"{updated:,}")
 
     # Mirror to vec_chunks if the table exists
-    vec_exists = conn.execute(
-        "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name=?",
-        (tn.vec_chunks,),
-    ).fetchone()[0]
-    if vec_exists:
-        conn.execute(
+    if table_exists(conn, tn.vec_chunks):
+        execute(
+            conn,
             f"""UPDATE {tn.vec_chunks} SET node_type = 'chunk'
                 WHERE chunk_id IN (
                     SELECT chunk_id FROM {tn.chunks}
                     WHERE node_type = 'chunk'
                 )
-                AND (node_type IS NULL OR node_type = '')"""
+                AND (node_type IS NULL OR node_type = '')""",
         )
         # Sync is_current too
-        conn.execute(
+        execute(
+            conn,
             f"""UPDATE {tn.vec_chunks} SET is_current = 1
                 WHERE chunk_id IN (
                     SELECT chunk_id FROM {tn.chunks} WHERE is_current = 1
                 )
-                AND (is_current IS NULL OR is_current = 0)"""
+                AND (is_current IS NULL OR is_current = 0)""",
         )
 
     return updated
 
 
 def _backfill_tags(
-    conn: sqlite3.Connection,
+    conn: Any,
     config: Any,
     tn: TableNames,
 ) -> int:
@@ -463,11 +475,12 @@ def _backfill_tags(
         root_map.append((resolved, root_cfg))
 
     # Count total chunks needing tags
-    count_row = conn.execute(
+    count_row = fetchone(
+        conn,
         f"""SELECT COUNT(*) FROM {tn.chunks}
             WHERE (root_tags IS NULL OR content_type IS NULL)
             AND is_current = 1""",
-    ).fetchone()
+    )
     remaining = int(count_row[0]) if count_row else 0
     if remaining == 0:
         return 0
@@ -478,13 +491,14 @@ def _backfill_tags(
     timing_samples.append((time.monotonic(), 0))
 
     while True:
-        rows = conn.execute(
+        rows = fetchall(
+            conn,
             f"""SELECT chunk_id, source_path FROM {tn.chunks}
                 WHERE (root_tags IS NULL OR content_type IS NULL)
                 AND is_current = 1
                 LIMIT ?""",
             (batch_size,),
-        ).fetchall()
+        )
         if not rows:
             break
 
@@ -508,7 +522,8 @@ def _backfill_tags(
             content_type = matched_cfg.content_type or ""
             folder_tags = json.dumps(collect_folder_tags(sp, matched_root))
 
-            conn.execute(
+            execute(
+                conn,
                 f"""UPDATE {tn.chunks}
                     SET root_tags = COALESCE(root_tags, ?),
                         folder_tags = COALESCE(folder_tags, ?),
@@ -517,7 +532,7 @@ def _backfill_tags(
                 (root_tags, folder_tags, content_type, chunk_id),
             )
             updated += 1
-        conn.commit()
+        commit(conn)
 
         timing_samples.append((time.monotonic(), updated))
         eta_str = _format_enrichment_eta(timing_samples, updated, remaining)
@@ -535,7 +550,7 @@ def _backfill_tags(
 
 
 def run_tier2_enrichment(
-    conn: sqlite3.Connection,
+    conn: Any,
     config: Any,
     table_names: TableNames | None = None,
     root_paths: list[Path] | None = None,
@@ -543,7 +558,7 @@ def run_tier2_enrichment(
     """Run Tier 2 enrichment: heading_path, positions, graph backfill.
 
     Args:
-        conn: SQLite connection.
+        conn: Database connection (SQLite or PostgreSQL).
         config: LSMConfig instance.
         table_names: Table name registry.
         root_paths: List of root directories to search for source files.
@@ -556,15 +571,16 @@ def run_tier2_enrichment(
     skipped: List[str] = []
 
     # Get distinct source paths needing tier 2 enrichment
-    rows = conn.execute(
+    rows = fetchall(
+        conn,
         f"""SELECT DISTINCT source_path FROM {tn.chunks}
             WHERE (
                 (heading IS NOT NULL AND heading_path IS NULL)
                 OR start_char IS NULL
             )
             AND (node_type = 'chunk' OR node_type IS NULL)
-            AND is_current = 1"""
-    ).fetchall()
+            AND is_current = 1""",
+    )
 
     for (source_path,) in rows:
         sp = Path(source_path)
@@ -581,25 +597,26 @@ def run_tier2_enrichment(
     # Graph backfill for files without graph entries
     updated += _backfill_graph(conn, tn)
 
-    conn.commit()
+    commit(conn)
     return updated, skipped
 
 
 def _backfill_heading_path(
-    conn: sqlite3.Connection,
+    conn: Any,
     tn: TableNames,
     source_path: str,
     file_path: Path,
 ) -> int:
     """Re-parse a file and backfill heading_path for chunks that need it."""
-    rows = conn.execute(
+    rows = fetchall(
+        conn,
         f"""SELECT chunk_id, heading, chunk_index FROM {tn.chunks}
             WHERE source_path = ?
             AND heading IS NOT NULL AND heading_path IS NULL
             AND (node_type = 'chunk' OR node_type IS NULL)
             AND is_current = 1""",
         (source_path,),
-    ).fetchall()
+    )
 
     if not rows:
         return 0
@@ -621,7 +638,8 @@ def _backfill_heading_path(
         # Try to find heading path by matching heading text
         path = heading_map.get(heading)
         if path is not None:
-            conn.execute(
+            execute(
+                conn,
                 f"UPDATE {tn.chunks} SET heading_path = ? WHERE chunk_id = ?",
                 (json.dumps(path), chunk_id),
             )
@@ -658,13 +676,14 @@ def _build_heading_map_from_graph(fg: Any) -> Dict[str, List[str]]:
 
 
 def _backfill_positions(
-    conn: sqlite3.Connection,
+    conn: Any,
     tn: TableNames,
     source_path: str,
     file_path: Path,
 ) -> int:
     """Backfill start_char/end_char/chunk_length from source file re-parse."""
-    rows = conn.execute(
+    rows = fetchall(
+        conn,
         f"""SELECT chunk_id, chunk_text, chunk_index FROM {tn.chunks}
             WHERE source_path = ?
             AND start_char IS NULL
@@ -672,7 +691,7 @@ def _backfill_positions(
             AND is_current = 1
             ORDER BY chunk_index""",
         (source_path,),
-    ).fetchall()
+    )
 
     if not rows:
         return 0
@@ -694,7 +713,8 @@ def _backfill_positions(
             start_char = idx
             end_char = idx + len(chunk_text)
             chunk_length = len(chunk_text)
-            conn.execute(
+            execute(
+                conn,
                 f"""UPDATE {tn.chunks}
                     SET start_char = ?, end_char = ?, chunk_length = ?
                     WHERE chunk_id = ?""",
@@ -703,7 +723,8 @@ def _backfill_positions(
             updated += 1
         else:
             # Mark as attempted-but-unmatchable so future runs skip it.
-            conn.execute(
+            execute(
+                conn,
                 f"""UPDATE {tn.chunks}
                     SET start_char = -1, end_char = -1, chunk_length = ?
                     WHERE chunk_id = ?""",
@@ -728,32 +749,30 @@ _BINARY_EXTENSIONS: set[str] = {
 }
 
 
-def _backfill_graph(conn: sqlite3.Connection, tn: TableNames) -> int:
+def _backfill_graph(conn: Any, tn: TableNames) -> int:
     """Create graph nodes/edges for source files without graph entries."""
     # Check if graph tables exist
-    graph_exists = conn.execute(
-        "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name=?",
-        (tn.graph_nodes,),
-    ).fetchone()[0]
-    if not graph_exists:
+    if not table_exists(conn, tn.graph_nodes):
         return 0
 
     # Ensure index exists for the NOT EXISTS subquery (critical for large DBs)
-    conn.execute(
+    execute(
+        conn,
         f"CREATE INDEX IF NOT EXISTS idx_{tn.graph_nodes}_source_path "
-        f"ON {tn.graph_nodes}(source_path)"
+        f"ON {tn.graph_nodes}(source_path)",
     )
 
     # Find source files that have chunks but no graph nodes
-    rows = conn.execute(
+    rows = fetchall(
+        conn,
         f"""SELECT DISTINCT c.source_path FROM {tn.chunks} c
             WHERE c.is_current = 1
             AND c.node_type = 'chunk'
             AND NOT EXISTS (
                 SELECT 1 FROM {tn.graph_nodes} g
                 WHERE g.source_path = c.source_path
-            )"""
-    ).fetchall()
+            )""",
+    )
 
     total_files = len(rows)
     if total_files == 0:
@@ -784,11 +803,16 @@ def _backfill_graph(conn: sqlite3.Connection, tn: TableNames) -> int:
             fg = build_file_graph(sp, raw_text)
             db_nodes, db_edges = build_graph_from_file_graph(fg, source_path, raw_text)
 
+            from lsm.db.compat import is_sqlite as _is_sq
+
+            _ignore = "OR IGNORE" if _is_sq(conn) else ""
+            _conflict = "" if _is_sq(conn) else " ON CONFLICT DO NOTHING"
             for db_node in db_nodes:
-                conn.execute(
-                    f"""INSERT OR IGNORE INTO {tn.graph_nodes}
+                execute(
+                    conn,
+                    f"""INSERT {_ignore} INTO {tn.graph_nodes}
                         (node_id, node_type, label, source_path, heading_path)
-                        VALUES (?, ?, ?, ?, ?)""",
+                        VALUES (?, ?, ?, ?, ?){_conflict}""",
                     (
                         db_node.node_id,
                         db_node.node_type,
@@ -799,10 +823,11 @@ def _backfill_graph(conn: sqlite3.Connection, tn: TableNames) -> int:
                 )
 
             for db_edge in db_edges:
-                conn.execute(
-                    f"""INSERT OR IGNORE INTO {tn.graph_edges}
+                execute(
+                    conn,
+                    f"""INSERT {_ignore} INTO {tn.graph_edges}
                         (src_id, dst_id, edge_type, weight)
-                        VALUES (?, ?, ?, ?)""",
+                        VALUES (?, ?, ?, ?){_conflict}""",
                     (
                         db_edge.src_id,
                         db_edge.dst_id,
@@ -816,7 +841,7 @@ def _backfill_graph(conn: sqlite3.Connection, tn: TableNames) -> int:
             logger.warning("Cannot build graph for %s: %s", source_path, exc)
 
         if processed % 50 == 0 or processed == total_files:
-            conn.commit()
+            commit(conn)
             logger.info("Graph backfill: %s/%s files (%s updated, %s skipped).", f"{processed:,}", f"{total_files:,}", f"{updated:,}", f"{skipped:,}")
 
     return updated
@@ -828,7 +853,7 @@ def _backfill_graph(conn: sqlite3.Connection, tn: TableNames) -> int:
 
 
 def run_tier2_cluster_enrichment(
-    conn: sqlite3.Connection,
+    conn: Any,
     config: Any,
     table_names: TableNames | None = None,
 ) -> int:
@@ -843,16 +868,13 @@ def run_tier2_cluster_enrichment(
         return 0
 
     # Check if vec_chunks exists
-    vec_exists = conn.execute(
-        "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name=?",
-        (tn.vec_chunks,),
-    ).fetchone()[0]
-    if not vec_exists:
+    if not table_exists(conn, tn.vec_chunks):
         return 0
 
-    null_cluster = conn.execute(
-        f"SELECT COUNT(*) FROM {tn.chunks} WHERE cluster_id IS NULL AND is_current = 1"
-    ).fetchone()[0]
+    null_cluster = fetchone(
+        conn,
+        f"SELECT COUNT(*) FROM {tn.chunks} WHERE cluster_id IS NULL AND is_current = 1",
+    )[0]
     if null_cluster == 0:
         return 0
 
@@ -871,7 +893,7 @@ def run_tier2_cluster_enrichment(
 
 
 def run_enrichment_pipeline(
-    conn: sqlite3.Connection,
+    conn: Any,
     config: Any,
     table_names: TableNames | None = None,
     root_paths: list[Path] | None = None,
@@ -966,7 +988,7 @@ def run_enrichment_pipeline(
             )
         )
         stage_tracker("enrich_tier1", "failed" if tier1_failed else "completed")
-    conn.commit()
+    commit(conn)
     logger.info("Tier 1 enrichment: %d chunks updated", tier1_updated)
 
     # Tier 2
@@ -979,12 +1001,13 @@ def run_enrichment_pipeline(
             where_clause: str, label: str,
         ) -> Tuple[List[Tuple[str, Path]], int]:
             """Query distinct source paths matching *where_clause* and resolve to disk."""
-            rows = conn.execute(
+            rows = fetchall(
+                conn,
                 f"""SELECT DISTINCT source_path FROM {tn.chunks}
                     WHERE {where_clause}
                     AND (node_type = 'chunk' OR node_type IS NULL)
-                    AND is_current = 1"""
-            ).fetchall()
+                    AND is_current = 1""",
+            )
             found: List[Tuple[str, Path]] = []
             skipped = 0
             for (sp,) in rows:
@@ -1009,7 +1032,7 @@ def run_enrichment_pipeline(
             for i, (source_path, file_path) in enumerate(paths, 1):
                 updated += _backfill_heading_path(conn, tn, source_path, file_path)
                 if i % 5 == 0 or i == total:
-                    conn.commit()
+                    commit(conn)
                     logger.info("Heading-path backfill: %s/%s files (%s updated).", f"{i:,}", f"{total:,}", f"{updated:,}")
                 elif i == 1:
                     logger.info("Heading-path backfill: %s/%s files (%s updated).", f"{i:,}", f"{total:,}", f"{updated:,}")
@@ -1024,18 +1047,18 @@ def run_enrichment_pipeline(
             for i, (source_path, file_path) in enumerate(paths, 1):
                 updated += _backfill_positions(conn, tn, source_path, file_path)
                 if i % 5 == 0 or i == total:
-                    conn.commit()
+                    commit(conn)
                     logger.info("Position backfill: %s/%s files (%s updated).", f"{i:,}", f"{total:,}", f"{updated:,}")
                 elif i == 1:
                     logger.info("Position backfill: %s/%s files (%s updated).", f"{i:,}", f"{total:,}", f"{updated:,}")
             return updated
 
         tier2_updated += _run_stage("enrich_tier2_heading_path", _run_heading_path)
-        conn.commit()
+        commit(conn)
         tier2_updated += _run_stage("enrich_tier2_positions", _run_positions)
-        conn.commit()
+        commit(conn)
         tier2_updated += _run_stage("enrich_tier2_graph", lambda: _backfill_graph(conn, tn))
-        conn.commit()
+        commit(conn)
         logger.info(
             "Tier 2 enrichment: %d updated, %d skipped.",
             tier2_updated,

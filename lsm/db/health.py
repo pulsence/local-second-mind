@@ -12,6 +12,12 @@ from pathlib import Path
 from typing import Any, Optional
 
 from lsm import __version__ as LSM_VERSION
+from lsm.db.compat import (
+    execute,
+    fetchone,
+    is_sqlite,
+    table_exists,
+)
 from lsm.db.connection import resolve_db_path
 from lsm.db.tables import DEFAULT_TABLE_NAMES, TableNames
 
@@ -142,7 +148,7 @@ def _check_legacy_provider(config: Any) -> Optional[DBHealthReport]:
 
 
 def _check_schema_version(
-    conn: sqlite3.Connection,
+    conn: Any,
     config: Any,
     table_names: TableNames,
 ) -> Optional[DBHealthReport]:
@@ -172,21 +178,17 @@ def _check_schema_version(
 
 
 def _check_required_tables(
-    conn: sqlite3.Connection,
+    conn: Any,
     table_names: TableNames,
 ) -> Optional[DBHealthReport]:
     """Verify all required application tables exist."""
     missing = []
-    for table_name in table_names.application_tables():
+    for tbl in table_names.application_tables():
         try:
-            row = conn.execute(
-                "SELECT name FROM sqlite_master WHERE type='table' AND name=?",
-                (table_name,),
-            ).fetchone()
-            if row is None:
-                missing.append(table_name)
+            if not table_exists(conn, tbl):
+                missing.append(tbl)
         except Exception:
-            missing.append(table_name)
+            missing.append(tbl)
 
     if missing:
         return DBHealthReport(
@@ -203,7 +205,7 @@ def _check_required_tables(
 
 
 def _check_partial_migration(
-    conn: sqlite3.Connection,
+    conn: Any,
     table_names: TableNames,
 ) -> Optional[DBHealthReport]:
     """Check for incomplete migration state.
@@ -212,17 +214,14 @@ def _check_partial_migration(
     Returns None (ok) if the table does not exist yet.
     """
     try:
-        row = conn.execute(
-            "SELECT name FROM sqlite_master WHERE type='table' AND name=?",
-            (table_names.migration_progress,),
-        ).fetchone()
-        if row is None:
+        if not table_exists(conn, table_names.migration_progress):
             return None  # table doesn't exist yet — no migration tracking
 
-        stuck = conn.execute(
+        stuck = fetchone(
+            conn,
             f"SELECT COUNT(*) FROM {table_names.migration_progress} "
-            f"WHERE status IN ('in_progress', 'interrupted', 'failed')"
-        ).fetchone()
+            f"WHERE status IN ('in_progress', 'interrupted', 'failed')",
+        )
         if stuck and stuck[0] > 0:
             return DBHealthReport(
                 status="partial_migration",
@@ -240,7 +239,7 @@ def _check_partial_migration(
 
 
 def _check_stale_chunks(
-    conn: sqlite3.Connection,
+    conn: Any,
     config: Any | TableNames | None = None,
     table_names: Optional[TableNames] = None,
 ) -> Optional[DBHealthReport]:
@@ -255,11 +254,7 @@ def _check_stale_chunks(
     tn = table_names or DEFAULT_TABLE_NAMES
 
     try:
-        row = conn.execute(
-            "SELECT name FROM sqlite_master WHERE type='table' AND name=?",
-            (tn.chunks,),
-        ).fetchone()
-        if row is None:
+        if not table_exists(conn, tn.chunks):
             return None  # no chunks table yet
 
         query_cfg = getattr(config, "query", None)
@@ -355,30 +350,51 @@ def check_db_health(
     if report is not None:
         return report
 
-    # For remaining checks, we need a SQLite connection
+    # For remaining checks, we need a database connection.
     db_cfg = getattr(config, "db", None)
     if db_cfg is None:
         return _OK
 
     provider_name = getattr(db_cfg, "provider", "sqlite")
-    if provider_name != "sqlite":
-        # PostgreSQL checks beyond connectivity are handled elsewhere
+
+    if provider_name == "sqlite":
+        db_path = resolve_db_path(getattr(db_cfg, "path", Path(".")))
+        if not db_path.exists():
+            return _OK  # already handled by reachability check
+
+        try:
+            conn = sqlite3.connect(str(db_path), check_same_thread=False)
+            conn.row_factory = sqlite3.Row
+        except Exception as exc:
+            return DBHealthReport(
+                status="corrupt",
+                details=f"Cannot open database file: {exc}",
+                suggested_action="The database file may be corrupt. Check file permissions.",
+                blocking=True,
+            )
+        close_conn = True
+    elif provider_name == "postgresql":
+        try:
+            import psycopg2
+
+            conn_str = getattr(db_cfg, "connection_string", None)
+            if conn_str:
+                conn = psycopg2.connect(conn_str, connect_timeout=5)
+            else:
+                conn = psycopg2.connect(
+                    host=getattr(db_cfg, "host", None),
+                    port=getattr(db_cfg, "port", None),
+                    dbname=getattr(db_cfg, "database", None),
+                    user=getattr(db_cfg, "user", None),
+                    password=getattr(db_cfg, "password", None),
+                    connect_timeout=5,
+                )
+            close_conn = True
+        except Exception:
+            # Connectivity failure already caught in _check_db_reachable
+            return _OK
+    else:
         return _OK
-
-    db_path = resolve_db_path(getattr(db_cfg, "path", Path(".")))
-    if not db_path.exists():
-        return _OK  # already handled by reachability check
-
-    try:
-        conn = sqlite3.connect(str(db_path), check_same_thread=False)
-        conn.row_factory = sqlite3.Row
-    except Exception as exc:
-        return DBHealthReport(
-            status="corrupt",
-            details=f"Cannot open database file: {exc}",
-            suggested_action="The database file may be corrupt. Check file permissions.",
-            blocking=True,
-        )
 
     try:
         # 3. Schema version compatible?
@@ -402,6 +418,7 @@ def check_db_health(
         if report is not None:
             return report
     finally:
-        conn.close()
+        if close_conn:
+            conn.close()
 
     return _OK
