@@ -9,12 +9,14 @@ Provides helper functions for building query context from various sources:
 
 from __future__ import annotations
 
+from contextlib import contextmanager
 from dataclasses import dataclass
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
 from pathlib import Path
 from typing import Callable, List, Dict, Any, Optional, Tuple
 
 from lsm.config.models import LSMConfig
+from lsm.db.connection import resolve_connection
 from lsm.query.session import Candidate, SessionState
 from lsm.query.planning import prepare_local_candidates, LocalQueryPlan
 from lsm.remote import create_remote_provider
@@ -29,6 +31,7 @@ def _remote_provider_runtime_config(
     effective_weight: float,
     global_folder: Optional[str | Path] = None,
     vectordb_path: Optional[str | Path] = None,
+    db_provider: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Build provider runtime config preserving provider-specific passthrough fields."""
     runtime_config: Dict[str, Any] = {
@@ -49,9 +52,21 @@ def _remote_provider_runtime_config(
         runtime_config["global_folder"] = str(global_folder)
     if vectordb_path is not None:
         runtime_config["vectordb_path"] = str(vectordb_path)
+    if db_provider is not None:
+        runtime_config["db_provider"] = str(db_provider)
     if getattr(provider_config, "extra", None):
         runtime_config.update(provider_config.extra)
     return runtime_config
+
+
+@contextmanager
+def _remote_cache_connection(config: LSMConfig):
+    """Yield a DB connection for remote cache access when available."""
+    try:
+        with resolve_connection(config.db) as conn:
+            yield conn
+    except Exception:
+        yield None
 
 
 # -----------------------------
@@ -283,126 +298,132 @@ def fetch_remote_sources(
     total_providers = len(active_providers)
     completed_providers = 0
 
-    for provider_config in active_providers:
-        provider_name = provider_config.name
-        try:
-            if progress_callback:
-                progress_callback(
-                    "remote",
-                    completed_providers,
-                    total_providers,
-                    f"Fetching from {provider_name}...",
-                )
-            logger.info(f"Fetching from remote provider: {provider_name}")
+    with _remote_cache_connection(config) as cache_conn:
+        for provider_config in active_providers:
+            provider_name = provider_config.name
+            try:
+                if progress_callback:
+                    progress_callback(
+                        "remote",
+                        completed_providers,
+                        total_providers,
+                        f"Fetching from {provider_name}...",
+                    )
+                logger.info(f"Fetching from remote provider: {provider_name}")
 
-            mode_weight = remote_policy.get_provider_weight(provider_name)
-            effective_weight = mode_weight if mode_weight is not None else provider_config.weight
-            cache_ttl = provider_config.cache_ttl if provider_config.cache_ttl is not None else 86400
+                mode_weight = remote_policy.get_provider_weight(provider_name)
+                effective_weight = mode_weight if mode_weight is not None else provider_config.weight
+                cache_ttl = provider_config.cache_ttl if provider_config.cache_ttl is not None else 86400
 
-            raw_results: List[Dict[str, Any]] | None = None
-            if provider_config.cache_results:
-                cached = load_cached_results(
-                    provider_name=provider_name,
-                    query=question,
-                    global_folder=config.global_folder,
-                    max_age=int(cache_ttl),
-                    vectordb_path=config.db.path,
-                )
-                if cached is not None:
-                    raw_results = []
-                    for item in cached:
-                        if not isinstance(item, dict):
-                            continue
-                        raw_results.append(
-                            {
-                                "title": item.get("title", ""),
-                                "url": item.get("url", ""),
-                                "snippet": item.get("snippet", ""),
-                                "score": item.get("score", 0.5),
-                                "metadata": item.get("metadata") or {},
-                            }
+                raw_results: List[Dict[str, Any]] | None = None
+                if provider_config.cache_results:
+                    cached = load_cached_results(
+                        provider_name=provider_name,
+                        query=question,
+                        global_folder=config.global_folder,
+                        max_age=int(cache_ttl),
+                        db_connection=cache_conn,
+                        vectordb_path=config.db.path,
+                        db_provider=config.db.provider,
+                    )
+                    if cached is not None:
+                        raw_results = []
+                        for item in cached:
+                            if not isinstance(item, dict):
+                                continue
+                            raw_results.append(
+                                {
+                                    "title": item.get("title", ""),
+                                    "url": item.get("url", ""),
+                                    "snippet": item.get("snippet", ""),
+                                    "score": item.get("score", 0.5),
+                                    "metadata": item.get("metadata") or {},
+                                }
+                            )
+                        logger.info(
+                            f"Using cached remote results for provider '{provider_name}' "
+                            f"({len(raw_results)} results)"
                         )
-                    logger.info(
-                        f"Using cached remote results for provider '{provider_name}' "
-                        f"({len(raw_results)} results)"
+
+                if raw_results is None:
+                    provider = create_remote_provider(
+                        provider_config.type,
+                        _remote_provider_runtime_config(
+                            provider_config,
+                            effective_weight,
+                            config.global_folder,
+                            config.db.path,
+                            config.db.provider,
+                        ),
                     )
 
-            if raw_results is None:
-                provider = create_remote_provider(
-                    provider_config.type,
-                    _remote_provider_runtime_config(
-                        provider_config,
-                        effective_weight,
-                        config.global_folder,
-                        config.db.path,
-                    ),
-                )
+                    max_results = provider_config.max_results or remote_policy.max_results
 
-                max_results = provider_config.max_results or remote_policy.max_results
+                    timeout_seconds = provider_config.timeout if provider_config.timeout is not None else 30
+                    with ThreadPoolExecutor(max_workers=1) as pool:
+                        future = pool.submit(provider.search, question, max_results=max_results)
+                        try:
+                            results = future.result(timeout=max(1, int(timeout_seconds)))
+                        except FuturesTimeoutError:
+                            future.cancel()
+                            raise TimeoutError(
+                                f"remote provider timed out after {timeout_seconds}s"
+                            )
 
-                timeout_seconds = provider_config.timeout if provider_config.timeout is not None else 30
-                with ThreadPoolExecutor(max_workers=1) as pool:
-                    future = pool.submit(provider.search, question, max_results=max_results)
-                    try:
-                        results = future.result(timeout=max(1, int(timeout_seconds)))
-                    except FuturesTimeoutError:
-                        future.cancel()
-                        raise TimeoutError(
-                            f"remote provider timed out after {timeout_seconds}s"
-                        )
+                    raw_results = [
+                        {
+                            "title": result.title,
+                            "url": result.url,
+                            "snippet": result.snippet,
+                            "score": result.score,
+                            "metadata": result.metadata or {},
+                        }
+                        for result in results
+                    ]
 
-                raw_results = [
-                    {
-                        "title": result.title,
-                        "url": result.url,
-                        "snippet": result.snippet,
-                        "score": result.score,
-                        "metadata": result.metadata or {},
-                    }
-                    for result in results
-                ]
+                    if provider_config.cache_results:
+                        try:
+                            save_results(
+                                provider_name=provider_name,
+                                query=question,
+                                results=raw_results,
+                                global_folder=config.global_folder,
+                                db_connection=cache_conn,
+                                vectordb_path=config.db.path,
+                                db_provider=config.db.provider,
+                                cache_ttl_seconds=int(cache_ttl),
+                            )
+                        except Exception as exc:
+                            logger.warning(
+                                f"Failed saving remote cache for provider '{provider_name}': {exc}"
+                            )
 
-                if provider_config.cache_results:
-                    try:
-                        save_results(
-                            provider_name=provider_name,
-                            query=question,
-                            results=raw_results,
-                            global_folder=config.global_folder,
-                            vectordb_path=config.db.path,
-                            cache_ttl_seconds=int(cache_ttl),
-                        )
-                    except Exception as exc:
-                        logger.warning(
-                            f"Failed saving remote cache for provider '{provider_name}': {exc}"
-                        )
+                for result in raw_results:
+                    base_score = result.get("score")
+                    base_score = base_score if base_score is not None else 0.5
+                    weighted_score = base_score * effective_weight
+                    all_remote_results.append({
+                        "title": result.get("title", ""),
+                        "url": result.get("url", ""),
+                        "snippet": result.get("snippet", ""),
+                        "score": base_score,
+                        "weight": effective_weight,
+                        "weighted_score": weighted_score,
+                        "provider": provider_name,
+                        "metadata": result.get("metadata") or {},
+                    })
+                completed_providers += 1
 
-            for result in raw_results:
-                base_score = result.get("score")
-                base_score = base_score if base_score is not None else 0.5
-                weighted_score = base_score * effective_weight
-                all_remote_results.append({
-                    "title": result.get("title", ""),
-                    "url": result.get("url", ""),
-                    "snippet": result.get("snippet", ""),
-                    "score": base_score,
-                    "weight": effective_weight,
-                    "weighted_score": weighted_score,
-                    "provider": provider_name,
-                    "metadata": result.get("metadata") or {},
-                })
-            completed_providers += 1
-
-        except Exception as e:
-            logger.error(f"Failed to fetch from {provider_name}: {e}")
-            completed_providers += 1
-            if progress_callback:
-                progress_callback(
-                    "remote",
-                    completed_providers,
-                    total_providers,
-                    f"{provider_name} failed: {e}",
-                )
+            except Exception as e:
+                logger.error(f"Failed to fetch from {provider_name}: {e}")
+                completed_providers += 1
+                if progress_callback:
+                    progress_callback(
+                        "remote",
+                        completed_providers,
+                        total_providers,
+                        f"{provider_name} failed: {e}",
+                    )
 
     if remote_policy.rank_strategy == "weighted" and all_remote_results:
         all_remote_results.sort(key=lambda x: x.get("weighted_score", 0), reverse=True)

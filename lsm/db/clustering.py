@@ -34,7 +34,8 @@ def build_clusters(
 ) -> Dict[str, Any]:
     """Build cluster assignments for all current embeddings.
 
-    Reads embeddings from ``vec_chunks``, runs the requested algorithm,
+    Uses the provider embedding API when available, otherwise falls back
+    to reading SQLite ``vec_chunks`` directly, runs the requested algorithm,
     writes ``cluster_id`` / ``cluster_size`` back to ``lsm_chunks``,
     and stores centroids in ``lsm_cluster_centroids``.
 
@@ -62,6 +63,13 @@ def build_clusters(
 
     if provider is None:
         conn = db_or_conn
+        if not is_sqlite(conn):
+            raise ValueError(
+                "build_clusters requires a vector provider for non-SQLite backends."
+            )
+        if not table_exists(conn, tn.vec_chunks):
+            logger.warning("Cluster build skipped: %s does not exist.", tn.vec_chunks)
+            return {"n_clusters": 0, "n_chunks": 0, "algorithm": algorithm}
         logger.info("Cluster build: reading embeddings from %s...", tn.vec_chunks)
         rows = fetchall(
             conn,

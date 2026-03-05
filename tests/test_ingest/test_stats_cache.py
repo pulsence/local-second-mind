@@ -82,6 +82,23 @@ def test_db_cache_get_if_fresh_and_invalidate(tmp_path: Path) -> None:
     assert cache.load() is None
 
 
+def test_postgresql_config_does_not_create_sqlite_db(tmp_path: Path) -> None:
+    cache = StatsCache(
+        cache_path=tmp_path / "stats_cache.json",
+        db_path=_db_path(tmp_path),
+        db_provider="postgresql",
+        cache_key="test_collection_stats",
+    )
+
+    cache.save(_SAMPLE_STATS, chunk_count=1000)
+
+    assert not (_db_path(tmp_path) / "lsm.db").exists()
+    assert (tmp_path / "stats_cache.json").exists()
+    loaded = cache.load()
+    assert loaded is not None
+    assert loaded["stats"]["total_chunks"] == 1000
+
+
 def test_stats_integration_cache_hit_avoids_full_scan(tmp_path: Path) -> None:
     from lsm.ingest.stats import get_collection_stats
 

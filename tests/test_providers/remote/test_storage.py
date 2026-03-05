@@ -103,3 +103,57 @@ def test_feed_cache_roundtrip_returns_stale_entry_with_fresh_false(
     assert cache.seen_ids == ["a1"]
     assert cache.items == [{"identifier": "a1", "title": "Item"}]
     assert cache.fresh is False
+
+
+def test_save_results_postgresql_provider_does_not_create_sqlite_db(tmp_path: Path) -> None:
+    vectordb_path = tmp_path / "data"
+    cache_path = save_results(
+        provider_name="web search",
+        query="test query",
+        results=[{"title": "Example", "url": "https://example.com"}],
+        global_folder=tmp_path,
+        vectordb_path=vectordb_path,
+        db_provider="postgresql",
+    )
+
+    assert cache_path != vectordb_path / "lsm.db"
+    assert not (vectordb_path / "lsm.db").exists()
+    assert cache_path.exists()
+    assert "Downloads" in str(cache_path)
+
+    loaded = load_cached_results(
+        provider_name="web search",
+        query="test query",
+        global_folder=tmp_path,
+        max_age=3600,
+        vectordb_path=vectordb_path,
+        db_provider="postgresql",
+    )
+    assert loaded == [{"title": "Example", "url": "https://example.com"}]
+
+
+def test_feed_cache_postgresql_provider_does_not_create_sqlite_db(tmp_path: Path) -> None:
+    vectordb_path = tmp_path / "data"
+    cache_path = save_feed_cache(
+        feed_url="https://example.com/rss",
+        items=[{"identifier": "a1", "title": "Item"}],
+        seen_ids=["a1"],
+        global_folder=tmp_path,
+        vectordb_path=vectordb_path,
+        db_provider="postgresql",
+        cache_ttl_seconds=60,
+    )
+
+    assert cache_path != vectordb_path / "lsm.db"
+    assert not (vectordb_path / "lsm.db").exists()
+    assert cache_path.exists()
+
+    cache = load_feed_cache(
+        feed_url="https://example.com/rss",
+        global_folder=tmp_path,
+        max_age=3600,
+        vectordb_path=vectordb_path,
+        db_provider="postgresql",
+    )
+    assert cache is not None
+    assert cache.items == [{"identifier": "a1", "title": "Item"}]

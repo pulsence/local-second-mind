@@ -20,6 +20,7 @@ def _provider_runtime_config(
     *,
     global_folder: Optional[str | Path] = None,
     vectordb_path: Optional[str | Path] = None,
+    db_provider: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Build provider config preserving provider-specific passthrough keys."""
     runtime_config: Dict[str, Any] = {
@@ -40,6 +41,8 @@ def _provider_runtime_config(
         runtime_config["global_folder"] = str(global_folder)
     if vectordb_path is not None:
         runtime_config["vectordb_path"] = str(vectordb_path)
+    if db_provider is not None:
+        runtime_config["db_provider"] = str(db_provider)
     if getattr(provider_cfg, "extra", None):
         runtime_config.update(provider_cfg.extra)
     return runtime_config
@@ -81,6 +84,7 @@ class RemoteProviderChain:
                     provider_cfg,
                     global_folder=self.config.global_folder,
                     vectordb_path=self.config.db.path,
+                    db_provider=self.config.db.provider,
                 ),
             )
 

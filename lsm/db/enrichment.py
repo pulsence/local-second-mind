@@ -865,10 +865,6 @@ def run_tier2_cluster_enrichment(
     if query_cfg is None or not getattr(query_cfg, "cluster_enabled", False):
         return 0
 
-    # Check if vec_chunks exists
-    if not table_exists(conn, tn.vec_chunks):
-        return 0
-
     null_cluster = fetchone(
         conn,
         f"SELECT COUNT(*) FROM {tn.chunks} WHERE cluster_id IS NULL AND is_current = 1",
@@ -877,11 +873,25 @@ def run_tier2_cluster_enrichment(
         return 0
 
     from lsm.db.clustering import build_clusters
+    from lsm.vectordb import create_vectordb_provider
 
     algorithm = getattr(query_cfg, "cluster_algorithm", "kmeans")
     k = getattr(query_cfg, "cluster_k", 50)
 
-    result = build_clusters(conn, algorithm=algorithm, k=k, table_names=tn)
+    db_cfg = getattr(config, "db", None)
+    provider_name = str(getattr(db_cfg, "provider", "") or "").strip().lower()
+
+    runner: Any = conn
+    if provider_name != "sqlite":
+        if db_cfg is None:
+            raise RuntimeError(
+                "Cluster enrichment for non-SQLite backends requires config.db."
+            )
+        runner = create_vectordb_provider(db_cfg)
+    elif not table_exists(conn, tn.vec_chunks):
+        return 0
+
+    result = build_clusters(runner, algorithm=algorithm, k=k, table_names=tn)
     return result.get("n_chunks", 0)
 
 

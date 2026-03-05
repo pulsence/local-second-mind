@@ -658,6 +658,63 @@ class TestTier2bClusterEnrichment:
         result = enrichment.run_tier2_cluster_enrichment(conn, cfg)
         assert result == 0
 
+    def test_postgresql_uses_provider_api_without_sqlite_vec_table(self, monkeypatch):
+        conn = _make_conn()
+        _insert_chunk(conn, "c1", cluster_id=None)
+        _insert_chunk(conn, "c2", cluster_id=None)
+
+        updates_seen = []
+
+        class _FakeProvider:
+            name = "postgresql"
+
+            def __init__(self, connection):
+                self._connection = connection
+
+            def get_embeddings(self, filters=None, only_current=True):
+                _ = filters, only_current
+                return ["c1", "c2"], [[1.0, 0.0], [0.0, 1.0]]
+
+            def update_cluster_assignments(self, updates):
+                updates_seen.extend(updates)
+                for chunk_id, cluster_id in updates:
+                    self._connection.execute(
+                        f"UPDATE {DEFAULT_TABLE_NAMES.chunks} SET cluster_id = ? WHERE chunk_id = ?",
+                        (int(cluster_id), str(chunk_id)),
+                    )
+                self._connection.commit()
+
+            def _get_conn(self):
+                class _Ctx:
+                    def __enter__(inner_self):
+                        return self._connection
+
+                    def __exit__(inner_self, exc_type, exc, tb):
+                        return False
+
+                return _Ctx()
+
+        monkeypatch.setattr(
+            "lsm.vectordb.create_vectordb_provider",
+            lambda _db_cfg: _FakeProvider(conn),
+        )
+
+        cfg = _fake_config(
+            query=SimpleNamespace(cluster_enabled=True, cluster_algorithm="kmeans", cluster_k=2),
+            db=SimpleNamespace(provider="postgresql"),
+        )
+
+        result = enrichment.run_tier2_cluster_enrichment(conn, cfg)
+
+        assert result == 2
+        assert len(updates_seen) == 2
+        cluster_ids = {
+            row[0] for row in conn.execute(
+                f"SELECT cluster_id FROM {DEFAULT_TABLE_NAMES.chunks} ORDER BY chunk_id"
+            ).fetchall()
+        }
+        assert cluster_ids == {0, 1}
+
 
 # ==================================================================
 # Full pipeline

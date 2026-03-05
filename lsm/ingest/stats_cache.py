@@ -29,6 +29,7 @@ class StatsCache:
         *,
         connection: Any = None,
         db_path: Optional[Path] = None,
+        db_provider: Optional[str] = None,
         cache_key: str = "collection_stats",
         table_names: TableNames | None = None,
     ) -> None:
@@ -38,12 +39,14 @@ class StatsCache:
         self._connection = connection
         self._owns_connection = False
         self._table_names = table_names or DEFAULT_TABLE_NAMES
+        self._db_provider = str(db_provider or "").strip().lower()
 
         if self._connection is None and db_path is not None:
-            resolved = resolve_db_path(Path(db_path))
-            resolved.parent.mkdir(parents=True, exist_ok=True)
-            self._connection = create_sqlite_connection(resolved)
-            self._owns_connection = True
+            if self._db_provider in ("", "sqlite"):
+                resolved = resolve_db_path(Path(db_path))
+                resolved.parent.mkdir(parents=True, exist_ok=True)
+                self._connection = create_sqlite_connection(resolved)
+                self._owns_connection = True
 
         if self._connection is not None:
             self._ensure_table()

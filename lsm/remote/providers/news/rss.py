@@ -86,6 +86,7 @@ class RSSProvider(BaseRemoteProvider):
         )
         self.global_folder = config.get("global_folder")
         self.vectordb_path = config.get("vectordb_path")
+        self.db_provider = config.get("db_provider")
         fetcher = config.get("fetcher")
         self._fetcher = fetcher if callable(fetcher) else None
         self._last_request_time = 0.0
@@ -156,6 +157,7 @@ class RSSProvider(BaseRemoteProvider):
                 global_folder=self.global_folder,
                 max_age=self.cache_ttl_seconds,
                 vectordb_path=self.vectordb_path,
+                db_provider=self.db_provider,
             )
             seen_ids = set(cache.seen_ids) if cache else set()
 
@@ -180,6 +182,7 @@ class RSSProvider(BaseRemoteProvider):
                         seen_ids=list(seen_ids),
                         global_folder=self.global_folder,
                         vectordb_path=self.vectordb_path,
+                        db_provider=self.db_provider,
                         cache_ttl_seconds=self.cache_ttl_seconds,
                     )
                 except Exception as exc:

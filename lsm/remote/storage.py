@@ -71,12 +71,16 @@ def _open_cache_connection(
     *,
     db_connection: Any = None,
     vectordb_path: Optional[str | Path] = None,
+    db_provider: Optional[str] = None,
     table_names: TableNames | None = None,
 ) -> tuple[Any, Optional[Path], bool]:
     tn = table_names or DEFAULT_TABLE_NAMES
     if db_connection is not None:
         _ensure_remote_cache_table(db_connection, table_names=tn)
         return db_connection, None, False
+    provider_name = str(db_provider or "").strip().lower()
+    if provider_name and provider_name != "sqlite":
+        return None, None, False
     if vectordb_path is None:
         return None, None, False
     db_path = resolve_db_path(Path(vectordb_path).expanduser())
@@ -195,6 +199,7 @@ def save_results(
     *,
     db_connection: Any = None,
     vectordb_path: Optional[str | Path] = None,
+    db_provider: Optional[str] = None,
     cache_ttl_seconds: Optional[int] = None,
 ) -> Path:
     """Save remote provider search results to cache."""
@@ -212,6 +217,7 @@ def save_results(
         connection, db_path, should_close = _open_cache_connection(
             db_connection=db_connection,
             vectordb_path=vectordb_path,
+            db_provider=db_provider,
         )
         if connection is not None:
             _save_db_payload(
@@ -239,6 +245,7 @@ def load_cached_results(
     *,
     db_connection: Any = None,
     vectordb_path: Optional[str | Path] = None,
+    db_provider: Optional[str] = None,
 ) -> Optional[List[Dict[str, Any]]]:
     """Load cached remote provider search results when fresh."""
     connection = None
@@ -247,6 +254,7 @@ def load_cached_results(
         connection, _, should_close = _open_cache_connection(
             db_connection=db_connection,
             vectordb_path=vectordb_path,
+            db_provider=db_provider,
         )
         if connection is not None:
             loaded = _load_db_payload(connection, _query_cache_key(provider_name, query))
@@ -256,11 +264,12 @@ def load_cached_results(
 
             now = _now_utc()
             if expires_at is not None and now > expires_at:
-                connection.execute(
+                execute(
+                    connection,
                     f"DELETE FROM {DEFAULT_TABLE_NAMES.remote_cache} WHERE cache_key = ?",
                     (_query_cache_key(provider_name, query),),
                 )
-                connection.commit()
+                compat_commit(connection)
                 return None
 
             if expires_at is None:
@@ -319,6 +328,7 @@ def save_feed_cache(
     *,
     db_connection: Any = None,
     vectordb_path: Optional[str | Path] = None,
+    db_provider: Optional[str] = None,
     cache_ttl_seconds: Optional[int] = None,
 ) -> Path:
     """Save RSS/Atom feed cache."""
@@ -336,6 +346,7 @@ def save_feed_cache(
         connection, db_path, should_close = _open_cache_connection(
             db_connection=db_connection,
             vectordb_path=vectordb_path,
+            db_provider=db_provider,
         )
         if connection is not None:
             _save_db_payload(
@@ -362,6 +373,7 @@ def load_feed_cache(
     *,
     db_connection: Any = None,
     vectordb_path: Optional[str | Path] = None,
+    db_provider: Optional[str] = None,
 ) -> Optional[FeedCache]:
     """Load RSS/Atom feed cache when available."""
     connection = None
@@ -370,6 +382,7 @@ def load_feed_cache(
         connection, _, should_close = _open_cache_connection(
             db_connection=db_connection,
             vectordb_path=vectordb_path,
+            db_provider=db_provider,
         )
         if connection is not None:
             loaded = _load_db_payload(connection, _feed_cache_key(feed_url))
