@@ -212,6 +212,9 @@ class PostgreSQLProvider(BaseVectorDBProvider):
         # Enable pgvector extension eagerly so it's available for all operations.
         with self._get_conn() as conn:
             self._ensure_extension(conn)
+            # Create shared application tables (graph, embedding_models, etc.)
+            from lsm.db.schema import ensure_application_schema
+            ensure_application_schema(conn, table_names=self._tn)
 
     @contextmanager
     def _get_conn(self):
@@ -784,35 +787,9 @@ class PostgreSQLProvider(BaseVectorDBProvider):
     # ------------------------------------------------------------------
 
     def _ensure_graph_tables(self, conn) -> None:
-        """Create graph node/edge tables if they don't exist."""
-        with conn.cursor() as cur:
-            cur.execute("""
-                CREATE TABLE IF NOT EXISTS {graph_nodes} (
-                    node_id      TEXT PRIMARY KEY,
-                    node_type    TEXT,
-                    label        TEXT,
-                    source_path  TEXT,
-                    heading_path TEXT
-                )
-            """.format(graph_nodes=self._tn.graph_nodes))
-            cur.execute("""
-                CREATE TABLE IF NOT EXISTS {graph_edges} (
-                    id        SERIAL PRIMARY KEY,
-                    src_id    TEXT NOT NULL,
-                    dst_id    TEXT NOT NULL,
-                    edge_type TEXT,
-                    weight    REAL DEFAULT 1.0
-                )
-            """.format(graph_edges=self._tn.graph_edges))
-            cur.execute("""
-                CREATE INDEX IF NOT EXISTS idx_graph_edges_src
-                ON {graph_edges} (src_id)
-            """.format(graph_edges=self._tn.graph_edges))
-            cur.execute("""
-                CREATE INDEX IF NOT EXISTS idx_graph_edges_dst
-                ON {graph_edges} (dst_id)
-            """.format(graph_edges=self._tn.graph_edges))
-        conn.commit()
+        """Ensure graph node/edge tables exist (delegates to shared schema)."""
+        from lsm.db.schema import ensure_application_schema
+        ensure_application_schema(conn, table_names=self._tn)
 
     def graph_delete_source(self, source_path: str) -> None:
         """Delete all graph nodes and edges for a source path."""
@@ -971,16 +948,6 @@ class PostgreSQLProvider(BaseVectorDBProvider):
     # ------------------------------------------------------------------
 
     def _ensure_embedding_models_table(self, conn) -> None:
-        """Create embedding models table if it doesn't exist."""
-        with conn.cursor() as cur:
-            cur.execute("""
-                CREATE TABLE IF NOT EXISTS {embedding_models} (
-                    model_id   TEXT PRIMARY KEY,
-                    base_model TEXT,
-                    path       TEXT,
-                    dimension  INTEGER,
-                    created_at TEXT,
-                    is_active  INTEGER DEFAULT 0
-                )
-            """.format(embedding_models=self._tn.embedding_models))
-        conn.commit()
+        """Ensure embedding models table exists (delegates to shared schema)."""
+        from lsm.db.schema import ensure_application_schema
+        ensure_application_schema(conn, table_names=self._tn)

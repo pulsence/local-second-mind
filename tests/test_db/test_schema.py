@@ -1,9 +1,14 @@
+"""Tests for lsm.db.schema — application schema DDL."""
+
 from __future__ import annotations
 
 import sqlite3
 from pathlib import Path
 
+import pytest
+
 from lsm.db.schema import APPLICATION_TABLES, ensure_application_schema
+from lsm.db.tables import DEFAULT_TABLE_NAMES, TableNames
 
 
 def _in_memory_conn() -> sqlite3.Connection:
@@ -13,7 +18,13 @@ def _in_memory_conn() -> sqlite3.Connection:
     return conn
 
 
-def test_ensure_application_schema_creates_all_tables() -> None:
+# ------------------------------------------------------------------
+# SQLite tests
+# ------------------------------------------------------------------
+
+
+def test_ensure_application_schema_creates_all_14_tables() -> None:
+    """Verify all 14 application tables are created."""
     conn = _in_memory_conn()
     ensure_application_schema(conn)
 
@@ -22,7 +33,25 @@ def test_ensure_application_schema_creates_all_tables() -> None:
     ).fetchall()
     names = {str(row["name"]) for row in rows}
 
-    for table in APPLICATION_TABLES:
+    tn = DEFAULT_TABLE_NAMES
+    expected = {
+        tn.chunks,
+        tn.schema_versions,
+        tn.manifest,
+        tn.reranker_cache,
+        tn.agent_memories,
+        tn.agent_memory_candidates,
+        tn.agent_schedules,
+        tn.cluster_centroids,
+        tn.graph_nodes,
+        tn.graph_edges,
+        tn.embedding_models,
+        tn.job_status,
+        tn.stats_cache,
+        tn.remote_cache,
+    }
+    assert len(expected) == 14, "Expected exactly 14 application tables"
+    for table in expected:
         assert table in names, f"Missing table: {table}"
     conn.close()
 
@@ -57,7 +86,6 @@ def test_application_tables_constant_matches_created_tables() -> None:
     names = {str(row["name"]) for row in rows}
 
     # APPLICATION_TABLES should be a subset of created tables
-    # (sqlite_master also includes internal SQLite tables)
     table_set = set(APPLICATION_TABLES)
     assert table_set.issubset(names)
     # And every non-internal table should be in APPLICATION_TABLES
@@ -93,4 +121,77 @@ def test_indexes_are_created() -> None:
     }
     for idx in expected_indexes:
         assert idx in index_names, f"Missing index: {idx}"
+    conn.close()
+
+
+def test_custom_prefix() -> None:
+    """Schema creation works with a custom table prefix."""
+    conn = _in_memory_conn()
+    tn = TableNames(prefix="test_")
+    ensure_application_schema(conn, table_names=tn)
+
+    rows = conn.execute(
+        "SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name"
+    ).fetchall()
+    names = {str(row["name"]) for row in rows}
+
+    assert "test_chunks" in names
+    assert "test_job_status" in names
+    assert "lsm_chunks" not in names
+    conn.close()
+
+
+def test_graph_nodes_source_path_index() -> None:
+    """Verify graph_nodes source_path index exists."""
+    conn = _in_memory_conn()
+    ensure_application_schema(conn)
+
+    rows = conn.execute(
+        "SELECT name FROM sqlite_master WHERE type = 'index' AND name = 'idx_lsm_graph_nodes_source_path'"
+    ).fetchall()
+    assert len(rows) == 1
+    conn.close()
+
+
+def test_chunks_table_has_expected_columns() -> None:
+    """Verify chunks table has all 25+ expected columns."""
+    conn = _in_memory_conn()
+    ensure_application_schema(conn)
+
+    cursor = conn.execute("PRAGMA table_info(lsm_chunks)")
+    columns = {row["name"] for row in cursor.fetchall()}
+
+    expected_columns = {
+        "chunk_id", "source_path", "source_name", "chunk_text",
+        "heading", "heading_path", "page_number", "paragraph_index",
+        "mtime_ns", "file_hash", "version", "is_current",
+        "node_type", "root_tags", "folder_tags", "content_type",
+        "cluster_id", "cluster_size", "simhash", "ext",
+        "chunk_index", "ingested_at", "start_char", "end_char",
+        "chunk_length", "metadata_json",
+    }
+    for col in expected_columns:
+        assert col in columns, f"Missing column: {col}"
+    conn.close()
+
+
+def test_schema_versions_has_autoincrement() -> None:
+    """Verify schema_versions uses autoincrement on SQLite."""
+    conn = _in_memory_conn()
+    ensure_application_schema(conn)
+
+    # Insert without specifying id
+    conn.execute(
+        "INSERT INTO lsm_schema_versions (lsm_version) VALUES ('0.8.0')"
+    )
+    conn.execute(
+        "INSERT INTO lsm_schema_versions (lsm_version) VALUES ('0.8.1')"
+    )
+    conn.commit()
+
+    rows = conn.execute(
+        "SELECT id FROM lsm_schema_versions ORDER BY id"
+    ).fetchall()
+    ids = [row["id"] for row in rows]
+    assert ids == [1, 2]
     conn.close()
