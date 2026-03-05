@@ -32,7 +32,7 @@
 | 16 | PostgreSQL Parity and Cross-Cutting | Completed | [PHASE_16.md](./plan_phases/PHASE_16.md) |
 | 17 | Debug Phase | Completed | [PHASE_17.md](./plan_phases/PHASE_17.md) |
 | 18 | Post-Migration Boundary-Drift Rechunk | Completed | [PHASE_18.md](./plan_phases/PHASE_18.md) |
-| 19 | DB-Agnostic Application Layer | Pending | [PHASE_19.md](./plan_phases/PHASE_19.md) |
+| 19 | DB-Agnostic Application Layer | Completed | [PHASE_19.md](./plan_phases/PHASE_19.md) |
 | 20 | Final Code Review and Release | Pending | [PHASE_20.md](./plan_phases/PHASE_20.md) |
 
 ---
