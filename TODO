@@ -114,6 +114,7 @@
 ### LLM Refinements
 - Research how bulk Batch APIs might be used effectively.
 - Research WebSockets for OpenAI Responses API: https://developers.openai.com/api/docs/guides/websocket-mode.
+- Research tool_search for OpenAI Responses API: https://developers.openai.com/api/docs/guides/tools-tool-search
 - Look into parallel tool calls api parameter.
 - Split Local Provider in to two different: OpenAI_Compatable and Ollama_Provider so the user
   can use these for any generic endpoint which supports the OpenAI API or Ollama API whether it
@@ -214,9 +215,12 @@
     - `tests.integration` for all the integration testing
     - `tests.unit` for all the unit testing
 - Remove Chroma testing outside of migration
+- All test artifacts created during a test run should live in a specific
+  temp test folder which is deleted at the end of a test run with an option
+  to preserve the files for later debugging.
 
 ## v0.10.1: System Refinements
-- Insert results from usage in v.0.9.0
+- Insert results from usage in v.0.10.0
 
 ## v0.10.2: Security
 - All network tool calls pass through an internally proxy. This proxy

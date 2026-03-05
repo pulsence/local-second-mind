@@ -1,15 +1,94 @@
-# v0.8.1 DB Tooling — Research Plan
+# v0.8.1 DB Tooling - Research Plan
 
 ## Overview
 
-v0.8.1 focuses on maturing the database infrastructure introduced in v0.8.0. The work
-falls into five areas:
+The TODO for v0.8.1 asks for five related pieces of database tooling work:
 
-1. **DB version numbering** — clarify how schema versions are defined, tracked, and stored.
-2. **DB version migration support** — define migration path guarantees and version ranges.
-3. **`lsm.migration` package** — extract migration tooling into a dedicated package.
-4. **Golden data sets** — create snapshot fixtures for integration testing across DB backends.
-5. **DB installation tool** — replace ad-hoc schema creation with a deliberate init command.
+1. Clarify DB version numbering and storage.
+2. Clarify version-to-version DB migration support.
+3. Extract migration tooling into an `lsm.migration` package.
+4. Add golden data sets for migration testing.
+5. Decide whether LSM needs an explicit DB install/init tool.
+
+This document is grounded in the current codebase as inspected on March 5, 2026.
+It replaces several stale assumptions from the earlier draft with the current reality of
+the repository.
+
+## Research Basis
+
+The following files were reviewed directly:
+
+- `TODO`
+- `.agents/docs/RESEARCH_PLAN.md`
+- `.agents/docs/plan_phases/PHASE_3.md`
+- `.agents/docs/plan_phases/PHASE_4.md`
+- `.agents/docs/plan_phases/PHASE_17.md`
+- `.agents/docs/plan_phases/PHASE_19.md`
+- `lsm/__init__.py`
+- `lsm/__main__.py`
+- `lsm/db/__init__.py`
+- `lsm/db/schema.py`
+- `lsm/db/schema_version.py`
+- `lsm/db/migration.py`
+- `lsm/db/health.py`
+- `lsm/db/tables.py`
+- `lsm/ui/shell/cli.py`
+- `lsm/vectordb/sqlite_vec.py`
+- `lsm/vectordb/postgresql.py`
+- `tests/test_db/test_health.py`
+- `tests/test_vectordb/test_schema_version.py`
+- `tests/test_vectordb/test_migration.py`
+- `tests/test_vectordb/test_migration_v07.py`
+- `tests/conftest.py`
+
+## Executive Findings
+
+The most important research findings are:
+
+1. `lsm_schema_versions` is already a corpus provenance table, not a DB DDL version table.
+   It records ingest-time embedding/chunking settings and is referenced by
+   `lsm_manifest.schema_version_id`. It should not be repurposed to track DB schema
+   migrations.
+
+2. The repository already has substantial DB infrastructure that the old draft treated as
+   missing:
+   - shared application schema ownership in `lsm/db/schema.py`
+   - startup health checks in `lsm/db/health.py`
+   - a full explicit `lsm migrate` command in `lsm/db/migration.py`
+   - migration resume, validation, auto-detection, legacy v0.7 import, and enrichment
+
+3. The real missing gap is not "how to migrate data between backends" but "how to perform
+   in-place DB DDL upgrades on an existing backend". Today, same-backend schema upgrades are
+   not a first-class feature.
+
+4. PostgreSQL initialization is no longer missing. `PostgreSQLProvider._ensure_pool()`
+   already enables `pgvector` and calls `ensure_application_schema()`. An explicit
+   `lsm db init` command would be an operator convenience, not a prerequisite for basic use.
+
+5. The current CLI already exposes `--from-version` and `--to-version` on `lsm migrate`,
+   but only the legacy v0.7 path actually uses version information. `--to-version` is
+   currently a false affordance and must either be implemented properly or removed.
+
+6. Golden data should move to external archive artifacts, not checked-in fixtures. The
+   repo should track the tooling and manifests, while the actual backend snapshots live in
+   tar archives resolved through test configuration.
+
+7. Database initialization should become centralized. Once a single bootstrap/init path
+   exists, provider constructors should stop auto-creating missing DB state on their own.
+
+8. Embedding-dimension assumptions need normalization as part of this work. The current
+   SQLite `FLOAT[384]` schema should be replaced with a dimension derived from the same
+   canonical config source used by PostgreSQL initialization and upgrade checks.
+
+9. The existing test layout and fixture conventions differ from the old draft:
+   - integration tests live under `tests/test_integration/`
+   - reusable fixture artifacts live under `tests/fixtures/` and `tests/test_fixtures/`
+   Any golden-data plan should follow those conventions.
+
+10. Runtime/package version strings still report `0.7.1` in `lsm/__init__.py` and
+    `pyproject.toml`, even though the phase docs and future planning refer to v0.8.x.
+    DB schema tooling must not rely on the package version string alone as the source of
+    truth for DB DDL state.
 
 ---
 
@@ -17,96 +96,143 @@ falls into five areas:
 
 ### 1.1 Current State
 
-Schema version tracking lives in `lsm/db/schema_version.py`. The `lsm_schema_versions`
-table stores a row per ingest-time configuration snapshot with 10 columns:
+`lsm/db/schema_version.py` currently records ingest provenance in `lsm_schema_versions`.
+The active row is compared against current runtime config using:
 
-| Column | Type | Notes |
-|--------|------|-------|
-| `id` | INTEGER PK | Auto-increment row ID |
-| `manifest_version` | INTEGER | **Always NULL** — unused placeholder |
-| `lsm_version` | TEXT | Application version string (e.g. `"0.8.0"`) |
-| `embedding_model` | TEXT | Model name used for embeddings |
-| `embedding_dim` | INTEGER | Embedding dimensionality |
-| `chunking_strategy` | TEXT | `"structure"` or `"fixed"` |
-| `chunk_size` | INTEGER | Token/character chunk size |
-| `chunk_overlap` | INTEGER | Overlap between chunks |
-| `created_at` | TEXT | ISO-8601 timestamp |
-| `last_ingest_at` | TEXT | ISO-8601 timestamp |
+- `lsm_version`
+- `embedding_model`
+- `embedding_dim`
+- `chunking_strategy`
+- `chunk_size`
+- `chunk_overlap`
 
-Compatibility is checked by comparing 6 fields (`SCHEMA_COMPARISON_FIELDS`) between
-the active row and the current config. A mismatch raises `SchemaVersionMismatchError`.
+The table shape in `lsm/db/schema.py` is still:
 
-### 1.2 Issues to Address
+| Column | Purpose |
+|--------|---------|
+| `id` | Row identity |
+| `manifest_version` | Present but currently always `NULL` |
+| `lsm_version` | Application version string |
+| `embedding_model` | Corpus embedding model |
+| `embedding_dim` | Embedding dimensionality |
+| `chunking_strategy` | `structure` or `fixed` |
+| `chunk_size` | Chunk size |
+| `chunk_overlap` | Chunk overlap |
+| `created_at` | Row creation time |
+| `last_ingest_at` | Last ingest time |
 
-1. **No explicit schema version number.** The system tracks *ingest configuration* but
-   not *schema DDL version*. If a table gains a new column or index in v0.8.1, nothing
-   in `lsm_schema_versions` records that the DDL changed. The `lsm_version` field records
-   the application version, but that is not the same as the schema version.
+Important existing semantics:
 
-2. **`manifest_version` is dead weight.** The column is never populated. Its intended use
-   should be clarified or the column removed.
+- `record_schema_version()` inserts a new row when ingest config changes.
+- `lsm_manifest.schema_version_id` points at this table.
+- `migrate()` copies schema-version rows and may append a newly derived row on the target.
+- `check_db_health()` uses this table to detect corpus/config mismatch.
 
-3. **No DDL change log.** There is no mechanism to record which DDL changes have been
-   applied (analogous to Alembic revision tracking). Schema evolution in `migration.py`
-   (`_evolve_schema()`) applies column additions, but there is no audit trail of what
-   has already been applied.
+This is already a history of corpus generations, not a singleton record of DB DDL state.
 
-4. **Version comparison is configuration-centric, not schema-centric.** Changing the
-   embedding model triggers a "version mismatch" even though the schema DDL hasn't changed.
-   Conversely, adding a column to `lsm_chunks` would not trigger any compatibility warning.
+### 1.2 Why the Existing Draft Was Wrong
 
-### 1.3 Design Considerations
+The earlier draft proposed adding a DB schema integer directly to `lsm_schema_versions`.
+That would mix two separate concepts:
 
-**Option A — Semantic schema version integer:**
-Add a monotonically increasing `schema_version` integer to `lsm_schema_versions`. Each DDL
-change increments this number. The application hard-codes the "current schema version" and
-the migration system uses it to determine which DDL changes to apply.
+- corpus provenance for chunks/files
+- database DDL state for tables/indexes/triggers
 
-- Pros: Simple, unambiguous, easy to compare.
-- Cons: Requires coordination when multiple DDL changes land in the same release.
+Those concepts evolve on different schedules and at different cardinalities:
 
-**Option B — Migration-stamp tracking (Alembic-style):**
-Create a `lsm_schema_migrations` table that records applied DDL migration IDs (e.g.
-`"0008_add_heading_path_column"`). Each migration is a named, ordered script.
+- corpus provenance can have many rows over time
+- DB DDL state should be one current state plus an ordered migration log
 
-- Pros: Fine-grained, supports branching, standard pattern.
-- Cons: More infrastructure, naming conventions, ordering rules.
+Repurposing `manifest_version` for DB DDL versioning would have the same problem and would
+leave the schema confusing.
 
-**Option C — Hybrid approach:**
-Keep the semantic version integer for coarse compatibility checks. Use a migrations table
-for fine-grained DDL tracking. The integer maps to "all migrations up to this point have
-been applied."
+### 1.3 Actual Gap
 
-- Pros: Best of both — simple version comparisons plus detailed audit trail.
-- Cons: Two tables to maintain.
+The current codebase has no first-class DB DDL version tracking:
 
-**Recommendation:** Option C (hybrid). The semantic version integer is cheap and enables
-fast checks at startup. The migration stamps provide the audit trail needed for incremental
-schema evolution and debugging.
+- there is no "current DB schema version" record
+- there is no ordered applied-migration log
+- startup can detect corpus/config mismatch, but not "your DB DDL is behind the app"
+- SQLite has additive column evolution in `_evolve_sqlite_columns()`, but PostgreSQL does not
+- there is no way to answer "which DDL migrations have been applied to this database?"
 
-### 1.4 Proposed Schema Changes
+### 1.4 Recommended Design
+
+Keep `lsm_schema_versions` exactly for corpus provenance. Add separate DB DDL state tables.
+
+Recommended storage:
 
 ```sql
--- New table: tracks individual DDL migrations
-CREATE TABLE IF NOT EXISTS lsm_schema_migrations (
-    migration_id   TEXT PRIMARY KEY,      -- e.g. "0001_initial_schema"
-    applied_at     TEXT NOT NULL,          -- ISO-8601
-    lsm_version    TEXT NOT NULL,          -- app version that applied it
-    description    TEXT                    -- human-readable summary
+CREATE TABLE IF NOT EXISTS lsm_db_schema_state (
+    singleton_id      INTEGER PRIMARY KEY CHECK (singleton_id = 1),
+    schema_version    INTEGER NOT NULL,
+    last_migration_id TEXT NOT NULL,
+    updated_at        TEXT NOT NULL
 );
 
--- Modify lsm_schema_versions:
---   - Add: schema_version INTEGER NOT NULL DEFAULT 1
---   - Decide: keep or drop manifest_version
+CREATE TABLE IF NOT EXISTS lsm_db_schema_migrations (
+    migration_id      TEXT PRIMARY KEY,
+    schema_version    INTEGER NOT NULL,
+    description       TEXT,
+    applied_at        TEXT NOT NULL,
+    applied_by_lsm_version TEXT
+);
 ```
 
-### 1.5 Where Version is Stored and Checked
+Recommended rules:
 
-- **Stored:** In the target database itself (both SQLite and PostgreSQL).
-- **Checked:** At startup (via `check_db_health()`) and before ingest (existing
-  `check_schema_compatibility()` call in `lsm/ingest/pipeline.py`).
-- **Updated:** By the migration system after applying DDL changes, and by the init
-  tool when creating a fresh database.
+1. `lsm_schema_versions` remains the corpus provenance history.
+2. `lsm_db_schema_state` is the fast startup check for current DB DDL state.
+3. `lsm_db_schema_migrations` is the audit log of applied DDL steps.
+4. `manifest_version` should not be repurposed in v0.8.1.
+5. `manifest_version` has no future role and should be removed as part of the v0.8.1
+   schema cleanup work.
+6. Application version is optional metadata only. DB DDL upgrade logic must key off
+   `schema_version` and migration IDs, not the app version string.
+
+### 1.5 Version Numbering Policy
+
+Recommended policy:
+
+- Use a monotonic integer `schema_version` for DB DDL generations.
+- Use ordered migration IDs such as `0001_initial_schema`, `0002_add_remote_cache_index`.
+- Map each release to the highest required `schema_version`, but do not assume one release
+  always equals one DB schema version.
+- Record the app version that applied a migration only for diagnostics or release notes,
+  not as authoritative upgrade state.
+
+This avoids tying DB schema evolution to package-version churn and remains compatible with
+the current mismatch between phase/release planning and the repo's current `0.7.1` version
+string.
+
+### 1.6 Health/Status Semantics After This Change
+
+After v0.8.1, health checks should distinguish:
+
+- corpus provenance mismatch: current config does not match active `lsm_schema_versions`
+- outdated DB schema: DB DDL state is behind the app's required `schema_version`
+
+These should not use the same status code or user guidance.
+
+### 1.7 Corpus Naming Cleanup
+
+Once DB DDL state gets its own tables, `lsm_schema_versions` becomes actively misleading.
+The clearer long-term name is `lsm_corpus_versions`, with `lsm_manifest.schema_version_id`
+renamed to `corpus_version_id`.
+
+Recommended v0.8.1 cleanup:
+
+1. Rename `lsm_schema_versions` -> `lsm_corpus_versions`.
+2. Rename `schema_version_id` -> `corpus_version_id`.
+3. Keep `lsm_chunks.version` / `is_current` as the per-file chunk lineage mechanism.
+4. If the Python module is renamed to `lsm/db/corpus_version.py`, update all imports in
+   the same release instead of leaving a compatibility alias behind.
+
+This keeps the concepts separated:
+
+- corpus generation metadata
+- per-file chunk version history
+- DB DDL migration state
 
 ---
 
@@ -114,85 +240,184 @@ CREATE TABLE IF NOT EXISTS lsm_schema_migrations (
 
 ### 2.1 Current State
 
-The migration system in `lsm/db/migration.py` (~1600 lines) supports:
+`lsm/db/migration.py` is already a large explicit migration framework. It currently supports:
 
-- **Cross-backend migration:** ChromaDB → SQLite/PG, SQLite ↔ PostgreSQL
-- **Legacy migration:** v0.7 sidecar files → v0.8 `lsm.db`
-- **Resume:** Stages recorded in `lsm_migration_progress` for crash recovery
-- **Validation:** Row-count verification via `lsm_migration_validation`
-- **Enrichment:** Post-migration chunk enrichment pipeline (3 tiers)
+- Chroma -> SQLite/PostgreSQL backend migration
+- SQLite <-> PostgreSQL backend migration
+- legacy v0.7 sidecar import
+- progress tracking and resume via `lsm_migration_progress`
+- row-count validation via `lsm_migration_validation`
+- post-migration enrichment
+- additive SQLite schema evolution during migration
+- backend-specific FTS rebuilds after cross-backend copy
 
-### 2.2 Migration Path Requirements from TODO
+This is materially more capable than the earlier draft assumed.
 
-The TODO specifies three migration guarantee tiers:
+### 2.2 What It Does Not Support Yet
 
-| Tier | Path | Example |
-|------|------|---------|
-| **Full range** | v0.7.0 → latest (until v0.9.0) | v0.7.0 → v0.8.1 |
-| **Stepping stone** | Immediate previous → immediate following | v0.8.0 → v0.8.1 |
-| **LTR jumps** | LTR version → next LTR version | v1.0.0 → v2.0.0 |
+The missing feature is in-place versioned DB DDL upgrade on an existing backend.
 
-### 2.3 Issues to Address
+Today there is no public API or CLI for:
 
-1. **No version-to-version migration concept.** The current system migrates between
-   *backends* (SQLite ↔ PG) and from *legacy formats* (v0.7). It does not handle
-   *same-backend schema upgrades* (e.g. v0.8.0 SQLite → v0.8.1 SQLite with new columns).
+- upgrading SQLite vN -> SQLite vN+1 in place
+- upgrading PostgreSQL vN -> PostgreSQL vN+1 in place
+- applying ordered DDL scripts until a target DB schema version is reached
+- previewing such an upgrade with `--dry-run`
+- recording which DDL migration IDs were applied
 
-2. **Schema evolution is implicit.** `_evolve_schema()` in migration.py handles adding
-   columns, but it runs only during cross-backend migration. There is no path for
-   in-place schema upgrades on the same backend.
+Additional concrete gaps:
 
-3. **No version ordering mechanism.** The system cannot determine whether v0.8.0 < v0.8.1
-   or which DDL changes are needed to go from one version to another.
+1. `_evolve_sqlite_columns()` only handles additive SQLite columns. PostgreSQL has no parallel
+   additive evolution path.
+2. `ensure_application_schema()` is not a substitute for versioned upgrades. It creates missing
+   tables/indexes but does not express ordered migrations.
+3. `lsm migrate --to-version` is currently parsed by the CLI but not used by migration logic.
+4. Same-backend `migrate("sqlite", "sqlite", ...)` in tests is not a proper in-place upgrade
+   story; it is still using the cross-backend copy framework.
 
-4. **No downgrade support.** Migrations are forward-only. The TODO's "SQLite ↔ PG"
-   bidirectional requirement is met (data copy), but schema downgrades are not.
+### 2.3 Required Conceptual Separation
 
-5. **No dry-run mode.** Users cannot preview what a migration will do before executing it.
+v0.8.1 needs three distinct workflows:
 
-6. **No rollback mechanism.** If validation fails mid-migration, there is no automatic
-   rollback. The resume mechanism allows retrying, but not undoing.
+1. Backend/state migration
+   - move data between Chroma, SQLite, PostgreSQL, or legacy v0.7 state
+   - should live under `lsm db migrate`
 
-### 2.4 Design Considerations
+2. DB DDL upgrade
+   - apply ordered schema/index/trigger changes in place on the same backend
+   - should be a new `lsm db upgrade` workflow
 
-**In-place schema upgrade path:**
+3. Corpus completion/reingest
+   - refresh chunks/files because embedding or chunking provenance changed
+   - remains `lsm db complete` or ingest-time completion logic
 
-The most critical gap is same-backend version upgrades. When a user updates LSM from
-v0.8.0 to v0.8.1, the existing database needs DDL changes applied without copying data
-to a new backend.
+Without that separation the CLI becomes ambiguous and health guidance stays unclear.
 
-**Proposed approach:**
+### 2.4 Recommended CLI Shape
 
-1. Each release defines a set of ordered DDL migration scripts (see §1.3).
-2. On startup or via `lsm migrate --upgrade`, the system:
-   a. Reads the current `schema_version` from the DB.
-   b. Compares it to the application's expected schema version.
-   c. Applies all missing DDL migrations in order.
-   d. Records each migration in `lsm_schema_migrations`.
-   e. Updates `schema_version` in `lsm_schema_versions`.
+Recommended command split:
 
-**Multi-step migration (full range support):**
+```text
+lsm db migrate            # backend/state transfer only
+lsm db upgrade            # in-place DB DDL upgrade
+lsm db complete           # corpus reprocessing / completion
+lsm db check              # health + DDL/version validation
+lsm db init               # explicit provisioning convenience
+lsm db sync               # one-stop orchestration wrapper
+```
 
-For v0.7.0 → v0.8.1, the system needs to chain:
-1. v0.7 legacy import (existing `_migrate_v07_legacy()`)
-2. v0.8.0 schema creation (existing `ensure_application_schema()`)
-3. v0.8.0 → v0.8.1 DDL migrations (new)
+Why this is better than overloading the current top-level `lsm migrate` entry point:
 
-This requires a **migration graph** or **ordered migration chain** that the system walks.
+- `lsm db` already owns maintenance commands (`prune`, `complete`)
+- backend migration and in-place upgrade are different operations
+- putting all DB lifecycle commands under `lsm db ...` is more consistent for users
+- the current top-level `migrate --to-version` surface is already misleading and should not
+  remain half-implemented
+- the latest feedback explicitly prefers removing the old top-level `lsm migrate` command
+  instead of keeping a temporary alias once `lsm db migrate` exists
 
-**Version ordering:**
+Recommended `lsm db sync` behavior:
 
-Use Python's `packaging.version.Version` (already a dependency via pip/setuptools) or
-a simple `tuple` comparison on `(major, minor, patch)`.
+1. Run centralized DB bootstrap/init if needed.
+2. If explicit source arguments are provided, or a legacy/backend source is auto-detected,
+   run `lsm db migrate`.
+3. Otherwise, if DB DDL state is outdated, run `lsm db upgrade`.
+4. If a migration just ran, run `lsm db complete` by default unless `--skip-complete`
+   is supplied.
+5. If only an upgrade ran, report whether completion is needed but do not auto-run it
+   unless `--complete` is explicitly requested.
 
-### 2.5 Cross-Backend Migration with Version Awareness
+This matches the user workflow described in the feedback: migration commonly implies a
+follow-on completion pass, while a pure DDL upgrade often does not.
 
-When migrating from SQLite v0.8.0 → PostgreSQL v0.8.1:
-1. Copy data from SQLite to PostgreSQL (existing backend migration).
-2. Apply v0.8.0 → v0.8.1 DDL changes on PostgreSQL (new version migration).
+### 2.5 Recommended Upgrade Engine
 
-The migration framework should compose backend migration and version migration as
-independent, sequenceable stages.
+Recommended behavior for `lsm db upgrade`:
+
+1. Open the configured database/backend.
+2. Read `lsm_db_schema_state`.
+3. Compare it to the app's required `schema_version`.
+4. Load all missing migration scripts in order.
+5. Apply each script transactionally where the backend allows.
+6. Record each applied script in `lsm_db_schema_migrations`.
+7. Update `lsm_db_schema_state`.
+8. Re-run validation and print an upgrade summary.
+
+Recommended API:
+
+```python
+def upgrade_db(
+    conn: Any,
+    *,
+    target_schema_version: int | None = None,
+    dry_run: bool = False,
+    table_names: TableNames | None = None,
+) -> UpgradeResult:
+    ...
+```
+
+### 2.6 Migration Script Format
+
+Recommended approach:
+
+- keep DDL source-of-truth for base schema in `lsm/db/schema.py`
+- add ordered migration modules for changes after the base schema
+- each migration module exposes:
+  - `migration_id`
+  - `schema_version`
+  - `description`
+  - `apply_sqlite(conn, table_names)`
+  - `apply_postgresql(conn, table_names)`
+
+Python modules are a better fit than raw `.sql` files here because:
+
+- the codebase already uses backend-aware Python helpers
+- the table prefix is dynamic via `TableNames`
+- SQLite/PostgreSQL paths already diverge in places
+- migrations may need conditional existence checks
+
+### 2.7 Guarantee Matrix
+
+The TODO asks for three guarantee tiers. Recommended interpretation:
+
+| Tier | v0.8.1 Commitment |
+|------|-------------------|
+| Full range | Support v0.7.0 -> latest through v0.9.x by chaining legacy import/backend migration + ordered DB upgrades |
+| Stepping stone | Support every immediate release-to-release upgrade directly and test it |
+| LTR jumps | Design the framework now, but full LTR-to-LTR jump coverage does not become mandatory until v1.0.0 exists |
+
+For v0.8.1 specifically:
+
+- direct v0.7.0 -> current should be a single user command, even if implemented internally as a chain
+- adjacent-release upgrade coverage is mandatory
+- LTR support should be architectural, not fully populated with fixtures yet
+
+### 2.8 Dry Run and Rollback
+
+Recommended scope:
+
+- `lsm db upgrade --dry-run`: yes
+- cross-backend `lsm db migrate --dry-run`: no, not in v0.8.1
+
+Reason:
+
+- dry-running ordered DDL is tractable
+- dry-running a full backend copy is expensive and misleading unless it simulates counts,
+  target DDL, provider writes, and post-copy rebuilds
+
+Rollback guidance:
+
+- do not promise full automatic rollback for cross-backend migrations in v0.8.1
+- for in-place `db upgrade`, rely on backend transactions per migration where possible
+- if a migration cannot be transactional, mark it explicitly and add compensating validation
+- do not implement downgrade support
+
+### 2.9 Dependency Note
+
+The earlier draft suggested `packaging.version.Version`. That is acceptable only if
+`packaging` becomes an explicit runtime dependency. It is not currently listed in the
+project dependencies. A simpler alternative is a local semantic-version parser for the
+limited release strings LSM uses.
 
 ---
 
@@ -200,106 +425,85 @@ independent, sequenceable stages.
 
 ### 3.1 Current State
 
-All migration code lives in `lsm/db/migration.py` (~1600 lines). This single file
-handles:
-- Backend migration (cross-DB copy)
-- Legacy migration (v0.7 import)
-- Schema evolution
-- Validation
-- Progress tracking
-- Enrichment orchestration
+`lsm/db/migration.py` is 1972 lines and currently owns:
 
-### 3.2 Issues to Address
+- migration source/target enums
+- provider resolution
+- vector copy
+- auxiliary-table copy
+- validation bookkeeping
+- progress/resume state
+- schema evolution
+- FTS rebuild hooks
+- legacy v0.7 import
+- migration auto-detection
 
-1. **Single-file monolith.** 1600+ lines in one file makes navigation and maintenance
-   difficult.
-2. **Tight coupling to `lsm.db`.** Migration logic is entangled with DB layer internals.
-3. **No clear extension point for new migration types.** Adding version-to-version
-   migration would further bloat the file.
+Refactoring is justified. The current file is doing too much.
 
-### 3.3 Proposed Package Structure
+### 3.2 Important Constraint Missing From the Earlier Draft
 
-```
+The old draft proposed moving `lsm/db/enrichment.py` into the migration package. That is
+not a good fit with the current codebase.
+
+Today `lsm.db.enrichment` is used by:
+
+- the current `lsm migrate --enrich` flow
+- startup health checks via `detect_stale_chunks()`
+- standalone enrichment/reporting flows
+
+That makes enrichment broader than migration-only infrastructure. It should stay in
+`lsm.db` unless the rest of the DB health/completion API moves with it.
+
+### 3.3 Recommended Package Structure
+
+```text
 lsm/migration/
-├── __init__.py              # Public API: migrate(), upgrade(), validate()
-├── backend.py               # Cross-backend migration (SQLite ↔ PG, Chroma → X)
-├── legacy.py                # v0.7 → v0.8 legacy format import
-├── schema.py                # DDL migration scripts and application logic
-├── version.py               # Version comparison, ordering, migration graph
-├── progress.py              # Migration progress tracking and resume
-├── validation.py            # Post-migration row-count and integrity checks
-├── enrichment.py            # Post-migration chunk enrichment (moved from lsm/db/)
-└── scripts/                 # Ordered DDL migration scripts
+├── __init__.py
+├── backend.py        # cross-backend copy logic
+├── legacy.py         # v0.7 sidecar import
+├── upgrade.py        # in-place DB DDL upgrade engine
+├── registry.py       # migration discovery/order metadata
+├── progress.py       # progress/resume bookkeeping
+├── validation.py     # validation helpers
+├── detection.py      # auto-detect migration source
+├── types.py          # dataclasses / result models
+└── scripts/
     ├── __init__.py
-    ├── 0001_initial_v080.py # Base schema (v0.8.0)
-    └── 0002_v081_updates.py # v0.8.1 DDL changes
+    ├── 0001_initial.py
+    └── 0002_...
 ```
 
-### 3.4 Migration from Current Code
+Keep these where they are:
 
-The refactoring should:
-1. Move `lsm/db/migration.py` contents into the new package, split by concern.
-2. Move `lsm/db/enrichment.py` into the migration package (enrichment is a migration
-   concern, not a general DB concern).
-3. Keep `lsm/db/schema.py` and `lsm/db/schema_version.py` in `lsm/db/` — these are
-   schema *definition* and *tracking*, not migration.
-4. Update all imports across the codebase.
-5. Update `lsm/db/__init__.py` to re-export from new locations for a transition period
-   (or do a clean break if v0.8.1 is considered breaking).
+- `lsm/db/schema.py`
+- `lsm/db/schema_version.py`
+- `lsm/db/enrichment.py`
+- `lsm/db/health.py`
 
-### 3.5 Public API
+### 3.4 Compatibility Strategy
 
-```python
-# lsm/migration/__init__.py
+The latest user feedback explicitly rejects compatibility shims for this refactor.
 
-def migrate(
-    source: MigrationSource,
-    target: MigrationTarget,
-    source_config: Any,
-    target_config: Any,
-    *,
-    progress_callback: Optional[ProgressCallback] = None,
-    batch_size: int = 1000,
-    resume: bool = False,
-    skip_enrich: bool = False,
-) -> MigrationResult:
-    """Cross-backend data migration."""
+Recommended approach for v0.8.1:
 
-def upgrade(
-    conn: Connection,
-    target_version: Optional[str] = None,
-    *,
-    dry_run: bool = False,
-    progress_callback: Optional[ProgressCallback] = None,
-) -> UpgradeResult:
-    """In-place schema upgrade to target version (default: current app version)."""
+1. Move migration code directly to `lsm.migration`.
+2. Update all imports in the codebase, tests, and docs in the same release.
+3. Remove stale `lsm.db.migration` imports rather than masking them with aliases.
 
-def validate(
-    conn: Connection,
-    *,
-    table_names: Optional[TableNames] = None,
-) -> ValidationResult:
-    """Validate database integrity and schema version."""
+This is a cleaner cut and avoids carrying module-path debt forward into the new
+package structure.
 
-def detect_source(
-    global_folder: Path,
-    config: Any,
-) -> DetectionResult:
-    """Auto-detect migration source from filesystem and config."""
-```
+### 3.5 Suggested Refactor Order
 
-### 3.6 CLI Integration
+Do not start by physically moving everything at once. Recommended order:
 
-Extend the existing `lsm migrate` command:
+1. Introduce `lsm.migration.types`
+2. Move pure helpers first (`validation`, `progress`, `detection`)
+3. Move legacy/backend flows next
+4. Add `upgrade.py`
+5. Update remaining imports and delete the old monolith entry point
 
-```
-lsm migrate                          # Auto-detect and migrate (existing)
-lsm migrate --from sqlite --to pg    # Cross-backend (existing)
-lsm migrate --from v0.7              # Legacy import (existing)
-lsm migrate --upgrade                # In-place schema upgrade (new)
-lsm migrate --upgrade --dry-run      # Preview upgrade steps (new)
-lsm migrate --validate               # Check DB integrity (new)
-```
+This reduces merge risk and keeps the migration CLI working throughout the refactor.
 
 ---
 
@@ -307,362 +511,409 @@ lsm migrate --validate               # Check DB integrity (new)
 
 ### 4.1 Current State
 
-Tests use in-memory SQLite databases with hardcoded test data. There are no persistent
-snapshot files representing real-world database states.
+Current migration testing relies on:
 
-Relevant test files:
-- `tests/test_vectordb/test_migration.py` — uses `_FakeProvider`, `_seed_aux_tables()`
-- `tests/test_vectordb/test_migration_v07.py` — uses hardcoded legacy format data
+- in-memory SQLite connections
+- fake providers
+- hand-built row seeding
+- legacy fixture directories under `tests/test_fixtures/v07_legacy`
 
-### 4.2 Purpose
+That gives good functional coverage, but it is not the same as testing against frozen,
+realistic DB states from prior releases.
 
-Golden data sets serve as frozen reference databases for integration testing:
+### 4.2 Where Golden Assets Should Live
 
-1. **Version-to-version migration testing:** Verify that v0.8.0 → v0.8.1 upgrades
-   produce correct results on a known dataset.
-2. **Cross-backend migration testing:** Verify SQLite ↔ PG data fidelity.
-3. **Regression testing:** Catch schema changes that break compatibility.
-4. **LTR migration testing:** When v1.0.0 ships, its golden set will be used to verify
-   migration from v1.0.0 to all future versions.
+The old draft proposed checked-in fixture directories. The new user feedback changes that:
 
-### 4.3 What a Golden Data Set Contains
+- golden data should be stored as tar archives
+- golden data should not be tracked in git
 
-For each supported backend (Chroma, SQLite, PostgreSQL):
+Recommended split:
 
-| Artifact | Format | Contents |
-|----------|--------|----------|
-| **Database snapshot** | SQLite: `.db` file; PG: `pg_dump` SQL; Chroma: collection dir | Complete DB state |
-| **Schema DDL** | `.sql` file | Table definitions at that version |
-| **Version manifest** | `golden_manifest.json` | LSM version, schema version, backend, config hash, creation date, row counts per table |
-| **Config snapshot** | `config.json` | The configuration used to create the golden set |
-| **Sample files** | Directory of source documents | The original files that were ingested |
+Tracked in repo:
 
-### 4.4 Golden Data Creation Tool
-
-```
-lsm db golden-create                 # Create golden set from current DB state
-  --output <dir>                     # Where to write artifacts
-  --include-files                    # Also copy ingested source files
-  --backend sqlite|postgresql|chroma # Which backend to snapshot
-  --version <label>                  # Version label (default: current lsm_version)
+```text
+tests/fixtures/golden/README.md
+tests/test_integration/test_golden_migration.py
+lsm/migration/golden.py
+tests/testing_config.py
 ```
 
-**Implementation:**
+Stored outside git:
 
-```python
-# lsm/migration/golden.py (or lsm/db/golden.py)
-
-def create_golden_set(
-    config: LSMConfig,
-    output_dir: Path,
-    *,
-    include_source_files: bool = False,
-    version_label: Optional[str] = None,
-) -> GoldenManifest:
-    """
-    Snapshot the current database state as a golden reference set.
-
-    1. Export schema DDL.
-    2. Copy/dump the database file.
-    3. Record row counts for all application tables.
-    4. Save config and version metadata.
-    5. Optionally copy ingested source files.
-    """
+```text
+tests/.golden_archives/          # default local cache, gitignored
+LSM_TEST_GOLDEN_ARCHIVE_DIR      # override path for CI or shared artifact stores
 ```
 
-### 4.5 Golden Data Storage Location
+This matches the current test-configuration pattern, which already resolves other test
+runtime dependencies from `LSM_TEST_*` environment variables.
 
-```
-tests/golden_data/
-├── v0.8.0/
-│   ├── sqlite/
-│   │   ├── lsm.db                  # Complete SQLite database
-│   │   ├── schema.sql              # DDL snapshot
-│   │   ├── golden_manifest.json    # Metadata and row counts
-│   │   └── config.json             # Config used to create
-│   ├── postgresql/
-│   │   ├── pg_dump.sql             # Full pg_dump
-│   │   ├── schema.sql              # DDL snapshot
-│   │   ├── golden_manifest.json
-│   │   └── config.json
-│   └── chroma/
-│       ├── collection/             # ChromaDB collection directory
-│       ├── golden_manifest.json
-│       └── config.json
-├── v0.8.1/
-│   └── ...
-└── source_files/                   # Shared sample documents
-    ├── sample.pdf
-    ├── sample.docx
-    ├── sample.md
-    └── sample.txt
+### 4.3 Archive Format and Contents
+
+Recommended format: `.tar.gz`
+
+Reason:
+
+- standard tar archive as requested
+- gzip compression available through Python stdlib
+- easy to unpack in CI and local test runs without new dependencies
+
+Recommended archive layout per supported historical version:
+
+```text
+<golden_root>/
+└── v0_8_0/
+    ├── sqlite.tar.gz
+    ├── chroma.tar.gz
+    ├── postgresql.tar.gz
+    └── SHA256SUMS
 ```
 
-### 4.6 Golden Data Integration Tests
+Each archive should contain:
 
-```python
-# tests/integration/test_golden_migration.py
+- backend snapshot or dump
+- `golden_manifest.json`
+- `config.json`
+- corpus/source files or references to the shared corpus bundle
+- checksum metadata for internal contents
 
-class TestGoldenMigration:
-    """
-    For each golden data version < current version:
-    1. Load the golden database.
-    2. Run upgrade migration.
-    3. Validate all tables exist with expected row counts.
-    4. Validate schema version matches current.
-    5. Run a sample query to verify data integrity.
-    """
+### 4.4 What Should Be Golden
 
-    @pytest.mark.parametrize("golden_version", discover_golden_versions())
-    def test_upgrade_from_golden(self, golden_version):
-        ...
+Recommended golden assets:
 
-    @pytest.mark.parametrize("source_backend,target_backend", [
-        ("sqlite", "postgresql"),
-        ("postgresql", "sqlite"),
-        ("chroma", "sqlite"),
-        ("chroma", "postgresql"),
-    ])
-    def test_cross_backend_from_golden(self, source_backend, target_backend):
-        ...
+| Asset | Recommendation |
+|-------|----------------|
+| Source corpus | Include in the archive set or a shared corpus archive |
+| SQLite DB snapshot | Store as an archive member |
+| Chroma snapshot | Store for legacy-coverage versions that still need Chroma migration tests |
+| PostgreSQL state | Store as a logical dump archive and support runtime materialization as a fallback |
+| Metadata manifest | Include in each archive |
+| Config snapshot | Include in each archive |
+| Expected row counts | Include in each archive manifest |
+
+### 4.5 PostgreSQL Archive vs Runtime Materialization
+
+The user asked for the differences, so the tradeoff is explicit here:
+
+| Approach | Pros | Cons |
+|----------|------|------|
+| Store PostgreSQL dump in archive | Restores the real historical PG state directly; fastest path to full backend-to-backend tests; strongest fidelity for PG-specific schema/index behavior | Larger artifacts; dump format can be sensitive to PostgreSQL version differences; needs restore tooling |
+| Materialize PostgreSQL state at runtime | Smaller artifact set; avoids dump compatibility issues; easier to regenerate from canonical corpus/SQLite history | Slower test setup; less direct representation of historical PG-native state; can hide PG-specific archival issues |
+
+Recommended decision for v0.8.1:
+
+- store PostgreSQL logical dumps in the external archive set
+- keep runtime materialization tooling as a fallback and refresh path
+
+That gives full backend fidelity without depending on git-tracked binary fixtures.
+It also avoids coupling golden-data maintenance to old ingest pipelines, which would make
+historical fixture generation depend on reconstructing prior application behavior instead of
+simply restoring archived DB state.
+
+### 4.6 PostgreSQL Test Isolation Requirement
+
+Golden tests against PostgreSQL must not reuse shared app tables.
+
+Use at least one of:
+
+- unique `table_prefix`
+- unique collection name
+- isolated test database/schema
+
+Current live PostgreSQL fixtures in `tests/conftest.py` already isolate vector tables by
+collection name, but application tables remain shared unless `table_prefix` or database
+isolation is added. Golden migration tests should fix that.
+
+### 4.7 Golden Creation Tool
+
+An explicit golden creation tool is useful, but it should follow repo conventions:
+
+Recommended command:
+
+```text
+lsm db golden-create --output <dir> [--backend sqlite|postgresql|chroma] [--archive tar.gz]
 ```
 
-### 4.7 Golden Data for v0.8.0
+Recommended behavior:
 
-The first golden set must be created from the v0.8.0 release state. This requires:
+1. validate the source DB state first
+2. export `config.json`
+3. package the result as a tar archive
+4. write `golden_manifest.json` with:
+   - backend
+   - DB schema version
+   - corpus version / provenance record
+   - row counts per table
+   - collection/table prefix
+   - creation timestamp
+   - archive checksum
+5. emit or copy backend-specific artifacts
 
-1. A representative set of source documents (mix of PDF, DOCX, MD, TXT).
-2. A complete ingest cycle producing chunks, embeddings, manifest entries, etc.
-3. Some agent activity (memories, schedules) to populate agent tables.
-4. Both SQLite and PostgreSQL snapshots.
-5. Optionally a ChromaDB snapshot (for testing Chroma → v0.8+ migration).
+### 4.8 Recommended Pragmatic Scope
 
-**Size considerations:** Golden databases should be small enough to commit to the
-repository (< 10 MB per backend) but large enough to exercise all table types and
-edge cases.
+For v0.8.1, the minimum useful archive set is:
+
+1. one canonical historical corpus archive
+2. one Chroma v0.7 archive for the legacy migration window
+3. SQLite archives for v0.8.0 and v0.8.1
+4. PostgreSQL archives for v0.8.0 and v0.8.1
+
+This satisfies the user's requirement that the golden data exist for Chroma, SQLite, and
+PostgreSQL, while keeping the implementation centered on external archive artifacts rather
+than git-tracked fixture directories.
+
+### 4.9 Golden Test Matrix
+
+Recommended integration coverage:
+
+- SQLite golden -> current SQLite via `lsm db upgrade`
+- SQLite golden -> PostgreSQL via `lsm db migrate`
+- PostgreSQL golden/materialized fixture -> SQLite via `lsm db migrate`
+- v0.7 legacy fixture -> current SQLite -> `lsm db upgrade`
+- validation of row counts, health status, queryability, and FTS rebuilds
+
+Bidirectional SQLite <-> PostgreSQL golden validation is required in v0.8.1 test coverage,
+not optional nice-to-have coverage.
 
 ---
 
-## 5. DB Installation Tool
+## 5. DB Install / Init Tool
 
 ### 5.1 Current State
 
-Database initialization is **implicit and scattered**:
+The earlier draft said PostgreSQL does not initialize application schema. That is stale.
 
-- **SQLite:** `SQLiteVecProvider.__init__()` calls `_ensure_schema()` which calls
-  `ensure_application_schema()`. Tables are created when the provider is first
-  instantiated (e.g. during ingest or query).
-- **PostgreSQL:** `PostgreSQLProvider._ensure_pool()` auto-creates the database and
-  enables pgvector, but does **not** call `ensure_application_schema()`. Application
-  tables are only created via migration or if the provider is later upgraded via
-  Phase 19.
-- **Migration:** `_ensure_aux_tables()` in migration.py creates auxiliary tables on
-  the target as part of the migration process.
+Current behavior:
 
-### 5.2 Issues
+- SQLite:
+  - `SQLiteVecProvider.__init__()` loads `sqlite-vec`
+  - `_ensure_schema()` creates application tables plus vector/FTS tables
 
-1. **No single entry point to initialize a fresh database.** Users who configure
-   PostgreSQL must either run migration or ingest before the schema exists.
-2. **SQLite ≠ PostgreSQL initialization parity.** SQLite auto-creates everything;
-   PostgreSQL does not.
-3. **Error-prone first run.** If a user starts the TUI before ingesting, queries
-   against a PostgreSQL backend will fail because application tables don't exist.
-4. **Defensive `IF NOT EXISTS` everywhere.** Because init is implicit, every module
-   defensively creates tables, leading to scattered DDL execution.
+- PostgreSQL:
+  - `PostgreSQLProvider._ensure_database()` can create the DB and enable `pgvector`
+  - `PostgreSQLProvider._ensure_pool()` calls `ensure_application_schema()`
+  - vector collection tables are created lazily when embedding dimension is known
 
-### 5.3 Design: `lsm db init` Command
+- Startup:
+  - `lsm/__main__.py` already runs `check_db_health()` for non-`migrate` commands
 
-```
-lsm db init                          # Initialize DB from current config
-  --backend sqlite|postgresql        # Override config's db.provider
-  --force                            # Drop and recreate (destructive)
-  --check                            # Verify schema only, don't create
-```
+So an init tool would improve operability and clarity, but it is not filling a total
+"no initialization path exists" gap.
 
-**Behavior:**
+### 5.2 Real Value of an Init Tool
 
-1. Read config to determine backend and connection details.
-2. For PostgreSQL: create database if missing, enable pgvector extension.
-3. Create all application tables (`ensure_application_schema()`).
-4. Create vector tables (provider-specific DDL).
-5. Record initial schema version.
-6. Record initial DDL migration stamps.
-7. Print summary: backend, path/connection, tables created, schema version.
+An explicit `lsm db init` still has value for:
 
-**For `--check` mode:**
+- CI setup
+- pre-provisioning PostgreSQL environments
+- surfacing clear, explicit health and version state
+- preparing DBs before the first ingest
+- creating DB schema without also running a full ingest
 
-1. Connect to existing database.
-2. Verify all expected tables exist.
-3. Verify schema version matches current application version.
-4. Verify all DDL migrations have been applied.
-5. Report: OK or list of missing tables/migrations.
+### 5.3 Important Backend Nuance
 
-### 5.4 Startup Integration
+A fully initialized vector backend is not the same thing on SQLite and PostgreSQL.
 
-When LSM starts (TUI, web server, or CLI), add a lightweight health check:
+- SQLite currently creates `vec_chunks` as `FLOAT[384]`, so full vector-table creation is
+  possible immediately, but it also exposes an existing 384-dimension assumption.
+- PostgreSQL vector collection tables require a concrete embedding dimension. That dimension
+  is only known if it can be resolved from config (`global.embedding_dimension`) or an
+  explicit CLI flag.
 
-```python
-# lsm/db/health.py (already exists)
+That means `lsm db init` should separate:
 
-def check_startup_health(config: LSMConfig) -> HealthReport:
-    """
-    Quick check at startup:
-    1. Can we connect to the database?
-    2. Do application tables exist?
-    3. Is the schema version compatible?
+1. application schema initialization
+2. vector collection/table initialization
 
-    Returns advisory messages, does NOT auto-create or migrate.
-    """
-```
+### 5.4 Embedding Dimension Normalization
 
-If the DB is uninitialized, print an advisory:
-```
-WARNING: Database not initialized. Run `lsm db init` to create schema.
-```
+The user feedback explicitly asked to normalize embedding-dimension assumptions. That should
+be part of v0.8.1.
 
-If the schema version is outdated, print:
-```
-WARNING: Database schema is version 1, expected 2. Run `lsm migrate --upgrade`.
+Recommended normalization:
+
+1. Treat `global.embedding_dimension` as the canonical dimension used by DB init, upgrade,
+   and health checks.
+2. If the dimension is absent but the embed model is well-known, resolve it once during
+   config validation and store it in config.
+3. Change SQLite vector-table DDL to use the resolved dimension instead of hardcoded `384`.
+4. Ensure PostgreSQL vector collection initialization uses the same resolved dimension.
+5. Add health/check validation that the stored vector-table dimension matches the configured
+   or recorded corpus dimension.
+
+This change is a prerequisite for centralized DB initialization. Without it, the init path
+cannot create equivalent vector schema across both backends.
+
+### 5.5 Recommended Commands
+
+Recommended additions:
+
+```text
+lsm db init
+lsm db check
+lsm db upgrade
+lsm db sync
 ```
 
-### 5.5 Removing Implicit Schema Creation
+Recommended `lsm db init` behavior:
 
-Once `lsm db init` exists, the implicit `_ensure_schema()` calls in provider
-constructors can optionally be retained as a safety net or removed to enforce
-explicit initialization. The recommendation is:
+1. Load config.
+2. Ensure backend connectivity.
+3. Create database if needed.
+4. Enable required extensions (`pgvector` for PostgreSQL).
+5. Create application tables via shared schema ownership.
+6. If embedding dimension is known, create vector collection schema too.
+7. Seed `lsm_db_schema_state` and `lsm_db_schema_migrations` for a fresh DB.
+8. Print a clear summary of what was initialized and what remains deferred.
 
-- **Keep `IF NOT EXISTS` DDL** as a safety net (no harm if tables already exist).
-- **Remove provider-level `ensure_application_schema()` calls** from constructors.
-- **Add startup health check** to give clear guidance instead of silently creating.
+Recommended `lsm db check` behavior:
 
-This is a behavioral change that should be carefully considered — removing implicit
-creation means `lsm ingest build` on a fresh system would fail without `lsm db init`.
-The alternative is to make `lsm db init` implicit (run it automatically on first
-detected use) but log clearly that it happened.
+1. Run `check_db_health()`.
+2. Verify DB DDL version state.
+3. Verify migration log consistency.
+4. Report whether vector collection schema is initialized for the configured dimension.
+
+### 5.6 Centralized Initialization and Auto-Init Policy
+
+The new feedback changes the earlier recommendation: initialization should be centralized,
+and it is acceptable for `lsm db init` to run automatically on first use as long as ingest
+remains explicit.
+
+Recommended posture:
+
+1. Add a single bootstrap entry point, for example `lsm.db.bootstrap.ensure_db_ready(config)`.
+2. Call that bootstrap entry point from CLI/TUI startup and any other central command
+   dispatch path.
+3. Allow the bootstrap layer to auto-run `lsm db init` on first use.
+4. Remove scattered provider-level or module-level "if missing, create schema now" logic
+   once the centralized path exists.
+5. Keep ingest explicit. Auto-init must not imply an ingest build.
+
+This addresses two goals at once:
+
+- first-run UX stays simple
+- DB setup behavior is encapsulated in one place instead of being spread across providers
 
 ---
 
-## 6. Impact Analysis
+## 6. Recommended Implementation Sequence
 
-### 6.1 Files Modified
+Recommended order of work:
 
-| Area | Files | Change Type |
-|------|-------|-------------|
-| New package | `lsm/migration/` (8+ files) | New |
-| Schema versioning | `lsm/db/schema_version.py` | Modified |
-| Schema DDL | `lsm/db/schema.py` | Modified |
-| Table registry | `lsm/db/tables.py` | Modified (new table names) |
-| CLI | `lsm/ui/shell/cli.py` | Modified (new subcommands) |
-| Health check | `lsm/db/health.py` | Modified |
-| Enrichment | `lsm/db/enrichment.py` → `lsm/migration/enrichment.py` | Moved |
-| Migration | `lsm/db/migration.py` → `lsm/migration/` split | Moved/split |
-| SQLite provider | `lsm/vectordb/sqlite_vec.py` | Modified (init changes) |
-| PG provider | `lsm/vectordb/postgresql.py` | Modified (init changes) |
-| Golden tests | `tests/integration/test_golden_migration.py` | New |
-| Golden data | `tests/golden_data/` | New |
-| Golden tool | `lsm/migration/golden.py` | New |
+1. Add DB DDL state tables and migration registry.
+2. Implement `lsm db upgrade`.
+3. Add `lsm db check`.
+4. Add `lsm db init`.
+5. Extract `lsm.migration` package and update all imports directly.
+6. Add golden fixture creation tooling.
+7. Add golden integration tests.
 
-### 6.2 Backward Compatibility
+This order minimizes user-facing confusion:
 
-- v0.8.1 databases should be readable by v0.8.0 code (additive schema changes only).
-- v0.8.0 databases must be upgradable to v0.8.1 via `lsm migrate --upgrade`.
-- The `lsm.migration` package replaces `lsm.db.migration` — old import paths break.
-- If v0.8.1 is a breaking release, clean break is acceptable. If not, re-exports from
-  `lsm.db.migration` should be maintained for one cycle.
-
-### 6.3 Dependencies
-
-- `packaging` library for version comparison (already available via pip/setuptools).
-- No new external dependencies anticipated.
+- version state exists before the upgrade command
+- check/init/upgrade semantics are defined before migration-package extraction
+- golden tests can target the final CLI/API shape
 
 ---
 
-## 7. Testing Strategy
+## 7. Impacted Files
 
-### 7.1 Unit Tests
+Likely implementation touch points:
 
-- Schema version tracking: new `schema_version` integer, migration stamp recording.
-- Version comparison and ordering logic.
-- DDL migration script application and idempotency.
-- Golden manifest creation and reading.
-- `lsm db init` on fresh SQLite and PostgreSQL backends.
-
-### 7.2 Integration Tests
-
-- **Golden migration tests:** Parameterized over all golden data versions and backend
-  combinations (see §4.6).
-- **Round-trip migration:** SQLite v0.8.0 → PG v0.8.1 → SQLite v0.8.1.
-- **In-place upgrade:** v0.8.0 SQLite → v0.8.1 SQLite (schema-only upgrade).
-- **Full chain:** v0.7.0 legacy → v0.8.0 SQLite → v0.8.1 SQLite.
-- **Init + ingest + query:** `lsm db init` → `lsm ingest build` → `lsm query` on both
-  backends.
-
-### 7.3 Performance Tests
-
-- Golden data creation time (should complete in < 30s for test datasets).
-- Schema upgrade time on databases with 10K+ chunks.
-- Startup health check latency (should add < 100ms to startup).
+| Area | Files |
+|------|-------|
+| New DB DDL state | `lsm/db/schema.py`, `lsm/db/health.py`, new migration registry/scripts |
+| In-place upgrade | new `lsm/migration/upgrade.py`, `lsm/__main__.py`, `lsm/ui/shell/cli.py` |
+| Migration refactor | `lsm/db/migration.py`, `lsm/db/__init__.py`, new `lsm/migration/*` |
+| Init/check commands | `lsm/__main__.py`, `lsm/ui/shell/cli.py`, providers as needed |
+| Golden tooling | new `lsm/migration/golden.py` or `lsm/db/golden.py` |
+| Golden archives | `tests/.golden_archives/` or `LSM_TEST_GOLDEN_ARCHIVE_DIR`, plus `tests/testing_config.py` |
+| Integration tests | `tests/test_integration/test_golden_migration.py` |
+| Live PostgreSQL isolation | `tests/conftest.py` and/or PG integration helpers |
 
 ---
 
-## 8. Open Questions
+## 8. Testing Strategy
 
-These are questions that emerged during research but are not blockers — they are
-included here for completeness and can be resolved during implementation planning.
+### 8.1 Unit Tests
 
-1. **Schema evolution scripts: Python or SQL?** Python scripts offer conditional logic
-   and cross-backend abstraction. Raw SQL files are simpler but require per-backend
-   variants.
+- DB DDL state-table creation and reads
+- migration registry ordering and duplicate-ID protection
+- `db upgrade` dry-run plan output
+- applied-migration recording
+- `db init` behavior when embedding dimension is known vs unknown
+- `db check` status mapping
+- `lsm db migrate` CLI cleanup around version flags
 
-2. **Should `lsm db init` be implicitly run on first use?** If yes, the UX is seamless
-   but "magic." If no, users must explicitly initialize, which is clearer but adds a
-   step.
+### 8.2 Integration Tests
 
-3. **Golden data in git or generated?** Committing golden `.db` files to git is simple
-   but adds binary bloat. Generating them from scripts is reproducible but slower and
-   more fragile. A hybrid (small committed fixtures + generated large sets) may be ideal.
+- SQLite historical fixture -> `db upgrade`
+- SQLite -> PostgreSQL migration from golden fixture
+- PostgreSQL -> SQLite migration from materialized historical fixture
+- v0.7 fixture -> current DB chain
+- health check before and after upgrade
+- app/query smoke test after upgrade
 
-4. **Should the migration package also absorb `lsm/db/schema.py`?** Schema *definition*
-   is conceptually different from schema *migration*, but they are closely related. The
-   migration scripts need to reference the DDL.
+### 8.3 Live PostgreSQL Tests
+
+Mark PostgreSQL golden migration tests appropriately and isolate them with:
+
+- unique database/schema or
+- unique `table_prefix` plus cleanup
+
+Do not rely on shared persistent `lsm_` app tables for historical-fixture tests.
+
+Recommended coverage options:
+
+| Coverage level | Pros | Cons |
+|----------------|------|------|
+| Adjacent-release PostgreSQL coverage only | Lower maintenance, faster live test runs, good coverage for the most likely upgrade path | Weaker confidence for older PG archive restore paths and long-range drift |
+| Full historical PostgreSQL coverage | Strongest confidence for supported range; catches archive rot and PG-specific schema drift | Slower and more expensive; more archives to maintain and restore |
+
+Recommended v0.8.1 default:
+
+- require adjacent-release PostgreSQL live coverage
+- keep at least one oldest-supported PostgreSQL archive path exercised
+- expand toward full historical PG coverage as archived releases accumulate
+
+Recommended test-scope control:
+
+- keep the default repo test target focused on previous-version -> current-version live
+  coverage
+- add a separate dedicated repo test command/target for the full supported archive and
+  migration matrix
+- make implementation planning and CI selection target those named commands explicitly
+
+This fits the latest feedback better than an environment-variable switch because the repo
+tooling can name and schedule the migration levels directly.
+
+### 8.4 Regression Focus
+
+The most important regressions to guard against are:
+
+1. corrupting corpus provenance history by mixing it with DB DDL versioning
+2. silently ignoring `--to-version` semantics
+3. upgrading SQLite but not PostgreSQL
+4. breaking startup health status meanings
+5. failing to remove scattered DB auto-creation paths after central bootstrap is added
+6. keeping hardcoded vector dimensions in one backend but not the other
 
 ---
 
-## 9. Clarifications Required
+## 9. Non-Goals for v0.8.1
 
-1. **Is v0.8.1 a breaking release?** If so, `lsm.db.migration` import paths can be
-   removed cleanly. If not, re-exports must be maintained. This affects the scope of
-   the `lsm.migration` package refactoring.
+These should not be forced into v0.8.1 unless scope changes:
 
-2. **v0.7.0 → latest migration chain:** Should the system support direct v0.7.0 → v0.8.1
-   migration (single command), or is v0.7.0 → v0.8.0 → v0.8.1 (two steps) acceptable?
-   The TODO says "v0.7.0 → latest until 0.9.0" which implies direct, but the
-   implementation could chain internally.
+- general schema downgrade support
+- full cross-backend dry-run support
+- moving all enrichment logic out of `lsm.db`
+- compatibility shims for old migration module paths
+- git-tracked golden snapshot archives
 
-3. **LTR migration scope:** The TODO mentions "from LTR until next LTR." Since v1.0.0 is
-   the first LTR, this doesn't apply to v0.8.1 yet. Should the migration framework be
-   *designed* with LTR jump support in mind, or is it sufficient to add that capability
-   when v1.0.0 is released?
+---
 
-4. **Golden data backends:** Should golden data sets be created for all three backends
-   (Chroma, SQLite, PostgreSQL) starting from v0.8.0? Chroma is legacy and only needed
-   to test Chroma → SQLite/PG migration. Is it worth maintaining a Chroma golden set
-   going forward, or only for the v0.7→v0.8 transition?
+## Clarifications Required
 
-5. **`manifest_version` column:** Should this column be repurposed (e.g. to hold the new
-   schema version integer), dropped entirely, or left as-is? Repurposing avoids a DDL
-   migration but creates semantic confusion.
-
-6. **DB init behavior at startup:** Should `lsm db init` be:
-   - **(a)** Always explicit — user must run it manually before first use.
-   - **(b)** Implicit on first detected use — auto-run with a clear log message.
-   - **(c)** Advisory — detect uninitialized DB at startup, print a warning, but don't
-     auto-create.
-
-7. **Migration dry-run scope:** Should `--dry-run` apply to both cross-backend migration
-   and in-place upgrades, or only to in-place upgrades? Cross-backend dry-run is
-   significantly more complex (would need to simulate the copy without writing).
-
-8. **Downgrade support:** The TODO mentions SQLite ↔ PG migration (bidirectional data
-   copy). Should *schema* downgrades also be supported (v0.8.1 → v0.8.0), or is
-   downgrade strictly a data portability concern (copy data, user manages schema)?
+None at this stage. The latest feedback resolved the remaining command-alias and test-target
+questions.
