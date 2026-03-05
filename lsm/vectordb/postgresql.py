@@ -23,20 +23,23 @@ pool = None
 sql = None
 execute_values = None
 register_vector = None
+psycopg2 = None  # type: ignore[assignment]
 
 
 def _ensure_postgres_dependencies() -> None:
     """Import PostgreSQL dependencies lazily."""
     global PSYCOPG2_AVAILABLE, PGVECTOR_AVAILABLE
-    global pool, sql, execute_values, register_vector
+    global pool, sql, execute_values, register_vector, psycopg2
 
     if pool is not None and sql is not None and execute_values is not None and register_vector is not None:
         return
 
     try:
+        import psycopg2 as psycopg2_mod
         from psycopg2 import pool as psycopg2_pool
         from psycopg2 import sql as psycopg2_sql
         from psycopg2.extras import execute_values as psycopg2_execute_values
+        psycopg2 = psycopg2_mod
         pool = psycopg2_pool
         sql = psycopg2_sql
         execute_values = psycopg2_execute_values
@@ -106,10 +109,56 @@ class PostgreSQLProvider(BaseVectorDBProvider):
                 normalized[key] = value
         return normalized
 
+    def _ensure_database(self) -> None:
+        """Create the target database and enable pgvector if they don't exist."""
+        if self.config.connection_string:
+            from urllib.parse import urlparse
+
+            parsed = urlparse(self.config.connection_string)
+            db_name = (parsed.path or "").lstrip("/")
+            if not db_name:
+                return
+            maint_dsn = self.config.connection_string.replace(
+                f"/{db_name}", "/postgres", 1
+            )
+            maint_kwargs = {"dsn": maint_dsn}
+        else:
+            db_name = self.config.database
+            if not db_name:
+                return
+            maint_kwargs = {
+                "host": self.config.host,
+                "port": self.config.port,
+                "database": "postgres",
+                "user": self.config.user,
+                "password": self.config.password,
+            }
+
+        try:
+            conn = psycopg2.connect(**maint_kwargs)
+            conn.autocommit = True
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT 1 FROM pg_database WHERE datname = %s", (db_name,)
+                )
+                if not cur.fetchone():
+                    cur.execute(
+                        sql.SQL("CREATE DATABASE {}").format(
+                            sql.Identifier(db_name)
+                        )
+                    )
+                    logger.info("Created PostgreSQL database '%s'", db_name)
+            conn.close()
+        except psycopg2.OperationalError:
+            # Can't connect to maintenance DB — let pool creation fail
+            # with the original error so the user sees the real problem.
+            pass
+
     def _ensure_pool(self) -> None:
         if self._pool is not None:
             return
         _ensure_postgres_dependencies()
+        self._ensure_database()
 
         if self.config.connection_string:
             self._pool = pool.ThreadedConnectionPool(
@@ -127,6 +176,10 @@ class PostgreSQLProvider(BaseVectorDBProvider):
                 user=self.config.user,
                 password=self.config.password,
             )
+
+        # Enable pgvector extension eagerly so it's available for all operations.
+        with self._get_conn() as conn:
+            self._ensure_extension(conn)
 
     @contextmanager
     def _get_conn(self):

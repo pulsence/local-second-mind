@@ -31,6 +31,10 @@ def mock_pg_deps(monkeypatch):
     mock_execute_values = MagicMock()
     mock_register_vector = MagicMock()
 
+    mock_psycopg2_mod = MagicMock()
+    mock_psycopg2_mod.OperationalError = type("OperationalError", (Exception,), {})
+
+    monkeypatch.setattr(pg_mod, "psycopg2", mock_psycopg2_mod)
     monkeypatch.setattr(pg_mod, "pool", mock_pool_mod)
     monkeypatch.setattr(pg_mod, "sql", mock_sql_mod)
     monkeypatch.setattr(pg_mod, "execute_values", mock_execute_values)
@@ -44,6 +48,7 @@ def mock_pg_deps(monkeypatch):
     mock_sql_mod.Literal.side_effect = lambda x: str(x)
 
     return {
+        "psycopg2": mock_psycopg2_mod,
         "pool": mock_pool_mod,
         "sql": mock_sql_mod,
         "execute_values": mock_execute_values,
@@ -413,6 +418,148 @@ class TestPostgreSQLGraphTraverse:
             )
 
         assert set(result) == {"n1", "n2"}
+
+
+class TestPostgreSQLEnsureDatabase:
+    """Tests for _ensure_database() — auto-create database if missing."""
+
+    def test_creates_database_when_missing_connection_string(self, mock_pg_deps):
+        """Database is created when it doesn't exist (connection string config)."""
+        from lsm.vectordb.postgresql import PostgreSQLProvider
+
+        provider = PostgreSQLProvider(
+            _pg_config(connection_string="postgresql://u:p@localhost/mydb")
+        )
+
+        mock_conn = MagicMock()
+        mock_cursor = MagicMock()
+        mock_cursor.fetchone.return_value = None  # DB does not exist
+        mock_conn.cursor.return_value.__enter__ = lambda s: mock_cursor
+        mock_conn.cursor.return_value.__exit__ = MagicMock(return_value=False)
+
+        mock_psycopg2 = mock_pg_deps["psycopg2"]
+        mock_psycopg2.connect.return_value = mock_conn
+        provider._ensure_database()
+
+        # Should connect to "postgres" maintenance DB
+        mock_psycopg2.connect.assert_called_once()
+        dsn_arg = mock_psycopg2.connect.call_args
+        assert "postgres" in str(dsn_arg)
+
+        # Should check for DB existence and create it
+        assert mock_cursor.execute.call_count == 2
+        # First call: SELECT from pg_database
+        first_call_args = mock_cursor.execute.call_args_list[0]
+        assert "pg_database" in str(first_call_args)
+        # Second call: CREATE DATABASE
+        second_call_args = mock_cursor.execute.call_args_list[1]
+        assert "mydb" in str(second_call_args)
+        mock_conn.close.assert_called_once()
+
+    def test_skips_creation_when_database_exists(self, mock_pg_deps):
+        """No CREATE DATABASE when the database already exists."""
+        from lsm.vectordb.postgresql import PostgreSQLProvider
+
+        provider = PostgreSQLProvider(
+            _pg_config(connection_string="postgresql://u:p@localhost/existingdb")
+        )
+
+        mock_conn = MagicMock()
+        mock_cursor = MagicMock()
+        mock_cursor.fetchone.return_value = (1,)  # DB exists
+        mock_conn.cursor.return_value.__enter__ = lambda s: mock_cursor
+        mock_conn.cursor.return_value.__exit__ = MagicMock(return_value=False)
+
+        mock_psycopg2 = mock_pg_deps["psycopg2"]
+        mock_psycopg2.connect.return_value = mock_conn
+        provider._ensure_database()
+
+        # Only the SELECT, no CREATE
+        assert mock_cursor.execute.call_count == 1
+
+    def test_creates_database_component_config(self, mock_pg_deps):
+        """Database creation works with component-based config (host/port/database)."""
+        from lsm.vectordb.postgresql import PostgreSQLProvider
+
+        provider = PostgreSQLProvider(_pg_config(
+            connection_string=None,
+            host="dbhost",
+            port=5432,
+            database="newdb",
+            user="admin",
+            password="secret",
+        ))
+
+        mock_conn = MagicMock()
+        mock_cursor = MagicMock()
+        mock_cursor.fetchone.return_value = None  # DB does not exist
+        mock_conn.cursor.return_value.__enter__ = lambda s: mock_cursor
+        mock_conn.cursor.return_value.__exit__ = MagicMock(return_value=False)
+
+        mock_psycopg2 = mock_pg_deps["psycopg2"]
+        mock_psycopg2.connect.return_value = mock_conn
+        provider._ensure_database()
+
+        # Should connect to "postgres" database on same host
+        connect_kwargs = mock_psycopg2.connect.call_args[1]
+        assert connect_kwargs["database"] == "postgres"
+        assert connect_kwargs["host"] == "dbhost"
+        assert connect_kwargs["user"] == "admin"
+        # Should CREATE DATABASE
+        assert mock_cursor.execute.call_count == 2
+
+    def test_graceful_failure_on_operational_error(self, mock_pg_deps):
+        """OperationalError connecting to maintenance DB is silently ignored."""
+        from lsm.vectordb.postgresql import PostgreSQLProvider
+
+        provider = PostgreSQLProvider(
+            _pg_config(connection_string="postgresql://u:p@unreachable/mydb")
+        )
+
+        mock_psycopg2 = mock_pg_deps["psycopg2"]
+        mock_psycopg2.connect.side_effect = mock_psycopg2.OperationalError("conn refused")
+        # Should not raise
+        provider._ensure_database()
+
+    def test_no_database_name_is_noop(self, mock_pg_deps):
+        """Empty database name in connection string is a no-op."""
+        from lsm.vectordb.postgresql import PostgreSQLProvider
+
+        provider = PostgreSQLProvider(_pg_config(connection_string="postgresql://u:p@host/"))
+
+        mock_psycopg2 = mock_pg_deps["psycopg2"]
+        provider._ensure_database()
+
+        mock_psycopg2.connect.assert_not_called()
+
+
+class TestPostgreSQLEnsurePoolExtension:
+    """Tests for _ensure_pool() calling _ensure_extension() eagerly."""
+
+    def test_ensure_pool_calls_ensure_extension(self, mock_pg_deps):
+        """_ensure_pool() should call _ensure_extension() after pool creation."""
+        from lsm.vectordb.postgresql import PostgreSQLProvider
+
+        provider = PostgreSQLProvider(_pg_config())
+
+        mock_conn = MagicMock()
+        mock_cursor = MagicMock()
+        mock_conn.cursor.return_value.__enter__ = lambda s: mock_cursor
+        mock_conn.cursor.return_value.__exit__ = MagicMock(return_value=False)
+
+        with patch.object(provider, "_ensure_database"):
+            # Mock the pool to return a mock connection
+            mock_pool_instance = MagicMock()
+            mock_pool_instance.getconn.return_value = mock_conn
+            mock_pg_deps["pool"].ThreadedConnectionPool.return_value = mock_pool_instance
+
+            provider._ensure_pool()
+
+        # _ensure_extension runs CREATE EXTENSION IF NOT EXISTS vector
+        mock_cursor.execute.assert_called()
+        assert any(
+            "vector" in str(c) for c in mock_cursor.execute.call_args_list
+        )
 
 
 class TestPostgreSQLFTSQuery:

@@ -608,17 +608,17 @@ class IngestScreen(ManagedScreenMixin, Widget):
             message = (
                 "Migration action\n\n"
                 "Run this command in shell mode:\n"
-                "lsm migrate --from chroma --to sqlite --source-path .chroma --target-path .lsm\n\n"
+                "lsm migrate --from-db chroma --to-db sqlite --source-path .chroma --target-path .lsm\n\n"
                 "Adjust paths/collection to match your setup."
             )
         else:
             message = (
                 "Migration action\n\n"
                 "Use explicit migration command:\n"
-                "lsm migrate --from <source> --to <target> [options]\n\n"
+                "lsm migrate --from-db <source> --to-db <target> [options]\n\n"
                 "Examples:\n"
-                "- lsm migrate --from sqlite --to postgresql --target-connection-string <dsn>\n"
-                "- lsm migrate --from postgresql --to sqlite --target-path .lsm"
+                "- lsm migrate --from-db sqlite --to-db postgresql --target-connection-string <dsn>\n"
+                "- lsm migrate --from-db postgresql --to-db sqlite --target-path .lsm"
             )
         self._update_output_text(message)
         self._set_command_status("Migration guidance displayed.")

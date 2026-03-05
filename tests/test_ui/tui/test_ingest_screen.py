@@ -221,7 +221,7 @@ def test_refresh_stats_shows_migration_advisory_for_chromadb(monkeypatch: pytest
     asyncio.run(screen._refresh_stats())
     assert "Migration required" in screen.widgets["#stats-content"].value
     screen.action_show_migration_help()
-    assert "lsm migrate --from chroma --to sqlite" in screen.widgets["#ingest-output"].value
+    assert "lsm migrate --from-db chroma --to-db sqlite" in screen.widgets["#ingest-output"].value
 
 
 def test_build_command_emits_completion_notification(monkeypatch: pytest.MonkeyPatch) -> None:
