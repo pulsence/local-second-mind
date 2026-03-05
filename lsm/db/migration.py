@@ -1,4 +1,40 @@
-"""Database migration framework for cross-backend state transfer."""
+"""Database migration framework for cross-backend state transfer.
+
+Migration Matrix
+----------------
+The following tables are handled during cross-backend migration:
+
+**Migrated as data (copied row-by-row)**:
+- ``lsm_schema_versions`` — schema version tracking
+- ``lsm_manifest`` — ingest manifest
+- ``lsm_agent_memories`` — agent long-term memory
+- ``lsm_agent_memory_candidates`` — agent memory candidates
+- ``lsm_agent_schedules`` — agent schedule persistence
+- ``lsm_stats_cache`` — collection stats cache
+- ``lsm_remote_cache`` — remote provider cache
+- Vector data (``chunks`` + embeddings) — via provider API
+
+**Rebuilt post-migration**:
+- ``lsm_reranker_cache`` — cross-encoder score cache (ephemeral, rebuilt on demand)
+- ``lsm_cluster_centroids`` — rebuilt via ``lsm cluster build``
+- ``lsm_graph_nodes`` / ``lsm_graph_edges`` — rebuilt via ``lsm graph build-links``
+- ``lsm_embedding_models`` — registry entries copied, models reloaded from path
+- ``lsm_job_status`` — job tracking reset for new backend
+- ``chunks_fts`` (SQLite) — FTS5 virtual table rebuilt from chunks after PG→SQLite
+- ``tsvector`` column (PostgreSQL) — generated column created after SQLite→PG
+
+**Intentionally excluded**:
+- ``lsm_migration_progress`` — target-local operational table, recreated on target
+- ``lsm_migration_validation`` — target-local operational table, recreated on target
+- ``vec_chunks`` — SQLite-only virtual table, recreated by provider init
+
+**Embedding format conversion**:
+- SQLite vec0 stores embeddings as binary BLOBs (packed floats via ``struct.pack``)
+- PostgreSQL pgvector uses the ``vector`` type (Python list of floats)
+- Migration converts between formats via the provider API: ``source.get()`` returns
+  Python float lists, ``target.add_chunks()`` converts to target format
+- This is transparent and does not require explicit conversion code
+"""
 
 from __future__ import annotations
 
@@ -485,6 +521,16 @@ def migrate(
                 raise
         else:
             _emit_progress(progress_callback, "migrate", 0, 0, "Skipping schema_evolution (already completed).")
+
+        # FTS rebuild after cross-backend migration.
+        _rebuild_fts_if_needed(
+            target_conn=target_conn,
+            target_provider=target_provider,
+            source_type=source_enum.value,
+            target_type=target_enum.value,
+            tn=tn,
+            progress_callback=progress_callback,
+        )
 
         # Enrichment integration (post-copy).
         if not skip_enrich and isinstance(target_conn, sqlite3.Connection):
@@ -1294,6 +1340,56 @@ def _evolve_sqlite_columns(conn: Any, tn: TableNames) -> None:
                     pass  # column may have been added concurrently
 
     ref_conn.close()
+
+
+def _rebuild_fts_if_needed(
+    *,
+    target_conn: Any,
+    target_provider: Any,
+    source_type: str,
+    target_type: str,
+    tn: TableNames,
+    progress_callback: Optional[ProgressCallback] = None,
+) -> None:
+    """Rebuild FTS indexes after cross-backend migration.
+
+    - **PG → SQLite**: Rebuilds FTS5 virtual table and sync triggers by
+      calling the SQLite provider's ``_ensure_fts_and_triggers()``.
+    - **SQLite → PG**: Rebuilds tsvector column and GIN index by
+      calling the PostgreSQL provider's ``_ensure_fts()``.
+
+    Does nothing for same-backend migrations.
+    """
+    if source_type == target_type:
+        return
+
+    if target_type == "sqlite" and source_type in ("postgresql", "chroma"):
+        # SQLite target: rebuild FTS5 from chunks data
+        _emit_progress(progress_callback, "migrate", 0, 0, "Rebuilding FTS5 index...")
+        try:
+            fts_setup = getattr(target_provider, "_ensure_fts_and_triggers", None)
+            if callable(fts_setup):
+                fts_setup()
+                logger.info("FTS5 index rebuilt after %s → SQLite migration.", source_type)
+            else:
+                logger.debug("Target provider has no _ensure_fts_and_triggers(); skipping FTS rebuild.")
+        except Exception as exc:
+            logger.warning("FTS5 rebuild failed (non-fatal): %s", exc)
+
+    elif target_type == "postgresql" and source_type in ("sqlite", "chroma"):
+        # PostgreSQL target: create tsvector column + GIN index
+        _emit_progress(progress_callback, "migrate", 0, 0, "Rebuilding tsvector/GIN index...")
+        try:
+            fts_setup = getattr(target_provider, "_ensure_fts", None)
+            if callable(fts_setup):
+                with _connection_context(target_provider) as conn:
+                    if conn is not None:
+                        fts_setup(conn)
+                        logger.info("tsvector/GIN index rebuilt after %s → PostgreSQL migration.", source_type)
+            else:
+                logger.debug("Target provider has no _ensure_fts(); skipping FTS rebuild.")
+        except Exception as exc:
+            logger.warning("tsvector/GIN rebuild failed (non-fatal): %s", exc)
 
 
 @contextmanager

@@ -228,6 +228,216 @@ def test_v07_schedules_import_preserves_fields(
     assert int(row["queued_runs"]) == 2
 
 
+def test_v07_stats_cache_envelope_import(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Test stats cache import with top-level 'stats' envelope format."""
+    source_dir = tmp_path / "legacy"
+    source_dir.mkdir(parents=True)
+    (source_dir / "manifest.json").write_text("{}", encoding="utf-8")
+    _write_memories_db(source_dir / "memories.db")
+    (source_dir / "schedules.json").write_text("[]", encoding="utf-8")
+    stats_cache = {
+        "stats": {"total_chunks": 100, "total_files": 10},
+        "cached_at": 1704067200.0,
+        "chunk_count": 100,
+    }
+    (source_dir / "stats_cache.json").write_text(json.dumps(stats_cache), encoding="utf-8")
+
+    target_conn = _target_connection()
+    target_provider = _LegacyTargetProvider(target_conn)
+    monkeypatch.setattr(
+        migration_mod,
+        "_provider_from_target",
+        lambda *_args, **_kwargs: target_provider,
+    )
+
+    migration_mod.migrate("v0.7", "v0.8", {"source_dir": source_dir}, _runtime_config())
+
+    row = target_conn.execute(
+        "SELECT cache_key, cached_at, chunk_count FROM lsm_stats_cache WHERE cache_key = 'collection_stats'"
+    ).fetchone()
+    assert row is not None
+    assert row["cache_key"] == "collection_stats"
+    assert float(row["cached_at"]) == pytest.approx(1704067200.0)
+    assert int(row["chunk_count"]) == 100
+
+
+def test_v07_stats_cache_per_key_format(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Test stats cache import with per-key map format."""
+    source_dir = tmp_path / "legacy"
+    source_dir.mkdir(parents=True)
+    (source_dir / "manifest.json").write_text("{}", encoding="utf-8")
+    _write_memories_db(source_dir / "memories.db")
+    (source_dir / "schedules.json").write_text("[]", encoding="utf-8")
+    stats_cache = {
+        "key_a": {
+            "stats": {"total": 50},
+            "cached_at": 1704067200.0,
+            "chunk_count": 50,
+        },
+        "key_b": {
+            "stats": {"total": 30},
+            "cached_at": 1704067201.0,
+            "chunk_count": 30,
+        },
+    }
+    (source_dir / "stats_cache.json").write_text(json.dumps(stats_cache), encoding="utf-8")
+
+    target_conn = _target_connection()
+    target_provider = _LegacyTargetProvider(target_conn)
+    monkeypatch.setattr(
+        migration_mod,
+        "_provider_from_target",
+        lambda *_args, **_kwargs: target_provider,
+    )
+
+    migration_mod.migrate("v0.7", "v0.8", {"source_dir": source_dir}, _runtime_config())
+
+    count = target_conn.execute("SELECT COUNT(*) FROM lsm_stats_cache").fetchone()[0]
+    assert count == 2
+
+
+def test_v07_remote_cache_import(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Test remote cache import from Downloads/ and remote/ directories."""
+    source_dir = tmp_path / "legacy"
+    source_dir.mkdir(parents=True)
+    (source_dir / "manifest.json").write_text("{}", encoding="utf-8")
+    _write_memories_db(source_dir / "memories.db")
+    (source_dir / "schedules.json").write_text("[]", encoding="utf-8")
+
+    # Create Downloads/ with query-based cache
+    downloads = source_dir / "Downloads" / "brave"
+    downloads.mkdir(parents=True)
+    (downloads / "result1.json").write_text(
+        json.dumps({"query": "test query", "results": ["a", "b"], "provider": "brave"}),
+        encoding="utf-8",
+    )
+
+    # Create remote/ with feed-based cache
+    remote = source_dir / "remote" / "rss_feed"
+    remote.mkdir(parents=True)
+    (remote / "feed1.json").write_text(
+        json.dumps({"feed_url": "https://example.com/feed.xml", "entries": []}),
+        encoding="utf-8",
+    )
+
+    # Create remote/ with unknown format (legacy fallback)
+    (remote / "other.json").write_text(
+        json.dumps({"data": "test"}),
+        encoding="utf-8",
+    )
+
+    target_conn = _target_connection()
+    target_provider = _LegacyTargetProvider(target_conn)
+    monkeypatch.setattr(
+        migration_mod,
+        "_provider_from_target",
+        lambda *_args, **_kwargs: target_provider,
+    )
+
+    migration_mod.migrate("v0.7", "v0.8", {"source_dir": source_dir}, _runtime_config())
+
+    count = target_conn.execute("SELECT COUNT(*) FROM lsm_remote_cache").fetchone()[0]
+    assert count == 3
+
+    # Verify cache key derivation
+    rows = target_conn.execute(
+        "SELECT cache_key FROM lsm_remote_cache ORDER BY cache_key"
+    ).fetchall()
+    keys = [row["cache_key"] for row in rows]
+    # Should have query:*, feed:rss:*, legacy:* keys
+    assert any(k.startswith("query:") for k in keys), f"No query: key in {keys}"
+    assert any(k.startswith("feed:rss:") for k in keys), f"No feed:rss: key in {keys}"
+    assert any(k.startswith("legacy:") for k in keys), f"No legacy: key in {keys}"
+
+
+def test_v07_schedule_mapping_format(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Test schedule import with object-as-dict format (key -> schedule)."""
+    source_dir = tmp_path / "legacy"
+    source_dir.mkdir(parents=True)
+    (source_dir / "manifest.json").write_text("{}", encoding="utf-8")
+    _write_memories_db(source_dir / "memories.db")
+    schedules = {
+        "general": {
+            "agent_name": "general",
+            "next_run_at": "2026-01-01T00:00:00+00:00",
+            "last_status": "ok",
+        },
+        "research": {
+            "agent_name": "research",
+            "next_run_at": "2026-01-02T00:00:00+00:00",
+        },
+    }
+    (source_dir / "schedules.json").write_text(json.dumps(schedules), encoding="utf-8")
+
+    target_conn = _target_connection()
+    target_provider = _LegacyTargetProvider(target_conn)
+    monkeypatch.setattr(
+        migration_mod,
+        "_provider_from_target",
+        lambda *_args, **_kwargs: target_provider,
+    )
+
+    migration_mod.migrate("v0.7", "v0.8", {"source_dir": source_dir}, _runtime_config())
+
+    count = target_conn.execute("SELECT COUNT(*) FROM lsm_agent_schedules").fetchone()[0]
+    assert count == 2
+
+    # The mapping format should use the key as schedule_id
+    row = target_conn.execute(
+        "SELECT schedule_id, agent_name FROM lsm_agent_schedules WHERE schedule_id = 'general'"
+    ).fetchone()
+    assert row is not None
+    assert row["agent_name"] == "general"
+
+
+def test_v07_schedule_fallback_id(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Test schedule import with missing schedule_id gets auto-generated ID."""
+    source_dir = tmp_path / "legacy"
+    source_dir.mkdir(parents=True)
+    (source_dir / "manifest.json").write_text("{}", encoding="utf-8")
+    _write_memories_db(source_dir / "memories.db")
+    schedules = [
+        {
+            "agent_name": "general",
+            "next_run_at": "2026-01-01T00:00:00+00:00",
+        }
+    ]
+    (source_dir / "schedules.json").write_text(json.dumps(schedules), encoding="utf-8")
+
+    target_conn = _target_connection()
+    target_provider = _LegacyTargetProvider(target_conn)
+    monkeypatch.setattr(
+        migration_mod,
+        "_provider_from_target",
+        lambda *_args, **_kwargs: target_provider,
+    )
+
+    migration_mod.migrate("v0.7", "v0.8", {"source_dir": source_dir}, _runtime_config())
+
+    row = target_conn.execute(
+        "SELECT schedule_id, agent_name FROM lsm_agent_schedules"
+    ).fetchone()
+    assert row is not None
+    assert row["agent_name"] == "general"
+    # Should have auto-generated schedule_id: "agent_name:hash"
+    assert row["schedule_id"].startswith("general:")
+
+
 def test_v07_missing_files_warn_and_skip(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
