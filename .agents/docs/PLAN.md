@@ -32,7 +32,8 @@
 | 16 | PostgreSQL Parity and Cross-Cutting | Completed | [PHASE_16.md](./plan_phases/PHASE_16.md) |
 | 17 | Debug Phase | Completed | [PHASE_17.md](./plan_phases/PHASE_17.md) |
 | 18 | Post-Migration Boundary-Drift Rechunk | Completed | [PHASE_18.md](./plan_phases/PHASE_18.md) |
-| 19 | Final Code Review and Release | Pending | [PHASE_19.md](./plan_phases/PHASE_19.md) |
+| 19 | DB-Agnostic Application Layer | Pending | [PHASE_19.md](./plan_phases/PHASE_19.md) |
+| 20 | Final Code Review and Release | Pending | [PHASE_20.md](./plan_phases/PHASE_20.md) |
 
 ---
 
@@ -95,8 +96,11 @@ Pre-release debug phase for resolving implementation gaps and bugs identified du
 ### [Phase 18: Post-Migration Boundary-Drift Rechunk](./plan_phases/PHASE_18.md)
 Detects boundary-drifted chunks after migration (old fixed-size chunking), surfaces them in the enrichment report, and offers interactive re-chunking with the current structure-aware strategy. Sub-tasks: 18.1–18.5.
 
-### [Phase 19: Final Code Review and Release](./plan_phases/PHASE_19.md)
-Comprehensive review, integration testing, architecture docs, and release preparation. Sub-tasks: 19.1–19.4.
+### [Phase 19: DB-Agnostic Application Layer](./plan_phases/PHASE_19.md)
+Makes the entire `lsm/db/` layer DB-agnostic so PostgreSQL gets full application table support. Creates `lsm/db/compat.py` abstraction, converts all 6 SQLite-only modules, and updates 8 consumer modules. Sub-tasks: 19.1–19.6.
+
+### [Phase 20: Final Code Review and Release](./plan_phases/PHASE_20.md)
+Comprehensive review, integration testing, architecture docs, and release preparation. Sub-tasks: 20.1–20.4.
 
 ---
 
