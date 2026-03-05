@@ -5,7 +5,7 @@ Folder Path: `lsm/vectordb/`
 
 ## Modules
 
-- [base.py](../lsm/vectordb/base.py): BaseVectorDBProvider ABC, VectorDBGetResult, VectorDBQueryResult
+- [base.py](../lsm/vectordb/base.py): BaseVectorDBProvider ABC, VectorDBGetResult, VectorDBQueryResult; includes `get_embeddings()` and `update_cluster_assignments()` for backend-agnostic clustering
 - [factory.py](../lsm/vectordb/factory.py): create_vectordb_provider() factory with lazy class loading
 - [sqlite_vec.py](../lsm/vectordb/sqlite_vec.py): SQLite+sqlite-vec provider with unified `lsm.db` schema
 - [postgresql.py../lsm/vectordb/postgresql.py): PostgreSQL + pgvector provider implementation
