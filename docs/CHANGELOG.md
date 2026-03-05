@@ -6,6 +6,17 @@ All notable changes to Local Second Mind are documented here.
 
 ### Changed
 
+- **DB-Agnostic Application Layer (Phase 19)**: Made the application database layer fully backend-agnostic so PostgreSQL reaches complete feature parity with SQLite for all application tables.
+  - Added `lsm/db/compat.py` with shared SQL compatibility helpers: `dialect()`, `is_sqlite()`, `is_postgres()`, `execute()`, `executemany()`, `fetchone()`, `fetchall()`, `commit()`, `table_exists()`, `db_error()`, `row_to_dict()`, `insert_returning_id()`, `safe_identifier()`, `upsert_rows()`, `count_rows()`, `execute_ddl_script()`.
+  - Added `resolve_connection()` context manager in `lsm/db/connection.py` for unified provider connection resolution across SQLite and PostgreSQL.
+  - Made all `lsm/db/` modules (schema, health, completion, transaction, clustering, enrichment, job_status, schema_version) backend-agnostic via compat helpers.
+  - Made all consumer modules (ingest pipeline/api/manifest/stats_cache, query cross_encoder/graph_expansion, finetune registry/embedding, remote storage, CLI) backend-agnostic.
+  - Replaced all `INSERT OR IGNORE` / `INSERT OR REPLACE` SQLite-only syntax with standard `ON CONFLICT DO NOTHING` / `ON CONFLICT(...) DO UPDATE SET` across all modules.
+  - Replaced `sqlite_master` queries with `compat.table_exists()` for cross-backend table existence checks.
+  - Replaced `sqlite3.OperationalError` catches with `compat.db_error()` context manager for normalized exception handling.
+  - Added dual-dialect DDL in `lsm/db/schema.py` for all application tables (SQLite TEXT vs PostgreSQL TIMESTAMPTZ, REAL vs DOUBLE PRECISION).
+  - Handled both SQLite blob (struct.unpack) and PostgreSQL pgvector (Python float list) embedding formats in clustering and visualization.
+  - Made migration.py and job_status.py use compat helpers via thin wrappers to eliminate duplicated dialect/placeholder/execution logic.
 - Switched default vector backend to SQLite + sqlite-vec (`vectordb.provider = "sqlite"`).
 - Updated vector DB config shape from `vectordb.persist_dir` to `vectordb.path`.
 - Removed Chroma-specific ingest/vector config fields (`ingest.manifest`, `ingest.chroma_flush_interval`, `ingest.enable_versioning`, `vectordb.chroma_hnsw_space`).
