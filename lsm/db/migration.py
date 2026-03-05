@@ -54,21 +54,19 @@ from typing import Any, Callable, Dict, Iterable, Mapping, Optional
 from lsm import __version__ as LSM_VERSION
 from lsm.config.models import DBConfig
 from lsm.db.compat import commit as compat_commit
+from lsm.db.compat import count_rows as compat_count_rows
 from lsm.db.compat import dialect as compat_dialect
 from lsm.db.compat import execute as compat_execute
+from lsm.db.compat import fetch_rows_as_dicts as compat_fetch_rows_as_dicts
 from lsm.db.compat import safe_identifier
+from lsm.db.compat import table_exists as compat_table_exists
+from lsm.db.compat import upsert_rows as compat_upsert_rows
 from lsm.db.connection import resolve_connection
 from lsm.db.tables import DEFAULT_TABLE_NAMES, TableNames
 from lsm.logging import get_logger
 from lsm.vectordb import create_vectordb_provider
 
 logger = get_logger(__name__)
-
-# Backward-compatible internal aliases used by existing tests and patch hooks.
-_execute = compat_execute
-_commit = compat_commit
-_dialect = compat_dialect
-_safe_ident = safe_identifier
 
 ProgressCallback = Callable[[str, int, int, str], None]
 
@@ -358,8 +356,8 @@ def migrate(
             vector_key = _vector_validation_key(target_provider, target_conn, tn)
             expected_counts = {vector_key: _count_vector_rows(target_conn, vector_key, tn)}
             expected_counts.update(imported_counts)
-            if _table_exists(target_conn, tn.schema_versions):
-                expected_counts[tn.schema_versions] = _count_table_rows(
+            if compat_table_exists(target_conn, tn.schema_versions):
+                expected_counts[tn.schema_versions] = compat_count_rows(
                     target_conn, tn.schema_versions
                 )
             _record_validation_counts(target_conn, expected_counts, tn)
@@ -480,7 +478,7 @@ def migrate(
                         0,
                         f"Skipping {stage_name} (already completed).",
                     )
-                    expected_counts[spec.name] = _count_table_rows(target_conn, spec.name)
+                    expected_counts[spec.name] = compat_count_rows(target_conn, spec.name)
                     continue
 
                 stage_id = _begin_stage(
@@ -499,7 +497,7 @@ def migrate(
                         progress_callback=progress_callback,
                     )
                     _complete_stage(target_conn, stage_id, rows=copied, tn=tn)
-                    expected_counts[spec.name] = _count_table_rows(target_conn, spec.name)
+                    expected_counts[spec.name] = compat_count_rows(target_conn, spec.name)
                 except Exception as exc:
                     _fail_stage(target_conn, stage_id, str(exc), tn=tn)
                     raise
@@ -510,8 +508,8 @@ def migrate(
             inferred_embedding_dim=inferred_dim,
             tn=tn,
         )
-        if _table_exists(target_conn, tn.schema_versions):
-            expected_counts[tn.schema_versions] = _count_table_rows(target_conn, tn.schema_versions)
+        if compat_table_exists(target_conn, tn.schema_versions):
+            expected_counts[tn.schema_versions] = compat_count_rows(target_conn, tn.schema_versions)
 
         # Schema evolution.
         evolve_stage = "schema_evolution"
@@ -592,7 +590,12 @@ def validate_migration(target_conn: Any, tn: TableNames = DEFAULT_TABLE_NAMES) -
     """Validate migration counts previously recorded on the target connection."""
     _ensure_aux_tables(target_conn, tn)
     _ensure_validation_table(target_conn, tn)
-    rows = _fetch_table_rows(target_conn, tn.migration_validation)
+    safe_validation_table = safe_identifier(tn.migration_validation)
+    rows = (
+        compat_fetch_rows_as_dicts(target_conn, f"SELECT * FROM {safe_validation_table}")
+        if compat_table_exists(target_conn, safe_validation_table)
+        else []
+    )
     if not rows:
         return {"checked": 0, "mismatches": {}}
 
@@ -605,7 +608,7 @@ def validate_migration(target_conn: Any, tn: TableNames = DEFAULT_TABLE_NAMES) -
         if table_name.startswith("vector_rows"):
             actual = _count_vector_rows(target_conn, table_name)
         else:
-            actual = _count_table_rows(target_conn, table_name)
+            actual = compat_count_rows(target_conn, table_name)
         if actual != expected:
             mismatches[table_name] = {"expected": expected, "actual": actual}
 
@@ -741,11 +744,13 @@ def _copy_aux_table(
     spec: AuxiliaryTableSpec,
     progress_callback: Optional[ProgressCallback],
 ) -> int:
-    if not _table_exists(source_conn, spec.name):
+    if not compat_table_exists(source_conn, spec.name):
         return 0
-    rows = _fetch_table_rows(source_conn, spec.name)
+    rows = compat_fetch_rows_as_dicts(
+        source_conn, f"SELECT * FROM {safe_identifier(spec.name)}"
+    )
     if rows:
-        _upsert_rows(target_conn, spec.name, spec.primary_key, rows)
+        compat_upsert_rows(target_conn, spec.name, spec.primary_key, rows)
     _emit_progress(
         progress_callback,
         "state",
@@ -767,12 +772,14 @@ def _copy_auxiliary_state(
     _ensure_aux_tables(target_conn, tn)
 
     for spec in _build_aux_table_specs(tn):
-        if not _table_exists(source_conn, spec.name):
+        if not compat_table_exists(source_conn, spec.name):
             continue
-        rows = _fetch_table_rows(source_conn, spec.name)
+        rows = compat_fetch_rows_as_dicts(
+            source_conn, f"SELECT * FROM {safe_identifier(spec.name)}"
+        )
         counts[spec.name] = len(rows)
         if rows:
-            _upsert_rows(target_conn, spec.name, spec.primary_key, rows)
+            compat_upsert_rows(target_conn, spec.name, spec.primary_key, rows)
         _emit_progress(
             progress_callback,
             "state",
@@ -794,7 +801,7 @@ def _record_derived_schema_version(
     _ensure_aux_tables(target_conn, tn)
     payload = _derive_schema_payload(runtime_config, inferred_embedding_dim)
 
-    rows = _fetch_query_rows(
+    rows = compat_fetch_rows_as_dicts(
         target_conn,
         f"""
         SELECT
@@ -836,7 +843,7 @@ def _record_derived_schema_version(
             "last_ingest_at": now,
         }
     ]
-    _upsert_rows(target_conn, tn.schema_versions, "id", rows_to_insert)
+    compat_upsert_rows(target_conn, tn.schema_versions, "id", rows_to_insert)
 
 
 def _record_validation_counts(
@@ -854,7 +861,7 @@ def _record_validation_counts(
         }
         for table_name, expected in counts.items()
     ]
-    _upsert_rows(target_conn, tn.migration_validation, "table_name", rows)
+    compat_upsert_rows(target_conn, tn.migration_validation, "table_name", rows)
 
 
 def _derive_schema_payload(runtime_config: Any, inferred_embedding_dim: Optional[int]) -> Dict[str, Any]:
@@ -1456,35 +1463,6 @@ def _ensure_validation_table(conn: Any, tn: TableNames = DEFAULT_TABLE_NAMES) ->
         )
     compat_commit(conn)
 
-
-def _table_exists(conn: Any, table_name: str) -> bool:
-    from lsm.db.compat import table_exists as _compat_table_exists
-    return _compat_table_exists(conn, table_name)
-
-
-def _fetch_table_rows(conn: Any, table_name: str) -> list[dict[str, Any]]:
-    from lsm.db.compat import safe_identifier, table_exists as _te, fetch_rows_as_dicts
-    safe_table = safe_identifier(table_name)
-    if not _te(conn, safe_table):
-        return []
-    return fetch_rows_as_dicts(conn, f"SELECT * FROM {safe_table}")
-
-
-def _fetch_query_rows(conn: Any, query: str, params: Iterable[Any] = ()) -> list[dict[str, Any]]:
-    from lsm.db.compat import fetch_rows_as_dicts
-    return fetch_rows_as_dicts(conn, query, params)
-
-
-def _upsert_rows(conn: Any, table_name: str, primary_key: str, rows: Iterable[dict[str, Any]]) -> None:
-    from lsm.db.compat import upsert_rows as _compat_upsert
-    _compat_upsert(conn, table_name, primary_key, rows)
-
-
-def _count_table_rows(conn: Any, table_name: str) -> int:
-    from lsm.db.compat import count_rows as _compat_count
-    return _compat_count(conn, table_name)
-
-
 def _count_vector_rows_for_key(
     conn: Any, key: Optional[str], tn: TableNames = DEFAULT_TABLE_NAMES
 ) -> int:
@@ -1495,16 +1473,16 @@ def _count_vector_rows_for_key(
         if table_name:
             preferred_table = table_name
     if preferred_table:
-        if _table_exists(conn, preferred_table):
-            return _count_table_rows(conn, preferred_table)
+        if compat_table_exists(conn, preferred_table):
+            return compat_count_rows(conn, preferred_table)
         return 0
 
-    if _table_exists(conn, tn.chunks):
-        row = _execute(conn, f"SELECT COUNT(*) FROM {tn.chunks}").fetchone()
+    if compat_table_exists(conn, tn.chunks):
+        row = compat_execute(conn, f"SELECT COUNT(*) FROM {tn.chunks}").fetchone()
         return int(row[0] or 0) if row is not None else 0
 
     if compat_dialect(conn) == "postgresql":
-        rows = _fetch_query_rows(
+        rows = compat_fetch_rows_as_dicts(
             conn,
             """
             SELECT tablename
@@ -1518,7 +1496,7 @@ def _count_vector_rows_for_key(
         if rows:
             table_name = str(rows[0].get("tablename") or "").strip()
             if table_name:
-                return _count_table_rows(conn, table_name)
+                return compat_count_rows(conn, table_name)
     return 0
 
 
@@ -1531,7 +1509,7 @@ def _count_vector_rows(
 def _vector_validation_key(
     target_provider: Any, target_conn: Any, tn: TableNames = DEFAULT_TABLE_NAMES
 ) -> str:
-    if _table_exists(target_conn, tn.chunks):
+    if compat_table_exists(target_conn, tn.chunks):
         return f"vector_rows:{tn.chunks}"
 
     table_name = getattr(target_provider, "_table_name", None)
@@ -1548,7 +1526,7 @@ def _vector_validation_key(
 
 
 def _next_schema_version_id(conn: Any, tn: TableNames = DEFAULT_TABLE_NAMES) -> int:
-    row = _execute(
+    row = compat_execute(
         conn, f"SELECT COALESCE(MAX(id), 0) FROM {tn.schema_versions}"
     ).fetchone()
     current = int(row[0] or 0) if row is not None else 0
@@ -1720,7 +1698,7 @@ def _migrate_v07_legacy(
                     }
                 )
         if rows:
-            _upsert_rows(target_conn, tn.manifest, "source_path", rows)
+            compat_upsert_rows(target_conn, tn.manifest, "source_path", rows)
         counts[tn.manifest] = len(rows)
     else:
         _warn_legacy_missing(source_dir / "manifest.json")
@@ -1741,7 +1719,10 @@ def _migrate_v07_legacy(
 
             memory_rows: list[dict[str, Any]] = []
             if memory_table is not None:
-                for row in _fetch_table_rows(legacy_conn, memory_table):
+                safe_memory_table = safe_identifier(memory_table)
+                for row in compat_fetch_rows_as_dicts(
+                    legacy_conn, f"SELECT * FROM {safe_memory_table}"
+                ):
                     memory_rows.append(
                         {
                             "id": row.get("id"),
@@ -1764,12 +1745,15 @@ def _migrate_v07_legacy(
                         }
                     )
                 if memory_rows:
-                    _upsert_rows(target_conn, tn.agent_memories, "id", memory_rows)
+                    compat_upsert_rows(target_conn, tn.agent_memories, "id", memory_rows)
             counts[tn.agent_memories] = len(memory_rows)
 
             candidate_rows: list[dict[str, Any]] = []
             if candidate_table is not None:
-                for row in _fetch_table_rows(legacy_conn, candidate_table):
+                safe_candidate_table = safe_identifier(candidate_table)
+                for row in compat_fetch_rows_as_dicts(
+                    legacy_conn, f"SELECT * FROM {safe_candidate_table}"
+                ):
                     candidate_rows.append(
                         {
                             "id": row.get("id"),
@@ -1782,7 +1766,7 @@ def _migrate_v07_legacy(
                         }
                     )
                 if candidate_rows:
-                    _upsert_rows(
+                    compat_upsert_rows(
                         target_conn,
                         tn.agent_memory_candidates,
                         "id",
@@ -1818,7 +1802,7 @@ def _migrate_v07_legacy(
                 }
             )
         if schedule_rows:
-            _upsert_rows(target_conn, tn.agent_schedules, "schedule_id", schedule_rows)
+            compat_upsert_rows(target_conn, tn.agent_schedules, "schedule_id", schedule_rows)
         counts[tn.agent_schedules] = len(schedule_rows)
     else:
         _warn_legacy_missing(source_dir / "schedules.json")
@@ -1849,7 +1833,7 @@ def _migrate_v07_legacy(
                     }
                 )
         if stats_rows:
-            _upsert_rows(target_conn, tn.stats_cache, "cache_key", stats_rows)
+            compat_upsert_rows(target_conn, tn.stats_cache, "cache_key", stats_rows)
         counts[tn.stats_cache] = len(stats_rows)
     else:
         _warn_legacy_missing(source_dir / "stats_cache.json")
@@ -1876,7 +1860,7 @@ def _migrate_v07_legacy(
                 }
             )
     if remote_rows:
-        _upsert_rows(target_conn, tn.remote_cache, "cache_key", remote_rows)
+        compat_upsert_rows(target_conn, tn.remote_cache, "cache_key", remote_rows)
     counts[tn.remote_cache] = len(remote_rows)
 
     _emit_progress(
@@ -1896,7 +1880,7 @@ def _migrate_v07_legacy(
 
 def _first_existing_table(conn: Any, names: Iterable[str]) -> Optional[str]:
     for name in names:
-        if _table_exists(conn, name):
+        if compat_table_exists(conn, name):
             return name
     return None
 

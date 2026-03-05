@@ -278,8 +278,8 @@ def test_count_vector_rows_explicit_key_does_not_fallback(monkeypatch: pytest.Mo
     def _fake_table_exists(_conn, table_name: str) -> bool:  # noqa: ANN001
         return table_name == "lsm_chunks"
 
-    monkeypatch.setattr(migration_mod, "_execute", _fake_execute)
-    monkeypatch.setattr(migration_mod, "_table_exists", _fake_table_exists)
+    monkeypatch.setattr(migration_mod, "compat_execute", _fake_execute)
+    monkeypatch.setattr(migration_mod, "compat_table_exists", _fake_table_exists)
 
     # Explicit table key should not fallback to the generic lsm_chunks row count path.
     assert migration_mod._count_vector_rows(object(), "vector_rows:chunks_target") == 0

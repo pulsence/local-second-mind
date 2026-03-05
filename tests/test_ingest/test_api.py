@@ -126,6 +126,29 @@ def test_get_collection_stats_fallback(ingest_config, monkeypatch) -> None:
     assert stats.top_files == []
 
 
+def test_build_stats_cache_without_connection_uses_runtime_json(ingest_config, monkeypatch) -> None:
+    import lsm.ingest.api as ingest_api
+
+    captured: dict[str, object] = {}
+
+    class FakeStatsCache:
+        def __init__(self, *args, **kwargs) -> None:
+            captured["args"] = args
+            captured["kwargs"] = kwargs
+
+    monkeypatch.setattr("lsm.ingest.stats_cache.StatsCache", FakeStatsCache)
+
+    ingest_api._build_stats_cache(ingest_config)
+
+    args = captured.get("args")
+    kwargs = captured.get("kwargs")
+    assert isinstance(args, tuple)
+    assert isinstance(kwargs, dict)
+    assert len(args) == 1
+    assert str(args[0]).endswith("stats_cache.json")
+    assert kwargs["cache_key"] == f"{ingest_config.db.collection}:collection_stats"
+
+
 def test_run_ingest_maps_result_and_force_resets_manifest(ingest_config, monkeypatch) -> None:
     import lsm.ingest.pipeline as ingest_pipeline
 

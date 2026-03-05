@@ -547,16 +547,9 @@ def ingest(
 
     REPORT_EVERY_SECONDS = 1.0
     flush_threshold = max(64, int(flush_interval or (batch_size * 8)))
-    try:
-        from lsm.vectordb.sqlite_vec import SQLiteVecProvider  # local import to avoid hard dependency in tests
-
-        is_sqlite_provider = isinstance(provider, SQLiteVecProvider)
-    except Exception:
-        is_sqlite_provider = False
     transactional_manifest_writes = (
         not dry_run
         and manifest_connection is not None
-        and is_sqlite_provider
     )
 
     # Ensure manifest table exists BEFORE any transaction begins.

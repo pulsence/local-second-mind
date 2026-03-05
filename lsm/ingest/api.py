@@ -56,8 +56,7 @@ def _build_stats_cache(
     cache_key = f"{config.db.collection}:collection_stats"
     if connection is not None:
         return StatsCache(connection=connection, cache_key=cache_key)
-    if config.db.provider == "sqlite":
-        return StatsCache(db_path=config.db.path, cache_key=cache_key)
+    # Connectionless fallback is backend-neutral and uses runtime JSON cache.
     return StatsCache(_runtime_artifact_dir(config) / "stats_cache.json", cache_key=cache_key)
 
 
