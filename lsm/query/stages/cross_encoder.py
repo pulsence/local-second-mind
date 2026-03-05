@@ -8,8 +8,10 @@ dense recall candidates based on query-document relevance.
 from __future__ import annotations
 
 import hashlib
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
+from lsm.db.compat import commit as compat_commit, execute, executemany, fetchall, is_sqlite
 from lsm.db.tables import TableNames, DEFAULT_TABLE_NAMES
 from lsm.logging import get_logger
 from lsm.query.pipeline_types import ScoreBreakdown
@@ -162,16 +164,17 @@ class CrossEncoderReranker:
         if self.cache_conn is None or self._cache_ready:
             return
         try:
-            self.cache_conn.execute(
+            execute(
+                self.cache_conn,
                 f"""
                 CREATE TABLE IF NOT EXISTS {self._tn.reranker_cache} (
                     cache_key TEXT PRIMARY KEY,
                     score REAL,
                     created_at TEXT
                 )
-                """
+                """,
             )
-            self.cache_conn.commit()
+            compat_commit(self.cache_conn)
             self._cache_ready = True
         except Exception:
             # Cache is best-effort and must never break retrieval.
@@ -190,14 +193,15 @@ class CrossEncoderReranker:
         keys = [self._build_cache_key(query, c.cid) for c in candidates]
         placeholders = ", ".join("?" for _ in keys)
         try:
-            rows = self.cache_conn.execute(
+            rows = fetchall(
+                self.cache_conn,
                 f"""
                 SELECT cache_key, score
                 FROM {self._tn.reranker_cache}
                 WHERE cache_key IN ({placeholders})
                 """,
                 keys,
-            ).fetchall()
+            )
         except Exception:
             return {}
         return {str(row[0]): float(row[1]) for row in rows}
@@ -209,13 +213,18 @@ class CrossEncoderReranker:
         if not self._cache_ready:
             return
         try:
-            self.cache_conn.executemany(
+            now = datetime.now(timezone.utc).isoformat()
+            executemany(
+                self.cache_conn,
                 f"""
-                INSERT OR REPLACE INTO {self._tn.reranker_cache} (cache_key, score, created_at)
-                VALUES (?, ?, datetime('now'))
+                INSERT INTO {self._tn.reranker_cache} (cache_key, score, created_at)
+                VALUES (?, ?, ?)
+                ON CONFLICT(cache_key) DO UPDATE SET
+                    score = excluded.score,
+                    created_at = excluded.created_at
                 """,
-                [(k, float(v)) for k, v in scores.items()],
+                [(k, float(v), now) for k, v in scores.items()],
             )
-            self.cache_conn.commit()
+            compat_commit(self.cache_conn)
         except Exception:
             return

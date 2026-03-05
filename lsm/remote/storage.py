@@ -9,13 +9,13 @@ from __future__ import annotations
 import hashlib
 import json
 import re
-import sqlite3
 import time
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+from lsm.db.compat import commit as compat_commit, execute, fetchone
 from lsm.db.connection import create_sqlite_connection, resolve_db_path
 from lsm.db.tables import TableNames, DEFAULT_TABLE_NAMES
 from lsm.logging import get_logger
@@ -69,10 +69,10 @@ def _feed_cache_key(feed_url: str) -> str:
 
 def _open_cache_connection(
     *,
-    db_connection: Optional[sqlite3.Connection],
-    vectordb_path: Optional[str | Path],
+    db_connection: Any = None,
+    vectordb_path: Optional[str | Path] = None,
     table_names: TableNames | None = None,
-) -> tuple[Optional[sqlite3.Connection], Optional[Path], bool]:
+) -> tuple[Any, Optional[Path], bool]:
     tn = table_names or DEFAULT_TABLE_NAMES
     if db_connection is not None:
         _ensure_remote_cache_table(db_connection, table_names=tn)
@@ -87,11 +87,12 @@ def _open_cache_connection(
 
 
 def _ensure_remote_cache_table(
-    connection: sqlite3.Connection,
+    connection: Any,
     table_names: TableNames | None = None,
 ) -> None:
     tn = table_names or DEFAULT_TABLE_NAMES
-    connection.execute(
+    execute(
+        connection,
         f"""
         CREATE TABLE IF NOT EXISTS {tn.remote_cache} (
             cache_key TEXT PRIMARY KEY,
@@ -100,44 +101,55 @@ def _ensure_remote_cache_table(
             created_at TEXT NOT NULL,
             expires_at TEXT
         )
-        """
+        """,
     )
-    connection.execute(
-        f"CREATE INDEX IF NOT EXISTS idx_{tn.remote_cache}_provider ON {tn.remote_cache}(provider)"
+    execute(
+        connection,
+        f"CREATE INDEX IF NOT EXISTS idx_{tn.remote_cache}_provider ON {tn.remote_cache}(provider)",
     )
-    connection.execute(
-        f"CREATE INDEX IF NOT EXISTS idx_{tn.remote_cache}_expires_at ON {tn.remote_cache}(expires_at)"
+    execute(
+        connection,
+        f"CREATE INDEX IF NOT EXISTS idx_{tn.remote_cache}_expires_at ON {tn.remote_cache}(expires_at)",
     )
-    connection.commit()
+    compat_commit(connection)
 
 
 def _load_db_payload(
-    connection: sqlite3.Connection,
+    connection: Any,
     cache_key: str,
     table_names: TableNames | None = None,
 ) -> Optional[tuple[Dict[str, Any], Optional[datetime], Optional[datetime]]]:
     tn = table_names or DEFAULT_TABLE_NAMES
-    row = connection.execute(
+    row = fetchone(
+        connection,
         f"""
         SELECT response_json, created_at, expires_at
         FROM {tn.remote_cache}
         WHERE cache_key = ?
         """,
         (cache_key,),
-    ).fetchone()
+    )
     if row is None:
         return None
     try:
-        payload = json.loads(str(row["response_json"]))
+        # Support dict-like rows (sqlite3.Row) and tuple rows (psycopg2)
+        if hasattr(row, "keys"):
+            payload = json.loads(str(row["response_json"]))
+            created = _parse_iso(row["created_at"])
+            expires = _parse_iso(row["expires_at"])
+        else:
+            payload = json.loads(str(row[0]))
+            created = _parse_iso(row[1])
+            expires = _parse_iso(row[2])
     except Exception:
         return None
     if not isinstance(payload, dict):
         return None
-    return payload, _parse_iso(row["created_at"]), _parse_iso(row["expires_at"])
+    return payload, created, expires
 
 
 def _save_db_payload(
-    connection: sqlite3.Connection,
+    connection: Any,
     *,
     cache_key: str,
     provider: str,
@@ -151,7 +163,8 @@ def _save_db_payload(
     expires_at: Optional[str] = None
     if cache_ttl_seconds is not None and int(cache_ttl_seconds) > 0:
         expires_at = (now + timedelta(seconds=int(cache_ttl_seconds))).isoformat()
-    connection.execute(
+    execute(
+        connection,
         f"""
         INSERT INTO {tn.remote_cache}(
             cache_key, provider, response_json, created_at, expires_at
@@ -171,7 +184,7 @@ def _save_db_payload(
             expires_at,
         ),
     )
-    connection.commit()
+    compat_commit(connection)
 
 
 def save_results(
@@ -180,7 +193,7 @@ def save_results(
     results: List[Dict[str, Any]],
     global_folder: Optional[str | Path],
     *,
-    db_connection: Optional[sqlite3.Connection] = None,
+    db_connection: Any = None,
     vectordb_path: Optional[str | Path] = None,
     cache_ttl_seconds: Optional[int] = None,
 ) -> Path:
@@ -224,7 +237,7 @@ def load_cached_results(
     global_folder: Optional[str | Path],
     max_age: int,
     *,
-    db_connection: Optional[sqlite3.Connection] = None,
+    db_connection: Any = None,
     vectordb_path: Optional[str | Path] = None,
 ) -> Optional[List[Dict[str, Any]]]:
     """Load cached remote provider search results when fresh."""
@@ -304,7 +317,7 @@ def save_feed_cache(
     seen_ids: List[str],
     global_folder: Optional[str | Path],
     *,
-    db_connection: Optional[sqlite3.Connection] = None,
+    db_connection: Any = None,
     vectordb_path: Optional[str | Path] = None,
     cache_ttl_seconds: Optional[int] = None,
 ) -> Path:
@@ -347,7 +360,7 @@ def load_feed_cache(
     global_folder: Optional[str | Path],
     max_age: int,
     *,
-    db_connection: Optional[sqlite3.Connection] = None,
+    db_connection: Any = None,
     vectordb_path: Optional[str | Path] = None,
 ) -> Optional[FeedCache]:
     """Load RSS/Atom feed cache when available."""

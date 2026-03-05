@@ -13,6 +13,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
+from lsm.db.compat import fetchall
 from lsm.db.tables import DEFAULT_TABLE_NAMES, TableNames
 from lsm.logging import get_logger
 
@@ -62,7 +63,7 @@ def extract_training_pairs(
         sql += " LIMIT ?"
         params.append(max_pairs)
 
-    rows = conn.execute(sql, params).fetchall()
+    rows = fetchall(conn, sql, params)
 
     pairs: List[TrainingPair] = []
     for row in rows:

@@ -8,10 +8,11 @@ from __future__ import annotations
 
 from dataclasses import replace
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
 from lsm.config import load_config_from_file
 from lsm.config.models import LSMConfig, DBConfig
+from lsm.db.compat import commit as compat_commit, execute, fetchall, fetchone
 from lsm.db.tables import TableNames
 from lsm.logging import get_logger
 from lsm.db.migration import migrate as migrate_db
@@ -24,6 +25,17 @@ logger = get_logger(__name__)
 
 def _table_names(config: LSMConfig) -> TableNames:
     return TableNames(prefix=config.db.table_prefix)
+
+
+def _resolve_conn(provider: Any) -> Any:
+    """Resolve a DB connection from a vector DB provider (SQLite or PostgreSQL)."""
+    conn = getattr(provider, "connection", None)
+    if conn is not None:
+        return conn
+    _get = getattr(provider, "_get_conn", None)
+    if callable(_get):
+        return _get()
+    return None
 
 
 def run_ingest(args) -> int:
@@ -124,15 +136,10 @@ def _print_post_ingest_advisories(config: LSMConfig) -> None:
         from lsm.db.job_status import check_job_advisories
 
         provider = create_vectordb_provider(config.db)
-        conn = getattr(provider, "connection", None)
-        if conn is not None:
-            advisories = check_job_advisories(conn, config)
-        else:
-            get_conn = getattr(provider, "_get_conn", None)
-            if get_conn is None:
-                return
-            with get_conn() as pg_conn:
-                advisories = check_job_advisories(pg_conn, config)
+        conn = _resolve_conn(provider)
+        if conn is None:
+            return
+        advisories = check_job_advisories(conn, config)
 
         for adv in advisories:
             print(f"\n[advisory] {adv.message}")
@@ -528,7 +535,7 @@ def _run_standalone_enrichment(
 ) -> int:
     """Run enrichment on the existing database without backend migration."""
     provider = create_vectordb_provider(config.db)
-    conn = getattr(provider, "connection", getattr(provider, "_conn", None))
+    conn = _resolve_conn(provider)
     if conn is None:
         print("Error: Enrichment requires a backend with direct SQL access.")
         return 1
@@ -657,27 +664,29 @@ def run_cache_clear_cli(
         clear_reranker = True
 
     provider = create_vectordb_provider(config.db)
-    conn = getattr(provider, "connection", getattr(provider, "_conn", None))
+    conn = _resolve_conn(provider)
     tn = _table_names(config)
     if conn is None:
         print("Error: Reranker cache clear requires a backend with direct SQL access.")
         return 1
     try:
-        conn.execute(
+        execute(
+            conn,
             f"""
             CREATE TABLE IF NOT EXISTS {tn.reranker_cache} (
                 cache_key TEXT PRIMARY KEY,
                 score REAL,
                 created_at TEXT
             )
-            """
+            """,
         )
-        row = conn.execute(
-            f"SELECT COUNT(*) FROM {tn.reranker_cache}"
-        ).fetchone()
+        row = fetchone(
+            conn,
+            f"SELECT COUNT(*) FROM {tn.reranker_cache}",
+        )
         removed = int(row[0]) if row else 0
-        conn.execute(f"DELETE FROM {tn.reranker_cache}")
-        conn.commit()
+        execute(conn, f"DELETE FROM {tn.reranker_cache}")
+        compat_commit(conn)
     except Exception as exc:
         print(f"Error clearing reranker cache: {exc}")
         return 1
@@ -719,9 +728,9 @@ def run_cluster_build_cli(
     tn = _table_names(config)
 
     provider = create_vectordb_provider(config.db)
-    conn = getattr(provider, "connection", None)
+    conn = _resolve_conn(provider)
     if conn is None:
-        print("Error: Clustering requires SQLite backend with direct connection access.")
+        print("Error: Clustering requires a backend with direct connection access.")
         return 1
 
     print(f"Building clusters: algorithm={algorithm}, k={k}")
@@ -769,20 +778,23 @@ def run_cluster_visualize_cli(
         return 1
 
     provider = create_vectordb_provider(config.db)
-    conn = getattr(provider, "connection", None)
+    conn = _resolve_conn(provider)
     tn = _table_names(config)
     if conn is None:
-        print("Error: Cluster visualization requires SQLite backend with direct connection access.")
+        print("Error: Cluster visualization requires a backend with direct connection access.")
         return 1
 
     print("Loading embeddings and cluster assignments...")
     try:
-        rows = conn.execute(
+        from lsm.db.compat import is_sqlite as _is_sqlite
+
+        rows = fetchall(
+            conn,
             f"SELECT c.chunk_id, c.cluster_id, v.embedding "
             f"FROM {tn.chunks} c "
             f"JOIN {tn.vec_chunks} v ON c.chunk_id = v.chunk_id "
-            f"WHERE c.is_current = 1 AND c.cluster_id IS NOT NULL"
-        ).fetchall()
+            f"WHERE c.is_current = 1 AND c.cluster_id IS NOT NULL",
+        )
     except Exception as exc:
         print(f"Error loading data: {exc}")
         return 1
@@ -793,13 +805,17 @@ def run_cluster_visualize_cli(
 
     from struct import unpack
 
+    _sqlite = _is_sqlite(conn)
     chunk_ids = [r[0] for r in rows]
     cluster_ids = [int(r[1]) for r in rows]
     embeddings = []
     for r in rows:
         raw = r[2]
-        dim = len(raw) // 4
-        embeddings.append(list(unpack(f"{dim}f", raw)))
+        if _sqlite and isinstance(raw, (bytes, memoryview)):
+            dim = len(raw) // 4
+            embeddings.append(list(unpack(f"{dim}f", raw)))
+        else:
+            embeddings.append([float(v) for v in raw])
     embeddings_np = np.array(embeddings, dtype=np.float32)
 
     print(f"Running UMAP on {len(chunk_ids)} chunks...")
@@ -877,10 +893,10 @@ def run_finetune_train_cli(
     from lsm.db.job_status import record_job_status
 
     provider = create_vectordb_provider(config.db)
-    conn = getattr(provider, "connection", None)
+    conn = _resolve_conn(provider)
     tn = _table_names(config)
     if conn is None:
-        print("Error: Fine-tuning requires SQLite backend with direct connection access.")
+        print("Error: Fine-tuning requires a backend with direct connection access.")
         return 1
 
     print("Extracting training pairs from corpus...")
@@ -924,9 +940,10 @@ def run_finetune_train_cli(
     print(f"  Status: active")
 
     try:
-        row = conn.execute(
-            f"SELECT COUNT(*) FROM {tn.chunks} WHERE is_current = 1"
-        ).fetchone()
+        row = fetchone(
+            conn,
+            f"SELECT COUNT(*) FROM {tn.chunks} WHERE is_current = 1",
+        )
         corpus_size = int(row[0]) if row else None
         record_job_status(conn, "finetune_embedding", corpus_size=corpus_size)
     except Exception:
@@ -940,9 +957,9 @@ def run_finetune_list_cli(config: LSMConfig) -> int:
     from lsm.finetune.registry import list_models
 
     provider = create_vectordb_provider(config.db)
-    conn = getattr(provider, "connection", None)
+    conn = _resolve_conn(provider)
     if conn is None:
-        print("Error: Model registry requires SQLite backend.")
+        print("Error: Model registry requires a backend with direct connection access.")
         return 1
 
     tn = _table_names(config)
@@ -964,9 +981,9 @@ def run_finetune_activate_cli(config: LSMConfig, model_id: str) -> int:
     from lsm.finetune.registry import get_active_model, list_models, set_active_model
 
     provider = create_vectordb_provider(config.db)
-    conn = getattr(provider, "connection", None)
+    conn = _resolve_conn(provider)
     if conn is None:
-        print("Error: Model registry requires SQLite backend.")
+        print("Error: Model registry requires a backend with direct connection access.")
         return 1
 
     # Check model exists
@@ -1009,10 +1026,10 @@ def run_graph_build_links_cli(
         return 1
 
     provider = create_vectordb_provider(config.db)
-    conn = getattr(provider, "connection", None)
+    conn = _resolve_conn(provider)
     tn = _table_names(config)
     if conn is None:
-        print("Error: Graph link building requires SQLite backend with direct connection access.")
+        print("Error: Graph link building requires a backend with direct connection access.")
         return 1
 
     print(f"Building thematic links: threshold={threshold}, batch_size={batch_size}")
@@ -1020,13 +1037,16 @@ def run_graph_build_links_cli(
     # Load all current chunk embeddings
     try:
         from struct import unpack
+        from lsm.db.compat import is_sqlite as _is_sqlite
 
-        rows = conn.execute(
+        _sqlite = _is_sqlite(conn)
+        rows = fetchall(
+            conn,
             f"SELECT c.chunk_id, v.embedding "
             f"FROM {tn.chunks} c "
             f"JOIN {tn.vec_chunks} v ON c.chunk_id = v.chunk_id "
-            f"WHERE c.is_current = 1"
-        ).fetchall()
+            f"WHERE c.is_current = 1",
+        )
     except Exception as exc:
         print(f"Error loading embeddings: {exc}")
         return 1
@@ -1039,8 +1059,11 @@ def run_graph_build_links_cli(
     embeddings = []
     for r in rows:
         raw = r[1]
-        dim = len(raw) // 4
-        embeddings.append(list(unpack(f"{dim}f", raw)))
+        if _sqlite and isinstance(raw, (bytes, memoryview)):
+            dim = len(raw) // 4
+            embeddings.append(list(unpack(f"{dim}f", raw)))
+        else:
+            embeddings.append([float(v) for v in raw])
     emb_matrix = np.array(embeddings, dtype=np.float32)
 
     # Normalize for cosine similarity
@@ -1071,15 +1094,17 @@ def run_graph_build_links_cli(
                     if sim[bi, ci] >= threshold:
                         src_id = chunk_ids[global_i]
                         dst_id = chunk_ids[global_j]
-                        conn.execute(
-                            f"INSERT OR IGNORE INTO {tn.graph_edges} "
+                        execute(
+                            conn,
+                            f"INSERT INTO {tn.graph_edges} "
                             "(src_id, dst_id, edge_type, weight) "
-                            "VALUES (?, ?, 'thematic', ?)",
+                            "VALUES (?, ?, 'thematic', ?) "
+                            "ON CONFLICT DO NOTHING",
                             (src_id, dst_id, float(sim[bi, ci])),
                         )
                         edges_created += 1
 
-    conn.commit()
+    compat_commit(conn)
     print(f"Link building complete: {edges_created} thematic edges created.")
     try:
         from lsm.db.job_status import record_job_status

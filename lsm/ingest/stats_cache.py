@@ -7,11 +7,11 @@ legacy JSON file fallback for non-sqlite flows.
 from __future__ import annotations
 
 import json
-import sqlite3
 import time
 from pathlib import Path
 from typing import Any, Dict, Optional
 
+from lsm.db.compat import commit as compat_commit, execute, fetchone
 from lsm.db.connection import create_sqlite_connection, resolve_db_path
 from lsm.db.tables import TableNames, DEFAULT_TABLE_NAMES
 from lsm.logging import get_logger
@@ -27,7 +27,7 @@ class StatsCache:
         cache_path: Optional[Path] = None,
         max_age_seconds: int = 3600,
         *,
-        connection: Optional[sqlite3.Connection] = None,
+        connection: Any = None,
         db_path: Optional[Path] = None,
         cache_key: str = "collection_stats",
         table_names: TableNames | None = None,
@@ -63,7 +63,8 @@ class StatsCache:
     def _ensure_table(self) -> None:
         if self._connection is None:
             return
-        self._connection.execute(
+        execute(
+            self._connection,
             f"""
             CREATE TABLE IF NOT EXISTS {self._table_names.stats_cache} (
                 cache_key TEXT PRIMARY KEY,
@@ -71,35 +72,46 @@ class StatsCache:
                 chunk_count INTEGER NOT NULL,
                 stats_json TEXT NOT NULL
             )
-            """
+            """,
         )
-        self._connection.execute(
-            f"CREATE INDEX IF NOT EXISTS idx_{self._table_names.stats_cache}_cached_at ON {self._table_names.stats_cache}(cached_at)"
+        execute(
+            self._connection,
+            f"CREATE INDEX IF NOT EXISTS idx_{self._table_names.stats_cache}_cached_at ON {self._table_names.stats_cache}(cached_at)",
         )
-        self._connection.commit()
+        compat_commit(self._connection)
 
     def load(self) -> Optional[Dict[str, Any]]:
         """Load cached stats envelope."""
         if self._connection is not None:
-            row = self._connection.execute(
+            row = fetchone(
+                self._connection,
                 f"""
                 SELECT cached_at, chunk_count, stats_json
                 FROM {self._table_names.stats_cache}
                 WHERE cache_key = ?
                 """,
                 (self._cache_key,),
-            ).fetchone()
+            )
             if row is None:
                 return None
             try:
-                stats = json.loads(str(row["stats_json"]))
+                # Support both dict-like rows (sqlite3.Row) and tuple rows (psycopg2)
+                if hasattr(row, "keys"):
+                    stats_json = str(row["stats_json"])
+                    cached_at = float(row["cached_at"])
+                    chunk_count = int(row["chunk_count"])
+                else:
+                    cached_at = float(row[0])
+                    chunk_count = int(row[1])
+                    stats_json = str(row[2])
+                stats = json.loads(stats_json)
             except Exception:
                 return None
             if not isinstance(stats, dict):
                 return None
             return {
-                "cached_at": float(row["cached_at"]),
-                "chunk_count": int(row["chunk_count"]),
+                "cached_at": cached_at,
+                "chunk_count": chunk_count,
                 "stats": stats,
             }
 
@@ -121,7 +133,8 @@ class StatsCache:
             "stats": stats,
         }
         if self._connection is not None:
-            self._connection.execute(
+            execute(
+                self._connection,
                 f"""
                 INSERT INTO {self._table_names.stats_cache}(cache_key, cached_at, chunk_count, stats_json)
                 VALUES (?, ?, ?, ?)
@@ -137,7 +150,7 @@ class StatsCache:
                     json.dumps(stats, ensure_ascii=True),
                 ),
             )
-            self._connection.commit()
+            compat_commit(self._connection)
             return
 
         if self._cache_path is None:
@@ -169,11 +182,12 @@ class StatsCache:
 
     def invalidate(self) -> None:
         if self._connection is not None:
-            self._connection.execute(
+            execute(
+                self._connection,
                 f"DELETE FROM {self._table_names.stats_cache} WHERE cache_key = ?",
                 (self._cache_key,),
             )
-            self._connection.commit()
+            compat_commit(self._connection)
             return
         try:
             if self._cache_path is not None and self._cache_path.exists():

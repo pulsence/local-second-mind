@@ -1,19 +1,26 @@
 from __future__ import annotations
 
 import json
-import sqlite3
 from pathlib import Path
 from typing import Any, Dict, Optional
 
+from lsm.db.compat import (
+    commit as compat_commit,
+    convert_placeholders,
+    db_error,
+    execute,
+    fetchone,
+)
 from lsm.db.tables import TableNames, DEFAULT_TABLE_NAMES
 
 
 def _ensure_manifest_table(
-    connection: sqlite3.Connection,
+    connection: Any,
     table_names: TableNames | None = None,
 ) -> None:
     tn = table_names or DEFAULT_TABLE_NAMES
-    connection.execute(
+    execute(
+        connection,
         f"""
         CREATE TABLE IF NOT EXISTS {tn.manifest} (
             source_path TEXT PRIMARY KEY,
@@ -24,29 +31,32 @@ def _ensure_manifest_table(
             embedding_model TEXT,
             schema_version_id INTEGER,
             updated_at TEXT
-        );
-        """
+        )
+        """,
     )
     try:
-        connection.execute(
-            f"CREATE INDEX IF NOT EXISTS idx_{tn.manifest}_updated_at ON {tn.manifest}(updated_at);"
-        )
-    except sqlite3.OperationalError:
+        with db_error():
+            execute(
+                connection,
+                f"CREATE INDEX IF NOT EXISTS idx_{tn.manifest}_updated_at ON {tn.manifest}(updated_at)",
+            )
+    except Exception:
         # Existing legacy tables may not have updated_at; skip index creation.
         pass
-    connection.commit()
+    compat_commit(connection)
 
 
 def load_manifest(
     path: Optional[Path] = None,
     *,
-    connection: Optional[sqlite3.Connection] = None,
+    connection: Any = None,
     table_names: TableNames | None = None,
 ) -> Dict[str, Dict[str, Any]]:
     tn = table_names or DEFAULT_TABLE_NAMES
     if connection is not None:
         _ensure_manifest_table(connection, table_names=tn)
-        cursor = connection.execute(
+        cursor = execute(
+            connection,
             f"""
             SELECT
                 source_path,
@@ -58,7 +68,7 @@ def load_manifest(
                 schema_version_id,
                 updated_at
             FROM {tn.manifest}
-            """
+            """,
         )
         columns = [item[0] for item in (cursor.description or [])]
         manifest: Dict[str, Dict[str, Any]] = {}
@@ -102,21 +112,19 @@ def save_manifest(
     path: Optional[Path],
     manifest: Dict[str, Dict[str, Any]],
     *,
-    connection: Optional[sqlite3.Connection] = None,
+    connection: Any = None,
     table_names: TableNames | None = None,
 ) -> None:
     tn = table_names or DEFAULT_TABLE_NAMES
     if connection is not None:
-        # Ensure table exists BEFORE starting the transaction.
-        # DDL inside an explicit BEGIN can cause implicit commits
-        # on some Python/SQLite builds.
         _ensure_manifest_table(connection, table_names=tn)
-        connection.execute("BEGIN")
+        execute(connection, "BEGIN")
         try:
             for source_path, entry in manifest.items():
                 if not isinstance(entry, dict):
                     continue
-                connection.execute(
+                execute(
+                    connection,
                     f"""
                     INSERT INTO {tn.manifest} (
                         source_path,
@@ -152,14 +160,15 @@ def save_manifest(
             source_paths = [str(source_path) for source_path in manifest.keys()]
             if source_paths:
                 placeholders = ", ".join(["?"] * len(source_paths))
-                connection.execute(
+                execute(
+                    connection,
                     f"DELETE FROM {tn.manifest} WHERE source_path NOT IN ({placeholders})",
                     source_paths,
                 )
             else:
-                connection.execute(f"DELETE FROM {tn.manifest}")
+                execute(connection, f"DELETE FROM {tn.manifest}")
 
-            connection.commit()
+            compat_commit(connection)
             return
         except Exception:
             connection.rollback()
@@ -175,7 +184,7 @@ def save_manifest(
 
 
 def upsert_manifest_entries(
-    connection: sqlite3.Connection,
+    connection: Any,
     entries: Dict[str, Dict[str, Any]],
     *,
     commit: bool = False,
@@ -189,7 +198,8 @@ def upsert_manifest_entries(
     for source_path, entry in entries.items():
         if not isinstance(entry, dict):
             continue
-        connection.execute(
+        execute(
+            connection,
             f"""
             INSERT INTO {tn.manifest} (
                 source_path,
@@ -222,28 +232,29 @@ def upsert_manifest_entries(
             ),
         )
     if commit:
-        connection.commit()
+        compat_commit(connection)
 
 
 def get_next_version(
     manifest: Dict[str, Dict[str, Any]],
     source_path: str,
     *,
-    connection: Optional[sqlite3.Connection] = None,
+    connection: Any = None,
     table_names: TableNames | None = None,
 ) -> int:
     tn = table_names or DEFAULT_TABLE_NAMES
     if connection is not None:
         _ensure_manifest_table(connection, table_names=tn)
         try:
-            cursor = connection.execute(
-                f"SELECT COALESCE(MAX(version), 0) FROM {tn.manifest} WHERE source_path = ?",
-                (source_path,),
-            )
-            row = cursor.fetchone()
-            max_version = int(row[0] or 0) if row is not None else 0
-            return max_version + 1
-        except sqlite3.OperationalError:
+            with db_error():
+                row = fetchone(
+                    connection,
+                    f"SELECT COALESCE(MAX(version), 0) FROM {tn.manifest} WHERE source_path = ?",
+                    (source_path,),
+                )
+                max_version = int(row[0] or 0) if row is not None else 0
+                return max_version + 1
+        except Exception:
             pass
 
     prev = manifest.get(source_path)

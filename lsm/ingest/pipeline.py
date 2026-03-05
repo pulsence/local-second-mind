@@ -7,7 +7,6 @@ import threading
 import queue
 import json
 import fnmatch
-import sqlite3
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Callable, Dict, List, Optional, Tuple
 from pathlib import Path
@@ -416,9 +415,13 @@ def ingest(
                 continue
 
     provider = provider or create_vectordb_provider(vectordb_config)
+    # Obtain a persistent connection for manifest/schema operations.
+    # SQLite providers expose .connection; PG providers expose ._get_conn().
     manifest_connection = getattr(provider, "connection", None)
-    if not isinstance(manifest_connection, sqlite3.Connection):
-        manifest_connection = None
+    if manifest_connection is None:
+        _get = getattr(provider, "_get_conn", None)
+        if callable(_get):
+            manifest_connection = _get()
 
     emit("init", 0, 0, f"Model device: {device}")
     from sentence_transformers import SentenceTransformer

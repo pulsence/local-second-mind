@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-import sqlite3
 from pathlib import Path
 from typing import Any, Callable, Dict, Optional
 
@@ -49,14 +48,14 @@ def _runtime_artifact_dir(config: LSMConfig) -> Path:
 
 def _build_stats_cache(
     config: LSMConfig,
-    connection: Optional[sqlite3.Connection] = None,
+    connection: Any = None,
 ):
     from lsm.ingest.stats_cache import StatsCache
 
     cache_key = f"{config.db.collection}:collection_stats"
+    if connection is not None:
+        return StatsCache(connection=connection, cache_key=cache_key)
     if config.db.provider == "sqlite":
-        if isinstance(connection, sqlite3.Connection):
-            return StatsCache(connection=connection, cache_key=cache_key)
         return StatsCache(db_path=config.db.path, cache_key=cache_key)
     return StatsCache(_runtime_artifact_dir(config) / "stats_cache.json", cache_key=cache_key)
 

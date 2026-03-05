@@ -7,7 +7,6 @@ from __future__ import annotations
 import hashlib
 import inspect
 import json
-import sqlite3
 import threading
 import time
 from dataclasses import dataclass
@@ -144,7 +143,7 @@ class AgentScheduler:
         self._thread: Optional[threading.Thread] = None
         self._entries: Dict[str, _ScheduleRuntime] = {}
         self._persistence_backend: str = ""
-        self._sqlite_conn: Optional[sqlite3.Connection] = None
+        self._sqlite_conn: Optional[Any] = None
         self._postgres_conn_factory: Optional[Callable[[], Any]] = None
         self._owned_sqlite_connection = False
         self._owned_provider: Optional[BaseVectorDBProvider] = None
