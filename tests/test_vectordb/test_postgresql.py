@@ -441,18 +441,18 @@ class TestPostgreSQLEnsureDatabase:
         mock_psycopg2.connect.return_value = mock_conn
         provider._ensure_database()
 
-        # Should connect to "postgres" maintenance DB
-        mock_psycopg2.connect.assert_called_once()
-        dsn_arg = str(mock_psycopg2.connect.call_args)
-        assert "/postgres" in dsn_arg
+        # First connect: maintenance DB, second connect: target DB for extension
+        assert mock_psycopg2.connect.call_count == 2
+        first_dsn = str(mock_psycopg2.connect.call_args_list[0])
+        assert "/postgres" in first_dsn
+        second_dsn = str(mock_psycopg2.connect.call_args_list[1])
+        assert "/mydb" in second_dsn
 
-        # Should check for DB existence and create it
-        assert mock_cursor.execute.call_count == 2
-        first_call_args = mock_cursor.execute.call_args_list[0]
-        assert "pg_database" in str(first_call_args)
-        second_call_args = mock_cursor.execute.call_args_list[1]
-        assert "mydb" in str(second_call_args)
-        mock_conn.close.assert_called_once()
+        # Should check for DB existence, create it, then enable extension
+        assert mock_cursor.execute.call_count == 3
+        assert "pg_database" in str(mock_cursor.execute.call_args_list[0])
+        assert "mydb" in str(mock_cursor.execute.call_args_list[1])
+        assert "vector" in str(mock_cursor.execute.call_args_list[2])
 
     def test_connection_string_with_db_name_in_user(self, mock_pg_deps):
         """DSN replacement must not corrupt usernames containing the DB name."""
@@ -473,10 +473,14 @@ class TestPostgreSQLEnsureDatabase:
         mock_psycopg2.connect.return_value = mock_conn
         provider._ensure_database()
 
-        dsn = mock_psycopg2.connect.call_args[1]["dsn"]
-        # Username must be preserved, only path changed
-        assert "lsm_user" in dsn
-        assert dsn.endswith("/postgres")
+        # First call: maintenance DB with /postgres path
+        maint_dsn = mock_psycopg2.connect.call_args_list[0][1]["dsn"]
+        assert "lsm_user" in maint_dsn
+        assert maint_dsn.endswith("/postgres")
+        # Second call: target DB for extension with original DSN
+        target_dsn = mock_psycopg2.connect.call_args_list[1][1]["dsn"]
+        assert "lsm_user" in target_dsn
+        assert "/lsm" in target_dsn
 
     def test_skips_creation_when_database_exists(self, mock_pg_deps):
         """No CREATE DATABASE when the database already exists."""
@@ -496,8 +500,10 @@ class TestPostgreSQLEnsureDatabase:
         mock_psycopg2.connect.return_value = mock_conn
         provider._ensure_database()
 
-        # Only the SELECT, no CREATE
-        assert mock_cursor.execute.call_count == 1
+        # SELECT + CREATE EXTENSION (no CREATE DATABASE)
+        assert mock_cursor.execute.call_count == 2
+        assert "pg_database" in str(mock_cursor.execute.call_args_list[0])
+        assert "vector" in str(mock_cursor.execute.call_args_list[1])
 
     def test_creates_database_component_config(self, mock_pg_deps):
         """Database creation works with component-based config (host/port/database)."""
@@ -522,13 +528,16 @@ class TestPostgreSQLEnsureDatabase:
         mock_psycopg2.connect.return_value = mock_conn
         provider._ensure_database()
 
-        # Should connect to "postgres" database on same host
-        connect_kwargs = mock_psycopg2.connect.call_args[1]
-        assert connect_kwargs["database"] == "postgres"
-        assert connect_kwargs["host"] == "dbhost"
-        assert connect_kwargs["user"] == "admin"
-        # Should CREATE DATABASE
-        assert mock_cursor.execute.call_count == 2
+        # First connect: maintenance DB, second connect: target DB for extension
+        assert mock_psycopg2.connect.call_count == 2
+        maint_kwargs = mock_psycopg2.connect.call_args_list[0][1]
+        assert maint_kwargs["database"] == "postgres"
+        assert maint_kwargs["host"] == "dbhost"
+        assert maint_kwargs["user"] == "admin"
+        target_kwargs = mock_psycopg2.connect.call_args_list[1][1]
+        assert target_kwargs["database"] == "newdb"
+        # SELECT + CREATE DATABASE + CREATE EXTENSION
+        assert mock_cursor.execute.call_count == 3
 
     def test_graceful_failure_on_operational_error(self, mock_pg_deps):
         """OperationalError connecting to maintenance DB is silently ignored."""

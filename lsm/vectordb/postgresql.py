@@ -155,6 +155,30 @@ class PostgreSQLProvider(BaseVectorDBProvider):
                 else:
                     logger.debug("Database '%s' already exists", db_name)
             conn.close()
+
+            # Enable pgvector extension on the target database.
+            if self.config.connection_string:
+                target_kwargs = {"dsn": self.config.connection_string}
+            else:
+                target_kwargs = {
+                    "host": self.config.host,
+                    "port": self.config.port,
+                    "database": db_name,
+                    "user": self.config.user,
+                    "password": self.config.password,
+                }
+            try:
+                target_conn = psycopg2.connect(**target_kwargs)
+                target_conn.autocommit = True
+                with target_conn.cursor() as cur:
+                    cur.execute("CREATE EXTENSION IF NOT EXISTS vector")
+                    logger.info("Ensured pgvector extension on database '%s'", db_name)
+                target_conn.close()
+            except Exception as ext_exc:
+                logger.warning(
+                    "Failed to enable pgvector extension on '%s': %s",
+                    db_name, ext_exc,
+                )
         except psycopg2.OperationalError as exc:
             # Can't connect to maintenance DB — let pool creation fail
             # with the original error so the user sees the real problem.
