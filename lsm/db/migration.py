@@ -994,13 +994,30 @@ CREATE TABLE IF NOT EXISTS {table} (
 )
 """
 
+_MIGRATION_PROGRESS_DDL_POSTGRES = """
+CREATE TABLE IF NOT EXISTS {table} (
+    id SERIAL PRIMARY KEY,
+    migration_run TEXT NOT NULL,
+    started_at TEXT NOT NULL,
+    completed_at TEXT,
+    source_type TEXT NOT NULL,
+    target_type TEXT NOT NULL,
+    stage TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'pending',
+    rows_processed INTEGER DEFAULT 0,
+    error_message TEXT
+)
+"""
+
 
 def _ensure_migration_progress_table(
     conn: Any,
     tn: TableNames = DEFAULT_TABLE_NAMES,
 ) -> None:
     """Create the migration_progress table if it does not exist."""
-    ddl = _MIGRATION_PROGRESS_DDL_SQLITE.format(table=tn.migration_progress)
+    dialect = _dialect(conn)
+    template = _MIGRATION_PROGRESS_DDL_SQLITE if dialect == "sqlite" else _MIGRATION_PROGRESS_DDL_POSTGRES
+    ddl = template.format(table=tn.migration_progress)
     _execute(conn, ddl)
     _commit(conn)
 
@@ -1505,6 +1522,8 @@ def _commit(conn: Any) -> None:
 
 
 def _execute(conn: Any, query: str, params: Iterable[Any] = ()) -> Any:
+    if _dialect(conn) == "postgresql":
+        query = query.replace("?", "%s")
     execute = getattr(conn, "execute", None)
     if callable(execute):
         return execute(query, tuple(params))
