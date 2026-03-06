@@ -119,6 +119,8 @@
 - Split Local Provider in to two different: OpenAI_Compatable and Ollama_Provider so the user
   can use these for any generic endpoint which supports the OpenAI API or Ollama API whether it
   is local or elsewhere.
+- Are we properly using the provided python packages provided by AI Companies or are we recreating
+  package functionality (for example in building api calls)?
 
 ### "Interactive" Base Agent Extension
 - Update BaseAgent to handle taking commands, matching the command (either

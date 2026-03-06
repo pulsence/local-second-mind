@@ -954,5 +954,6 @@ These should not be forced into v0.8.1 unless scope changes:
 
 ## Clarifications Required
 
-None at this stage. The latest feedback resolved the remaining command-alias and test-target
-questions.
+
+**User Feedback:** v0.8.0 is finally finished. This plan needs to be updated to take into consideration
+all the final refinements that went into the final release of v0.8.0.

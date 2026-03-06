@@ -1298,13 +1298,132 @@ Server-side also verifies the `confirm` flag is set.
 **API endpoints:**
 - `GET /api/agents` → HTML fragment: agent list (running + scheduled).
 - `POST /api/agents/{name}/start` → HTML fragment: updated agent card.
-- `POST /api/agents/{name}/stop` → HTML fragment: updated agent card.
-- `POST /api/agents/{name}/pause` → HTML fragment: updated agent card.
-- `GET /api/agents/{name}/logs` → SSE log stream (subscribes to `EventBufferHandler`, filters by agent
-  name in log record `extra` dict).
-- `POST /api/agents/{interaction_id}/respond` → posts approve/deny for an interaction request.
+- `POST /api/agents/runs/{agent_id}/stop` → HTML fragment: updated agent card.
+- `POST /api/agents/runs/{agent_id}/pause` → HTML fragment: updated agent card.
+- `GET /api/agents/runs/{agent_id}/logs` → SSE log stream for a specific run.
+- `GET /api/agents/interactions` → HTML fragment: current pending interaction queue across runs.
+- `POST /api/agents/runs/{agent_id}/interactions/{request_id}/ack` → idempotent acknowledgment when a
+  prompt is first rendered in the browser.
+- `POST /api/agents/runs/{agent_id}/interactions/{request_id}/respond` → post approve/deny/reply for
+  the specific pending request.
 
 Agent list auto-refreshes every 5 seconds via `hx-trigger="every 5s"`.
+
+#### 2.6.3.1 WebUI agent tool-request prompting model
+
+The current TUI/shell interaction flow is already defined by `InteractionRequest`,
+`InteractionResponse`, `InteractionChannel`, and `AgentRuntimeManager`. The Web UI should reuse that
+contract directly rather than inventing a second approval system.
+
+**Key code-verified constraints from the current runtime:**
+- A single `InteractionChannel` holds **at most one pending request per agent run**.
+- Multiple runs may each have one pending request, so the Web UI needs a queue of cards keyed by
+  `(agent_id, request_id)`.
+- Requests already carry the exact display fields the Web UI needs:
+  `request_type`, `tool_name`, `risk_level`, `reason`, `args_summary`, `prompt`, `timestamp`.
+- The two-phase timeout is only activated correctly when the UI calls
+  `InteractionChannel.acknowledge_request(request_id)` after rendering, matching existing TUI behavior.
+
+**Decision:** the Web UI gets an "interaction inbox" panel driven by HTML polling, not a separate
+JavaScript prompt engine. HTMX polls `GET /api/agents/interactions` every 2 seconds and swaps the
+interaction list fragment. This is fast enough for approval UX, keeps the state server-owned, and
+avoids duplicating the existing SSE channel already reserved for log streaming.
+
+**Acknowledgment lifecycle (required):**
+1. The browser polls `/api/agents/interactions` and receives cards for pending requests.
+2. When a card first appears, HTMX immediately posts
+   `POST /api/agents/runs/{agent_id}/interactions/{request_id}/ack`.
+3. The server forwards that to `AgentRuntimeManager.acknowledge_interaction(agent_id, request_id)`.
+4. Repeated `ack` posts are harmless and must be treated as no-ops.
+
+Without this endpoint, the Web UI would leave requests in the "unacknowledged" timeout phase even
+after the user can see the prompt, which would diverge from TUI semantics.
+
+**Timeout policy decision:**
+- Default agent interaction wait is **infinite** once a request is pending.
+- The system still retains configurable fixed wait support for deployments that want automatic expiry.
+- In config terms, this means the effective default should be:
+  - `agents.interaction.timeout_seconds = 0` (or equivalent "wait forever" sentinel for the initial phase)
+  - `agents.interaction.acknowledged_timeout_seconds = 0`
+- If the implementation keeps the current validator requirement that `timeout_seconds > 0`, it should be
+  relaxed so `0` explicitly means "no timeout" rather than forcing operators to choose an arbitrary large
+  number.
+
+**Rationale:** a browser-first approval UI should not silently deny or auto-approve a tool request just
+because the user stepped away. Infinite wait is the safer default for human-in-the-loop agent actions,
+while fixed wait remains useful for unattended or highly automated deployments.
+
+**Prompt rendering rules by request type:**
+
+| `request_type` | UI controls | Backend decision |
+|----------------|------------|------------------|
+| `permission` | `Approve`, `Deny`, optional deny reason | `approve` or `deny` |
+| `confirmation` | `Approve`, `Deny`, optional deny reason | `approve` or `deny` |
+| `clarification` | reply textarea + `Send Reply` + optional `Deny` | `reply` or `deny` |
+| `feedback` | reply textarea + `Send Reply` + optional `Deny` | `reply` or `deny` |
+
+**Decision:** `approve_session` is **not exposed in the Web UI for v0.9**.
+
+Reason: the current session-approval cache lives on `AgentRuntimeManager._session_tool_approvals`,
+which is process-wide, not browser-session scoped. In the TUI this is acceptable because there is
+one operator session. In the Web UI, especially with LAN exposure enabled, surfacing "approve for
+session" would ambiguously grant future approvals to every browser connected to that server process.
+Until the web stack has first-class authenticated user/session identity, the safe contract is:
+- Web UI: `approve`, `deny`, `reply`
+- TUI/shell: keep existing `approve_session`
+
+**Stale-response handling:**
+- The `respond` route must validate that the current pending request still matches `request_id`.
+- If the request was already answered or timed out, return `409 Conflict` and re-render the interaction
+  panel with a "request is no longer pending" message.
+- This matches the current in-memory channel semantics and keeps multi-tab behavior deterministic.
+
+**Agent run identity correction:**
+
+The original draft used `{name}` for pause/stop/log routes, but current runtime code is run-centric:
+`AgentRuntimeManager.start()` creates a unique `agent_id`, and interaction/log lookups already use that
+identifier. Therefore the Web UI must key all live operations by `agent_id`, not by `agent_name`.
+
+This also requires the cross-process runtime table to store runs, not agent classes:
+
+```sql
+CREATE TABLE lsm_agent_runtime_state (
+    agent_id      TEXT PRIMARY KEY,
+    agent_name    TEXT NOT NULL,
+    topic         TEXT NOT NULL,
+    status        TEXT NOT NULL CHECK(status IN ('running', 'paused', 'stopped', 'scheduled')),
+    pid           INTEGER,
+    started_at    TEXT,
+    updated_at    TEXT NOT NULL,
+    error_message TEXT
+);
+```
+
+#### 2.6.3.2 Communication assistant launchers
+
+The existing `email_assistant` and `calendar_assistant` agents do not want a free-form "topic"
+string for most useful operations. Their `run()` paths already accept structured JSON payloads via
+`_extract_payload()` and route behavior from keys like `action`, `provider`, `filters`, `draft`,
+`event`, and `updates`.
+
+**Decision:** the Agents screen includes two specialized launcher cards in addition to the generic
+"start agent" control:
+- **Email Assistant launcher**:
+  - provider selector filtered to `gmail`, `microsoft_graph_mail`, `imap`
+  - actions: `summary`, `draft`, `send`
+  - summary fields: query, from, to, unread-only, folder, time window, max results
+  - draft/send fields: recipients, subject, body, optional thread id
+- **Calendar Assistant launcher**:
+  - provider selector filtered to `google_calendar`, `microsoft_graph_calendar`, `caldav`
+  - actions: `summary`, `suggest`, `create`, `update`, `delete`
+  - summary/suggest fields: query, date window, duration, workday bounds, max suggestions
+  - mutation fields: event id, title, start/end, location, attendees, description
+
+The launcher serializes the form to the exact JSON payload shape the current agents already parse,
+then starts the run normally through `POST /api/agents/{name}/start`.
+
+This avoids asking the user to hand-type JSON into a generic topic field and keeps the Web UI aligned
+with the existing assistant implementation instead of requiring new agent-side parsing rules.
 
 **Cross-process agent runtime coordination:**
 
@@ -1315,23 +1434,26 @@ processes see a consistent view:
 
 ```sql
 CREATE TABLE lsm_agent_runtime_state (
-    agent_name   TEXT PRIMARY KEY,
-    status       TEXT NOT NULL CHECK(status IN ('running', 'paused', 'stopped', 'scheduled')),
-    pid          INTEGER,              -- OS process ID of the owning process
-    started_at   TEXT,                 -- ISO-8601
-    updated_at   TEXT NOT NULL,        -- ISO-8601; heartbeat timestamp
+    agent_id      TEXT PRIMARY KEY,
+    agent_name    TEXT NOT NULL,
+    topic         TEXT NOT NULL,
+    status        TEXT NOT NULL CHECK(status IN ('running', 'paused', 'stopped', 'scheduled')),
+    pid           INTEGER,             -- OS process ID of the owning process
+    started_at    TEXT,                -- ISO-8601
+    updated_at    TEXT NOT NULL,       -- ISO-8601; heartbeat timestamp
     error_message TEXT                 -- last error, if any
 );
 ```
 
 **Coordination protocol:**
-- On agent start: insert/update row with `status='running'`, current `pid`, and `started_at`.
+- On agent start: insert/update row for the new `agent_id` with `status='running'`, current `pid`,
+  `topic`, and `started_at`.
 - Heartbeat: the owning process updates `updated_at` every 10 seconds while the agent runs.
 - On agent stop/pause: update `status` accordingly.
 - Stale detection: if `updated_at` is older than 30 seconds and `status='running'`, the agent is
   considered crashed. The reader (TUI or web) marks it `stopped` and clears the row.
-- The TUI `/agent list` command reads this table to show agents started by the web server (and
-  vice versa). Start/stop commands from either process write to the same table.
+- The TUI `/agent list` command reads this table to show runs started by the web server (and vice
+  versa). Stop/pause/log/interaction actions resolve against `agent_id`, not `agent_name`.
 - The existing `lsm_agent_schedules` table (used by the agent scheduler) is unchanged.
 
 ---
@@ -1341,7 +1463,9 @@ CREATE TABLE lsm_agent_runtime_state (
 **URL:** `/settings`
 
 A single long-form page with anchor-linked sections. Both the Web UI settings screen and the TUI
-settings screen read and write the same `config.json` file.
+settings screen read and write the same `config.json` file. Communication provider connection state
+(OAuth tokens) is not stored in `config.json`; it stays in the existing encrypted token store under
+`<global_folder>/oauth_tokens/<provider>/`.
 
 | Section | Config object | Representative fields |
 |---------|--------------|----------------------|
@@ -1374,6 +1498,102 @@ settings screen read and write the same `config.json` file.
 
 **Recommendation:** Keep the single endpoint with explicit content-type handling and response negotiation.
 Use one shared validation/save function underneath to avoid drift.
+
+#### 2.6.4.1 Communication providers (email + calendar) in the Web UI
+
+The repo already contains six communication providers:
+- Email: `gmail`, `microsoft_graph_mail`, `imap`
+- Calendar: `google_calendar`, `microsoft_graph_calendar`, `caldav`
+
+The missing design work is not provider implementation from scratch; it is how the Web UI configures,
+authorizes, and launches flows that use those existing providers.
+
+**Decision:** communication providers live in two places in the Web UI:
+- **Settings screen**: configuration, OAuth connect/disconnect, health/test status
+- **Agents screen**: per-run provider selection for `email_assistant` and `calendar_assistant`
+
+There is **no separate v0.9 email page or calendar page**. The provider backends are consumed through
+the assistant agents already in-tree, and the Web UI should expose those assistants cleanly rather than
+creating a parallel feature surface.
+
+**Settings form structure:**
+- `remote_providers[]` remains the canonical config home.
+- The Settings page groups the communication subset into a dedicated "Communication Providers" section
+  with provider-specific fieldsets.
+- The assistant defaults stay under `agents.agent_configs.email_assistant.provider` and
+  `agents.agent_configs.calendar_assistant.provider`; the Settings page links these defaults to the
+  configured communication providers.
+
+**Provider field groups:**
+
+| Provider type | Web UI fields | Notes |
+|---------------|--------------|-------|
+| `gmail` / `google_calendar` | name, redirect URI, client id, client secret, scopes, timeout, max results, calendar id (calendar only) | OAuth-backed; connect/disconnect/test controls |
+| `microsoft_graph_mail` / `microsoft_graph_calendar` | name, redirect URI, client id, client secret, scopes, timeout, max results | OAuth-backed; connect/disconnect/test controls |
+| `imap` | name, host, port, username, password, folder, drafts folder, SMTP host/port/user/password, SSL flags | password-bearing config; no OAuth |
+| `caldav` | name, calendar URL, username, password, timeout | password-bearing config; no OAuth |
+
+**Secret-handling rule for the Settings form:**
+
+Do not echo stored secrets back into HTML. For `client_secret`, IMAP/SMTP passwords, and CalDAV
+passwords:
+- render the input blank with helper text "Leave blank to keep existing value"
+- on save, blank means "preserve current secret" rather than "erase"
+- show adjacent status text such as "secret configured" / "not configured"
+
+This matters more for communication providers because their configs include full account credentials,
+not just API keys.
+
+**OAuth flow redesign for browser use:**
+
+Current provider implementations call `OAuth2Client.get_access_token(allow_interactive=True)` inside
+request methods. That is acceptable in CLI/TUI because `OAuth2Client.authorize()` spins up a temporary
+`OAuthCallbackServer` and waits for the browser redirect locally. It is the wrong abstraction for the
+Web UI because the web server already owns the browser request/response cycle.
+
+**Decision:** Web UI OAuth uses the existing token store and token exchange logic, but not the
+temporary callback server. Add a browser-native OAuth service layer:
+
+```python
+class WebOAuthSessionStore:
+    # pending state -> provider name, redirect target, created_at
+    ...
+
+def begin_provider_oauth(provider_cfg: RemoteProviderConfig) -> RedirectResponse:
+    # build auth URL from OAuth2Client.build_authorization_url(...)
+    # persist state in WebOAuthSessionStore
+    # redirect browser to provider auth URL
+
+def finish_provider_oauth(provider_name: str, code: str, state: str) -> None:
+    # validate pending state
+    # call OAuth2Client.exchange_code(code)
+    # token persists into existing OAuthTokenStore
+```
+
+**New Web UI routes for communication providers:**
+- `POST /api/providers/communication/{name}/connect` → starts browser OAuth; returns redirect
+- `GET /api/providers/oauth/{name}/callback` → validates `state`, exchanges code, stores token, redirects
+  back to `/settings#provider-{name}`
+- `POST /api/providers/communication/{name}/disconnect` → deletes stored OAuth token
+- `POST /api/providers/communication/{name}/test` → lightweight connectivity check + status fragment
+
+**Non-interactive runtime rule:**
+
+Agent runs and Web UI background operations must never attempt to open interactive OAuth during normal
+execution. Instead:
+- Web UI "Connect" establishes/refreshes tokens ahead of time
+- provider instances created for Web UI agents use `allow_interactive=False`
+- missing/expired token produces a deterministic error like "Provider 'gmail' is not connected"
+- the error is surfaced with an action link back to the Settings connect button
+
+This requires a small provider/OAuth refactor so communication providers do not hardcode
+`allow_interactive=True` in `_headers()`; they need an injected policy or constructor flag.
+
+**Why this is the least-risk design:**
+- Reuses the existing provider classes, token store, and assistant parsing logic
+- Keeps OAuth state transitions in the foreground request cycle where browser redirects belong
+- Prevents background agent threads from blocking on local callback servers
+- Avoids creating a second communication abstraction alongside `remote_providers[]`
 
 ---
 
@@ -1870,10 +2090,20 @@ POST   /api/cache/clear               → HTML fragment: result
 # Agents
 GET    /api/agents                    → HTML fragment: agent list
 POST   /api/agents/{name}/start       → HTML fragment: updated card
-POST   /api/agents/{name}/stop        → HTML fragment: updated card
-POST   /api/agents/{name}/pause       → HTML fragment: updated card
-GET    /api/agents/{name}/logs        → SSE: filtered log stream
-POST   /api/agents/{id}/respond       → approve/deny interaction
+POST   /api/agents/runs/{agent_id}/stop  → HTML fragment: updated card
+POST   /api/agents/runs/{agent_id}/pause → HTML fragment: updated card
+GET    /api/agents/runs/{agent_id}/logs  → SSE: filtered log stream
+GET    /api/agents/interactions          → HTML fragment: pending interaction queue
+POST   /api/agents/runs/{agent_id}/interactions/{request_id}/ack
+                                       → acknowledge rendered interaction
+POST   /api/agents/runs/{agent_id}/interactions/{request_id}/respond
+                                       → approve/deny/reply interaction
+
+# Communication Providers
+POST   /api/providers/communication/{name}/connect    → redirect into OAuth flow or 400 for non-OAuth providers
+GET    /api/providers/oauth/{name}/callback           → exchange code, store token, redirect back to settings
+POST   /api/providers/communication/{name}/disconnect → revoke local token/cache and refresh status fragment
+POST   /api/providers/communication/{name}/test       → HTML fragment or JSON: provider connectivity status
 
 # Config
 GET    /api/config                    → JSON: full config
@@ -1932,6 +2162,8 @@ lsm/ui/web/
 │   ├── __init__.py
 │   ├── conversations.py # chat persistence, model override, retry/edit/delete/archive/search/branch/export ops
 │   ├── query.py         # orchestration for retrieval + synthesis + SSE jobs
+│   ├── agents.py        # runtime-manager adapters, interaction ack/respond, run-card shaping
+│   ├── communication.py # provider filtering, connect/test/disconnect, browser OAuth orchestration
 │   ├── remote_chains.py # DB CRUD/import/export for remote chains
 │   └── embeddings.py    # embedding model inventory + loadability checks
 └── routes/
@@ -1941,6 +2173,7 @@ lsm/ui/web/
     ├── conversations.py # /api/conversations/*, /api/messages/* (model/retry/edit/delete/archive/search/branch/export)
     ├── ingest.py        # POST /api/ingest/*, /api/db/*, /api/cache/*
     ├── agents.py        # /api/agents/*
+    ├── providers.py     # /api/providers/communication/*, /api/providers/oauth/*
     ├── config.py        # GET/PUT /api/config
     ├── remote_chains.py # /api/remote-chains/*
     ├── health.py        # GET /api/health
@@ -1984,7 +2217,7 @@ def create_app(config: LSMConfig) -> FastAPI:
     app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
     for router in [pages_router, query_router, conversations_router, ingest_router,
-                   agents_router, config_router, remote_chains_router,
+                   agents_router, providers_router, config_router, remote_chains_router,
                    health_router, admin_router, docs_router]:
         app.include_router(router)
     return app
@@ -2514,7 +2747,12 @@ for synchronous smoke tests.
   export endpoints return expected `markdown` and `json` payloads.
 - `tests/web/test_ingest_routes.py` — mock ingest runner, verify progress SSE format; verify wipe
   requires confirm flag.
-- `tests/web/test_agents_routes.py` — mock `AgentRuntimeManager`, verify agent card HTML, log SSE stream.
+- `tests/web/test_agents_routes.py` — mock `AgentRuntimeManager`, verify agent card HTML, run-id based
+  stop/pause/log routes, interaction queue fragment, required `ack` forwarding, stale `request_id`
+  409 behavior, and permission-vs-reply control rendering by `request_type`.
+- `tests/web/test_provider_routes.py` — verify communication provider filtering, OAuth connect redirect,
+  callback state validation, disconnect behavior, non-OAuth rejection for `connect`, provider-test
+  success/error fragments, and blank-secret preservation semantics on Settings saves.
 - `tests/web/test_config_routes.py` — GET returns valid JSON; PUT supports both JSON and HTMX form
   payloads; invalid config returns structured error payloads.
 - `tests/web/test_health_routes.py` — verify JSON structure matches documented health schema.
@@ -2764,10 +3002,12 @@ Order minimises breakage: low-blast-radius infrastructure first, high-blast-radi
 
 15. **Web UI Ingest screen** — all ingest operations, SSE progress streaming, wipe confirmation.
 
-16. **Web UI Agents screen** — agent list, start/stop/pause, log SSE stream, interaction request UI.
+16. **Web UI Agents screen** — run-id based agent list/start/stop/pause, log SSE stream, interaction
+    inbox with explicit acknowledge/respond flow, and specialized email/calendar assistant launchers.
 
-17. **Web UI Settings screen** — all config sections, read/write, inline validation, and LAN exposure
-    controls.
+17. **Web UI Settings screen** — all config sections, read/write, inline validation, LAN exposure
+    controls, communication-provider secret handling, and browser-native OAuth connect/test/disconnect
+    flows for email/calendar providers.
 
 18. **Remote chains DB migration + API** — seed defaults, one-time import from config chains (ships in
     v0.9.0), CRUD +
@@ -2957,6 +3197,18 @@ Integrated from `**User Feedback:**` blocks:
     configured, fine-tuned, catalog, and locally available models can be tracked in one place.
 29. Fine-tuned model registry cleanup is explicit (`DELETE /api/admin/finetune/models/{model_id}`),
     and registry deletion does not implicitly delete model files from disk.
+30. Web UI agent interaction prompts reuse the existing `InteractionRequest` contract and require an
+    explicit `ack` route so browser rendering participates in the current two-phase timeout model.
+31. Web UI live agent operations are keyed by `agent_id` (run identity), not `agent_name`, and the
+    shared runtime-state table is run-centric for multi-run correctness.
+32. Web UI does not expose `approve_session` in v0.9 because current approval caching is
+    process-global rather than browser-session scoped.
+33. Email/calendar support in the Web UI is delivered through Settings + specialized assistant
+    launchers, not through separate standalone mail/calendar screens.
+34. Browser-native OAuth routes are added for communication providers; normal Web UI agent/background
+    flows use non-interactive tokens only and never spawn the temporary localhost callback server.
+35. Agent interaction waits default to infinite duration, while fixed timeout behavior remains
+    configurable for deployments that want automatic expiry.
 
 ## 11. Clarifications Required
 
