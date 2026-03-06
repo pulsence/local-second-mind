@@ -1086,29 +1086,24 @@ def run_enrichment_pipeline(
                 if pending_files == 0:
                     return
 
-                batch_files = pending_files
-                batch_rows = pending.total_updates
                 commit(conn)
                 batches_committed += 1
-                processed_files += batch_files
+                processed_files += pending_files
                 cumulative = cumulative.add(pending)
                 eta_tracker.add_sample(processed_files)
 
-                checkpoint_result = _maybe_checkpoint_position_batch(
+                _maybe_checkpoint_position_batch(
                     conn,
                     batches_committed=batches_committed,
                 )
                 logger.info(
-                    "Position backfill: %s/%s files (%s matched, %s deferred, %s written). (%s) batch_files=%s batch_rows=%s %s",
+                    "Position backfill: %s/%s files (%s matched, %s deferred, %s written). (%s)",
                     f"{processed_files:,}",
                     f"{total:,}",
                     f"{cumulative.matched_updates:,}",
                     f"{cumulative.sentinel_updates:,}",
                     f"{cumulative.total_updates:,}",
                     eta_tracker.format(processed_files, total),
-                    f"{batch_files:,}",
-                    f"{batch_rows:,}",
-                    _format_checkpoint_summary(checkpoint_result),
                 )
                 pending_files = 0
                 pending = PositionBackfillCounters()
