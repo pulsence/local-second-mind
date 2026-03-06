@@ -671,6 +671,24 @@ class TestBackfillGraph:
         u2 = enrichment._backfill_graph(conn, tn)
         assert u2 == 0  # Nodes already exist, nothing to do
 
+    def test_graph_backfill_logs_eta(self, tmp_path, caplog):
+        conn = _make_conn()
+        tn = DEFAULT_TABLE_NAMES
+        caplog.set_level("INFO")
+
+        test_file = tmp_path / "doc.md"
+        test_file.write_text("# Title\n\nParagraph.\n", encoding="utf-8")
+
+        _insert_chunk(conn, "c1", source_path=str(test_file), chunk_text="Paragraph.")
+        conn.commit()
+
+        enrichment._backfill_graph(conn, tn)
+
+        assert any(
+            "Graph backfill:" in record.message and "(done)" in record.message
+            for record in caplog.records
+        )
+
     def test_backfill_graph_does_not_create_source_path_index(self):
         conn = _make_conn()
         tn = DEFAULT_TABLE_NAMES

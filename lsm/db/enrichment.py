@@ -765,6 +765,8 @@ def _backfill_graph(conn: Any, tn: TableNames) -> int:
     from lsm.ingest.graph_builder import build_graph_from_file_graph
     from lsm.utils.file_graph import build_file_graph
 
+    eta_tracker = MovingAverageETA(max_samples=8)
+    eta_tracker.add_sample(0)
     updated = 0
     skipped = 0
     processed = 0
@@ -822,7 +824,15 @@ def _backfill_graph(conn: Any, tn: TableNames) -> int:
 
         if processed % 50 == 0 or processed == total_files:
             commit(conn)
-            logger.info("Graph backfill: %s/%s files (%s updated, %s skipped).", f"{processed:,}", f"{total_files:,}", f"{updated:,}", f"{skipped:,}")
+            eta_tracker.add_sample(processed)
+            logger.info(
+                "Graph backfill: %s/%s files (%s updated, %s skipped). (%s)",
+                f"{processed:,}",
+                f"{total_files:,}",
+                f"{updated:,}",
+                f"{skipped:,}",
+                eta_tracker.format(processed, total_files),
+            )
 
     return updated
 
