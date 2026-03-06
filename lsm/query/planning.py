@@ -61,7 +61,16 @@ def _collect_available_metadata(
     if not isinstance(collection, BaseVectorDBProvider):
         return {}
 
-    fields = ("content_type", "ai_tags", "user_tags", "root_tags", "folder_tags", "title", "author")
+    fields = (
+        "content_type",
+        "ai_tags",
+        "user_tags",
+        "root_tags",
+        "folder_tags",
+        "title",
+        "author",
+        "year",
+    )
     inventory: Dict[str, set[str]] = {field: set() for field in fields}
 
     try:
@@ -171,18 +180,30 @@ def prepare_local_candidates(
 
     available_metadata = _collect_available_metadata(collection)
     decomposition_llm = _resolve_decomposition_llm_config(config)
-    where_filter = prefilter_by_metadata(
+    heuristic_filter = prefilter_by_metadata(
         question,
         available_metadata=available_metadata,
         llm_config=decomposition_llm,
     )
-    where_filter = {**where_filter, "is_current": True}
+    where_filter: Dict[str, Any] = {"is_current": True}
     if extra_filters:
         where_filter.update(extra_filters)
+    if heuristic_filter:
+        where_filter = {**heuristic_filter, **where_filter}
     if not where_filter:
         where_filter = None
 
     candidates = retrieve_candidates(collection, query_vector, retrieve_k, where_filter=where_filter)
+    if not candidates and heuristic_filter:
+        logger.info(
+            "Metadata prefilter produced 0 candidates; retrying without heuristic filters"
+        )
+        where_filter = {"is_current": True}
+        if extra_filters:
+            where_filter.update(extra_filters)
+        candidates = retrieve_candidates(
+            collection, query_vector, retrieve_k, where_filter=where_filter
+        )
 
     filtered = filter_candidates(
         candidates,

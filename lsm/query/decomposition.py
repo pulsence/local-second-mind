@@ -17,7 +17,11 @@ logger = get_logger(__name__)
 
 _DOI_RE = re.compile(r"\b10\.\d{4,9}/[-._;()/:A-Za-z0-9]+\b", re.IGNORECASE)
 _YEAR_RE = re.compile(r"\b(19|20)\d{2}\b")
-_AUTHOR_RE = re.compile(r"(?:author|by)\s*[:=]?\s*([A-Za-z][\w .,'-]{1,120})", re.IGNORECASE)
+_AUTHOR_RE = re.compile(
+    r"(?:author|by)\s*[:=]?\s*([A-Za-z][\w .,'-]{1,120}?)"
+    r"(?=\s+(?:from|between|after|before|doi|title)\b|\s+in\s+\d{4}\b|$)",
+    re.IGNORECASE,
+)
 _TITLE_RE = re.compile(r"(?:title\s*[:=]\s*|\"|')([^\"']{3,180})(?:\"|')", re.IGNORECASE)
 _WORD_RE = re.compile(r"[A-Za-z][A-Za-z0-9_\-]{2,}")
 _JSON_BLOCK_RE = re.compile(r"\{[\s\S]*\}")

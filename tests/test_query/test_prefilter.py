@@ -13,8 +13,10 @@ def test_extract_tags_from_prompt_basic() -> None:
 
 def test_prefilter_by_metadata_uses_author_year_content_type_and_tags() -> None:
     where = prefilter_by_metadata(
-        "Find theology documents by Jane Doe from 2024",
+        "Find theology documents author: Jane Doe from 2024",
         available_metadata={
+            "author": ["Jane Doe"],
+            "year": ["2024"],
             "content_type": ["theology", "engineering"],
             "ai_tags": ["christology", "ethics"],
             "user_tags": ["doctrine"],
@@ -24,6 +26,20 @@ def test_prefilter_by_metadata_uses_author_year_content_type_and_tags() -> None:
     )
     assert where.get("author") is not None
     assert where.get("year") == "2024"
+    assert where.get("content_type") == "theology"
+
+
+def test_prefilter_by_metadata_skips_unknown_author_and_year() -> None:
+    where = prefilter_by_metadata(
+        "Find theology documents by Jane Doe from 2024",
+        available_metadata={
+            "author": ["John Doe"],
+            "year": ["2023"],
+            "content_type": ["theology"],
+        },
+    )
+    assert "author" not in where
+    assert "year" not in where
     assert where.get("content_type") == "theology"
 
 
@@ -61,6 +77,9 @@ def test_prefilter_by_metadata_uses_ai_decomposition_when_llm_config(monkeypatch
     where = prefilter_by_metadata(
         "Find christology works by Jane Doe",
         available_metadata={
+            "author": ["Jane Doe"],
+            "year": ["2020", "2022"],
+            "title": ["Christology"],
             "ai_tags": ["christology"],
             "content_type": ["theology"],
         },

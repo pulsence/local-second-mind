@@ -197,6 +197,42 @@ def test_prepare_local_candidates_uses_decomposition_service_for_prefilter(
     assert captured["llm_config"] is sentinel_llm
 
 
+def test_prepare_local_candidates_retries_without_heuristic_metadata_filter(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    cfg = _config(local_enabled=True, retrieve_k=4)
+    state = _state()
+
+    base = Candidate(cid="1", text="a", meta={"source_path": "/docs/a.md"}, distance=0.2)
+    monkeypatch.setattr(planning, "embed_text", lambda *args, **kwargs: [0.1])
+    monkeypatch.setattr(planning, "_collect_available_metadata", lambda collection: {"author": ["Thomas Aquinas"]})
+    monkeypatch.setattr(planning, "prefilter_by_metadata", lambda *args, **kwargs: {"author": "Thomas Aquinas"})
+    monkeypatch.setattr(planning, "filter_candidates", lambda *args, **kwargs: [base])
+    monkeypatch.setattr(planning, "apply_local_reranking", lambda question, candidates, **kwargs: candidates)
+    monkeypatch.setattr(planning, "compute_relevance", lambda filtered: 0.8)
+
+    seen_filters = []
+
+    def _fake_retrieve_candidates(collection, query_vector, retrieve_k, where_filter=None):
+        seen_filters.append(where_filter)
+        if where_filter == {"author": "Thomas Aquinas", "is_current": True}:
+            return []
+        if where_filter == {"is_current": True}:
+            return [base]
+        raise AssertionError(f"unexpected filter: {where_filter}")
+
+    monkeypatch.setattr(planning, "retrieve_candidates", _fake_retrieve_candidates)
+
+    plan = planning.prepare_local_candidates("What is sin according to Thomas Aquinas?", cfg, state, embedder=object(), collection=object())
+
+    assert seen_filters == [
+        {"author": "Thomas Aquinas", "is_current": True},
+        {"is_current": True},
+    ]
+    assert plan.metadata_filter == {"is_current": True}
+    assert [c.cid for c in plan.filtered] == ["1"]
+
+
 def test_prepare_local_candidates_anchor_chunks_stay_prioritized_after_rerank(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

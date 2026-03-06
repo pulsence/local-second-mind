@@ -28,6 +28,24 @@ def _normalize_values(values: Any) -> List[str]:
     return []
 
 
+def _normalized_inventory_lookup(values: Any) -> Dict[str, str]:
+    """Map normalized inventory strings to their canonical values."""
+    lookup: Dict[str, str] = {}
+    for value in _normalize_values(values):
+        normalized = " ".join(value.strip().lower().split())
+        if normalized and normalized not in lookup:
+            lookup[normalized] = value
+    return lookup
+
+
+def _match_inventory_value(value: Any, inventory_values: Any) -> Optional[str]:
+    """Return the canonical inventory value when a case-insensitive exact match exists."""
+    normalized = " ".join(str(value or "").strip().lower().split())
+    if not normalized:
+        return None
+    return _normalized_inventory_lookup(inventory_values).get(normalized)
+
+
 def extract_tags_from_prompt(
     query: str,
     llm_config: Optional[Any] = None,
@@ -91,10 +109,13 @@ def prefilter_by_metadata(
         llm_config=llm_config,
     )
 
-    if fields.author:
-        where["author"] = fields.author
+    author_match = _match_inventory_value(fields.author, metadata.get("author"))
+    if author_match:
+        where["author"] = author_match
     if fields.date_range:
-        where["year"] = fields.date_range[0]
+        year_match = _match_inventory_value(fields.date_range[0], metadata.get("year"))
+        if year_match:
+            where["year"] = year_match
 
     content_types = _normalize_values(metadata.get("content_type"))
     for value in content_types:
@@ -113,7 +134,9 @@ def prefilter_by_metadata(
 
     # Title matching if provided by metadata inventory.
     if fields.title:
-        where["title"] = fields.title
+        title_match = _match_inventory_value(fields.title, metadata.get("title"))
+        if title_match:
+            where["title"] = title_match
     else:
         titles = _normalize_values(metadata.get("title"))
         for title in titles:
