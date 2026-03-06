@@ -97,6 +97,24 @@ def _make_result(final_text: str, stop_reason: str = "stop", tool_calls: list | 
     )
 
 
+def _tool_backed_research_result(
+    final_text: str,
+    *,
+    query: str = "subtopic",
+    stop_reason: str = "stop",
+) -> PhaseResult:
+    return _make_result(
+        final_text,
+        stop_reason=stop_reason,
+        tool_calls=[
+            {
+                "name": "query_and_synthesize",
+                "result": json.dumps({"answer": f"Answer for {query}"}),
+            }
+        ],
+    )
+
+
 def _build_agent(tmp_path: Path) -> ResearchAgent:
     config = build_config_from_raw(_base_raw(tmp_path), tmp_path / "config.json")
     assert config.agents is not None
@@ -121,8 +139,8 @@ def test_research_agent_runs_and_saves_outline(tmp_path: Path) -> None:
 
     with patch.object(BaseAgent, "_run_phase", side_effect=[
         _make_result('["Scope", "Methods"]'),                          # DECOMPOSE
-        _make_result("Scope findings."),                                # RESEARCH:Scope
-        _make_result("Methods findings."),                              # RESEARCH:Methods
+        _tool_backed_research_result("Scope findings.", query="Scope"),   # RESEARCH:Scope
+        _tool_backed_research_result("Methods findings.", query="Methods"),  # RESEARCH:Methods
         _make_result("# Research Outline: AI safety\n\n## Scope\n\nDetails.\n"),  # SYNTHESIZE
         _make_result('{"sufficient": true, "suggestions": []}'),        # REVIEW
     ]):
@@ -147,7 +165,7 @@ def test_research_agent_phases_execute_in_order(tmp_path: Path) -> None:
         if "DECOMPOSE" in kwargs.get("user_message", ""):
             return _make_result('["Scope"]')
         if (kwargs.get("context_label") or "").startswith("subtopic:"):
-            return _make_result("Scope findings.")
+            return _tool_backed_research_result("Scope findings.", query="Scope")
         if "SYNTHESIZE" in kwargs.get("user_message", ""):
             return _make_result("# Research Outline: Topic\n\n")
         return _make_result('{"sufficient": true, "suggestions": []}')
@@ -168,7 +186,7 @@ def test_research_agent_uses_context_label_per_subtopic(tmp_path: Path) -> None:
 
     with patch.object(BaseAgent, "_run_phase", side_effect=[
         _make_result('["Scope"]'),                   # DECOMPOSE
-        _make_result("Scope findings."),              # RESEARCH:Scope
+        _tool_backed_research_result("Scope findings.", query="Scope"),  # RESEARCH:Scope
         _make_result("# Research Outline\n"),         # SYNTHESIZE
         _make_result('{"sufficient": true}'),         # REVIEW
     ]) as mock_phase:
@@ -188,19 +206,21 @@ def test_research_agent_subtopic_names_in_logs(tmp_path: Path) -> None:
 
     with patch.object(BaseAgent, "_run_phase", side_effect=[
         _make_result('["Scope", "Methods"]'),
-        _make_result("Scope findings."),
-        _make_result("Methods findings."),
+        _tool_backed_research_result("Scope findings.", query="Scope"),
+        _tool_backed_research_result("Methods findings.", query="Methods"),
         _make_result("# Research Outline\n"),
         _make_result('{"sufficient": true}'),
     ]):
         state = agent.run(AgentContext(messages=[{"role": "user", "content": "Topic"}]))
 
     log_messages = [entry.content for entry in state.log_entries]
-    # Iteration log should mention both subtopic names
-    assert any("Scope" in msg and "Methods" in msg for msg in log_messages)
+    # Iteration log should include the numbered subtopic lines
+    assert any("[1] Scope" in msg for msg in log_messages)
+    assert any("[2] Methods" in msg for msg in log_messages)
     # Per-subtopic collecting logs
     assert any("Collecting findings for subtopic: Scope" in msg for msg in log_messages)
     assert any("Collecting findings for subtopic: Methods" in msg for msg in log_messages)
+    assert not any("\\n" in msg for msg in log_messages)
 
 
 def test_research_agent_passes_findings_to_synthesize(tmp_path: Path) -> None:
@@ -215,7 +235,10 @@ def test_research_agent_passes_findings_to_synthesize(tmp_path: Path) -> None:
         if "DECOMPOSE" in msg:
             return _make_result('["Scope"]')
         if (kwargs.get("context_label") or "").startswith("subtopic:"):
-            return _make_result("Finding: Key insight [S1].")
+            return _tool_backed_research_result(
+                "Finding: Key insight [S1].",
+                query="Scope",
+            )
         return _make_result('{"sufficient": true}')
 
     with patch.object(BaseAgent, "_run_phase", side_effect=capture):
@@ -230,7 +253,11 @@ def test_research_agent_stops_when_budget_exhausted(tmp_path: Path) -> None:
 
     with patch.object(BaseAgent, "_run_phase", side_effect=[
         _make_result('["Sub1", "Sub2", "Sub3"]'),                        # DECOMPOSE (3 subtopics)
-        _make_result("Sub1 findings.", stop_reason="budget_exhausted"),  # RESEARCH:Sub1 → breaks
+        _tool_backed_research_result(
+            "Sub1 findings.",
+            query="Sub1",
+            stop_reason="budget_exhausted",
+        ),  # RESEARCH:Sub1 → breaks
         # Sub2 and Sub3 RESEARCH must NOT be called
         _make_result("# Outline\n"),                                     # SYNTHESIZE
         _make_result('{"sufficient": true, "suggestions": []}'),         # REVIEW
@@ -244,12 +271,57 @@ def test_research_agent_stops_when_budget_exhausted(tmp_path: Path) -> None:
     assert mock_phase.call_count == 4
 
 
+def test_research_agent_raises_when_subtopic_phase_errors(tmp_path: Path) -> None:
+    agent = _build_agent(tmp_path)
+
+    with patch.object(BaseAgent, "_run_phase", side_effect=[
+        _make_result('["Scope"]'),
+        _make_result("", stop_reason="error"),
+    ]):
+        with pytest.raises(RuntimeError, match="Research phase failed for subtopic: Scope"):
+            agent.run(AgentContext(messages=[{"role": "user", "content": "Topic"}]))
+
+
+def test_research_agent_runs_direct_query_when_llm_skips_tool(tmp_path: Path) -> None:
+    agent = _build_agent(tmp_path)
+
+    direct_payload = json.dumps(
+        {
+            "answer": "Retrieved answer",
+            "candidates": [
+                {
+                    "source_path": "docs/source.md",
+                    "text": "Retrieved snippet",
+                }
+            ],
+        }
+    )
+
+    with patch.object(BaseAgent, "_run_phase", side_effect=[
+        _make_result('["Scope"]'),  # DECOMPOSE
+        _make_result("Quick guess", tool_calls=[]),  # RESEARCH without tool usage
+        _make_result("", tool_calls=[{"name": "query_and_synthesize", "result": direct_payload}]),  # direct tool call
+        _make_result("Tool-backed findings."),  # summary from retrieved material
+        _make_result("# Research Outline: Topic\n\n## Scope\n\nTool-backed findings.\n"),  # SYNTHESIZE
+        _make_result('{"sufficient": true}'),  # REVIEW
+    ]) as mock_phase:
+        state = agent.run(AgentContext(messages=[{"role": "user", "content": "Topic"}]))
+
+    assert state.status.value == "completed"
+    assert agent.last_result is not None
+    assert "Tool-backed findings." in agent.last_result.outline_markdown
+    calls = mock_phase.call_args_list
+    assert calls[2].kwargs.get("direct_tool_calls") == [
+        {"name": "query_and_synthesize", "arguments": {"query": "Scope"}}
+    ]
+
+
 def test_research_agent_review_suggestions_logged(tmp_path: Path) -> None:
     agent = _build_agent(tmp_path)
 
     with patch.object(BaseAgent, "_run_phase", side_effect=[
         _make_result('["Scope"]'),
-        _make_result("Scope findings."),
+        _tool_backed_research_result("Scope findings.", query="Scope"),
         _make_result("# Research Outline\n"),
         _make_result('{"sufficient": false, "suggestions": ["Add examples", "Expand coverage"]}'),
     ]):
@@ -265,7 +337,7 @@ def test_research_agent_output_in_artifacts_dir(tmp_path: Path) -> None:
 
     with patch.object(BaseAgent, "_run_phase", side_effect=[
         _make_result('["Scope"]'),
-        _make_result("Scope findings."),
+        _tool_backed_research_result("Scope findings.", query="Scope"),
         _make_result("# Research Outline: Topic\n"),
         _make_result('{"sufficient": true}'),
     ]):
@@ -301,7 +373,7 @@ def test_agent_factory_creates_research_agent(tmp_path: Path) -> None:
 
     with patch.object(BaseAgent, "_run_phase", side_effect=[
         _make_result('["S1"]'),
-        _make_result("S1 findings."),
+        _tool_backed_research_result("S1 findings.", query="S1"),
         _make_result("# Research Outline: Factory topic\n"),
         _make_result('{"sufficient": true, "suggestions": []}'),
     ]):

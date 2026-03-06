@@ -1,145 +1,198 @@
 """
-Tests for QueryAndSynthesizeTool.
+Real execution tests for QueryAndSynthesizeTool.
 """
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 import pytest
 
 from lsm.agents.tools.query_and_synthesize import QueryAndSynthesizeTool
-from lsm.query.pipeline_types import (
-    ContextPackage,
-    QueryRequest,
-    QueryResponse,
-    RetrievalTrace,
-)
-from lsm.query.session import Candidate
+from lsm.config.loader import build_config_from_raw
+from lsm.query.pipeline import RetrievalPipeline
+from lsm.vectordb.base import VectorDBGetResult, VectorDBQueryResult
 
 
-# ---------------------------------------------------------------------------
-# Fake pipeline
-# ---------------------------------------------------------------------------
+def _base_raw(tmp_path: Path) -> dict:
+    return {
+        "global": {"global_folder": str(tmp_path / "global")},
+        "ingest": {
+            "roots": [str(tmp_path / "docs")],
+            "path": str(tmp_path / "data"),
+            "collection": "local_kb",
+        },
+        "llms": {
+            "providers": [{"provider_name": "openai", "api_key": "test-key"}],
+            "services": {
+                "default": {"provider": "openai", "model": "gpt-5.2"},
+                "query": {"provider": "openai", "model": "gpt-5.2"},
+            },
+        },
+        "db": {
+            "path": str(tmp_path / "data"),
+            "vector": {
+                "provider": "sqlite",
+                "collection": "local_kb",
+            },
+        },
+        "query": {"mode": "grounded"},
+        "agents": {
+            "enabled": True,
+            "agents_folder": str(tmp_path / "Agents"),
+            "sandbox": {
+                "allowed_read_paths": [str(tmp_path)],
+                "allowed_write_paths": [str(tmp_path)],
+                "allow_url_access": True,
+            },
+        },
+    }
 
 
-class _FakeConfig:
-    def get_mode_config(self, name):
-        from lsm.config.models.modes import GROUNDED_MODE
-        return GROUNDED_MODE
+class FakeEmbedder:
+    def encode(self, texts, **kwargs):
+        _ = kwargs
+        if isinstance(texts, str):
+            texts = [texts]
+        return [[0.4, 0.6] for _ in texts]
 
 
-class FakePipeline:
-    """Minimal stand-in for RetrievalPipeline.run()."""
+class FakeVectorCollection:
+    def __init__(self) -> None:
+        self.last_filters = None
+        self.last_top_k = None
 
-    def __init__(self, answer="The answer.", candidates=None, response_id=None, conversation_id=None):
-        self._answer = answer
-        self._candidates = candidates or []
-        self._response_id = response_id
-        self._conversation_id = conversation_id
-        self.last_request = None
-        self.config = _FakeConfig()
-
-    def run(self, request, progress_callback=None):
-        self.last_request = request
-        package = ContextPackage(
-            request=request,
-            candidates=self._candidates,
-            retrieval_trace=RetrievalTrace(stages_executed=["dense_recall"]),
+    def query(self, embedding, top_k, filters=None):
+        _ = embedding
+        self.last_filters = filters
+        self.last_top_k = top_k
+        return VectorDBQueryResult(
+            ids=["chunk-1"],
+            documents=["Aquinas treats sin as a voluntary act contrary to reason and divine law."],
+            metadatas=[
+                {
+                    "source_path": "/docs/aquinas.md",
+                    "source_name": "aquinas.md",
+                    "heading": "Sin",
+                    "heading_text": "Sin",
+                    "author": "Thomas Aquinas",
+                    "year": "1273",
+                    "is_current": True,
+                }
+            ],
+            distances=[0.05],
         )
-        return QueryResponse(
-            answer=self._answer,
-            package=package,
-            conversation_id=self._conversation_id or request.conversation_id,
-            response_id=self._response_id,
-        )
+
+    def get(self, ids=None, filters=None, limit=None, offset=0, include=None):
+        _ = ids, limit, offset, include
+        metadata = {
+            "source_path": "/docs/aquinas.md",
+            "source_name": "aquinas.md",
+            "heading": "Sin",
+            "heading_text": "Sin",
+            "author": "Thomas Aquinas",
+            "year": "1273",
+            "is_current": True,
+        }
+        if filters and filters.get("source_path") == "/docs/aquinas.md":
+            return VectorDBGetResult(
+                ids=["chunk-1"],
+                documents=["Aquinas treats sin as a voluntary act contrary to reason and divine law."],
+                metadatas=[metadata],
+                embeddings=[[0.4, 0.6]],
+            )
+        return VectorDBGetResult(ids=["chunk-1"], metadatas=[metadata])
 
 
-# ---------------------------------------------------------------------------
-# Tests
-# ---------------------------------------------------------------------------
+class FakeProvider:
+    name = "openai"
+    model = "gpt-5.2"
+
+    def __init__(self) -> None:
+        self.last_response_id = "resp-001"
+        self.calls: list[dict] = []
+
+    def send_message(self, **kwargs):
+        self.calls.append(kwargs)
+        return "Sin is a voluntary act opposed to right reason and divine law. [S1]"
+
+    def estimate_cost(self, input_tokens, output_tokens):
+        _ = input_tokens, output_tokens
+        return 0.0
 
 
-def test_returns_complete_query_response():
-    candidates = [
-        Candidate(cid="c1", text="chunk text", meta={"source_path": "/doc.md"}, distance=0.1),
-    ]
-    pipeline = FakePipeline(
-        answer="Python is great.",
-        candidates=candidates,
-        response_id="resp-001",
+def _make_tool(tmp_path: Path) -> tuple[QueryAndSynthesizeTool, FakeVectorCollection, FakeProvider]:
+    config = build_config_from_raw(_base_raw(tmp_path), tmp_path / "config.json")
+    collection = FakeVectorCollection()
+    provider = FakeProvider()
+    pipeline = RetrievalPipeline(
+        db=collection,
+        embedder=FakeEmbedder(),
+        config=config,
+        llm_provider=provider,
     )
-    tool = QueryAndSynthesizeTool(pipeline=pipeline)
+    tool = QueryAndSynthesizeTool(
+        pipeline=pipeline,
+        sandbox_config=config.agents.sandbox if config.agents else None,
+    )
+    return tool, collection, provider
 
-    output = json.loads(tool.execute({"query": "what is Python?"}))
 
-    assert output["answer"] == "Python is great."
+def test_returns_complete_query_response_from_real_pipeline(tmp_path: Path) -> None:
+    tool, _, provider = _make_tool(tmp_path)
+
+    output = json.loads(tool.execute({"query": "What is sin?", "k": 1}))
+
+    assert output["answer"].startswith("Sin is a voluntary act")
     assert output["response_id"] == "resp-001"
     assert len(output["candidates"]) == 1
-    assert output["candidates"][0]["id"] == "c1"
+    assert output["candidates"][0]["id"] == "chunk-1"
+    assert output["candidates"][0]["source_path"] == "/docs/aquinas.md"
+    assert provider.calls
 
 
-def test_response_id_and_conversation_id_returned():
-    pipeline = FakePipeline(response_id="resp-abc", conversation_id="conv-xyz")
-    tool = QueryAndSynthesizeTool(pipeline=pipeline)
+def test_query_request_fields_propagate_through_real_pipeline(tmp_path: Path) -> None:
+    tool, collection, provider = _make_tool(tmp_path)
 
-    output = json.loads(tool.execute({
-        "query": "test",
-        "conversation_id": "conv-xyz",
-    }))
+    output = json.loads(
+        tool.execute(
+            {
+                "query": "What is sin?",
+                "mode": "grounded",
+                "k": 3,
+                "filters": {"path_contains": ["/docs"], "ext_deny": [".pdf"]},
+                "starting_prompt": "Answer briefly.",
+                "conversation_id": "conv-1",
+                "prior_response_id": "prev-1",
+            }
+        )
+    )
 
-    assert output["response_id"] == "resp-abc"
-    assert output["conversation_id"] == "conv-xyz"
+    assert output["conversation_id"] == "conv-1"
+    assert collection.last_top_k >= 3
+    assert collection.last_filters is not None
+    assert collection.last_filters.get("is_current") is True
+    assert provider.calls[0]["previous_response_id"] == "prev-1"
+    assert provider.calls[0]["instruction"] == "Answer briefly."
 
 
-def test_query_required():
-    pipeline = FakePipeline()
-    tool = QueryAndSynthesizeTool(pipeline=pipeline)
+def test_query_required(tmp_path: Path) -> None:
+    tool, _, _ = _make_tool(tmp_path)
 
     with pytest.raises(ValueError, match="query is required"):
         tool.execute({"query": ""})
 
 
-def test_mode_forwarded():
-    pipeline = FakePipeline()
-    tool = QueryAndSynthesizeTool(pipeline=pipeline)
+def test_tool_surfaces_pipeline_provider_failures_as_fallback_answers(tmp_path: Path) -> None:
+    tool, _, provider = _make_tool(tmp_path)
 
-    tool.execute({"query": "test", "mode": "hybrid"})
-    assert pipeline.last_request.mode == "hybrid"
+    def _raise(**kwargs):
+        _ = kwargs
+        raise RuntimeError("transport down")
 
+    provider.send_message = _raise
 
-def test_filters_forwarded():
-    pipeline = FakePipeline()
-    tool = QueryAndSynthesizeTool(pipeline=pipeline)
+    output = json.loads(tool.execute({"query": "What is sin?"}))
 
-    tool.execute({
-        "query": "test",
-        "filters": {"path_contains": ["/docs"], "ext_deny": [".pdf"]},
-    })
-
-    assert pipeline.last_request.filters is not None
-    assert pipeline.last_request.filters.path_contains == ["/docs"]
-    assert pipeline.last_request.filters.ext_deny == [".pdf"]
-
-
-def test_k_forwarded():
-    pipeline = FakePipeline()
-    tool = QueryAndSynthesizeTool(pipeline=pipeline)
-
-    tool.execute({"query": "test", "k": 3})
-    assert pipeline.last_request.k == 3
-
-
-def test_starting_prompt_forwarded():
-    pipeline = FakePipeline()
-    tool = QueryAndSynthesizeTool(pipeline=pipeline)
-
-    tool.execute({"query": "test", "starting_prompt": "Custom prompt"})
-    assert pipeline.last_request.starting_prompt == "Custom prompt"
-
-
-def test_prior_response_id_forwarded():
-    pipeline = FakePipeline()
-    tool = QueryAndSynthesizeTool(pipeline=pipeline)
-
-    tool.execute({"query": "test", "prior_response_id": "prev-resp-001"})
-    assert pipeline.last_request.prior_response_id == "prev-resp-001"
+    assert "most relevant excerpts" in output["answer"].lower() or "closest excerpts" in output["answer"].lower()
+    assert output["candidates"]

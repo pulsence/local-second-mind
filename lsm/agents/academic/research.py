@@ -114,10 +114,9 @@ class ResearchAgent(BaseAgent):
             subtopics = [topic]
 
         iteration = 1
-        subtopic_lines = "\n".join(f"  [{i}] {st}" for i, st in enumerate(subtopics, 1))
-        self._log(
-            f"Research iteration {iteration} — {len(subtopics)} subtopics:\n{subtopic_lines}"
-        )
+        self._log(f"Research iteration {iteration} - {len(subtopics)} subtopics:")
+        for index, subtopic in enumerate(subtopics, 1):
+            self._log(f"  [{index}] {subtopic}")
 
         # Phase 2 — RESEARCH per subtopic
         research_findings: List[Dict[str, str]] = []
@@ -133,7 +132,18 @@ class ResearchAgent(BaseAgent):
                 max_iterations=3,
                 context_label=f"subtopic:{subtopic}",
             )
-            research_findings.append({"subtopic": subtopic, "findings": result.final_text or ""})
+            if result.stop_reason == "error":
+                raise RuntimeError(f"Research phase failed for subtopic: {subtopic}")
+
+            findings = result.final_text or ""
+            if not self._has_successful_query_call(result):
+                self._log(
+                    "Research phase returned without using query_and_synthesize; "
+                    f"running direct retrieval for subtopic: {subtopic}"
+                )
+                findings = self._run_direct_subtopic_research(subtopic)
+
+            research_findings.append({"subtopic": subtopic, "findings": findings})
             if result.stop_reason in ("budget_exhausted", "stop_requested"):
                 break
 
@@ -202,6 +212,94 @@ class ResearchAgent(BaseAgent):
         if isinstance(parsed, list):
             return [str(item).strip() for item in parsed if str(item).strip()]
         return self._fallback_line_list(text)
+
+    def _has_successful_query_call(self, result: Any) -> bool:
+        tool_calls = getattr(result, "tool_calls", None)
+        if not isinstance(tool_calls, list):
+            return False
+        for call in tool_calls:
+            if not isinstance(call, dict):
+                continue
+            if str(call.get("name", "")).strip() != "query_and_synthesize":
+                continue
+            if "result" in call and str(call.get("result", "")).strip():
+                return True
+        return False
+
+    def _run_direct_subtopic_research(self, subtopic: str) -> str:
+        direct_result = self._run_phase(
+            direct_tool_calls=[
+                {
+                    "name": "query_and_synthesize",
+                    "arguments": {"query": subtopic},
+                }
+            ]
+        )
+        payload = self._extract_query_tool_payload(direct_result, subtopic)
+        summary_result = self._run_phase(
+            user_message=(
+                f"Phase: RESEARCH SUMMARY. Subtopic: '{subtopic}'. "
+                "Using only the retrieved material below, summarise the findings in markdown bullet points.\n\n"
+                f"{payload}"
+            ),
+            tool_names=[],
+            max_iterations=1,
+            continue_context=False,
+            context_label=f"subtopic:{subtopic}:summary",
+        )
+        if summary_result.stop_reason == "error":
+            raise RuntimeError(f"Research summary failed for subtopic: {subtopic}")
+        return summary_result.final_text or payload
+
+    def _extract_query_tool_payload(self, result: Any, subtopic: str) -> str:
+        tool_calls = getattr(result, "tool_calls", None)
+        if not isinstance(tool_calls, list):
+            raise RuntimeError(f"Direct retrieval returned no tool calls for subtopic: {subtopic}")
+
+        for call in tool_calls:
+            if not isinstance(call, dict):
+                continue
+            if str(call.get("name", "")).strip() != "query_and_synthesize":
+                continue
+            if "result" in call and str(call.get("result", "")).strip():
+                return self._format_query_tool_payload(str(call["result"]))
+            error = str(call.get("error", "")).strip()
+            if error:
+                raise RuntimeError(
+                    f"Direct retrieval failed for subtopic '{subtopic}': {error}"
+                )
+
+        raise RuntimeError(
+            f"Direct retrieval did not return query_and_synthesize output for subtopic: {subtopic}"
+        )
+
+    def _format_query_tool_payload(self, raw_output: str) -> str:
+        parsed = self._parse_json(raw_output)
+        if not isinstance(parsed, dict):
+            return raw_output.strip()
+
+        lines: List[str] = []
+        answer = str(parsed.get("answer", "")).strip()
+        if answer:
+            lines.append("Retrieved answer:")
+            lines.append(answer)
+
+        candidates = parsed.get("candidates")
+        if isinstance(candidates, list) and candidates:
+            lines.append("")
+            lines.append("Retrieved excerpts:")
+            for item in candidates[:5]:
+                if not isinstance(item, dict):
+                    continue
+                source_path = str(item.get("source_path", "")).strip()
+                text = str(item.get("text", "")).strip()
+                if not text:
+                    continue
+                prefix = f"- {source_path}: " if source_path else "- "
+                lines.append(f"{prefix}{text}")
+
+        formatted = "\n".join(lines).strip()
+        return formatted or raw_output.strip()
 
     def _build_outline(self, topic: str, sections: List[Dict[str, str]]) -> str:
         lines = [f"# Research Outline: {topic}", ""]

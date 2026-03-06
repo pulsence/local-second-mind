@@ -98,8 +98,27 @@ class ExecuteContextTool(BaseTool):
             prior_response_id=args.get("prior_response_id"),
         )
 
-        # Run synthesize_context to resolve labels/prompt, then execute
-        package = self.pipeline.synthesize_context(package)
+        if package.candidates:
+            package = self.pipeline.synthesize_context(package)
+        else:
+            if package.request.starting_prompt is not None:
+                starting_prompt = package.request.starting_prompt
+            elif package.prior_response_id or package.request.prior_response_id:
+                starting_prompt = None
+            else:
+                if hasattr(self.pipeline, "_resolve_mode"):
+                    mode_config = self.pipeline._resolve_mode(request)
+                else:
+                    mode_config = self.pipeline.config.get_mode_config(
+                        getattr(request, "resolved_mode", None)
+                    )
+                starting_prompt = getattr(mode_config, "synthesis_instructions", None)
+            package = ContextPackage(
+                request=request,
+                context_block=context_block,
+                starting_prompt=starting_prompt,
+                prior_response_id=args.get("prior_response_id"),
+            )
         response = self.pipeline.execute(package)
 
         return json.dumps(response.to_dict(), indent=2)

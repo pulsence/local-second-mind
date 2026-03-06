@@ -137,3 +137,21 @@ def test_mode_forwarded():
     })
 
     assert pipeline.last_package.request.mode == "insight"
+
+
+def test_explicit_context_block_is_preserved_without_candidates():
+    class OverwritingPipeline(FakePipeline):
+        def synthesize_context(self, package):
+            return replace(package, context_block="")
+
+    pipeline = OverwritingPipeline()
+    tool = ExecuteContextTool(pipeline=pipeline)
+
+    tool.execute(
+        {
+            "question": "test",
+            "context_block": "[S1] Preserved context.",
+        }
+    )
+
+    assert pipeline.last_package.context_block == "[S1] Preserved context."
