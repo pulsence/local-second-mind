@@ -211,6 +211,21 @@ class TestFallbackAnswer:
         assert "chunk_index=0" in answer
         assert "chunk_index=1" in answer
 
+    def test_fallback_answer_low_relevance_message(self, sample_candidates):
+        answer = fallback_answer("Question?", sample_candidates, reason="low_relevance")
+
+        assert "relevance threshold" in answer
+        assert "unavailable" not in answer.lower()
+
+    def test_fallback_answer_uses_provider_display_name(self, sample_candidates):
+        answer = fallback_answer(
+            "Question?",
+            sample_candidates,
+            provider_name="anthropic",
+        )
+
+        assert "configured query model (claude) is unavailable" in answer.lower()
+
 
 class TestFormatSourceList:
     """Tests for source list formatting."""

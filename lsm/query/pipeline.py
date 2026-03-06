@@ -685,18 +685,32 @@ class RetrievalPipeline:
             self.config.query, "prompt_cache_retention", None
         )
 
-        answer = synthesis_provider.send_message(
-            input=user_content,
-            instruction=instructions,
-            temperature=self.config.llm.resolve_service("query").temperature,
-            max_tokens=self.config.llm.resolve_service("query").max_tokens,
-            reasoning_effort="medium",
-            conversation_history=package.request.conversation_history or [],
-            enable_server_cache=enable_server_cache,
-            previous_response_id=previous_response_id,
-            prompt_cache_key=provider_cache_key,
-            prompt_cache_retention=prompt_cache_retention,
-        )
+        try:
+            answer = synthesis_provider.send_message(
+                input=user_content,
+                instruction=instructions,
+                temperature=self.config.llm.resolve_service("query").temperature,
+                max_tokens=self.config.llm.resolve_service("query").max_tokens,
+                reasoning_effort="medium",
+                conversation_history=package.request.conversation_history or [],
+                enable_server_cache=enable_server_cache,
+                previous_response_id=previous_response_id,
+                prompt_cache_key=provider_cache_key,
+                prompt_cache_retention=prompt_cache_retention,
+            )
+        except Exception as exc:
+            logger.warning(
+                "Query synthesis failed with %s/%s: %s",
+                synthesis_provider.name,
+                synthesis_provider.model,
+                exc,
+            )
+            answer = fallback_answer(
+                package.request.question,
+                list(package.candidates)[: max(1, int(mode_config.local_policy.k))],
+                reason="llm_unavailable",
+                provider_name=synthesis_provider.name,
+            )
 
         # Capture response_id for next-turn chaining
         response_id = getattr(synthesis_provider, "last_response_id", None)
@@ -771,7 +785,11 @@ class RetrievalPipeline:
             and not remote_policy.enabled
         ):
             chosen = package.filtered_candidates[: local_policy.k]
-            answer = fallback_answer(request.question, chosen)
+            answer = fallback_answer(
+                request.question,
+                chosen,
+                reason="low_relevance",
+            )
             return QueryResponse(
                 answer=answer,
                 package=replace(package, candidates=chosen),

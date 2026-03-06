@@ -178,6 +178,9 @@ def fallback_answer(
     question: str,
     candidates: List[Candidate],
     max_chars: int = 1200,
+    *,
+    reason: str = "llm_unavailable",
+    provider_name: Optional[str] = None,
 ) -> str:
     """
     Generate minimal offline fallback answer.
@@ -189,6 +192,8 @@ def fallback_answer(
         question: User's question
         candidates: List of candidates to include
         max_chars: Maximum characters per excerpt
+        reason: Why fallback is being used
+        provider_name: Optional provider name for user-facing status text
 
     Returns:
         Formatted fallback answer string
@@ -200,11 +205,30 @@ def fallback_answer(
         ...     max_chars=500
         ... )
     """
-    logger.warning("Generating fallback answer (LLM unavailable)")
+    logger.warning("Generating fallback answer (%s)", reason)
+
+    display_provider = str(provider_name or "").strip().lower()
+    if display_provider in {"anthropic", "claude"}:
+        display_provider = "claude"
+
+    if reason == "low_relevance":
+        intro = (
+            "The retrieved sources did not meet the relevance threshold. "
+            "Showing the closest excerpts instead."
+        )
+    elif display_provider:
+        intro = (
+            f"The configured query model ({display_provider}) is unavailable. "
+            "Showing the most relevant excerpts instead."
+        )
+    else:
+        intro = (
+            "The configured query model is unavailable. "
+            "Showing the most relevant excerpts instead."
+        )
 
     lines = [
-        "OpenAI is unavailable (quota/credentials). "
-        "Showing the most relevant excerpts instead.",
+        intro,
         "",
         f"Question: {question}",
         "",

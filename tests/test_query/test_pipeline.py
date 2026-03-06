@@ -300,6 +300,30 @@ class TestExecute:
         response = pipeline.execute(package)
         assert response.response_id == "new-resp-456"
 
+    def test_synthesis_failure_returns_provider_specific_fallback(self):
+        config = _make_config()
+        db = MagicMock()
+        embedder = MagicMock()
+        provider = MagicMock()
+        provider.name = "anthropic"
+        provider.model = "claude-sonnet-4-6"
+        provider.send_message.side_effect = RuntimeError("boom")
+        provider.estimate_cost.return_value = 0.0
+        provider.last_response_id = None
+
+        pipeline = RetrievalPipeline(db, embedder, config, provider)
+        package = ContextPackage(
+            request=QueryRequest(question="What?"),
+            candidates=_make_candidates(1),
+            context_block="[S1] /docs/file0.md\nContent",
+            source_labels={"S1": {"source_path": "/docs/file0.md"}},
+            starting_prompt="Answer with citations.",
+        )
+        response = pipeline.execute(package)
+
+        assert "configured query model (claude) is unavailable" in response.answer.lower()
+        assert "[S1]" in response.answer
+
 
 class TestRun:
     @patch("lsm.query.pipeline.prepare_local_candidates")
@@ -377,3 +401,24 @@ class TestRun:
         # The instruction sent to provider should be the explicit one
         call_kwargs = provider.send_message.call_args
         assert "bullet points" in str(call_kwargs)
+
+    @patch("lsm.query.pipeline.prepare_local_candidates")
+    def test_low_relevance_uses_relevance_fallback_message(self, mock_prepare):
+        plan = _make_plan()
+        plan.relevance = 0.05
+        plan.min_relevance = 0.25
+        mock_prepare.return_value = plan
+        config = _make_config(min_relevance=0.25)
+        db = MagicMock()
+        embedder = MagicMock()
+        provider = MagicMock()
+        provider.name = "anthropic"
+        provider.model = "claude-sonnet-4-6"
+
+        pipeline = RetrievalPipeline(db, embedder, config, provider)
+        request = QueryRequest(question="What is X?")
+        response = pipeline.run(request)
+
+        assert "relevance threshold" in response.answer.lower()
+        assert "openai is unavailable" not in response.answer.lower()
+        provider.send_message.assert_not_called()
