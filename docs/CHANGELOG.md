@@ -178,6 +178,8 @@ All notable changes to Local Second Mind are documented here.
 - Fixed `KeyboardInterrupt` during vector migration losing all progress. The `except Exception` handler did not catch `KeyboardInterrupt` (a `BaseException`). Migration now catches interrupts, saves checkpoint progress, and prints resume instructions.
 - Fixed migration not auto-resuming from prior interrupted runs. Migration now always checks for incomplete stages in the target database and resumes from the saved offset without requiring `--resume`.
 - Health check now detects `interrupted` migration status alongside `in_progress` and `failed`.
+- Fixed query metadata prefiltering over-constraining retrieval to zero results when heuristic author/title/year extraction did not exactly match corpus metadata. Prefiltered fields now require inventory matches, and local retrieval retries without heuristic metadata filters when the first pass returns no candidates.
+- Fixed query fallback messaging incorrectly claiming `OpenAI` was unavailable even when synthesis was configured for another provider or when the fallback was triggered by low-relevance retrieval rather than LLM failure. Fallback responses are now provider-aware, reason-aware, and `RetrievalPipeline.execute()` degrades gracefully on synthesis transport errors.
 - Fixed simhash backfill losing all progress on interrupt. Updates were only committed after all Tier 1 steps completed; now commits after each batch of 1000 chunks.
 - Fixed tag backfill appearing to hang after simhash completion. Was loading all chunks at once with no progress output; now processes in batches of 1000 with commit, progress logging, and ETA.
 - Fixed auto-detection log message missing `[INFO]` prefix (was using `print` instead of `logger.info`).
