@@ -237,16 +237,27 @@ class AgentHarness:
         if self._stop_event.is_set():
             return PhaseResult(final_text="", tool_calls=[], stop_reason="stop_requested")
 
-        if direct_tool_calls is not None:
-            return self._run_bounded_tool_only(direct_tool_calls)
+        try:
+            if direct_tool_calls is not None:
+                return self._run_bounded_tool_only(direct_tool_calls)
 
-        return self._run_bounded_llm_mode(
-            user_message=user_message,
-            tool_names=tool_names,
-            max_iterations=max_iterations,
-            continue_context=continue_context,
-            context_label=context_label,
-        )
+            return self._run_bounded_llm_mode(
+                user_message=user_message,
+                tool_names=tool_names,
+                max_iterations=max_iterations,
+                continue_context=continue_context,
+                context_label=context_label,
+            )
+        except BaseException as exc:
+            message = f"Bounded execution failed: {type(exc).__name__}: {exc}"
+            self._append_log(
+                AgentLogEntry(
+                    timestamp=datetime.utcnow(),
+                    actor="agent",
+                    content=message,
+                )
+            )
+            return PhaseResult(final_text="", tool_calls=[], stop_reason="error")
 
     def _run_bounded_tool_only(
         self,
@@ -282,10 +293,10 @@ class AgentHarness:
                     "name": tool_name,
                     "result": output,
                 })
-            except Exception as exc:
+            except BaseException as exc:
                 tool_results.append({
                     "name": tool_name,
-                    "error": str(exc),
+                    "error": f"{type(exc).__name__}: {exc}",
                 })
 
         return PhaseResult(final_text="", tool_calls=tool_results, stop_reason="done")
@@ -313,13 +324,24 @@ class AgentHarness:
             history.append({"role": "user", "content": user_message})
             context.messages.append({"role": "user", "content": user_message})
 
-        llm_config = self._resolve_llm_config()
-        llm_provider = create_provider(llm_config)
         tool_calls_accumulated: list[dict] = []
         final_text = ""
         stop_reason = "done"
         tool_names_restricted = set(tool_names) if tool_names is not None else None
         tool_definitions = self._list_tool_definitions(tool_names=tool_names_restricted)
+        try:
+            llm_config = self._resolve_llm_config()
+            llm_provider = create_provider(llm_config)
+        except BaseException as exc:
+            message = f"Failed to initialize LLM provider: {type(exc).__name__}: {exc}"
+            self._append_log(
+                AgentLogEntry(
+                    timestamp=datetime.utcnow(),
+                    actor="agent",
+                    content=message,
+                )
+            )
+            return PhaseResult(final_text="", tool_calls=[], stop_reason="error")
 
         for iteration in range(max_iterations):
             context.budget_tracking["iterations"] = int(
@@ -351,14 +373,25 @@ class AgentHarness:
                 else None
             )
 
-            raw_response, system_prompt, user_prompt = self._call_llm(
-                llm_provider,
-                messages_for_llm=messages_for_llm,
-                standing_context_block=standing_context_block,
-                tool_definitions=tool_definitions,
-                previous_response_id=prior_resp_id,
-                prompt_cache_key=cache_key,
-            )
+            try:
+                raw_response, system_prompt, user_prompt = self._call_llm(
+                    llm_provider,
+                    messages_for_llm=messages_for_llm,
+                    standing_context_block=standing_context_block,
+                    tool_definitions=tool_definitions,
+                    previous_response_id=prior_resp_id,
+                    prompt_cache_key=cache_key,
+                )
+            except BaseException as exc:
+                stop_reason = "error"
+                self._append_log(
+                    AgentLogEntry(
+                        timestamp=datetime.utcnow(),
+                        actor="agent",
+                        content=f"LLM call failed: {type(exc).__name__}: {exc}",
+                    )
+                )
+                break
             self._consume_tokens(raw_response)
 
             # Persist response_id for next turn in this context
@@ -445,11 +478,11 @@ class AgentHarness:
                     break
                 stop_reason = "done"
                 break
-            except Exception as exc:
+            except BaseException as exc:
                 error_text = f"Tool '{action}' failed: {exc}"
                 tool_calls_accumulated.append({
                     "name": action,
-                    "error": str(exc),
+                    "error": f"{type(exc).__name__}: {exc}",
                 })
                 self._append_log(
                     AgentLogEntry(

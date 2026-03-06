@@ -24,6 +24,7 @@ from lsm.agents import (
     InteractionResponse,
     create_agent,
 )
+from lsm.agents.base import AgentStatus
 from lsm.agents.log_redactor import redact_secrets
 from lsm.agents.memory import Memory, MemoryCandidate, create_memory_store
 from lsm.agents.memory.models import now_utc
@@ -237,11 +238,52 @@ class AgentRuntimeManager:
             def _run() -> None:
                 try:
                     agent.run(context)
-                except Exception:
+                except BaseException as exc:
+                    state = getattr(agent, "state", None)
+                    if state is not None:
+                        try:
+                            state.set_status(AgentStatus.FAILED)
+                        except Exception:
+                            logger.exception(
+                                "Failed to mark agent run '%s' (%s) as failed",
+                                normalized_agent_name,
+                                agent_id,
+                            )
+                        try:
+                            state.add_log(
+                                AgentLogEntry(
+                                    timestamp=datetime.utcnow(),
+                                    actor="agent",
+                                    content=(
+                                        f"Execution failed: {type(exc).__name__}: {exc}"
+                                    ),
+                                )
+                            )
+                        except Exception:
+                            logger.exception(
+                                "Failed to append failure log for run '%s' (%s)",
+                                normalized_agent_name,
+                                agent_id,
+                            )
+                    save_log = getattr(agent, "_save_log", None)
+                    if callable(save_log):
+                        try:
+                            save_log()
+                        except Exception:
+                            logger.exception(
+                                "Failed to persist failure log for run '%s' (%s)",
+                                normalized_agent_name,
+                                agent_id,
+                            )
                     logger.exception(
                         "Agent run '%s' (%s) failed",
                         normalized_agent_name,
                         agent_id,
+                        exc_info=(
+                            type(exc),
+                            exc,
+                            exc.__traceback__,
+                        ),
                     )
                 finally:
                     if memory_store is not None:

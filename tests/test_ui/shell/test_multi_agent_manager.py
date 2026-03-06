@@ -125,6 +125,32 @@ class _LoopAgent:
         self.state.set_status(AgentStatus.RUNNING)
 
 
+class _CrashingAgent:
+    def __init__(self, log_path: Path | None = None) -> None:
+        self.state = AgentState()
+        self._log_path = log_path
+
+    def run(self, context) -> AgentState:
+        _ = context
+        self.state.set_status(AgentStatus.RUNNING)
+        raise SystemExit("boom")
+
+    def _save_log(self) -> Path:
+        path = self._log_path or Path.cwd() / "crash.log"
+        path.write_text("crash log\n", encoding="utf-8")
+        self.state.add_artifact(str(path))
+        return path
+
+    def stop(self) -> None:
+        self.state.set_status(AgentStatus.COMPLETED)
+
+    def pause(self) -> None:
+        self.state.set_status(AgentStatus.PAUSED)
+
+    def resume(self) -> None:
+        self.state.set_status(AgentStatus.RUNNING)
+
+
 class _InteractionAgent:
     def __init__(self, channel) -> None:
         self.state = AgentState()
@@ -668,6 +694,28 @@ def test_multi_agent_completed_history_pruning(monkeypatch) -> None:
     assert ids[0] not in retained
     assert ids[1] in retained
     assert ids[2] in retained
+
+
+def test_multi_agent_marks_uncaught_base_exception_as_failed(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(agent_commands, "create_default_tool_registry", lambda *args, **kwargs: _DummyRegistry())
+    monkeypatch.setattr(agent_commands, "ToolSandbox", _DummySandbox)
+    monkeypatch.setattr(agent_commands, "AgentHarness", _DummyHarness)
+    monkeypatch.setattr(
+        agent_commands,
+        "create_agent",
+        lambda **kwargs: _CrashingAgent(log_path=tmp_path / "crash.log"),
+    )
+
+    manager = agent_commands.AgentRuntimeManager(join_timeout_s=1.0)
+    app = _app(max_concurrent=1)
+    agent_id = _extract_agent_id(manager.start(app, "research", "crash"))
+    assert _wait_until(lambda: len(manager.list_running()) == 0)
+
+    status_out = manager.status(agent_id=agent_id)
+    assert "Status: failed" in status_out
+    log_out = manager.log(agent_id=agent_id)
+    assert "Execution failed: SystemExit: boom" in log_out
+    assert (tmp_path / "crash.log").exists()
 
 
 def test_multi_agent_log_stream_drains_entries(monkeypatch) -> None:

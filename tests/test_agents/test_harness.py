@@ -43,6 +43,19 @@ class FailingTool(BaseTool):
         raise RuntimeError("tool boom")
 
 
+class ExitingTool(BaseTool):
+    name = "exit_now"
+    description = "Raises SystemExit."
+    input_schema = {
+        "type": "object",
+        "properties": {},
+    }
+
+    def execute(self, args: dict) -> str:
+        _ = args
+        raise SystemExit("tool exit")
+
+
 def _base_raw(tmp_path: Path) -> dict:
     return {
         "global": {"global_folder": str(tmp_path / "global")},
@@ -645,3 +658,24 @@ def test_run_bounded_tool_exception_is_recorded_and_recoverable(monkeypatch, tmp
     assert result.tool_calls[0]["name"] == "fail"
     assert "tool boom" in result.tool_calls[0]["error"]
     assert any("Tool 'fail' failed: tool boom" in entry.content for entry in harness.state.log_entries)
+
+
+def test_run_bounded_base_exception_tool_failure_is_recorded(monkeypatch, tmp_path: Path) -> None:
+    provider = _RecordingProvider([
+        json.dumps({"response": "Call exit", "action": "exit_now", "action_arguments": {}}),
+        _done_response(),
+    ])
+    monkeypatch.setattr("lsm.agents.harness.create_provider", lambda cfg: provider)
+    harness = _make_bounded_harness(tmp_path)
+    harness.tool_registry.register(ExitingTool())
+
+    result = harness.run_bounded(user_message="hi", tool_names=None)
+
+    assert result.stop_reason == "done"
+    assert len(result.tool_calls) == 1
+    assert result.tool_calls[0]["name"] == "exit_now"
+    assert "SystemExit: tool exit" in result.tool_calls[0]["error"]
+    assert any(
+        "Tool 'exit_now' failed:" in entry.content and "SystemExit: tool exit" in entry.content
+        for entry in harness.state.log_entries
+    )

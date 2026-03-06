@@ -97,7 +97,12 @@ class LocalRunner(BaseRunner):
                 f"Tool '{tool.name}' exceeded timeout of {self.timeout_s_default:.3f}s"
             )
         if "error" in error_holder:
-            raise error_holder["error"]
+            error = error_holder["error"]
+            if isinstance(error, Exception):
+                raise error
+            raise RuntimeError(
+                f"Tool '{tool.name}' aborted with {type(error).__name__}: {error}"
+            ) from error
 
         stdout = self._truncate_stdout(output_holder.get("stdout", ""))
         artifacts = self._collect_artifacts(tool, args)
