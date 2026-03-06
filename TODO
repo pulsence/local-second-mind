@@ -256,6 +256,9 @@
 - Include Chats in query pipeline. Should they be chunked and embedded?
   - Add Chat "projects" to group chats for focused context. Enable linking
     files and embedding to particular projects.
+- Should the server also do a ingest file path scan looking for file that
+  need to be updated, and then set a file watcher? That way it can either
+  auto-ingest in the background or prompt the user.
 
 ## v0.11.0: Extra Control Paths
 - Add ability to send email/txt notifications

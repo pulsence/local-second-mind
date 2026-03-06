@@ -517,7 +517,9 @@ Operational rules:
 - Six top-level sections: **Query** (chat), **Ingest**, **Agents**, **Settings**, **Admin**, **Help**.
 - Server exposes a REST + SSE API usable by a future Obsidian plugin.
 - Local-first defaults: binds to `127.0.0.1` (localhost) by default, with optional LAN exposure via `server.expose_to_lan`.
-- Authentication posture in v0.9.0: no user-account system; LAN mode requires access-token protection on non-GET API routes.
+- Authentication posture in v0.9.0: no user-account system; LAN mode requires authenticated access for
+  pages, API routes, and SSE streams via access-token bootstrap/session-cookie flow for browsers and
+  header tokens for programmatic clients.
 - No JavaScript build toolchain — everything is server-rendered HTML with HTMX for interactivity.
 - **Dark mode** with system-preference detection as the default, user-overrideable via a toggle,
   preference persisted in `localStorage`.
@@ -735,11 +737,21 @@ if not args.command:
 1. Call `setup_logging(global_folder=config.global_folder)` — establishes log file and event buffer.
 2. Create the FastAPI app via `create_app(config)`.
 3. Print `Starting LSM server...` to stdout.
-4. Start Uvicorn: `uvicorn.run(app, host=config.server.host, port=config.server.port, log_level=config.server.log_level)`.
+4. Start Uvicorn: `uvicorn.run(app, host=config.server.host, port=config.server.port, log_level=config.server.log_level, workers=1)`.
 5. On bind success, Uvicorn's startup event fires — hook it to print `Listening on http://{host}:{port}`.
 
-The TUI and web server are always **separate OS processes** — no shared in-process state. They coordinate
-exclusively through the shared SQLite database file and the shared config file on disk.
+**Operating model (explicit):**
+- **Single user**: LSM remains a personal system. LAN mode exists so the same user can open LSM from
+  another computer or phone on the same local network, not to support multi-user accounts or shared
+  workspaces.
+- **Single web worker**: v0.9 supports exactly one Uvicorn worker. Multi-worker / horizontal deployment
+  is out of scope because live SSE queues, event buffers, and runtime objects are process-local.
+- **Multiple tabs/devices are supported**: single-worker means one server process, not one browser tab.
+  Multiple local or LAN browser tabs/devices can connect concurrently to that one worker and share the
+  same in-memory runtime state.
+- **Separate OS processes**: the web server and TUI may both be running, but each process only owns its
+  own in-memory runtime state. Shared coordination happens through the active application DB backend and
+  the shared config file on disk.
 
 #### 2.4.3 Server Config Object
 
@@ -795,42 +807,97 @@ When `expose_to_lan=true`, startup logs print both bind address and detected LAN
 If `require_access_token=true` and `access_token` is empty, startup generates a random token, persists it,
 and logs a one-time "copy this token" message for local-network clients.
 
-**LAN-mode safety requirement (new):**
-- In LAN mode, all non-GET API routes require `X-LSM-Access-Token` (or `Authorization: Bearer ...`).
-- Browser HTMX requests include token via a base-template `hx-headers` hook.
-- SSE/EventSource requests are GET-based and cannot set custom headers in the standard browser API; v0.9
-  keeps read endpoints unauthenticated while requiring token protection for all state-changing routes.
-- This mitigates same-network drive-by writes and browser CSRF-style form posts when server is exposed.
+**LAN-mode access model (revised):**
+- LAN mode exists so the user can access LSM from other devices on the same local network. In LAN mode,
+  both **confidentiality** and **write safety** matter.
+- All HTML pages, API routes, and SSE streams require authentication in LAN mode.
+- Programmatic/API clients may authenticate on every request with `X-LSM-Access-Token` or
+  `Authorization: Bearer ...`.
+- Browser clients authenticate once through an access-token bootstrap page:
+  1. unauthenticated request redirects to `/auth?next=...`
+  2. user submits the configured access token
+  3. server validates it and sets a signed `HttpOnly` session cookie
+  4. subsequent page loads, HTMX requests, and SSE GETs use the session cookie automatically
+- Static assets may remain public; application pages and `/api/*` surfaces do not.
+- OAuth provider callbacks also require the authenticated browser session **and** a valid stored OAuth
+  `state` token, so they are not anonymous GET exceptions.
+
+This removes the earlier "GET is read-only so it can stay open" assumption, which is not sufficient for
+personal conversation history, logs, settings, and export endpoints.
+
+**Browser session contract (required):**
+- Successful `/auth` bootstrap generates a random `session_id` (UUID4 or equivalent) and stores it in a
+  signed browser cookie payload together with `issued_at` and `expires_at`.
+- The signing secret is **not** `server.access_token`. It is a separate random secret stored under
+  `<GLOBAL_FOLDER>/server/session-signing-key`, generated once on first LAN-auth startup with restrictive
+  file permissions. Deleting/rotating that file invalidates all active browser sessions.
+- Cookie attributes: `HttpOnly`, `Path=/`, bounded lifetime (for example 12 hours), and `SameSite=Lax`.
+  If LSM is ever served behind HTTPS, set `Secure=true`; plain HTTP LAN mode cannot rely on `Secure`.
+- Browser `POST`/`PUT`/`PATCH`/`DELETE` requests require both the authenticated session cookie and a CSRF
+  token (`X-LSM-CSRF-Token` or equivalent). Use a standard double-submit or rendered-token pattern so
+  HTMX form submissions and button actions are covered. `GET` page loads and SSE reads only require the
+  authenticated session.
+- OAuth pending-state rows bind to the authenticated browser `session_id`, so callback completion must
+  see the same signed session cookie that initiated the flow.
+
+#### 2.4.4 Application DB Schema Ownership Contract
+
+The current repo already centralizes application-table ownership in `lsm.db.tables.TableNames` and
+`lsm.db.schema.ensure_application_schema()`. v0.9 must extend that existing ownership model rather than
+having Web routes/services create ad-hoc `lsm_*` tables directly.
+
+Required integration rules:
+- The table names shown in this document (`lsm_conversations`, `lsm_messages`, `lsm_agent_runs`,
+  `lsm_web_oauth_states`, `lsm_remote_chains`, etc.) are **logical names for discussion**. Physical
+  table/index/FTS names must honor `db.table_prefix`.
+- `TableNames` (or a successor shared registry) must gain entries for every new Web/UI-owned table:
+  chat history, chat provider-state helpers, backend-specific chat search helpers, OAuth pending
+  states, agent runtime coordination, and remote-chain persistence.
+- `ensure_application_schema()` must remain the single schema-owner for creating/upgrading these tables
+  and indexes across both SQLite and PostgreSQL.
+- Route handlers and services should resolve names through the shared schema/table helpers and
+  `lsm.db.compat`, not by hard-coding raw `CREATE TABLE lsm_*` / `SELECT ... FROM lsm_*` literals.
+- Backend-specific FTS/search objects are allowed, but their naming and lifecycle still belong to the
+  shared schema layer so prefixing and idempotent startup are preserved.
 
 ---
 
 ### 2.5 Chat History — Database-Backed Storage
 
-**Recommendation: Move to SQLite DB storage.**
+**Recommendation: Move to application-DB storage.**
 
 The user flagged that conversations will eventually be included in the query pipeline (indexed for
 retrieval). DB storage is the only approach that makes this tractable.
 
 **Comparison:**
 
-| Criterion | Flat Markdown Files (current) | SQLite DB (proposed) |
+| Criterion | Flat Markdown Files (current) | Application DB tables (v0.9 proposal) |
 |-----------|------------------------------|---------------------|
 | Human-readable without tooling | Yes | No |
 | Queryable | No — requires grep/parsing | Yes — full SQL + FTS |
-| RAG indexable | Requires separate parse step | Direct embed of message content |
+| Future RAG-capable | Requires separate parse step | DB layout supports later indexing work |
 | Retry variants | Hard/impossible to model | First-class variant rows with active-selection |
 | Archive/search | Ad-hoc file naming only | Explicit archive flags + indexed search |
-| Atomic writes | No — file append is not atomic | Yes — SQLite transactions |
+| Atomic writes | No — file append is not atomic | Yes — DB transactions |
 | Consistent with architecture | Partial (everything else is DB) | Fully consistent |
 | Scale for hundreds of convos | Moderate (many small files) | Excellent |
 
-**Schema:**
+**Scope boundary (explicit):**
+- **v0.9.0**: chat history moves into DB-backed tables and gets UI/sidebar full-text search only.
+- **v0.9.0**: chat messages are **not embedded** and are **not part of the query retrieval corpus**.
+- **v0.10.x**: separate research/implementation tracks how chat history should be indexed, filtered,
+  privacy-scoped, and invalidated for retrieval use.
+- The chat schema in v0.9 is therefore about persistence, branching, variants, export, archive/search,
+  and future compatibility — not about immediate vectordb ingestion.
+
+**Logical schema (physical names derive from the shared table registry):**
 
 ```sql
 CREATE TABLE lsm_conversations (
     id          TEXT PRIMARY KEY,
     title       TEXT,              -- Auto-generated from first query or user-set
-    mode        TEXT NOT NULL,     -- grounded/insight/hybrid/chat
+    query_mode  TEXT NOT NULL,     -- `QueryConfig.mode` (grounded/insight/etc.)
+    chat_mode   TEXT NOT NULL,     -- `QueryConfig.chat_mode` (single/chat)
     llm_provider TEXT,             -- optional per-conversation override
     llm_model    TEXT,             -- optional per-conversation override
     branched_from_conversation_id TEXT REFERENCES lsm_conversations(id),
@@ -872,25 +939,23 @@ CREATE UNIQUE INDEX lsm_messages_variant_group_index_unique
     ON lsm_messages(variant_group_id, variant_index)
     WHERE role = 'assistant' AND variant_group_id IS NOT NULL;
 
-CREATE VIRTUAL TABLE lsm_messages_fts USING fts5(
-    conversation_id UNINDEXED,
-    content,
-    sources_text
-);
-
-CREATE VIRTUAL TABLE lsm_conversations_fts USING fts5(
-    conversation_id UNINDEXED,
-    title,
-    mode
-);
-
--- Keep FTS tables synchronized with lsm_messages / lsm_conversations writes.
--- (via INSERT/UPDATE/DELETE triggers in migration DDL)
+-- SQLite implementation uses FTS5 virtual tables.
+-- PostgreSQL implementation uses equivalent tsvector/GIN indexes.
+-- Both backends expose the same logical search behaviour through a shared
+-- conversations service layer.
 ```
 
 Message `content` is stored as raw markdown. When displayed in the Web UI, server-side `mistune` renders
 it to HTML before embedding it in the Jinja2 template. This keeps the DB content portable (not tied to
 any HTML structure) and allows re-rendering if the markdown library or CSS changes.
+
+**Backend support decision:**
+- Web/chat tables live in the **active LSM application DB backend** (`sqlite` or `postgresql`), not in a
+  separate Web-only SQLite sidecar.
+- SQLite uses FTS5 and `sqlite3.Row`; PostgreSQL uses native FTS (`tsvector`, `GIN`) and row dict
+  normalization through `lsm.db.compat`.
+- Web services use `lsm.db.connection.resolve_connection()` / `lsm.db.compat.*` rather than raw
+  `sqlite3.connect(...)` calls in route handlers.
 
 **Mutation semantics for new chat controls:**
 - Retry latest assistant response creates a new assistant row with the same `parent_user_message_id` and
@@ -914,7 +979,7 @@ any HTML structure) and allows re-rendering if the markdown library or CSS chang
 - Search queries union-rank `lsm_messages_fts` + `lsm_conversations_fts` and include:
   - message content
   - conversation title
-  - mode
+  - `query_mode`
   - cited-source metadata text
   Archived and non-archived chats are both returned, with archived items visually tagged.
 - Delete conversation is permanent row deletion from `lsm_conversations`; `ON DELETE CASCADE` removes
@@ -925,6 +990,11 @@ transcripts, parses them into conversation/message records, and inserts them int
 runs automatically on first startup if the new tables are empty but the Chats folder has content (or
 triggered explicitly via `lsm migrate --chats` flag on the existing `migrate` subcommand). The flat
 files remain on disk as read-only backup until the user explicitly removes them.
+
+Implementation note: the automatic startup migration and the explicit `lsm migrate --chats` path must
+call the **same** migration service so parsing/insertion logic stays single-sourced. The CLI part is
+not implied by the schema work alone: parser + dispatcher wiring must be added in `lsm/__main__.py`
+and the batch-command helper layer, with tests proving the flag reaches the shared migration service.
 
 The existing `ChatsConfig` is retained for the folder path (migration source), but new conversations
 write only to the DB.
@@ -1082,7 +1152,14 @@ The notes system is spread across multiple files. Complete removal requires:
    path that logs a deprecation warning if `"notes"` key exists in config.
 6. **Config serializer** — stop writing `"notes"` section.
 7. **TUI settings** — remove notes-related fields from settings view-model/widgets.
-8. **`/note`/`/notes` command handlers** — replace with explicit "use chat export" guidance message.
+8. **Shared command helpers** — `lsm/ui/helpers/commands/query.py` currently still reads `config.notes`
+   and exposes note-save toggles/branches. Remove those code paths explicitly rather than assuming the
+   later TUI query-command removal will cover them.
+9. **Shared helper plumbing** — `lsm/ui/helpers/commands/common.py` and related tests still carry
+   note-related option/context plumbing; remove that glue so the helper layer no longer depends on a
+   `notes` config object existing.
+10. **`/note`/`/notes` command handlers + help text** — replace with explicit "use chat export"
+    guidance message wherever the legacy commands remain temporarily visible.
 
 **Sequencing with path consolidation (§1.2):**
 
@@ -1095,11 +1172,19 @@ merge and removed later when the notes module itself is deleted.
 should not create the folder. Existing users retain their Notes folder on disk; it is simply no
 longer auto-created on startup.
 
+**Sequencing with TUI/query-command teardown (§3 / step 21):**
+
+The current helper layer still references notes even before the broader Query/Remote screens are removed.
+That means step 12 must delete the note-specific branches from `lsm/ui/helpers/commands/query.py` and
+`common.py` in-place. Do **not** defer those deletions until step 21, because `NotesConfig` removal would
+otherwise break the intermediate tree while query-command code still imports or reads `config.notes`.
+
 #### 2.5.6 Export Contract and Safety
 
 To avoid ambiguity and data-loss bugs, export payloads are standardized:
 - Conversation export includes:
-  - conversation metadata (`id`, `title`, `mode`, `llm_provider`, `llm_model`, timestamps, branch lineage)
+  - conversation metadata (`id`, `title`, `query_mode`, `chat_mode`, `llm_provider`, `llm_model`,
+    timestamps, branch lineage)
   - ordered messages on active branch path
   - citation/source metadata per assistant message
 - Message export includes:
@@ -1122,11 +1207,14 @@ Retry/edit/delete/variant-switch/branch operations must be atomic to prevent spl
 concurrent requests (double-clicks, duplicate browser tabs, or slow network retries).
 
 Required server behavior:
-- Wrap each mutation in `BEGIN IMMEDIATE ... COMMIT` so only one writer mutates a conversation at a time.
+- Open a backend-aware transaction for each mutation:
+  - SQLite: `BEGIN IMMEDIATE ... COMMIT`
+  - PostgreSQL: normal transaction + `SELECT ... FOR UPDATE` on the conversation row before mutation
 - Validate latest-message preconditions inside the same transaction (not before it).
 - Use optimistic conflict checks (`conversation.updated_at` or equivalent version token). If mismatch,
   rollback and return `409 Conflict` with UI refresh hint.
-- Update `lsm_messages`, FTS triggers, and provider-state rows in the same transaction.
+- Update `lsm_messages`, backend-specific FTS rows/indexed columns, and provider-state rows in the same
+  transaction.
 - For retry, enforce `(variant_group_id, variant_index)` uniqueness and retry the index increment on
   conflict rather than allowing duplicate variant indices.
 
@@ -1309,6 +1397,11 @@ Server-side also verifies the `confirm` flag is set.
 
 Agent list auto-refreshes every 5 seconds via `hx-trigger="every 5s"`.
 
+Runs owned by another UI process remain fully controllable in v0.9. Stop/pause/resume requests are
+routed through DB-backed command rows, interaction replies go through DB-backed interaction rows, and
+live logs stream from persisted structured agent log rows. This introduces a small polling delay
+relative to in-process control, but the Web UI is not read-only for foreign-owned runs.
+
 #### 2.6.3.1 WebUI agent tool-request prompting model
 
 The current TUI/shell interaction flow is already defined by `InteractionRequest`,
@@ -1362,15 +1455,17 @@ while fixed wait remains useful for unattended or highly automated deployments.
 | `clarification` | reply textarea + `Send Reply` + optional `Deny` | `reply` or `deny` |
 | `feedback` | reply textarea + `Send Reply` + optional `Deny` | `reply` or `deny` |
 
-**Decision:** `approve_session` is **not exposed in the Web UI for v0.9**.
+**Decision:** `approve_session` is **still not exposed in the Web UI for v0.9**.
 
-Reason: the current session-approval cache lives on `AgentRuntimeManager._session_tool_approvals`,
-which is process-wide, not browser-session scoped. In the TUI this is acceptable because there is
-one operator session. In the Web UI, especially with LAN exposure enabled, surfacing "approve for
-session" would ambiguously grant future approvals to every browser connected to that server process.
-Until the web stack has first-class authenticated user/session identity, the safe contract is:
+Reason: with DB-backed coordination, run-scoped session approvals are technically possible across
+process boundaries, but a browser-issued "approve for session" would still broaden future tool
+approvals across every tab/device currently attached to that agent run. The safer contract remains:
 - Web UI: `approve`, `deny`, `reply`
 - TUI/shell: keep existing `approve_session`
+
+To preserve TUI parity across processes, `approve_session` is persisted in an agent-run-scoped DB
+table so a TUI approval still affects future permission checks even when the owning process is the
+web server.
 
 **Stale-response handling:**
 - The `respond` route must validate that the current pending request still matches `request_id`.
@@ -1384,18 +1479,18 @@ The original draft used `{name}` for pause/stop/log routes, but current runtime 
 `AgentRuntimeManager.start()` creates a unique `agent_id`, and interaction/log lookups already use that
 identifier. Therefore the Web UI must key all live operations by `agent_id`, not by `agent_name`.
 
-This also requires the cross-process runtime table to store runs, not agent classes:
+This also requires the cross-process coordination tables to be run-centric, not agent-class-centric:
 
 ```sql
-CREATE TABLE lsm_agent_runtime_state (
-    agent_id      TEXT PRIMARY KEY,
-    agent_name    TEXT NOT NULL,
-    topic         TEXT NOT NULL,
-    status        TEXT NOT NULL CHECK(status IN ('running', 'paused', 'stopped', 'scheduled')),
-    pid           INTEGER,
-    started_at    TEXT,
-    updated_at    TEXT NOT NULL,
-    error_message TEXT
+CREATE TABLE lsm_agent_runs (
+    agent_id          TEXT PRIMARY KEY,
+    agent_name        TEXT NOT NULL,
+    topic             TEXT NOT NULL,
+    owner_kind        TEXT NOT NULL,
+    status            TEXT NOT NULL,
+    started_at        TEXT NOT NULL,
+    heartbeat_at      TEXT NOT NULL,
+    error_message     TEXT
 );
 ```
 
@@ -1427,34 +1522,163 @@ with the existing assistant implementation instead of requiring new agent-side p
 
 **Cross-process agent runtime coordination:**
 
-The TUI and web server run as separate OS processes. Agent runtime state (`AgentRuntimeManager`) is
-in-memory, so a running agent started from the web server is invisible to a concurrent TUI process
-and vice versa. To solve this, agent runtime state is persisted in a shared SQLite table so both
-processes see a consistent view:
+Cross-process live stop/pause/respond/log control is a release requirement. The TUI and web server
+run as separate OS processes, and the current `AgentRuntimeManager` / `InteractionChannel` objects are
+in-memory. To satisfy the release requirement, v0.9 adopts **agent-scoped DB coordination** as the
+canonical design for live cross-process control.
+
+This supersedes the earlier visibility-only `lsm_agent_runtime_state` mirror idea.
+
+**Scope rules for the required DB coordination design:**
+- Keep standard application/admin logging in `lsm.logging` (console + file + event buffer).
+- Persist only the structured, agent-specific runtime data already emitted by the harness/runtime:
+  - run status + heartbeat
+  - `AgentLogEntry` records
+  - pending interaction requests + responses
+  - operator control commands such as `stop`, `pause`, `resume`, and optional `queue_message`
+  - run-scoped tool session approvals for TUI `approve_session` parity
+- Keep per-run JSON state files and agent workspaces as the canonical artifact/debug dump. The DB is
+  for live coordination and UI querying, not a replacement for run artifacts.
+
+**Required coordination tables (logical names; physical names derive from the shared table registry):**
 
 ```sql
-CREATE TABLE lsm_agent_runtime_state (
-    agent_id      TEXT PRIMARY KEY,
-    agent_name    TEXT NOT NULL,
-    topic         TEXT NOT NULL,
-    status        TEXT NOT NULL CHECK(status IN ('running', 'paused', 'stopped', 'scheduled')),
-    pid           INTEGER,             -- OS process ID of the owning process
-    started_at    TEXT,                -- ISO-8601
-    updated_at    TEXT NOT NULL,       -- ISO-8601; heartbeat timestamp
-    error_message TEXT                 -- last error, if any
+CREATE TABLE lsm_agent_runs (
+    agent_id          TEXT PRIMARY KEY,
+    agent_name        TEXT NOT NULL,
+    topic             TEXT NOT NULL,
+    owner_kind        TEXT NOT NULL CHECK(owner_kind IN ('web', 'tui', 'scheduler')),
+    owner_instance_id TEXT NOT NULL,    -- random UUID for the owning process lifetime
+    owner_pid         INTEGER,          -- diagnostics only; not a stable identity
+    status            TEXT NOT NULL CHECK(
+        status IN ('starting', 'running', 'waiting_user', 'paused', 'completed', 'failed')
+    ),
+    current_task      TEXT,
+    state_path        TEXT,
+    workspace_path    TEXT,
+    created_at        TEXT NOT NULL,
+    started_at        TEXT NOT NULL,
+    heartbeat_at      TEXT NOT NULL,
+    finished_at       TEXT,
+    error_message     TEXT
+);
+
+CREATE TABLE lsm_agent_run_logs (
+    seq               INTEGER PRIMARY KEY, -- SQLite INTEGER PK / PostgreSQL BIGSERIAL equivalent
+    agent_id          TEXT NOT NULL REFERENCES lsm_agent_runs(agent_id) ON DELETE CASCADE,
+    created_at        TEXT NOT NULL,
+    actor             TEXT NOT NULL,
+    provider_name     TEXT,
+    model_name        TEXT,
+    content           TEXT NOT NULL,
+    action            TEXT,
+    action_arguments_json TEXT,
+    prompt            TEXT,
+    raw_response      TEXT
+);
+CREATE INDEX lsm_agent_run_logs_agent_seq
+    ON lsm_agent_run_logs(agent_id, seq);
+
+CREATE TABLE lsm_agent_interactions (
+    request_id        TEXT PRIMARY KEY,
+    agent_id          TEXT NOT NULL REFERENCES lsm_agent_runs(agent_id) ON DELETE CASCADE,
+    request_type      TEXT NOT NULL CHECK(
+        request_type IN ('permission', 'clarification', 'feedback', 'confirmation')
+    ),
+    tool_name         TEXT,
+    risk_level        TEXT,
+    reason            TEXT,
+    args_summary      TEXT,
+    prompt            TEXT NOT NULL,
+    status            TEXT NOT NULL CHECK(
+        status IN ('pending', 'acknowledged', 'responded', 'cancelled', 'timed_out')
+    ),
+    created_at        TEXT NOT NULL,
+    acknowledged_at   TEXT,
+    responded_at      TEXT,
+    response_decision TEXT CHECK(response_decision IN ('approve', 'deny', 'approve_session', 'reply')),
+    response_user_message TEXT,
+    responded_by_kind TEXT CHECK(responded_by_kind IN ('web', 'tui', 'system'))
+);
+CREATE UNIQUE INDEX lsm_agent_interactions_one_active
+    ON lsm_agent_interactions(agent_id)
+    WHERE status IN ('pending', 'acknowledged');
+
+CREATE TABLE lsm_agent_commands (
+    command_id        TEXT PRIMARY KEY,
+    agent_id          TEXT NOT NULL REFERENCES lsm_agent_runs(agent_id) ON DELETE CASCADE,
+    command_type      TEXT NOT NULL CHECK(command_type IN ('stop', 'pause', 'resume', 'queue_message')),
+    payload_json      TEXT,
+    requested_by_kind TEXT NOT NULL CHECK(requested_by_kind IN ('web', 'tui')),
+    status            TEXT NOT NULL CHECK(status IN ('pending', 'claimed', 'completed', 'rejected', 'expired')),
+    requested_at      TEXT NOT NULL,
+    claimed_at        TEXT,
+    claimed_by_instance_id TEXT,
+    completed_at      TEXT,
+    result_message    TEXT
+);
+CREATE INDEX lsm_agent_commands_pending
+    ON lsm_agent_commands(agent_id, status, requested_at);
+
+CREATE TABLE lsm_agent_tool_session_approvals (
+    agent_id          TEXT NOT NULL REFERENCES lsm_agent_runs(agent_id) ON DELETE CASCADE,
+    tool_name         TEXT NOT NULL,
+    approved_at       TEXT NOT NULL,
+    approved_by_kind  TEXT NOT NULL CHECK(approved_by_kind IN ('web', 'tui', 'system')),
+    PRIMARY KEY(agent_id, tool_name)
 );
 ```
 
-**Coordination protocol:**
-- On agent start: insert/update row for the new `agent_id` with `status='running'`, current `pid`,
-  `topic`, and `started_at`.
-- Heartbeat: the owning process updates `updated_at` every 10 seconds while the agent runs.
-- On agent stop/pause: update `status` accordingly.
-- Stale detection: if `updated_at` is older than 30 seconds and `status='running'`, the agent is
-  considered crashed. The reader (TUI or web) marks it `stopped` and clears the row.
-- The TUI `/agent list` command reads this table to show runs started by the web server (and vice
-  versa). Stop/pause/log/interaction actions resolve against `agent_id`, not `agent_name`.
-- The existing `lsm_agent_schedules` table (used by the agent scheduler) is unchanged.
+**Required lifecycle for the DB coordination path:**
+- Each owning process (web server, TUI, scheduler) gets a random `owner_instance_id` at startup. Use
+  that as the durable owner identity; `pid` is helpful for debugging but can be reused by the OS.
+- On run start, insert `lsm_agent_runs` and attach:
+  - a DB-backed runtime mirror for status/heartbeat
+  - a DB-backed log sink fed from `AgentHarness._append_log()`
+  - a `DbInteractionChannel` that preserves the current request/ack/respond semantics
+- `AgentHarness._append_log()` is the correct DB log hook because it already emits structured,
+  redacted `AgentLogEntry` objects. Do **not** try to persist every generic `logging.LogRecord`.
+- The log sink should enqueue entries into a small process-local writer queue and flush in short batches
+  (for example every 100-250 ms or every N entries). This keeps agent execution from blocking on
+  SQLite/PostgreSQL writes.
+- Web UI/TUI list runs from `lsm_agent_runs` and tail logs from `lsm_agent_run_logs WHERE seq > last_seen`.
+  Web SSE can stream by polling the DB on a short interval; TUI can reuse its existing polling model.
+  Foreign-owned runs are **not** read-only; all live controls work through the same DB surface.
+- `DbInteractionChannel.post_request(...)` inserts/updates `lsm_agent_interactions` and then polls that
+  row until it is acknowledged/responded/timed out. Web UI/TUI keep polling pending rows and atomically
+  update them for `ack` and `respond`.
+- Permission checks consult `lsm_agent_tool_session_approvals` before creating a new permission request.
+  When a TUI operator uses `approve_session`, the response persists both the interaction outcome and the
+  approval row so future permission checks succeed even if the run owner is a different process.
+- Stop/pause/resume/queue actions insert rows into `lsm_agent_commands`. The **owning process** runs a
+  small command-consumer loop (for example every 250-500 ms), claims pending commands for its local runs,
+  and then calls the existing in-process methods directly. It must not re-emit commands back into the DB
+  or route them through HTTP again, or command echo loops become possible.
+- A sweeper marks runs stale when `heartbeat_at` is too old, expires unclaimed commands, and cancels or
+  times out orphaned interactions.
+- The existing `lsm_agent_schedules` table (used by the agent scheduler) remains unchanged.
+
+**Why this should stay agent-scoped instead of a general DB logger:**
+- Generic Python logs are not reliably run-scoped, are much noisier, and would create unnecessary write
+  amplification.
+- Secret-handling is already explicit around `AgentLogEntry` redaction in `AgentHarness._append_log()`;
+  generic `logging` output would need a second, broader redaction and classification pass.
+- Admin live-log tail can continue using the event buffer/file logger design. DB coordination only needs
+  the structured agent runtime surface.
+
+**Complexity assessment:**
+- Runtime row + heartbeat only: **low/medium** effort.
+- Add structured DB-backed agent logs: **medium** effort.
+- Add DB-backed interactions with current timeout semantics: **medium/high** effort.
+- Add cross-process command claiming/execution + stale-owner recovery: **high** effort.
+
+**Release-scope guidance:**
+- Because cross-process stop/pause/respond/log parity is a release requirement, v0.9 should adopt the
+  whole `runs + logs + interactions + commands + tool_session_approvals` design together.
+- Avoid partial adoption such as "DB log emitter only" or "commands without DB interactions"; those
+  create split sources of truth and do not actually solve the coordination problem.
+- Even with DB-backed agent coordination, the broader web stack is **not automatically multi-worker safe**
+  because query/ingest/admin SSE jobs and the general event buffer remain process-local in v0.9.
 
 ---
 
@@ -1498,6 +1722,22 @@ settings screen read and write the same `config.json` file. Communication provid
 
 **Recommendation:** Keep the single endpoint with explicit content-type handling and response negotiation.
 Use one shared validation/save function underneath to avoid drift.
+
+**Secret transport contract (all config sections):**
+- `GET /api/config` does **not** return literal secret values. It returns a redacted config snapshot plus
+  boolean metadata such as `has_api_key`, `has_client_secret`, `has_password`, `has_access_token`.
+- Jinja2 form prepopulation uses that redacted snapshot; secret inputs render blank.
+- `PUT /api/config` applies merge semantics:
+  - missing secret field → preserve existing value
+  - blank secret field → preserve existing value
+  - explicit clear action (`clear_secret=true` or equivalent field-specific control) → remove stored value
+- This contract applies to:
+  - LLM provider API keys
+  - remote provider API keys and passwords
+  - communication provider OAuth client secrets / IMAP / SMTP / CalDAV passwords
+  - `server.access_token`
+
+This keeps the browser UI usable without turning `GET /api/config` into a raw secret export endpoint.
 
 #### 2.6.4.1 Communication providers (email + calendar) in the Web UI
 
@@ -1552,30 +1792,54 @@ request methods. That is acceptable in CLI/TUI because `OAuth2Client.authorize()
 Web UI because the web server already owns the browser request/response cycle.
 
 **Decision:** Web UI OAuth uses the existing token store and token exchange logic, but not the
-temporary callback server. Add a browser-native OAuth service layer:
+temporary callback server. Add a browser-native OAuth service layer backed by a persisted pending-state
+table in the application DB:
 
 ```python
-class WebOAuthSessionStore:
-    # pending state -> provider name, redirect target, created_at
-    ...
+CREATE TABLE lsm_web_oauth_states (
+    state          TEXT PRIMARY KEY,
+    provider_name  TEXT NOT NULL,
+    redirect_to    TEXT NOT NULL,
+    session_id     TEXT NOT NULL, -- copied from the authenticated signed browser session
+    created_at     TEXT NOT NULL,
+    expires_at     TEXT NOT NULL
+);
 
 def begin_provider_oauth(provider_cfg: RemoteProviderConfig) -> RedirectResponse:
     # build auth URL from OAuth2Client.build_authorization_url(...)
-    # persist state in WebOAuthSessionStore
+    # persist state row (TTL: 10 minutes)
     # redirect browser to provider auth URL
 
 def finish_provider_oauth(provider_name: str, code: str, state: str) -> None:
-    # validate pending state
+    # validate pending state + authenticated browser session
     # call OAuth2Client.exchange_code(code)
     # token persists into existing OAuthTokenStore
+    # delete consumed state row
 ```
+
+Expired rows are cleaned opportunistically on each connect/callback and via lightweight startup cleanup.
+Persisting state in the DB avoids losing OAuth handshakes if the web process restarts mid-flow.
+
+**Session-binding requirements for OAuth:**
+- `begin_provider_oauth(...)` must read the authenticated browser `session_id` from the signed LAN
+  session cookie and persist that exact value into `lsm_web_oauth_states`.
+- `finish_provider_oauth(...)` must reject the callback if the browser is no longer authenticated or if
+  the current signed-session `session_id` does not match the stored pending row.
+- The callback remains a `GET` because that is how providers return, but it still depends on the same
+  authenticated session established at `/auth`; it is not a CSRF exemption for anonymous callers.
 
 **New Web UI routes for communication providers:**
 - `POST /api/providers/communication/{name}/connect` → starts browser OAuth; returns redirect
 - `GET /api/providers/oauth/{name}/callback` → validates `state`, exchanges code, stores token, redirects
   back to `/settings#provider-{name}`
-- `POST /api/providers/communication/{name}/disconnect` → deletes stored OAuth token
+- `POST /api/providers/communication/{name}/disconnect` → deletes the locally stored OAuth token
 - `POST /api/providers/communication/{name}/test` → lightweight connectivity check + status fragment
+
+**Disconnect semantics (explicit):**
+- v0.9 `disconnect` means **forget the locally stored token** (`OAuthTokenStore.delete()`).
+- v0.9 does **not** attempt upstream provider-grant revocation because Google/Microsoft revocation flows
+  differ and the current OAuth utility layer does not implement provider-specific revoke endpoints.
+- The UI should label this clearly, e.g. `Disconnect (forget local token)`.
 
 **Non-interactive runtime rule:**
 
@@ -1584,7 +1848,8 @@ execution. Instead:
 - Web UI "Connect" establishes/refreshes tokens ahead of time
 - provider instances created for Web UI agents use `allow_interactive=False`
 - missing/expired token produces a deterministic error like "Provider 'gmail' is not connected"
-- the error is surfaced with an action link back to the Settings connect button
+- refresh failure or revoked token is surfaced as `reauthorization_required` with an action link back to
+  the Settings connect button
 
 This requires a small provider/OAuth refactor so communication providers do not hardcode
 `allow_interactive=True` in `_headers()`; they need an injected policy or constructor flag.
@@ -2036,9 +2301,11 @@ Update policy: only update when there is a security patch or required feature. D
 ### 2.9 Complete REST + SSE API Surface
 
 LAN auth note for this surface:
-- When `server.expose_to_lan=true` and `server.require_access_token=true`, all non-GET `/api/*` routes
-  require `X-LSM-Access-Token` (or bearer token) and return 401/403 on missing/invalid token.
-- GET/SSE endpoints remain read-only and unauthenticated in v0.9.
+- When `server.expose_to_lan=true` and `server.require_access_token=true`, all HTML pages, `/api/*`
+  routes, and SSE streams require either:
+  - a valid browser session cookie established through `/auth`, or
+  - `X-LSM-Access-Token` / `Authorization: Bearer ...` for programmatic clients
+- Static assets and the `/auth` bootstrap routes remain reachable without a pre-existing session.
 
 ```
 # Pages (HTML — full page, HTMX entry points)
@@ -2050,6 +2317,9 @@ GET    /settings
 GET    /admin
 GET    /help
 GET    /help/{slug}                   → HTML fragment: rendered doc page
+GET    /auth                          → token-entry page (LAN mode only)
+POST   /auth                          → validate token, create session cookie, redirect to `next`
+POST   /auth/logout                   → clear session cookie
 
 # Query
 POST   /api/query                     → HTML fragment (user msg + SSE div)
@@ -2106,7 +2376,7 @@ POST   /api/providers/communication/{name}/disconnect → revoke local token/cac
 POST   /api/providers/communication/{name}/test       → HTML fragment or JSON: provider connectivity status
 
 # Config
-GET    /api/config                    → JSON: full config
+GET    /api/config                    → JSON: redacted config snapshot + secret-presence metadata
 PUT    /api/config                    → accepts HTMX form payload or JSON; returns HTML fragment (HTMX) or JSON (API client)
 
 # Remote Chains
@@ -2160,6 +2430,7 @@ lsm/ui/web/
 ├── streaming.py         # make_sse_stream(), StreamingJobRunner, event format helpers
 ├── services/
 │   ├── __init__.py
+│   ├── auth.py          # access-token bootstrap, signed cookie session, LAN-mode guards
 │   ├── conversations.py # chat persistence, model override, retry/edit/delete/archive/search/branch/export ops
 │   ├── query.py         # orchestration for retrieval + synthesis + SSE jobs
 │   ├── agents.py        # runtime-manager adapters, interaction ack/respond, run-card shaping
@@ -2169,6 +2440,7 @@ lsm/ui/web/
 └── routes/
     ├── __init__.py
     ├── pages.py         # GET /query, /ingest, /agents, /settings, /admin (HTML pages)
+    ├── auth.py          # GET/POST /auth, POST /auth/logout
     ├── query.py         # POST /api/query, /api/query/stream/{id}, /api/query/mode
     ├── conversations.py # /api/conversations/*, /api/messages/* (model/retry/edit/delete/archive/search/branch/export)
     ├── ingest.py        # POST /api/ingest/*, /api/db/*, /api/cache/*
@@ -2189,6 +2461,7 @@ def create_app(config: LSMConfig) -> FastAPI:
     templates.env.filters["render_markdown"] = render_markdown
     app.state.config = config
     app.state.templates = templates
+    app.state.db_provider = create_vectordb_provider(config.db)
 
     # Embedding model preload — runs as a background task AFTER the server is
     # listening, so the bind/ready message prints immediately and the model
@@ -2216,7 +2489,7 @@ def create_app(config: LSMConfig) -> FastAPI:
 
     app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
-    for router in [pages_router, query_router, conversations_router, ingest_router,
+    for router in [pages_router, auth_router, query_router, conversations_router, ingest_router,
                    agents_router, providers_router, config_router, remote_chains_router,
                    health_router, admin_router, docs_router]:
         app.include_router(router)
@@ -2270,17 +2543,14 @@ def get_config(request: Request) -> LSMConfig:
 def get_templates(request: Request) -> Jinja2Templates:
     return request.app.state.templates
 
-def get_db_conn(config: LSMConfig = Depends(get_config)):
-    """Opens a per-request SQLite connection with integrity and lock-handling pragmas."""
-    conn = sqlite3.connect(str(config.db.path), check_same_thread=False)
-    conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA foreign_keys=ON")
-    conn.execute("PRAGMA busy_timeout=5000")
-    conn.execute("PRAGMA journal_mode=WAL")
-    try:
+def get_db_provider(request: Request):
+    return request.app.state.db_provider
+
+def get_db_conn(provider = Depends(get_db_provider)):
+    """Yield a SQL connection from the active LSM DB backend."""
+    from lsm.db.connection import resolve_connection
+    with resolve_connection(provider) as conn:
         yield conn
-    finally:
-        conn.close()
 
 def get_event_buffer() -> EventBufferHandler:
     from lsm.logging import get_event_buffer as _get
@@ -2312,7 +2582,7 @@ settings rather than user-authored graph payloads.
 | Keep chains only in `config.json` | Simple startup loading, no migration needed | Large JSON payloads, difficult manual editing, poor versioning/search, weak UX for chain design |
 | Move chains to DB (recommended) | Better CRUD/UI tooling, versionable revisions, searchable, cleaner config | Requires migration path + import/export and default seeding logic |
 
-**Proposed schema:**
+**Proposed logical schema:**
 
 ```sql
 CREATE TABLE lsm_remote_chains (
@@ -2405,6 +2675,18 @@ All interaction through the command prompt. No mouse buttons anywhere.
 
 Keybindings: `Ctrl+H` → `CommandScreen`. `Ctrl+S` → `SettingsScreen`.
 
+### 3.2.1 App-Level Blast Radius
+
+This simplification is not just a screen-file cleanup. The current `LSMApp` still owns the old
+five-tab model, including tab registration, keybindings, startup/recovery logic, and help-context
+selection. A complete v0.9 TUI simplification therefore requires:
+- replacing the tab/screen registry in `lsm/ui/tui/app.py`, not only adding `CommandScreen`
+- removing query-screen recovery/state paths that assume a `QueryScreen` still exists
+- updating global bindings, footer/shortcut text, and help-context switching to the new
+  `command` / `settings` layout
+- updating `lsm/ui/tui/screens/__init__.py`, `lsm/ui/tui/screens/help.py`, and app-level tests in the
+  same change so the screen registry and help metadata cannot drift apart
+
 ### 3.3 `CommandScreen` — The Unified REPL
 
 **New file:** `lsm/ui/tui/screens/command.py`
@@ -2477,9 +2759,16 @@ Server         [OK]   http://127.0.0.1:8080 (responding)
 Logs           [OK]   ~/Local Second Mind/Logs/lsm-2026-03-02.log
 ```
 
-The **Server** row polls `GET http://{config.server.host}:{config.server.port}/api/health`
-with a 2-second timeout. Reports `[OK]` + URL if 200, `[DOWN]` + HTTP error if non-200, or
-`[NOT RUNNING]` if connection refused (common when the web server is not started).
+The **Server** row uses a dedicated probe URL helper, not the raw bind host:
+- if `server.host` is a concrete client host (for example `127.0.0.1`), probe
+  `http://{server.host}:{server.port}/api/health`
+- if the server is bound to `0.0.0.0` / `::`, probe `http://127.0.0.1:{server.port}/api/health`
+  from the local machine and display the bind address separately
+
+This avoids treating `0.0.0.0` as a client URL. Reports `[OK]` + reachable URL if 200,
+`[DOWN]` + HTTP error if non-200, or `[NOT RUNNING]` if connection refused (common when the web
+server is not started). In LAN mode, the output should show both the local probe URL and any
+detected LAN candidate URLs (for example `bound 0.0.0.0; LAN: http://192.168.1.24:8080`).
 
 #### `/log`
 
@@ -2623,6 +2912,8 @@ lsm/
 ├── remote/                  # (unchanged)
 ├── db/
 │   ├── __init__.py          # CLEANED: no longer imports from lsm.vectordb
+│   ├── tables.py            # UPDATED: TableNames gains web/chat/agent/oauth/remote-chain logical names
+│   ├── schema.py            # UPDATED: ensure_application_schema() owns prefixed DDL/FTS for new app tables
 │   ├── connection.py        # CLEANED: conditional BaseVectorDBProvider import removed
 │   ├── migration.py         # CLEANED: create_vectordb_provider import removed
 │   ├── health.py            # (unchanged)
@@ -2645,15 +2936,17 @@ lsm/
     │   ├── dependencies.py  # Depends: get_config, get_db_conn, get_event_buffer, get_docs_root
     │   ├── rendering.py     # render_markdown() — mistune wrapper + sanitiser
     │   ├── streaming.py     # event_stream_response(), SSE event format helpers
-	    │   ├── services/
-	    │   │   ├── __init__.py
-	    │   │   ├── conversations.py  # retry/edit/delete/archive/search orchestration
-	    │   │   ├── query.py          # query orchestration for SSE + context wiring
-	    │   │   ├── remote_chains.py  # DB-backed remote-chain CRUD + import/export
-	    │   │   └── embeddings.py     # embedding inventory + validation service
+    │   ├── services/
+    │   │   ├── __init__.py
+    │   │   ├── auth.py           # LAN-mode token bootstrap + signed browser session + CSRF/session helpers
+    │   │   ├── conversations.py  # retry/edit/delete/archive/search orchestration
+    │   │   ├── query.py          # query orchestration for SSE + context wiring
+    │   │   ├── remote_chains.py  # DB-backed remote-chain CRUD + import/export
+    │   │   └── embeddings.py     # embedding inventory + validation service
     │   ├── routes/
     │   │   ├── __init__.py
     │   │   ├── pages.py     # GET /query /ingest /agents /settings /admin /help
+    │   │   ├── auth.py      # GET/POST /auth, POST /auth/logout
     │   │   ├── query.py     # POST /api/query, /api/query/stream/{id}, /api/query/mode
     │   │   ├── conversations.py # /api/conversations/* and /api/messages/*
     │   │   ├── ingest.py    # POST /api/ingest/*, /api/db/*, /api/cache/*
@@ -2738,6 +3031,9 @@ lsm/
 for synchronous smoke tests.
 
 **Unit tests (per route module):**
+- `tests/web/test_auth_routes.py` — verify `/auth` page render, token bootstrap success/failure,
+  session cookie issuance, logout clearing, `next` redirect handling, CSRF enforcement on
+  state-changing browser requests, and LAN-mode route guards.
 - `tests/web/test_query_routes.py` — mock query provider, verify HTML fragment returned with SSE div;
   verify SSE event sequence for a streaming response; verify per-conversation model override is passed
   into provider selection.
@@ -2751,10 +3047,12 @@ for synchronous smoke tests.
   stop/pause/log routes, interaction queue fragment, required `ack` forwarding, stale `request_id`
   409 behavior, and permission-vs-reply control rendering by `request_type`.
 - `tests/web/test_provider_routes.py` — verify communication provider filtering, OAuth connect redirect,
-  callback state validation, disconnect behavior, non-OAuth rejection for `connect`, provider-test
-  success/error fragments, and blank-secret preservation semantics on Settings saves.
-- `tests/web/test_config_routes.py` — GET returns valid JSON; PUT supports both JSON and HTMX form
-  payloads; invalid config returns structured error payloads.
+  callback state validation, callback/session-id matching, pending-state TTL cleanup, disconnect
+  behavior, non-OAuth rejection for `connect`, provider-test success/error fragments, and blank-secret
+  preservation semantics on Settings saves.
+- `tests/web/test_config_routes.py` — GET returns a redacted JSON snapshot; PUT supports both JSON and
+  HTMX form payloads; missing/blank secret fields preserve stored values; explicit clear actions remove
+  secrets; invalid config returns structured error payloads.
 - `tests/web/test_health_routes.py` — verify JSON structure matches documented health schema.
 - `tests/web/test_admin_routes.py` — mock eval/migrate/cluster/graph/finetune runners, verify SSE events;
   verify finetune activate/delete-model behavior and embedding inventory/validate endpoint filters.
@@ -2792,6 +3090,8 @@ Obsidian plugin compatibility.
   point and diverges independently.
 - Export a full conversation and a single message; verify content, metadata, and format selection.
 - Export redaction test: `redact=true` masks known secret patterns; `redact=false` preserves raw text.
+- Migration-path parity test: auto-startup migration and `lsm migrate --chats` both invoke the same
+  shared chat-migration service and produce identical inserted rows.
 
 **Responsive UI tests:**
 - Playwright viewport tests (`390x844`, `768x1024`, `1440x900`) verify sidebar collapse behavior,
@@ -2800,10 +3100,17 @@ Obsidian plugin compatibility.
 **Server exposure tests:**
 - Config validation test for `server.expose_to_lan`; startup test ensures bind host resolves to
   `0.0.0.0` when enabled.
-- LAN token test: non-GET API requests fail with 401/403 when token missing/invalid in LAN mode, and
-  succeed when valid token is provided.
-- LAN read-path test: representative GET/SSE routes remain reachable without token in v0.9 (documented
-  read-only behavior).
+- LAN bootstrap test: unauthenticated browser request to a protected page/API route redirects to
+  `/auth?next=...`.
+- LAN browser-session test: valid token submission sets session cookie; subsequent HTML, HTMX, and SSE
+  GETs succeed with the cookie and fail without it.
+- LAN CSRF test: authenticated browser `POST` without CSRF token is rejected, while the same request
+  with a valid token succeeds.
+- LAN API-client test: header-based `X-LSM-Access-Token` / bearer-token requests succeed without browser
+  session cookie.
+- LAN denial test: missing/invalid cookie/header yields redirect (HTML) or 401/403 (API/SSE).
+- OAuth callback test: mismatched or expired `session_id` in `lsm_web_oauth_states` is rejected even if
+  the `state` token itself is otherwise valid.
 
 **Template render tests:** Render each Jinja2 template with known context; assert key HTML elements
 are present (sidebar links, form targets, SSE attributes, `data-theme` attribute path).
@@ -2824,15 +3131,26 @@ are present (sidebar links, form targets, SSE attributes, `data-theme` attribute
 - `CommandScreen` dispatch table is the primary test surface — each command class is unit-tested
   independently.
 - `health` command: mock `check_db_health` + `requests.get` (for server poll); verify output table
-  rows and status indicators.
+  rows and status indicators, including the `0.0.0.0` -> `127.0.0.1` probe rewrite.
 - `log` command: mock `Path.open` with synthetic log content; verify tail and level-filter behaviour.
 - `embed-models` command: verify inventory formatting, installed-only filter behavior, and active/configured markers.
 - After tab collapse: update existing `tui_slow` and `tui_integration` tests that reference old tab
   structure.
 - Verify that plain text input returns the "use the web UI" message and does not attempt a query.
 - Verify that `/query` and `/mode` commands are not registered in the dispatch table.
+- Verify `LSMApp` only registers/switches between `CommandScreen` and `SettingsScreen`; no stale
+  Query/Ingest/Remote/Agents bindings or recovery paths remain.
 
-### 6.3 Logging Tests
+### 6.3 CLI + Schema Tests
+
+- `tests/test_db_schema.py` (or equivalent backend-specific schema tests) should verify
+  `ensure_application_schema()` creates all new Web/UI tables through the shared table registry and that
+  physical table names honor a non-default `db.table_prefix`.
+- Add parser/dispatcher tests for `lsm migrate --chats` so the flag is present in `--help`, reaches the
+  existing migrate subcommand path, and invokes the shared chat-migration service rather than a second
+  bespoke implementation.
+
+### 6.4 Logging Tests
 
 - After `setup_logging(global_folder=tmp_path)`: assert `<tmp_path>/Logs/` created; emit a record;
   assert file written.
@@ -2845,14 +3163,14 @@ are present (sidebar links, form targets, SSE attributes, `data-theme` attribute
 - Verify records from `lsm.ingest.*`, `lsm.query.*`, `lsm.agents.*` all propagate to the `"lsm"` root
   logger handler (confirms root logger name and file location are consistent).
 
-### 6.4 Path Tests
+### 6.5 Path Tests
 
 - All existing path-helper tests continue to pass against the merged `lsm/utils/paths.py`.
 - Smoke import test: `import lsm.paths` raises `ModuleNotFoundError`.
 - `ensure_global_folders` test: assert `Chats/` and `Logs/` subdirectories are created; `Notes/` is not
   created by default in v0.9.
 
-### 6.5 Conversation DB Tests
+### 6.6 Conversation DB Tests
 
 - Schema test: create tables, insert a conversation + messages, verify cascade delete, verify index.
 - Variant test: create assistant siblings in same `variant_group_id`; verify only one active variant is
@@ -2872,7 +3190,7 @@ are present (sidebar links, form targets, SSE attributes, `data-theme` attribute
 - Concurrency test: two concurrent latest-message mutations on same conversation produce one success and
   one deterministic `409 Conflict` (no partial writes).
 
-### 6.6 Provider Compaction Tests
+### 6.7 Provider Compaction Tests
 
 - Unit test `lsm.providers.compaction.compact_messages()` for `fresh`, `summary`, and provider-first modes.
 - OpenAI provider test: mock provider-native compaction/state continuation path and verify fallback when
@@ -2882,14 +3200,14 @@ are present (sidebar links, form targets, SSE attributes, `data-theme` attribute
 - Cache invalidation test: retry/edit/delete/branch operations invalidate or re-anchor provider chain IDs
   as expected.
 
-### 6.7 Vectordb Circular Dependency Tests
+### 6.8 Vectordb Circular Dependency Tests
 
 - Import test: `import lsm.db; import lsm.vectordb` — verify no circular import error.
 - Verify `lsm.db.__init__` module does not import from `lsm.vectordb` (grep or `importlib` introspection).
 - Integration test: create a `SqliteVecProvider`, perform an insert and search — confirms `lsm.vectordb`
   still correctly uses `lsm.db` utilities after the cleanup.
 
-### 6.8 Remote Chain DB Tests
+### 6.9 Remote Chain DB Tests
 
 - Migration test: import legacy `remote_provider_chains[]` config into DB tables once and mark migration
   complete.
@@ -2899,7 +3217,7 @@ are present (sidebar links, form targets, SSE attributes, `data-theme` attribute
 - Split-brain test: after migration marker is set, config `remote_provider_chains[]` edits are ignored
   and DB remains authoritative.
 
-### 6.9 Notes Convergence Compatibility Tests
+### 6.10 Notes Convergence Compatibility Tests
 
 - Backward config test: config containing legacy `notes` object still loads without hard failure
   (warning allowed) while notes-save actions are disabled.
@@ -2907,7 +3225,7 @@ are present (sidebar links, form targets, SSE attributes, `data-theme` attribute
 - Legacy command test: invoking `/note`/`/notes` in command parsers returns explicit "replaced by export"
   guidance.
 
-### 6.10 Embedding Inventory Tests
+### 6.11 Embedding Inventory Tests
 
 - Inventory service test: includes configured model, active registry model, registered fine-tuned
   models, and catalog entries in one normalized response.
@@ -2918,6 +3236,31 @@ are present (sidebar links, form targets, SSE attributes, `data-theme` attribute
   and does not delete filesystem model artifacts.
 - Validation endpoint test: `POST /api/admin/embeddings/validate` returns clear status for valid model,
   missing model path, and load error.
+
+### 6.12 Agent Interaction Timeout Tests
+
+- Config validation test: `agents.interaction.timeout_seconds = 0` is accepted and interpreted as
+  infinite wait rather than rejected as invalid.
+- Channel behavior test: pending request with `timeout_seconds = 0` does not auto-deny while waiting for
+  first acknowledgment/response.
+- Acknowledged behavior test: `acknowledged_timeout_seconds = 0` remains infinite after UI acknowledgment.
+- Explicit timeout test: positive fixed timeout values still trigger the configured `timeout_action`.
+
+### 6.13 Agent DB Coordination Tests
+
+- `tests/agents/test_runtime_db_coordination.py` — run registration, heartbeat updates, stale-owner
+  detection, state transitions, and row cleanup across both SQLite and PostgreSQL.
+- `tests/agents/test_runtime_db_logs.py` — `AgentHarness._append_log()` feeds the DB log writer queue,
+  redaction is preserved, tail polling by `seq > last_seen` is deterministic, and high-volume log
+  bursts do not corrupt ordering.
+- `tests/agents/test_runtime_db_interactions.py` — pending request insert, `ack`, `respond`, timeout,
+  cancel, `approve_session` persistence into `lsm_agent_tool_session_approvals`, and duplicate-response
+  races behave the same as the current in-memory `InteractionChannel`.
+- `tests/agents/test_runtime_db_commands.py` — stop/pause/resume/queue command claiming is atomic,
+  foreign processes cannot double-claim, and completed commands persist result messages for UI display.
+- Cross-process integration test: one process owns a live run while a second process posts commands and
+  interaction responses through the DB; verify the owner applies them and both UIs converge on the same
+  run/log/interaction state.
 
 ---
 
@@ -2952,7 +3295,9 @@ Order minimises breakage: low-blast-radius infrastructure first, high-blast-radi
 
 5. **`ServerConfig` dataclass** — add to config models; add `server` field to `LSMConfig`; include
    `expose_to_lan`; add LAN token enforcement fields (`require_access_token`, `access_token`);
-   enforce non-GET `/api/*` token checks in LAN mode; update config loader and serialiser; write parser tests.
+   add signed browser-session support for LAN mode (`/auth` bootstrap + logout); enforce authenticated
+   access for pages/API/SSE in LAN mode; add dedicated session-signing-key bootstrap and CSRF
+   enforcement for browser writes; update config loader and serialiser; write parser/auth tests.
 
 6. **`lsm.ui.shell` → `lsm.ui.tui`** — move `cli.py` and `commands/agents.py`; update all imports in
    `__main__.py` and test files; delete `lsm/ui/shell/`. Run full test suite.
@@ -2965,21 +3310,27 @@ Order minimises breakage: low-blast-radius infrastructure first, high-blast-radi
    Vendor HTMX, htmx-sse, and marked.js into `static/js/`. Also create `lsm/ingest/embedding.py`
    with a `load_embedding_model(config) -> SentenceTransformer` function extracted from the inline
    loading logic in `lsm/ingest/pipeline.py` (lines 424-426). This function is needed by the web
-   server startup preload and keeps pipeline.py from being imported at server boot time.
+   server startup preload and keeps pipeline.py from being imported at server boot time. Web runtime
+   is explicitly single-worker (`workers=1`) in v0.9.
 
 9. **Dark mode CSS** — write `main.css` with CSS custom properties; embed theme-init `<script>` in
    `base.html`; implement toggle. All pages respect dark mode preference.
 
-10. **Chat history DB schema v2** — create/extend `lsm_conversations` + `lsm_messages` with archive
-   flags, assistant variant-group fields, edit metadata, branch metadata, model override fields, and
-   multi-table FTS search schema (including variant-index uniqueness); write migration from flat files;
-   update conversation read/write in query provider.
+10. **Chat history DB schema v2** — extend the shared DB schema owner (`TableNames` +
+   `ensure_application_schema()`) with logical conversation/message tables, provider-state helper
+   tables, backend-specific FTS helpers, and prefixed physical names. Use separate `query_mode` +
+   `chat_mode` fields (do not overload one `mode` column), add archive flags, assistant
+   variant-group fields, edit metadata, branch metadata, model override fields, and variant-index
+   uniqueness. Write the flat-file chat migration as a shared service used by both startup
+   auto-detect and the explicit `lsm migrate --chats` path; wire the flag through CLI
+   parser/dispatcher tests. Explicitly keep chat embeddings/retrieval out of scope for v0.9.
 
 11. **Conversation services + routes** — implement `lsm/ui/web/services/conversations.py` and
    `/api/conversations/*`, `/api/messages/*` endpoints for archive/unarchive/delete, retry variants,
    variant selection, edit-last (user + assistant), delete-last semantics, branch creation, and
    per-conversation model selection, plus conversation/message export endpoints. Ensure all context-mutating
-   operations run in `BEGIN IMMEDIATE` transactions with latest-state conflict checks (`409` on stale).
+   operations run in backend-aware transactions (`BEGIN IMMEDIATE` for SQLite, row-locking transactions
+   for PostgreSQL) with latest-state conflict checks (`409` on stale).
 
 12. **Notes convergence cleanup** — full removal of standalone notes system (see §2.5.5 removal
     scope for the complete file list). Includes:
@@ -2987,6 +3338,8 @@ Order minimises breakage: low-blast-radius infrastructure first, high-blast-radi
     - remove `NotesConfig` class from `lsm/config/models/modes.py` and `notes` field from `LSMConfig`,
     - remove `get_notes_folder()` from `lsm/utils/paths.py` (merged in step 3),
     - remove notes fields from TUI settings view-model/widgets,
+    - remove remaining `config.notes` / note-command branches from `lsm/ui/helpers/commands/query.py`
+      and `common.py`,
     - replace `/note`/`/notes` command handlers with export guidance,
     - update config loader to tolerate old `"notes"` key (deprecation warning) but stop writing it,
     - ensure chat/message export is the canonical replacement.
@@ -3002,17 +3355,26 @@ Order minimises breakage: low-blast-radius infrastructure first, high-blast-radi
 
 15. **Web UI Ingest screen** — all ingest operations, SSE progress streaming, wipe confirmation.
 
-16. **Web UI Agents screen** — run-id based agent list/start/stop/pause, log SSE stream, interaction
-    inbox with explicit acknowledge/respond flow, and specialized email/calendar assistant launchers.
+16. **Agent DB coordination + Web UI Agents screen** — implement `lsm_agent_runs`,
+    `lsm_agent_run_logs`, `lsm_agent_interactions`, `lsm_agent_commands`, and
+    `lsm_agent_tool_session_approvals` through the shared application-schema registry so
+    `db.table_prefix` is honored; wire DB-backed runtime heartbeat, structured agent-log persistence,
+    `DbInteractionChannel`, owner-side command consumers, and cross-process stop/pause/respond/log
+    parity; then expose run-id based agent list/start/stop/pause controls, log SSE stream,
+    interaction inbox with explicit acknowledge/respond flow, and specialized email/calendar
+    assistant launchers.
 
 17. **Web UI Settings screen** — all config sections, read/write, inline validation, LAN exposure
-    controls, communication-provider secret handling, and browser-native OAuth connect/test/disconnect
-    flows for email/calendar providers.
+    controls, redacted-config read/merge-write secret semantics, communication-provider secret handling,
+    browser-native OAuth connect/test/disconnect flows for email/calendar providers, dedicated
+    session-signing-key bootstrap, signed browser-session handling, and CSRF enforcement for all
+    state-changing browser routes.
 
 18. **Remote chains DB migration + API** — seed defaults, one-time import from config chains (ships in
-    v0.9.0), CRUD +
-    revision tracking, JSON import/export endpoints, settings/admin integration, and split-brain
-    prevention rules so config no longer rewrites chain definitions post-migration.
+    v0.9.0), CRUD + revision tracking, JSON import/export endpoints, settings/admin integration, and
+    split-brain prevention rules so config no longer rewrites chain definitions post-migration. Use the
+    shared application-schema registry here as well; do not create standalone hard-coded
+    `lsm_remote_chains*` tables outside `ensure_application_schema()`.
 
 19. **Web UI Admin screen** — health, eval, migrate, cluster, graph, finetune (with pair-count
     preview), finetune unregister endpoint, embedding-model inventory/validate endpoints + panel,
@@ -3026,13 +3388,16 @@ Order minimises breakage: low-blast-radius infrastructure first, high-blast-radi
 
 21. **TUI simplification** — implement `CommandScreen` REPL (collapsing 4 tabs → 1); `Ctrl+H`
     keybinding; `/health`, `/log`, and `/embed-models` commands; remove query/mode/remote-query
-    commands; remove all buttons from TUI screens. Update `lsm/ui/tui/screens/__init__.py` lazy `__getattr__` imports:
-    remove `MainScreen`, `QueryScreen`, `IngestScreen`, `RemoteScreen`, `AgentsScreen` entries;
-    add `CommandScreen` entry. Update `__all__` list to match. Update
-    `lsm/ui/tui/screens/help.py`: its `ContextType` literal and `_CONTEXT_LABELS` dict reference
-    the old 5-tab structure (`"query"`, `"ingest"`, `"remote"`, `"agents"`, `"settings"`); update
-    to match the new 2-screen layout (`"command"`, `"settings"`). Update global shortcut text in
-    `_GLOBAL_SHORTCUTS` to reflect `Ctrl+H`/`Ctrl+S` bindings. Update TUI tests.
+    commands; remove all buttons from TUI screens. Update `lsm/ui/tui/app.py` itself to drop the old
+    5-tab registry, screen-switch bindings, and query-screen recovery/state assumptions. Update
+    `lsm/ui/tui/screens/__init__.py` lazy `__getattr__` imports: remove `MainScreen`, `QueryScreen`,
+    `IngestScreen`, `RemoteScreen`, `AgentsScreen` entries; add `CommandScreen` entry. Update
+    `__all__` list to match. Update `lsm/ui/tui/screens/help.py`: its `ContextType` literal and
+    `_CONTEXT_LABELS` dict reference the old 5-tab structure (`"query"`, `"ingest"`, `"remote"`,
+    `"agents"`, `"settings"`); update to match the new 2-screen layout (`"command"`, `"settings"`).
+    Update global shortcut text in `_GLOBAL_SHORTCUTS` to reflect `Ctrl+H`/`Ctrl+S` bindings, and
+    use the dedicated server-probe URL helper so `/health` never attempts to connect to `0.0.0.0`.
+    Update TUI tests.
 
 ---
 
@@ -3049,7 +3414,9 @@ Order minimises breakage: low-blast-radius infrastructure first, high-blast-radi
 | Web server port conflict on developer machine | `ServerConfig` makes port configurable; Uvicorn prints clear error on bind failure |
 | `EventBufferHandler` blocking on slow subscriber | Callbacks wrapped in `try/except`; long-running Web SSE consumers run in asyncio task reading from a queue |
 | TUI simplification breaks existing TUI tests | Run `tui_slow` and `tui_integration` tests after each screen removal step; fix before proceeding |
-| Agent runtime invisible across TUI/Web processes | Shared `lsm_agent_runtime_state` SQLite table with heartbeat; stale detection cleans up crashed agents |
+| TUI simplification leaves stale `LSMApp` tab bindings or query-recovery code active | Update `lsm/ui/tui/app.py`, screen registry, and help metadata together; add app-level tests that only `CommandScreen` and `SettingsScreen` remain addressable |
+| Cross-process agent coordination drifts between DB rows and owning runtime | Keep `lsm_agent_runs` canonical for live status, require heartbeat + sweeper cleanup, and add parity tests covering owner handoff, crash recovery, and stale-row repair |
+| New Web/UI tables bypass `db.table_prefix` or drift from the existing schema owner | Extend `TableNames` + `ensure_application_schema()` first, and add schema tests that run with a non-default prefix on both supported backends |
 | `PlainTextLogger` callsites missed during migration | Full grep confirms scope; `import lsm.utils.logger` raises `ModuleNotFoundError` after deletion |
 | Chat DB migration from flat files | Flat files remain untouched on disk as backup; migration runs once on startup if tables empty; idempotent |
 | Concurrent config file write (Web UI + TUI) | Last-write-wins (existing `save_config_to_file` behaviour); acceptable for single-user tool; document |
@@ -3067,16 +3434,20 @@ Order minimises breakage: low-blast-radius infrastructure first, high-blast-radi
 | Shared compaction primitive causes behavior regressions between agents and web query | Add cross-caller parity tests and rollout behind one config toggle for first release |
 | Unlimited assistant variants grow conversation DB unexpectedly | Add stats visibility in Admin screen (variant counts); allow future maintenance prune command if needed |
 | Editing assistant text can desync displayed sources vs edited content | Mark edited assistant messages with `edited_at` badge and preserve original `sources_json` provenance metadata |
-| LAN exposure increases attack surface | Keep default localhost bind; explicit `expose_to_lan` toggle; require LAN-mode access token for state-changing routes; document firewall requirement |
+| LAN exposure increases attack surface | Keep default localhost bind; explicit `expose_to_lan` toggle; require authenticated browser/API access for pages, API routes, and SSE in LAN mode; document firewall requirement |
+| Signed browser-session cookie without CSRF protection allows cross-origin writes on LAN | Require CSRF token on all browser state-changing routes, validate it in HTMX/form handlers, and add explicit auth-route tests |
+| TUI `/health` probes the bind address `0.0.0.0` and reports false negatives in LAN mode | Separate bind address from probe URL; probe `127.0.0.1` locally and render LAN candidate URLs as display-only metadata |
 | Remote chain config->DB migration drops complex chain metadata | One-shot migration with dry-run report + JSON backup export before write |
 | Per-conversation model override points to unavailable model | Validate against provider registry on save and fall back to service default with warning |
 | Removing standalone notes flow surprises users who rely on old behavior | Add explicit export actions in chat UI, migration note in release docs, and compatibility message if old note commands are invoked |
-| LAN-exposed state-changing endpoints are vulnerable to unauthorized browser/API writes | Require per-request access token in LAN mode for all non-GET API routes; reject missing/invalid tokens |
-| LAN mode leaves read-only GET/SSE API endpoints unauthenticated in v0.9 | Document LAN mode as trusted-network-only and recommend firewall/VPN isolation when enabled |
+| LAN-exposed pages/API/SSE leak private data if auth is scoped to writes only | Use access-token bootstrap + signed browser session for pages/HTMX/SSE; support header token auth for API clients; only `/auth` and static assets stay public |
 | Export endpoints leak secrets unintentionally | Default `redact=true`; require explicit opt-out and show warning for raw export |
 | Legacy `notes` config breaks loader/UI after removal | Keep backward-tolerant loader path for one cycle and migrate docs/tests to export flow |
 | Remote chains stored in both config and DB diverge over time | Introduce migration marker; DB is sole writer after migration; stop serializing chains to config |
-| Conversation search becomes slow on large datasets | Use SQLite FTS5 with index-backed queries; cap result count and paginate |
+| Conversation search becomes slow on large datasets | Use backend-specific FTS (SQLite FTS5 / PostgreSQL native FTS), cap result count, and paginate |
+| Web server run with multiple Uvicorn workers breaks in-memory queues/state | Explicitly support `workers=1` only in v0.9; document multi-worker as unsupported |
+| DB-backed agent coordination causes SQLite/PostgreSQL write amplification | Keep DB persistence agent-scoped only, use batched log-writer flushes, index polling queries, and avoid persisting generic Python logs |
+| DB command consumers apply stop/pause/resume twice after crash/restart races | Use `pending -> claimed -> completed/rejected/expired` transitions inside a transaction and key claims by `owner_instance_id` |
 | Embedding inventory reports false "installed" status due cache-layout differences across platforms | Use conservative local-path checks, mark uncertain entries as `unknown`, and keep explicit `validate` action |
 | Active fine-tuned model in DB and configured `global.embed_model` diverge and confuse users | Inventory UI shows both flags (`is_active_registry` and `is_configured_default`) and provides explicit guidance/action labels |
 | Stale fine-tuned registry rows accumulate after model folder deletion/moves | Add explicit unregister endpoint (`DELETE /api/admin/finetune/models/{model_id}`) and surface action in inventory/list UI |
@@ -3097,14 +3468,21 @@ Confirmed decisions reflected throughout this document.
 | Default `lsm` behaviour | Starts **web server**, prints address to stdout once bound |
 | TUI subcommand | `lsm cli` |
 | TUI ↔ web server co-running | Always **separate OS processes** — no in-process co-running |
-| Agent runtime coordination | **Shared SQLite table** (`lsm_agent_runtime_state`) with heartbeat for cross-process visibility |
+| Operating model | **Single user, single web worker** — LAN mode is same-user multi-device access, not multi-user tenancy |
+| Browser concurrency | **Multiple tabs/devices supported** — single-worker means one server process, not one browser session |
+| Agent runtime coordination | **Required agent-scoped DB coordination** — `runs + logs + interactions + commands + tool_session_approvals` provide cross-process live control in v0.9 |
 | Config file authority | Both UIs read/write the **same `config.json`** — no sync needed |
+| LAN authentication | **Access-token bootstrap page + signed browser session cookie**, with header-token support for API clients |
+| Browser session implementation | **Dedicated signing key + signed cookie carrying `session_id`**, with CSRF required on browser `POST`/`PUT`/`PATCH`/`DELETE` routes |
 | Settings API wire format | `PUT /api/config` supports both HTMX form submissions and JSON clients |
+| Settings secret transport | **Redacted reads + merge-write semantics** — GET never returns literal secrets |
 | Chat migration trigger | **Both**: auto-run on first startup when needed, plus explicit flag (`lsm migrate --chats`) on the existing `migrate` subcommand |
+| Chat migration implementation path | **One shared migration service** used by both startup auto-migration and parser/dispatcher-wired `lsm migrate --chats` |
+| Chat retrieval indexing | **Deferred to v0.10.x** — no chat embeddings/retrieval in v0.9 |
 | Logging module location | **`lsm/logging.py`** — stays in root; updated in-place with new handler classes; `lsm/utils/logger.py` deleted |
 | Logger hierarchy root | **Named logger `"lsm"`** — file stays in root to match its hierarchy; moving to `lsm/utils/` was rejected as misleading |
 | Log redaction model | **Always-on, logger-level redaction** before any sink emit; no sink-specific redaction logic |
-| DB-backed log persistence | **Scrapped for now** (out of v0.9 scope and no post-v0.9 commitment in this plan) |
+| DB-backed log persistence | **Persist structured agent runtime logs only** as part of agent coordination; generic Python logs stay in console/file/event-buffer sinks |
 | Agent log verbosity model | Switch from `normal/verbose/debug` helper enum to standard logging levels |
 | `configure_logging_from_args` | **Deleted** — replaced with direct `setup_logging()` calls at all callsites |
 | `PlainTextLogger` / `create_plaintext_logger` | **Dead code** — zero callers anywhere; deleted with no migration |
@@ -3123,7 +3501,9 @@ Confirmed decisions reflected throughout this document.
 | Admin screen scope | Health, eval, migrate, cluster, graph, finetune (with pair-count preview), statistics, live log tail |
 | Embedding model visibility | **Required inventory view** (configured + registry + catalog + local availability) in Admin UI/API and TUI `/embed-models` |
 | Fine-tuned registry cleanup | **Supported** via explicit unregister/delete action; does not delete model files automatically |
-| Chat history persistence | **SQLite DB** — long-term maintainable and required for future query pipeline inclusion |
+| Application DB schema ownership for new Web tables | **Extend existing `TableNames` + `ensure_application_schema()`**; all new Web/chat/agent/OAuth/remote-chain tables honor `db.table_prefix` |
+| Chat history persistence | **Active application DB backend** (`sqlite` or `postgresql`) — long-term maintainable and required for Web/chat persistence |
+| Conversation schema mode fields | **Persist `query_mode` and `chat_mode` separately** — do not overload one `mode` column |
 | Chat message storage format | **Raw markdown** stored in DB; rendered server-side by `mistune` on load |
 | "Infinite conversation" strategy | **Local transcript is canonical**; provider state (`previous_response_id` etc.) is optional acceleration only |
 | Assistant retry behavior | **Keep sibling assistant variants without a hard cap**; exactly one variant is active for future context |
@@ -3132,14 +3512,17 @@ Confirmed decisions reflected throughout this document.
 | Chat branching | **Supported** — branch from selected message into a new conversation lineage |
 | Chat archive semantics | **Dedicated archived view** plus search visibility; unarchive restores active list visibility |
 | Chat deletion semantics | **Permanent hard delete** of conversation and messages |
-| Chat search backend | **SQLite FTS5** across title, mode, message content, and citation metadata; search includes archived and active chats |
+| Chat search backend | **Backend-specific FTS** (SQLite FTS5 / PostgreSQL native FTS) across title, `query_mode`, message content, and citation metadata; search includes archived and active chats |
 | Chat model selection | **Per-conversation provider/model override** in Query UI |
 | Compaction ownership | **`lsm.providers` primitive** consumed by both agents and web query server |
 | Port default | **127.0.0.1:8080** — configurable via `"server"` config object |
 | Local network exposure | **Supported via `server.expose_to_lan`** (binds `0.0.0.0`); default remains localhost-only |
-| LAN-mode state-change protection | **Required access token** for non-GET API routes when LAN exposure is enabled |
+| Application DB backend for Web/chat state | **Use active LSM DB backend** (`sqlite` or `postgresql`) — no Web-only SQLite sidecar |
+| LAN-mode auth model | **Access-token bootstrap page + signed browser session cookie** for browsers; header token for API clients; OAuth callbacks remain bound to the authenticated browser session |
+| TUI server probe URL | **Never probe `0.0.0.0`** — use a client-reachable helper URL (localhost locally, detected LAN URLs for display only) |
 | Browser auto-open | **No** |
-| Authentication (v0.9.0) | **No user-account auth**; localhost mode relies on loopback, LAN mode uses access-token write protection |
+| Authentication (v0.9.0) | **No user-account auth**; single-user system with LAN-mode authenticated access for pages/API/SSE |
+| Web worker model | **Single Uvicorn worker only** in v0.9 |
 | Responsive/mobile support | **Required baseline support** for mobile and tablet layouts in web UI |
 | Dark mode | **Supported** — default follows `prefers-color-scheme`; user can toggle; preference in `localStorage` |
 | Markdown rendering (chat) | **`marked.js`** (client-side, vendored) for streaming; **`mistune`** (server-side) for stored messages |
@@ -3157,6 +3540,7 @@ Confirmed decisions reflected throughout this document.
 | Remote chains rollout timing | **Ship in v0.9.0** (not staged to v0.9.x) |
 | Remote chains authority after migration | **DB is source of truth**; config chains are import-only bootstrap input |
 | Legacy chat markdown files after DB migration | **Retained**; user decides whether/when to clean up |
+| Chat retrieval indexing | **Deferred to v0.10.x** — v0.9 stores/searches chats but does not embed them |
 | Chat streaming markdown UX | **Raw text during stream, render on `event: done`** — acceptable for a local tool; incremental rendering deferred |
 | Shims / backwards compat | **No import-path shims/aliases**; limited one-cycle config read-tolerance for legacy `notes` and remote-chain keys only |
 
@@ -3170,27 +3554,30 @@ Integrated from `**User Feedback:**` blocks:
 3. Packaged docs mirror approach is accepted.
 4. `PUT /api/config` keeps dual-mode (HTMX form + JSON client) with one shared write path.
 5. Legacy markdown chat transcripts remain on disk; user decides cleanup timing.
-6. DB-backed logs are scrapped for now; this plan does not include DB log persistence.
+6. Generic DB-backed logging remains out of scope, but structured agent runtime log persistence is in
+   scope as part of required cross-process agent coordination.
 7. Log redaction is centralized inside `lsm/logging.py` and applies to all outputs before emit.
 8. Assistant variant retention has no cap (single-user local system assumption).
 9. Editing latest user removes old assistant variants and regenerates response.
 10. Deleting latest assistant removes the entire assistant variant group for that turn.
 11. Archive UX uses a dedicated archived view in addition to search visibility.
-12. Chat search scope includes title, mode, message content, and citation metadata.
+12. Chat search scope includes title, `query_mode`, message content, and citation metadata.
 13. Server-side cache implications for variants/edits/deletes/branches are now integrated with explicit
     chain invalidation/re-anchor rules.
 14. Full branch-to-new-chat support is included in schema, API, and UI design.
 15. Per-conversation model selection is included in Query UI + API.
 16. Editing the latest assistant response is included and fed back into future context.
 17. Responsive/mobile web support is now part of v0.9 requirements.
-18. Local-network server exposure is supported via server config (`expose_to_lan`).
+18. Local-network server exposure is supported via server config (`expose_to_lan`) for same-user access
+    from other devices on the local network.
 19. Remote chains are researched as DB-backed with default preloads and JSON import/export.
 20. Chat branching is designed as branch-from-any-message (full branch support).
 21. Remote chains config->DB migration ships in v0.9.0 (not delayed to v0.9.x).
 22. Standalone notes flow is considered redundant; chat/message export is the canonical replacement.
 23. `configure_logging_from_args()` removed; callsites replaced with direct `setup_logging()` calls.
 24. Chat migration uses `lsm migrate --chats` flag on existing `migrate` subcommand (not a separate command).
-25. Agent runtime coordination uses shared SQLite table (`lsm_agent_runtime_state`) with heartbeat.
+25. Agent runtime coordination uses required DB-backed `runs + logs + interactions + commands +
+    tool_session_approvals` tables so cross-process live control works in v0.9.
 26. `bleach` replaced with `nh3` (bleach is deprecated since Jan 2023; nh3 is the Rust-backed replacement).
 27. Embedding model preloaded as background task after server starts listening (non-blocking startup).
 28. Plan now includes explicit embedding-model inventory visibility (Admin UI/API + TUI command) so
@@ -3200,16 +3587,31 @@ Integrated from `**User Feedback:**` blocks:
 30. Web UI agent interaction prompts reuse the existing `InteractionRequest` contract and require an
     explicit `ack` route so browser rendering participates in the current two-phase timeout model.
 31. Web UI live agent operations are keyed by `agent_id` (run identity), not `agent_name`, and the
-    shared runtime-state table is run-centric for multi-run correctness.
-32. Web UI does not expose `approve_session` in v0.9 because current approval caching is
-    process-global rather than browser-session scoped.
+    DB coordination tables are run-centric for multi-run correctness.
+32. Web UI still does not expose `approve_session` in v0.9; TUI `approve_session` parity is preserved
+    cross-process through run-scoped DB approval rows without adding browser-wide session approvals.
 33. Email/calendar support in the Web UI is delivered through Settings + specialized assistant
     launchers, not through separate standalone mail/calendar screens.
 34. Browser-native OAuth routes are added for communication providers; normal Web UI agent/background
     flows use non-interactive tokens only and never spawn the temporary localhost callback server.
 35. Agent interaction waits default to infinite duration, while fixed timeout behavior remains
     configurable for deployments that want automatic expiry.
+36. Chat persistence is in scope for v0.9, but chat embeddings/retrieval indexing are explicitly
+    deferred to v0.10.x.
+37. Web/chat state uses the active LSM DB backend (`sqlite` or `postgresql`) instead of a separate
+    Web-only SQLite sidecar.
+38. LAN-mode browser access uses token bootstrap + signed session cookies so pages, HTMX, and SSE are
+    authenticated, not just state-changing API routes.
+39. The web server is intentionally single-worker in v0.9; multi-worker deployment is out of scope.
+40. A single web worker can still serve multiple local/LAN tabs and devices concurrently; "single
+    worker" does not mean "single browser tab".
+41. Cross-process live stop/pause/respond/log control is a release requirement, so v0.9 adopts
+    agent-scoped DB coordination (`runs + logs + interactions + commands + tool_session_approvals`)
+    instead of visibility-only runtime mirroring.
+42. Even with required agent DB coordination, query/ingest/admin SSE jobs and the general event buffer
+    remain process-local, so that change alone does not make the full web stack multi-worker safe.
 
 ## 11. Clarifications Required
 
-No further clarifications are required for this research plan.
+No further clarifications are required after integrating the schema-ownership, migration-plumbing,
+session-security, and TUI-cleanup findings captured in this revision.
