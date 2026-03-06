@@ -137,6 +137,53 @@ def test_v07_manifest_import_with_100_plus_entries(
     assert target_conn.execute("SELECT COUNT(*) FROM lsm_manifest").fetchone()[0] == 120
 
 
+def test_v07_manifest_import_reports_committed_batches(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    source_dir = tmp_path / "legacy"
+    source_dir.mkdir(parents=True)
+    manifest = {
+        f"/docs/file_{idx}.md": {
+            "mtime_ns": idx,
+            "size": idx + 10,
+            "file_hash": f"h{idx}",
+            "version": 1,
+            "embedding_model": "test-model",
+            "updated_at": "2026-01-01T00:00:00+00:00",
+        }
+        for idx in range(450)
+    }
+    (source_dir / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+    _write_memories_db(source_dir / "memories.db")
+    (source_dir / "schedules.json").write_text("[]", encoding="utf-8")
+
+    target_conn = _target_connection()
+    target_provider = _LegacyTargetProvider(target_conn)
+    monkeypatch.setattr(
+        migration_mod,
+        "_provider_from_target",
+        lambda *_args, **_kwargs: target_provider,
+    )
+
+    progress_events: list[tuple[str, int, int, str]] = []
+    migration_mod.migrate(
+        "v0.7",
+        "v0.8",
+        {"source_dir": source_dir},
+        _runtime_config(),
+        progress_callback=lambda stage, current, total, message: progress_events.append(
+            (stage, current, total, message)
+        ),
+    )
+
+    manifest_events = [
+        event for event in progress_events
+        if event[0] == "legacy" and "Legacy manifest: committed" in event[3]
+    ]
+    assert [event[1] for event in manifest_events] == [200, 400, 450]
+
+
 def test_v07_memories_import_preserves_fields(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

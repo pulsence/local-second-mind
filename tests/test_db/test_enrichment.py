@@ -11,6 +11,7 @@ from unittest.mock import patch
 import pytest
 
 from lsm.db import enrichment
+from lsm.db import migration as migration_mod
 from lsm.db.enrichment import (
     ALL_STAGE_NAMES,
     STAGE_ALIASES,
@@ -320,6 +321,33 @@ class TestTier1Enrichment:
 
 
 class TestTier2Enrichment:
+    def test_backfill_positions_returns_structured_counters(self, tmp_path):
+        conn = _make_conn()
+        test_file = tmp_path / "positions.md"
+        test_file.write_text("hello world", encoding="utf-8")
+
+        _insert_chunk(
+            conn,
+            "c1",
+            source_path=str(test_file),
+            chunk_text="hello world",
+            start_char=None,
+            end_char=None,
+            chunk_length=None,
+        )
+
+        counters = enrichment._backfill_positions(
+            conn,
+            DEFAULT_TABLE_NAMES,
+            str(test_file),
+            test_file,
+        )
+
+        assert counters.matched_updates == 1
+        assert counters.sentinel_updates == 0
+        assert counters.files_with_writes == 1
+        assert counters.chunks_examined == 1
+
     def test_position_backfill(self, tmp_path):
         conn = _make_conn()
         test_file = tmp_path / "test.md"
@@ -413,6 +441,32 @@ class TestTier2Enrichment:
         # Second run should find zero files to process (sentinel excluded)
         u2, _ = enrichment.run_tier2_enrichment(conn, cfg)
         assert u2 == 0
+
+    def test_position_backfill_logs_matched_and_deferred_progress(self, tmp_path, monkeypatch, caplog):
+        conn = _make_conn()
+        caplog.set_level("INFO")
+        file_a = tmp_path / "a.md"
+        file_b = tmp_path / "b.md"
+        file_a.write_text("matched content", encoding="utf-8")
+        file_b.write_text("different", encoding="utf-8")
+
+        _insert_chunk(conn, "c1", source_path=str(file_a), chunk_text="matched content", start_char=None)
+        _insert_chunk(conn, "c2", source_path=str(file_b), chunk_text="missing chunk text", start_char=None)
+
+        monkeypatch.setattr(enrichment, "_POSITION_FLUSH_FILE_THRESHOLD", 1)
+        monkeypatch.setattr(enrichment, "_POSITION_FLUSH_ROW_THRESHOLD", 1)
+        monkeypatch.setattr(enrichment, "_POSITION_CHECKPOINT_EVERY_BATCHES", 99)
+
+        report = enrichment.run_enrichment_pipeline(conn, _fake_config(), only_stages={"enrich_tier2_positions"})
+
+        assert report.tier2_updated == 2
+        assert any(
+            "Position backfill:" in record.message
+            and "matched" in record.message
+            and "deferred" in record.message
+            and "written" in record.message
+            for record in caplog.records
+        )
 
 
 # ==================================================================
@@ -617,23 +671,23 @@ class TestBackfillGraph:
         u2 = enrichment._backfill_graph(conn, tn)
         assert u2 == 0  # Nodes already exist, nothing to do
 
-    def test_creates_source_path_index(self):
-        """Verify _backfill_graph creates the source_path index if missing."""
+    def test_backfill_graph_does_not_create_source_path_index(self):
         conn = _make_conn()
         tn = DEFAULT_TABLE_NAMES
 
-        # Drop the index if schema creation added it
         conn.execute(f"DROP INDEX IF EXISTS idx_{tn.graph_nodes}_source_path")
         conn.commit()
 
         enrichment._backfill_graph(conn, tn)
 
-        # Verify index now exists
         idx = conn.execute(
             "SELECT COUNT(*) FROM sqlite_master WHERE type='index' AND name=?",
             (f"idx_{tn.graph_nodes}_source_path",),
         ).fetchone()[0]
-        assert idx == 1
+        assert idx == 0
+
+    def test_sqlite_checkpoint_helper_is_noop_for_non_sqlite(self):
+        assert enrichment._maybe_checkpoint_position_batch(object(), batches_committed=1) is None
 
 
 # ==================================================================
@@ -753,6 +807,58 @@ class TestEnrichmentPipeline:
         enrichment.run_enrichment_pipeline(conn, cfg, stage_tracker=tracker)
         assert ("enrich_tier1", "in_progress") in stages
         assert ("enrich_tier1", "completed") in stages
+
+    def test_stage_tracker_completes_after_commit(self, monkeypatch):
+        conn = _make_conn()
+        _insert_chunk(conn, "c1", simhash=None)
+        cfg = _fake_config()
+        events: list[str] = []
+        original_commit = enrichment.commit
+
+        def tracked_commit(connection):
+            events.append("commit")
+            return original_commit(connection)
+
+        def tracker(name, status):
+            if name == "enrich_tier1_simhash" and status == "completed":
+                events.append("completed")
+
+        monkeypatch.setattr(enrichment, "commit", tracked_commit)
+
+        enrichment.run_enrichment_pipeline(conn, cfg, stage_tracker=tracker, only_stages={"enrich_tier1_simhash"})
+
+        assert "commit" in events
+        assert "completed" in events
+        assert events.index("commit") < events.index("completed")
+
+    def test_migration_stage_tracker_records_completion_after_commit(self, tmp_path):
+        conn = sqlite3.connect(str(tmp_path / "enrich.db"))
+        conn.row_factory = sqlite3.Row
+        ensure_application_schema(conn)
+        migration_mod._ensure_migration_progress_table(conn, DEFAULT_TABLE_NAMES)
+        _insert_chunk(conn, "c1", simhash=None)
+        cfg = _fake_config()
+        tracker = migration_mod._build_enrichment_stage_tracker(
+            conn=conn,
+            run_id="run-1",
+            source_type="sqlite",
+            target_type="sqlite",
+            tn=DEFAULT_TABLE_NAMES,
+        )
+
+        enrichment.run_enrichment_pipeline(
+            conn,
+            cfg,
+            stage_tracker=tracker,
+            only_stages={"enrich_tier1_simhash"},
+        )
+
+        row = conn.execute(
+            f"SELECT status FROM {DEFAULT_TABLE_NAMES.migration_progress} "
+            f"WHERE stage = 'enrich_tier1_simhash' ORDER BY id DESC LIMIT 1"
+        ).fetchone()
+        assert row is not None
+        assert row[0] == "completed"
 
     def test_tier3_advisory_in_report(self):
         conn = _make_conn()

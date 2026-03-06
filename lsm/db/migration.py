@@ -42,8 +42,6 @@ import hashlib
 import json
 import re
 import sqlite3
-import time
-from collections import deque
 from contextlib import ExitStack, contextmanager
 from dataclasses import dataclass, replace
 from datetime import datetime, timezone
@@ -61,9 +59,11 @@ from lsm.db.compat import fetch_rows_as_dicts as compat_fetch_rows_as_dicts
 from lsm.db.compat import safe_identifier
 from lsm.db.compat import table_exists as compat_table_exists
 from lsm.db.compat import upsert_rows as compat_upsert_rows
+from lsm.db.compat import upsert_rows_batched as compat_upsert_rows_batched
 from lsm.db.connection import resolve_connection
 from lsm.db.tables import DEFAULT_TABLE_NAMES, TableNames
 from lsm.logging import get_logger
+from lsm.progress import MovingAverageETA
 from lsm.vectordb import create_vectordb_provider
 
 logger = get_logger(__name__)
@@ -324,6 +324,7 @@ def migrate(
             target_conn = stack.enter_context(_connection_context(target_provider))
             if target_conn is None:
                 raise RuntimeError("Migration target does not expose a writable DB connection.")
+            _evolve_schema(target_conn, tn)
             _ensure_aux_tables(target_conn, tn)
             source_dir = _resolve_v07_source_dir(source_config)
             imported_counts = _migrate_v07_legacy(
@@ -405,6 +406,7 @@ def migrate(
         if target_conn is None:
             raise RuntimeError("Migration target does not expose a writable DB connection.")
 
+        _evolve_schema(target_conn, tn)
         _ensure_aux_tables(target_conn, tn)
         _ensure_migration_progress_table(target_conn, tn)
 
@@ -472,11 +474,11 @@ def migrate(
                 stage_name = _aux_copy_stage_name(spec.name, tn)
                 if stage_name in completed_stages:
                     _emit_progress(
-                        progress_callback,
-                        "migrate",
-                        0,
-                        0,
-                        f"Skipping {stage_name} (already completed).",
+                    progress_callback,
+                    "migrate",
+                    0,
+                    0,
+                    f"Skipping {stage_name} (already completed).",
                     )
                     expected_counts[spec.name] = compat_count_rows(target_conn, spec.name)
                     continue
@@ -495,6 +497,21 @@ def migrate(
                         target_conn=target_conn,
                         spec=spec,
                         progress_callback=progress_callback,
+                        batch_size=_AUX_UPSERT_BATCH_SIZE,
+                        on_batch_committed=lambda _rows_committed, total_committed, total_rows, stage_id=stage_id, spec=spec: _record_committed_stage_progress(
+                            conn=target_conn,
+                            stage_id=stage_id,
+                            rows_processed=total_committed,
+                            progress_callback=progress_callback,
+                            progress_stage="state",
+                            current=total_committed,
+                            total=total_rows,
+                            message=(
+                                f"Copied auxiliary table '{spec.name}' "
+                                f"({total_committed:,}/{total_rows:,} rows committed)."
+                            ),
+                            tn=tn,
+                        ),
                     )
                     _complete_stage(target_conn, stage_id, rows=copied, tn=tn)
                     expected_counts[spec.name] = compat_count_rows(target_conn, spec.name)
@@ -532,14 +549,32 @@ def migrate(
             _emit_progress(progress_callback, "migrate", 0, 0, "Skipping schema_evolution (already completed).")
 
         # FTS rebuild after cross-backend migration.
-        _rebuild_fts_if_needed(
-            target_conn=target_conn,
-            target_provider=target_provider,
-            source_type=source_enum.value,
-            target_type=target_enum.value,
-            tn=tn,
-            progress_callback=progress_callback,
-        )
+        fts_stage = "rebuild_fts"
+        if fts_stage not in completed_stages:
+            stage_id = _begin_stage(
+                target_conn,
+                run_id,
+                fts_stage,
+                source_enum.value,
+                target_enum.value,
+                tn,
+            )
+            try:
+                _rebuild_fts_if_needed(
+                    target_conn=target_conn,
+                    target_provider=target_provider,
+                    source_type=source_enum.value,
+                    target_type=target_enum.value,
+                    tn=tn,
+                    progress_callback=progress_callback,
+                )
+                compat_commit(target_conn)
+                _complete_stage(target_conn, stage_id, tn=tn)
+            except Exception as exc:
+                _fail_stage(target_conn, stage_id, str(exc), tn=tn)
+                raise
+        else:
+            _emit_progress(progress_callback, "migrate", 0, 0, "Skipping rebuild_fts (already completed).")
 
         # Enrichment integration (post-copy).
         if not skip_enrich and isinstance(target_conn, sqlite3.Connection):
@@ -569,9 +604,50 @@ def migrate(
                 "Skipping enrichment (requires SQLite target connection).",
             )
 
-        _record_validation_counts(target_conn, expected_counts, tn)
-        validation_result = validate_migration(target_conn, tn)
-        validation_checked = int(validation_result.get("checked", 0))
+        record_validation_stage = "record_validation_counts"
+        if record_validation_stage not in completed_stages:
+            stage_id = _begin_stage(
+                target_conn,
+                run_id,
+                record_validation_stage,
+                source_enum.value,
+                target_enum.value,
+                tn,
+            )
+            try:
+                _emit_progress(progress_callback, "migrate", 0, 0, "Recording validation counts...")
+                _record_validation_counts(target_conn, expected_counts, tn)
+                compat_commit(target_conn)
+                _complete_stage(target_conn, stage_id, rows=len(expected_counts), tn=tn)
+            except Exception as exc:
+                _fail_stage(target_conn, stage_id, str(exc), tn=tn)
+                raise
+        else:
+            _emit_progress(progress_callback, "migrate", 0, 0, "Skipping record_validation_counts (already completed).")
+
+        validate_stage = "validate_migration"
+        if validate_stage not in completed_stages:
+            stage_id = _begin_stage(
+                target_conn,
+                run_id,
+                validate_stage,
+                source_enum.value,
+                target_enum.value,
+                tn,
+            )
+            try:
+                _emit_progress(progress_callback, "migrate", 0, 0, "Validating migrated tables...")
+                validation_result = validate_migration(target_conn, tn)
+                validation_checked = int(validation_result.get("checked", 0))
+                compat_commit(target_conn)
+                _complete_stage(target_conn, stage_id, rows=validation_checked, tn=tn)
+            except Exception as exc:
+                _fail_stage(target_conn, stage_id, str(exc), tn=tn)
+                raise
+        else:
+            validation_result = validate_migration(target_conn, tn)
+            validation_checked = int(validation_result.get("checked", 0))
+            _emit_progress(progress_callback, "migrate", 0, 0, "Skipping validate_migration (already completed).")
 
     _emit_progress(progress_callback, "migrate", migrated, total, "Migration complete.")
     result: dict[str, Any] = {
@@ -637,11 +713,9 @@ def _copy_vectors(
     inferred_dim: Optional[int] = None
     last_page_ids: Optional[tuple[str, ...]] = None
 
-    # Track (timestamp, cumulative_offset) samples for moving-average ETA.
-    # Keep enough samples to cover ~5000 vectors worth of batches.
     max_samples = max(2, 5000 // max(1, batch_size) + 1)
-    timing_samples: deque[tuple[float, int]] = deque(maxlen=max_samples)
-    timing_samples.append((time.monotonic(), offset))
+    eta_tracker = MovingAverageETA(max_samples=max_samples)
+    eta_tracker.add_sample(offset)
 
     if rows_progress_callback is not None:
         rows_progress_callback(offset)
@@ -676,8 +750,8 @@ def _copy_vectors(
         if rows_progress_callback is not None:
             rows_progress_callback(offset)
 
-        timing_samples.append((time.monotonic(), offset))
-        eta_str = _format_eta(timing_samples, offset, total)
+        eta_tracker.add_sample(offset)
+        eta_str = eta_tracker.format(offset, total)
 
         _emit_progress(
             progress_callback,
@@ -688,40 +762,6 @@ def _copy_vectors(
         )
 
     return migrated, total, inferred_dim
-
-
-def _format_eta(
-    samples: deque[tuple[float, int]],
-    current: int,
-    total: int,
-) -> str:
-    """Compute an ETA string from a moving window of (timestamp, offset) samples."""
-    remaining = total - current
-    if remaining <= 0:
-        return "done"
-    if len(samples) < 2:
-        return "estimating..."
-
-    oldest_time, oldest_offset = samples[0]
-    newest_time, newest_offset = samples[-1]
-    elapsed = newest_time - oldest_time
-    vectors_done = newest_offset - oldest_offset
-
-    if elapsed <= 0 or vectors_done <= 0:
-        return "estimating..."
-
-    rate = vectors_done / elapsed  # vectors per second
-    eta_seconds = remaining / rate
-
-    if eta_seconds < 60:
-        return f"ETA {int(eta_seconds)}s"
-    if eta_seconds < 3600:
-        minutes = int(eta_seconds) // 60
-        secs = int(eta_seconds) % 60
-        return f"ETA {minutes}m {secs:02d}s"
-    hours = int(eta_seconds) // 3600
-    minutes = (int(eta_seconds) % 3600) // 60
-    return f"ETA {hours}h {minutes:02d}m"
 
 
 def _aux_copy_stage_name(table_name: str, tn: TableNames) -> str:
@@ -743,52 +783,42 @@ def _copy_aux_table(
     target_conn: Any,
     spec: AuxiliaryTableSpec,
     progress_callback: Optional[ProgressCallback],
+    batch_size: int = 500,
+    on_batch_committed: Optional[Callable[[int, int, int], None]] = None,
 ) -> int:
     if not compat_table_exists(source_conn, spec.name):
         return 0
     rows = compat_fetch_rows_as_dicts(
         source_conn, f"SELECT * FROM {safe_identifier(spec.name)}"
     )
+    total_rows = len(rows)
     if rows:
-        compat_upsert_rows(target_conn, spec.name, spec.primary_key, rows)
+        compat_upsert_rows_batched(
+            target_conn,
+            spec.name,
+            spec.primary_key,
+            rows,
+            batch_size=batch_size,
+            on_batch_committed=(
+                None
+                if on_batch_committed is None
+                else lambda rows_committed, total_committed: on_batch_committed(
+                    rows_committed,
+                    total_committed,
+                    total_rows,
+                )
+            ),
+        )
+    elif on_batch_committed is not None:
+        on_batch_committed(0, 0, 0)
     _emit_progress(
         progress_callback,
         "state",
-        len(rows),
-        len(rows),
-        f"Copied auxiliary table '{spec.name}' ({len(rows)} rows).",
+        total_rows,
+        total_rows,
+        f"Copied auxiliary table '{spec.name}' ({total_rows} rows).",
     )
-    return len(rows)
-
-
-def _copy_auxiliary_state(
-    *,
-    source_conn: Any,
-    target_conn: Any,
-    progress_callback: Optional[ProgressCallback],
-    tn: TableNames = DEFAULT_TABLE_NAMES,
-) -> Dict[str, int]:
-    counts: dict[str, int] = {}
-    _ensure_aux_tables(target_conn, tn)
-
-    for spec in _build_aux_table_specs(tn):
-        if not compat_table_exists(source_conn, spec.name):
-            continue
-        rows = compat_fetch_rows_as_dicts(
-            source_conn, f"SELECT * FROM {safe_identifier(spec.name)}"
-        )
-        counts[spec.name] = len(rows)
-        if rows:
-            compat_upsert_rows(target_conn, spec.name, spec.primary_key, rows)
-        _emit_progress(
-            progress_callback,
-            "state",
-            len(rows),
-            len(rows),
-            f"Copied auxiliary table '{spec.name}' ({len(rows)} rows).",
-        )
-
-    return counts
+    return total_rows
 
 
 def _record_derived_schema_version(
@@ -1040,6 +1070,26 @@ def _emit_progress(
     except TypeError:
         pass
     callback(stage, int(current), int(total), message)  # re-raise consistent error
+
+
+_AUX_UPSERT_BATCH_SIZE = 500
+_LEGACY_UPSERT_BATCH_SIZE = 200
+
+
+def _record_committed_stage_progress(
+    *,
+    conn: Any,
+    stage_id: int,
+    rows_processed: int,
+    progress_callback: Optional[ProgressCallback],
+    progress_stage: str,
+    current: int,
+    total: int,
+    message: str,
+    tn: TableNames = DEFAULT_TABLE_NAMES,
+) -> None:
+    _set_stage_rows_processed(conn, stage_id, rows_processed, tn=tn)
+    _emit_progress(progress_callback, progress_stage, current, total, message)
 
 
 # ---------------------------------------------------------------------------
@@ -1655,6 +1705,48 @@ def auto_detect_migration(
     return result
 
 
+def _write_legacy_rows(
+    *,
+    target_conn: Any,
+    table_name: str,
+    primary_key: str,
+    rows: list[dict[str, Any]],
+    artifact_label: str,
+    progress_callback: Optional[ProgressCallback],
+    batch_size: int = 200,
+) -> int:
+    total_rows = len(rows)
+    if total_rows == 0:
+        _emit_progress(
+            progress_callback,
+            "legacy",
+            0,
+            0,
+            f"Legacy {artifact_label}: no rows to import.",
+        )
+        return 0
+
+    compat_upsert_rows_batched(
+        target_conn,
+        table_name,
+        primary_key,
+        rows,
+        batch_size=batch_size,
+        on_batch_committed=lambda rows_committed, total_committed: _emit_progress(
+            progress_callback,
+            "legacy",
+            total_committed,
+            total_rows,
+            (
+                f"Legacy {artifact_label}: committed "
+                f"{total_committed:,}/{total_rows:,} rows "
+                f"(last batch {rows_committed:,})."
+            ),
+        ),
+    )
+    return total_rows
+
+
 def _migrate_v07_legacy(
     *,
     source_dir: Path,
@@ -1700,9 +1792,14 @@ def _migrate_v07_legacy(
                         "updated_at": value.get("updated_at") or _utcnow_iso(),
                     }
                 )
-        if rows:
-            compat_upsert_rows(target_conn, tn.manifest, "source_path", rows)
-        counts[tn.manifest] = len(rows)
+        counts[tn.manifest] = _write_legacy_rows(
+            target_conn=target_conn,
+            table_name=tn.manifest,
+            primary_key="source_path",
+            rows=rows,
+            artifact_label="manifest",
+            progress_callback=progress_callback,
+        )
     else:
         _warn_legacy_missing(source_dir / "manifest.json")
 
@@ -1747,9 +1844,14 @@ def _migrate_v07_legacy(
                             "source_run_id": row.get("source_run_id", row.get("run_id", "")),
                         }
                     )
-                if memory_rows:
-                    compat_upsert_rows(target_conn, tn.agent_memories, "id", memory_rows)
-            counts[tn.agent_memories] = len(memory_rows)
+            counts[tn.agent_memories] = _write_legacy_rows(
+                target_conn=target_conn,
+                table_name=tn.agent_memories,
+                primary_key="id",
+                rows=memory_rows,
+                artifact_label="memories",
+                progress_callback=progress_callback,
+            )
 
             candidate_rows: list[dict[str, Any]] = []
             if candidate_table is not None:
@@ -1768,14 +1870,14 @@ def _migrate_v07_legacy(
                             "updated_at": row.get("updated_at") or row.get("created_at") or _utcnow_iso(),
                         }
                     )
-                if candidate_rows:
-                    compat_upsert_rows(
-                        target_conn,
-                        tn.agent_memory_candidates,
-                        "id",
-                        candidate_rows,
-                    )
-            counts[tn.agent_memory_candidates] = len(candidate_rows)
+            counts[tn.agent_memory_candidates] = _write_legacy_rows(
+                target_conn=target_conn,
+                table_name=tn.agent_memory_candidates,
+                primary_key="id",
+                rows=candidate_rows,
+                artifact_label="memory_candidates",
+                progress_callback=progress_callback,
+            )
         finally:
             legacy_conn.close()
     else:
@@ -1804,9 +1906,14 @@ def _migrate_v07_legacy(
                     "updated_at": schedule.get("updated_at") or _utcnow_iso(),
                 }
             )
-        if schedule_rows:
-            compat_upsert_rows(target_conn, tn.agent_schedules, "schedule_id", schedule_rows)
-        counts[tn.agent_schedules] = len(schedule_rows)
+        counts[tn.agent_schedules] = _write_legacy_rows(
+            target_conn=target_conn,
+            table_name=tn.agent_schedules,
+            primary_key="schedule_id",
+            rows=schedule_rows,
+            artifact_label="schedules",
+            progress_callback=progress_callback,
+        )
     else:
         _warn_legacy_missing(source_dir / "schedules.json")
 
@@ -1835,9 +1942,14 @@ def _migrate_v07_legacy(
                         "stats_json": _json_text(value.get("stats", {}), default="{}"),
                     }
                 )
-        if stats_rows:
-            compat_upsert_rows(target_conn, tn.stats_cache, "cache_key", stats_rows)
-        counts[tn.stats_cache] = len(stats_rows)
+        counts[tn.stats_cache] = _write_legacy_rows(
+            target_conn=target_conn,
+            table_name=tn.stats_cache,
+            primary_key="cache_key",
+            rows=stats_rows,
+            artifact_label="stats_cache",
+            progress_callback=progress_callback,
+        )
     else:
         _warn_legacy_missing(source_dir / "stats_cache.json")
 
@@ -1863,8 +1975,23 @@ def _migrate_v07_legacy(
                 }
             )
     if remote_rows:
-        compat_upsert_rows(target_conn, tn.remote_cache, "cache_key", remote_rows)
-    counts[tn.remote_cache] = len(remote_rows)
+        counts[tn.remote_cache] = _write_legacy_rows(
+            target_conn=target_conn,
+            table_name=tn.remote_cache,
+            primary_key="cache_key",
+            rows=remote_rows,
+            artifact_label="remote_cache",
+            progress_callback=progress_callback,
+        )
+    else:
+        counts[tn.remote_cache] = _write_legacy_rows(
+            target_conn=target_conn,
+            table_name=tn.remote_cache,
+            primary_key="cache_key",
+            rows=[],
+            artifact_label="remote_cache",
+            progress_callback=progress_callback,
+        )
 
     _emit_progress(
         progress_callback,

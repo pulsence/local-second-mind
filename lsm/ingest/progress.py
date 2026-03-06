@@ -4,6 +4,8 @@ import time
 from dataclasses import dataclass, field
 from typing import Callable, Optional
 
+from lsm.progress import MovingAverageETA
+
 
 @dataclass
 class Progress:
@@ -21,6 +23,7 @@ class Progress:
     last_report: float = field(default_factory=time.time)
     report_every_s: float = 1.0
     on_update: Optional[Callable[[str, int, int, str], None]] = None
+    eta: MovingAverageETA = field(default_factory=MovingAverageETA)
 
     def _emit(self, event: str, message: str = "") -> None:
         if self.on_update:
@@ -30,10 +33,13 @@ class Progress:
         self.total_files = total_files
         self.t0 = time.time()
         self.last_report = self.t0
+        self.eta.reset()
+        self.eta.add_sample(0)
         self._emit("start", f"Found {total_files} files to consider.")
 
     def file_done(self) -> None:
         self.seen += 1
+        self.eta.add_sample(self.seen)
         self.maybe_report()
 
     def file_skipped(self) -> None:
@@ -64,12 +70,13 @@ class Progress:
 
         elapsed = now - self.t0
         rate = (self.seen / elapsed) if elapsed > 0 else 0.0
+        eta = self.eta.format(self.seen, self.total_files)
 
         line = (
             f"Progress: {self.seen}/{self.total_files} files | "
             f"updated={self.updated} skipped={self.skipped} empty={self.empty} errors={self.errors} | "
             f"chunks={self.chunks} writes={self.writes} | "
-            f"{rate:.1f} files/s | {elapsed:.1f}s elapsed"
+            f"{rate:.1f} files/s | {elapsed:.1f}s elapsed | {eta}"
         )
         self._emit("progress", line)
 

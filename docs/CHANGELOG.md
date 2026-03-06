@@ -6,6 +6,14 @@ All notable changes to Local Second Mind are documented here.
 
 ### Changed
 
+- **Migration durability and progress reporting (Phase 20)**: Reworked long-running ingest, enrichment, and migration progress so ETA reporting uses a shared moving-average helper and durable progress is only reported after committed work.
+  - Replaced whole-run ingest ETA math with a bounded moving average while keeping the existing progress callback contract and CLI message shape.
+  - Updated migration vector copy, Tier 1 enrichment, and Tier 2 position backfill to share the same ETA formatting (`estimating...`, `ETA …`, `done`).
+  - Changed Tier 2 position backfill accounting to distinguish matched updates from boundary-drift sentinel writes and report both in committed batch progress logs.
+  - Added batched auxiliary-table and v0.7 legacy UPSERT helpers so large migration imports commit incrementally on both SQLite and PostgreSQL targets instead of holding one transaction open until the end.
+  - Added commit-ordered migration progress tracking for auxiliary copy, FTS rebuild, validation-count recording, and migration validation stages.
+  - Moved graph-node `source_path` index ownership fully into schema creation and removed the runtime graph-backfill DDL shim.
+  - Added SQLite WAL checkpoint helpers and periodic checkpointing during long-running position backfill to keep WAL growth under control.
 - **DB-Agnostic Application Layer (Phase 19)**: Made the application database layer fully backend-agnostic so PostgreSQL reaches complete feature parity with SQLite for all application tables.
   - Added `lsm/db/compat.py` with shared SQL compatibility helpers: `dialect()`, `is_sqlite()`, `is_postgres()`, `execute()`, `executemany()`, `fetchone()`, `fetchall()`, `commit()`, `table_exists()`, `db_error()`, `row_to_dict()`, `insert_returning_id()`, `safe_identifier()`, `upsert_rows()`, `count_rows()`, `execute_ddl_script()`.
   - Added `resolve_connection()` context manager in `lsm/db/connection.py` for unified provider connection resolution across SQLite and PostgreSQL; accepts both provider instances and config objects.

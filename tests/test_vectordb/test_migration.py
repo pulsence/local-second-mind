@@ -7,6 +7,7 @@ import sqlite3
 import pytest
 
 from lsm.config.models import DBConfig
+from lsm.db.compat import upsert_rows_batched
 from lsm.db import migration as migration_mod
 from lsm.db.tables import DEFAULT_TABLE_NAMES
 from lsm.vectordb.base import VectorDBGetResult
@@ -512,3 +513,158 @@ class TestSchemaEvolution:
         assert "simhash" in cols
         assert "node_type" in cols
         assert "ext" in cols
+
+
+def test_upsert_rows_batched_commits_per_batch_and_calls_callback() -> None:
+    conn = sqlite3.connect(":memory:")
+    conn.execute("CREATE TABLE example (id TEXT PRIMARY KEY, value TEXT)")
+    callbacks: list[tuple[int, int]] = []
+
+    total = upsert_rows_batched(
+        conn,
+        "example",
+        "id",
+        [{"id": f"r{idx}", "value": str(idx)} for idx in range(5)],
+        batch_size=2,
+        on_batch_committed=lambda rows_committed, total_committed: callbacks.append(
+            (rows_committed, total_committed)
+        ),
+    )
+
+    assert total == 5
+    assert callbacks == [(2, 2), (2, 4), (1, 5)]
+    assert conn.execute("SELECT COUNT(*) FROM example").fetchone()[0] == 5
+
+
+def test_copy_aux_table_updates_rows_processed_per_committed_batch() -> None:
+    source_conn = _aux_connection()
+    target_conn = _aux_connection()
+    tn = DEFAULT_TABLE_NAMES
+    progress_events: list[tuple[str, int, int, str]] = []
+
+    for idx in range(1200):
+        source_conn.execute(
+            f"""
+            INSERT INTO {tn.manifest} (
+                source_path, mtime_ns, file_size, file_hash, version, embedding_model, schema_version_id, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (f"/tmp/file_{idx}.md", idx, idx + 10, f"h{idx}", 1, "test-model", None, "t0"),
+        )
+    source_conn.commit()
+
+    migration_mod._ensure_migration_progress_table(target_conn, tn)
+    stage_id = migration_mod._begin_stage(target_conn, "run-1", "copy_manifest", "sqlite", "sqlite", tn)
+
+    copied = migration_mod._copy_aux_table(
+        source_conn=source_conn,
+        target_conn=target_conn,
+        spec=next(spec for spec in migration_mod._build_aux_table_specs(tn) if spec.name == tn.manifest),
+        progress_callback=lambda stage, current, total, message: progress_events.append(
+            (stage, current, total, message)
+        ),
+        batch_size=500,
+        on_batch_committed=lambda _rows_committed, total_committed, total_rows: migration_mod._record_committed_stage_progress(
+            conn=target_conn,
+            stage_id=stage_id,
+            rows_processed=total_committed,
+            progress_callback=lambda stage, current, total, message: progress_events.append(
+                (stage, current, total, message)
+            ),
+            progress_stage="state",
+            current=total_committed,
+            total=total_rows,
+            message=f"manifest {total_committed}/{total_rows}",
+            tn=tn,
+        ),
+    )
+
+    row = target_conn.execute(
+        f"SELECT rows_processed FROM {tn.migration_progress} WHERE id = ?",
+        (stage_id,),
+    ).fetchone()
+
+    assert copied == 1200
+    assert row[0] == 1200
+    assert [event[1] for event in progress_events if event[3].startswith("manifest")] == [500, 1000, 1200]
+
+
+def test_vector_copy_updates_rows_processed_only_after_provider_batch_commit() -> None:
+    source_conn = _aux_connection()
+    target_conn = _aux_connection()
+    tn = DEFAULT_TABLE_NAMES
+    migration_mod._ensure_migration_progress_table(target_conn, tn)
+    stage_id = migration_mod._begin_stage(target_conn, "run-v", "copy_vectors", "sqlite", "sqlite", tn)
+    source_provider = _FakeProvider(_sample_rows(), connection=source_conn)
+    rows_seen_during_add: list[int] = []
+
+    class _CheckingTargetProvider(_FakeProvider):
+        def add_chunks(self, ids, documents, metadatas, embeddings):  # noqa: ANN001
+            row = target_conn.execute(
+                f"SELECT rows_processed FROM {tn.migration_progress} WHERE id = ?",
+                (stage_id,),
+            ).fetchone()
+            rows_seen_during_add.append(int(row[0] or 0))
+            super().add_chunks(ids, documents, metadatas, embeddings)
+
+    target_provider = _CheckingTargetProvider([], connection=target_conn)
+
+    migration_mod._copy_vectors(
+        source_provider=source_provider,
+        target_provider=target_provider,
+        batch_size=10,
+        progress_callback=None,
+        rows_progress_callback=lambda rows: migration_mod._set_stage_rows_processed(
+            target_conn,
+            stage_id,
+            rows,
+            tn=tn,
+        ),
+    )
+
+    row = target_conn.execute(
+        f"SELECT rows_processed FROM {tn.migration_progress} WHERE id = ?",
+        (stage_id,),
+    ).fetchone()
+    assert rows_seen_during_add == [0]
+    assert row[0] == 2
+
+
+def test_migration_records_finalization_stages(monkeypatch: pytest.MonkeyPatch) -> None:
+    source_conn = _aux_connection()
+    target_conn = _aux_connection()
+    _seed_aux_tables(source_conn)
+    source_provider = _FakeProvider(_sample_rows(), connection=source_conn)
+    target_provider = _FakeProvider([], connection=target_conn)
+
+    monkeypatch.setattr(
+        migration_mod,
+        "_provider_from_source",
+        lambda *_args, **_kwargs: source_provider,
+    )
+    monkeypatch.setattr(
+        migration_mod,
+        "_provider_from_target",
+        lambda *_args, **_kwargs: target_provider,
+    )
+
+    migration_mod.migrate(
+        "sqlite",
+        "sqlite",
+        {"db": {"vector": {"provider": "sqlite"}}},
+        {
+            "db": {"vector": {"provider": "sqlite"}},
+            "global": {"embed_model": "test-model", "embedding_dimension": 384},
+            "ingest": {"chunking_strategy": "structure", "chunk_size": 1800, "chunk_overlap": 200},
+        },
+        skip_enrich=True,
+    )
+
+    rows = target_conn.execute(
+        f"SELECT stage, status FROM {DEFAULT_TABLE_NAMES.migration_progress}"
+    ).fetchall()
+    stages = {(row[0], row[1]) for row in rows}
+
+    assert ("rebuild_fts", "completed") in stages
+    assert ("record_validation_counts", "completed") in stages
+    assert ("validate_migration", "completed") in stages

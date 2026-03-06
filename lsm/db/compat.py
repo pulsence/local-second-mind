@@ -14,7 +14,7 @@ from __future__ import annotations
 import re
 import sqlite3
 from contextlib import contextmanager
-from typing import Any, Dict, Iterable, Iterator, List, Mapping, Optional, Sequence, Tuple
+from typing import Any, Callable, Dict, Iterable, Iterator, List, Mapping, Optional, Sequence, Tuple
 
 _VALID_IDENTIFIER = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
@@ -319,3 +319,75 @@ def upsert_rows(
             cur = conn.cursor()
             cur.execute(sql, values)
     commit(conn)
+
+
+def upsert_rows_batched(
+    conn: Any,
+    table: str,
+    pk: str,
+    rows: Iterable[Dict[str, Any]],
+    *,
+    batch_size: int = 500,
+    on_batch_committed: Optional[Callable[[int, int], None]] = None,
+) -> int:
+    """Dialect-aware UPSERT that commits once per batch."""
+    rows_list = list(rows)
+    if not rows_list:
+        return 0
+
+    safe_table = safe_identifier(table)
+    safe_pk = safe_identifier(pk)
+    columns = list(rows_list[0].keys())
+    for key in columns:
+        safe_identifier(key)
+    update_columns = [col for col in columns if col != safe_pk]
+    effective_batch_size = max(1, int(batch_size))
+
+    if is_sqlite(conn):
+        placeholders = ", ".join(["?"] * len(columns))
+        assignments = ", ".join(f"{col}=excluded.{col}" for col in update_columns)
+    else:
+        placeholders = ", ".join(["%s"] * len(columns))
+        assignments = ", ".join(f"{col}=EXCLUDED.{col}" for col in update_columns)
+
+    conflict_sql = (
+        f"ON CONFLICT({safe_pk}) DO UPDATE SET {assignments}"
+        if assignments
+        else f"ON CONFLICT({safe_pk}) DO NOTHING"
+    )
+    sql = (
+        f"INSERT INTO {safe_table} ({', '.join(columns)}) "
+        f"VALUES ({placeholders}) {conflict_sql}"
+    )
+
+    total_committed = 0
+    for start in range(0, len(rows_list), effective_batch_size):
+        batch = rows_list[start:start + effective_batch_size]
+        values = [tuple(row.get(col) for col in columns) for row in batch]
+        executemany(conn, sql, values)
+        commit(conn)
+        total_committed += len(batch)
+        if on_batch_committed is not None:
+            on_batch_committed(len(batch), total_committed)
+
+    return total_committed
+
+
+def sqlite_wal_checkpoint(conn: Any, mode: str = "PASSIVE") -> Optional[Dict[str, int | str]]:
+    """Run a SQLite WAL checkpoint, or return ``None`` for non-SQLite backends."""
+    if not is_sqlite(conn):
+        return None
+
+    normalized = str(mode or "PASSIVE").strip().upper()
+    if normalized not in {"PASSIVE", "FULL", "RESTART", "TRUNCATE"}:
+        raise ValueError(f"Unsupported WAL checkpoint mode: {mode!r}")
+
+    row = execute(conn, f"PRAGMA wal_checkpoint({normalized})").fetchone()
+    if row is None:
+        return {"mode": normalized, "busy": 0, "log": 0, "checkpointed": 0}
+    return {
+        "mode": normalized,
+        "busy": int(row[0] or 0),
+        "log": int(row[1] or 0),
+        "checkpointed": int(row[2] or 0),
+    }

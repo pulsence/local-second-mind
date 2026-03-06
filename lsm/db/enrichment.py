@@ -17,8 +17,9 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
-from lsm.db.compat import commit, execute, fetchall, fetchone, table_exists
+from lsm.db.compat import commit, execute, fetchall, fetchone, is_sqlite, sqlite_wal_checkpoint, table_exists
 from lsm.db.tables import DEFAULT_TABLE_NAMES, TableNames
+from lsm.progress import MovingAverageETA
 
 logger = logging.getLogger(__name__)
 
@@ -39,6 +40,26 @@ class EnrichmentReport:
     tier3_needed: tuple[str, ...] = ()
     drifted_source_paths: tuple[str, ...] = ()
     errors: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
+class PositionBackfillCounters:
+    matched_updates: int = 0
+    sentinel_updates: int = 0
+    files_with_writes: int = 0
+    chunks_examined: int = 0
+
+    @property
+    def total_updates(self) -> int:
+        return self.matched_updates + self.sentinel_updates
+
+    def add(self, other: "PositionBackfillCounters") -> "PositionBackfillCounters":
+        return PositionBackfillCounters(
+            matched_updates=self.matched_updates + other.matched_updates,
+            sentinel_updates=self.sentinel_updates + other.sentinel_updates,
+            files_with_writes=self.files_with_writes + other.files_with_writes,
+            chunks_examined=self.chunks_examined + other.chunks_examined,
+        )
 
 
 # ------------------------------------------------------------------
@@ -301,9 +322,6 @@ def run_tier1_enrichment(
 
 def _backfill_simhash(conn: Any, tn: TableNames) -> int:
     """Compute and store simhash for chunks where it is NULL."""
-    import time
-    from collections import deque
-
     from lsm.ingest.dedup_hash import compute_simhash
 
     batch_size = 1000
@@ -329,9 +347,8 @@ def _backfill_simhash(conn: Any, tn: TableNames) -> int:
             f"{already_done:,}", f"{remaining:,}",
         )
 
-    # Track (timestamp, updated_count) for moving-average ETA over ~5 batches.
-    timing_samples: deque[tuple[float, int]] = deque(maxlen=6)
-    timing_samples.append((time.monotonic(), 0))
+    eta_tracker = MovingAverageETA(max_samples=6)
+    eta_tracker.add_sample(0)
 
     while True:
         rows = fetchall(
@@ -351,49 +368,14 @@ def _backfill_simhash(conn: Any, tn: TableNames) -> int:
             updated += 1
         commit(conn)
 
-        timing_samples.append((time.monotonic(), updated))
-        eta_str = _format_enrichment_eta(timing_samples, updated, remaining)
+        eta_tracker.add_sample(updated)
+        eta_str = eta_tracker.format(updated, remaining)
         logger.info(
             "Simhash backfill: %s/%s chunks updated. (%s)",
             f"{updated:,}", f"{remaining:,}", eta_str,
         )
 
     return updated
-
-
-def _format_enrichment_eta(
-    samples: deque[tuple[float, int]],
-    current: int,
-    total: int,
-) -> str:
-    """Compute an ETA string from a moving window of (timestamp, count) samples."""
-    remaining = total - current
-    if remaining <= 0:
-        return "done"
-    if len(samples) < 2:
-        return "estimating..."
-
-    oldest_time, oldest_count = samples[0]
-    newest_time, newest_count = samples[-1]
-    elapsed = newest_time - oldest_time
-    items_done = newest_count - oldest_count
-
-    if elapsed <= 0 or items_done <= 0:
-        return "estimating..."
-
-    rate = items_done / elapsed
-    eta_seconds = remaining / rate
-
-    if eta_seconds < 60:
-        return f"ETA {int(eta_seconds)}s"
-    if eta_seconds < 3600:
-        minutes = int(eta_seconds) // 60
-        secs = int(eta_seconds) % 60
-        return f"ETA {minutes}m {secs:02d}s"
-    hours = int(eta_seconds) // 3600
-    minutes = (int(eta_seconds) % 3600) // 60
-    return f"ETA {hours}h {minutes:02d}m"
-
 
 def _backfill_defaults(conn: Any, tn: TableNames) -> int:
     """Set version and is_current defaults where NULL."""
@@ -456,9 +438,6 @@ def _backfill_tags(
     tn: TableNames,
 ) -> int:
     """Apply root_tags and content_type from config to chunks missing them."""
-    import time
-    from collections import deque
-
     roots = getattr(getattr(config, "ingest", None), "roots", None)
     if not roots:
         return 0
@@ -487,8 +466,8 @@ def _backfill_tags(
 
     logger.info("Tag backfill: %s chunks to process.", f"{remaining:,}")
 
-    timing_samples: deque[tuple[float, int]] = deque(maxlen=6)
-    timing_samples.append((time.monotonic(), 0))
+    eta_tracker = MovingAverageETA(max_samples=6)
+    eta_tracker.add_sample(0)
 
     while True:
         rows = fetchall(
@@ -534,8 +513,8 @@ def _backfill_tags(
             updated += 1
         commit(conn)
 
-        timing_samples.append((time.monotonic(), updated))
-        eta_str = _format_enrichment_eta(timing_samples, updated, remaining)
+        eta_tracker.add_sample(updated)
+        eta_str = eta_tracker.format(updated, remaining)
         logger.info(
             "Tag backfill: %s/%s chunks updated. (%s)",
             f"{updated:,}", f"{remaining:,}", eta_str,
@@ -592,7 +571,7 @@ def run_tier2_enrichment(
         updated += _backfill_heading_path(conn, tn, source_path, sp)
 
         # Position backfill
-        updated += _backfill_positions(conn, tn, source_path, sp)
+        updated += _backfill_positions(conn, tn, source_path, sp).total_updates
 
     # Graph backfill for files without graph entries
     updated += _backfill_graph(conn, tn)
@@ -680,7 +659,7 @@ def _backfill_positions(
     tn: TableNames,
     source_path: str,
     file_path: Path,
-) -> int:
+) -> PositionBackfillCounters:
     """Backfill start_char/end_char/chunk_length from source file re-parse."""
     rows = fetchall(
         conn,
@@ -694,16 +673,19 @@ def _backfill_positions(
     )
 
     if not rows:
-        return 0
+        return PositionBackfillCounters(chunks_examined=0)
 
     try:
         raw_text = file_path.read_text(encoding="utf-8", errors="replace")
     except Exception as exc:
         logger.warning("Cannot read %s for position backfill: %s", source_path, exc)
-        return 0
+        return PositionBackfillCounters(chunks_examined=len(rows))
 
-    updated = 0
+    matched_updates = 0
+    sentinel_updates = 0
+    chunks_examined = 0
     for chunk_id, chunk_text, chunk_index in rows:
+        chunks_examined += 1
         if not chunk_text:
             continue
         # Try to locate the chunk text in the source file
@@ -720,7 +702,7 @@ def _backfill_positions(
                     WHERE chunk_id = ?""",
                 (start_char, end_char, chunk_length, chunk_id),
             )
-            updated += 1
+            matched_updates += 1
         else:
             # Mark as attempted-but-unmatchable so future runs skip it.
             execute(
@@ -735,8 +717,15 @@ def _backfill_positions(
                 source_path,
                 chunk_index,
             )
+            sentinel_updates += 1
 
-    return updated
+    total_updates = matched_updates + sentinel_updates
+    return PositionBackfillCounters(
+        matched_updates=matched_updates,
+        sentinel_updates=sentinel_updates,
+        files_with_writes=1 if total_updates > 0 else 0,
+        chunks_examined=chunks_examined,
+    )
 
 
 _BINARY_EXTENSIONS: set[str] = {
@@ -754,13 +743,6 @@ def _backfill_graph(conn: Any, tn: TableNames) -> int:
     # Check if graph tables exist
     if not table_exists(conn, tn.graph_nodes):
         return 0
-
-    # Ensure index exists for the NOT EXISTS subquery (critical for large DBs)
-    execute(
-        conn,
-        f"CREATE INDEX IF NOT EXISTS idx_{tn.graph_nodes}_source_path "
-        f"ON {tn.graph_nodes}(source_path)",
-    )
 
     # Find source files that have chunks but no graph nodes
     rows = fetchall(
@@ -843,6 +825,36 @@ def _backfill_graph(conn: Any, tn: TableNames) -> int:
             logger.info("Graph backfill: %s/%s files (%s updated, %s skipped).", f"{processed:,}", f"{total_files:,}", f"{updated:,}", f"{skipped:,}")
 
     return updated
+
+
+_POSITION_FLUSH_FILE_THRESHOLD = 3
+_POSITION_FLUSH_ROW_THRESHOLD = 200
+_POSITION_CHECKPOINT_EVERY_BATCHES = 3
+
+
+def _format_checkpoint_summary(result: Optional[Dict[str, int | str]]) -> str:
+    if not result:
+        return "checkpoint=none"
+    return (
+        f"checkpoint={result['mode']} "
+        f"busy={int(result['busy'])} log={int(result['log'])} "
+        f"checkpointed={int(result['checkpointed'])}"
+    )
+
+
+def _maybe_checkpoint_position_batch(
+    conn: Any,
+    *,
+    batches_committed: int,
+    final: bool = False,
+) -> Optional[Dict[str, int | str]]:
+    if not is_sqlite(conn):
+        return None
+    if final:
+        return sqlite_wal_checkpoint(conn, mode="TRUNCATE")
+    if batches_committed % _POSITION_CHECKPOINT_EVERY_BATCHES != 0:
+        return None
+    return sqlite_wal_checkpoint(conn, mode="PASSIVE")
 
 
 # ------------------------------------------------------------------
@@ -956,7 +968,12 @@ def run_enrichment_pipeline(
         summaries_enabled=summaries_enabled,
     )
 
-    def _run_stage(stage_name: str, fn: Callable[[], int]) -> int:
+    def _run_stage(
+        stage_name: str,
+        fn: Callable[[], int],
+        *,
+        commit_after: bool = True,
+    ) -> int:
         if stage_name in skipped_stage_names:
             logger.info("Skipping enrichment stage %s (already completed)", stage_name)
             return 0
@@ -965,6 +982,8 @@ def run_enrichment_pipeline(
             if stage_tracker:
                 stage_tracker(stage_name, "in_progress")
             updated = int(fn())
+            if commit_after:
+                commit(conn)
             logger.info("Completed enrichment stage: %s (%d updated)", stage_name, updated)
             if stage_tracker:
                 stage_tracker(stage_name, "completed")
@@ -985,6 +1004,7 @@ def run_enrichment_pipeline(
     tier1_updated += _run_stage("enrich_tier1_defaults", lambda: _backfill_defaults(conn, tn))
     tier1_updated += _run_stage("enrich_tier1_node_type", lambda: _backfill_node_type(conn, tn))
     tier1_updated += _run_stage("enrich_tier1_tags", lambda: _backfill_tags(conn, config, tn))
+    commit(conn)
     if stage_tracker:
         tier1_failed = any(
             stage_name in failed_stages
@@ -996,7 +1016,6 @@ def run_enrichment_pipeline(
             )
         )
         stage_tracker("enrich_tier1", "failed" if tier1_failed else "completed")
-    commit(conn)
     logger.info("Tier 1 enrichment: %d chunks updated", tier1_updated)
 
     # Tier 2
@@ -1051,20 +1070,70 @@ def run_enrichment_pipeline(
                 "start_char IS NULL",
                 "positions",
             )
-            updated = 0
-            for i, (source_path, file_path) in enumerate(paths, 1):
-                updated += _backfill_positions(conn, tn, source_path, file_path)
-                if i % 5 == 0 or i == total:
-                    commit(conn)
-                    logger.info("Position backfill: %s/%s files (%s updated).", f"{i:,}", f"{total:,}", f"{updated:,}")
-                elif i == 1:
-                    logger.info("Position backfill: %s/%s files (%s updated).", f"{i:,}", f"{total:,}", f"{updated:,}")
-            return updated
+            if total == 0:
+                return 0
+
+            eta_tracker = MovingAverageETA(max_samples=8)
+            eta_tracker.add_sample(0)
+            cumulative = PositionBackfillCounters()
+            processed_files = 0
+            pending_files = 0
+            pending = PositionBackfillCounters()
+            batches_committed = 0
+
+            def _flush_batch() -> None:
+                nonlocal batches_committed, cumulative, pending, pending_files, processed_files
+                if pending_files == 0:
+                    return
+
+                batch_files = pending_files
+                batch_rows = pending.total_updates
+                commit(conn)
+                batches_committed += 1
+                processed_files += batch_files
+                cumulative = cumulative.add(pending)
+                eta_tracker.add_sample(processed_files)
+
+                checkpoint_result = _maybe_checkpoint_position_batch(
+                    conn,
+                    batches_committed=batches_committed,
+                )
+                logger.info(
+                    "Position backfill: %s/%s files (%s matched, %s deferred, %s written). (%s) batch_files=%s batch_rows=%s %s",
+                    f"{processed_files:,}",
+                    f"{total:,}",
+                    f"{cumulative.matched_updates:,}",
+                    f"{cumulative.sentinel_updates:,}",
+                    f"{cumulative.total_updates:,}",
+                    eta_tracker.format(processed_files, total),
+                    f"{batch_files:,}",
+                    f"{batch_rows:,}",
+                    _format_checkpoint_summary(checkpoint_result),
+                )
+                pending_files = 0
+                pending = PositionBackfillCounters()
+
+            for source_path, file_path in paths:
+                pending = pending.add(_backfill_positions(conn, tn, source_path, file_path))
+                pending_files += 1
+                if (
+                    pending_files >= _POSITION_FLUSH_FILE_THRESHOLD
+                    or pending.total_updates >= _POSITION_FLUSH_ROW_THRESHOLD
+                ):
+                    _flush_batch()
+
+            _flush_batch()
+            if processed_files > 0 and is_sqlite(conn):
+                logger.info(
+                    "Position backfill stage close: %s",
+                    _format_checkpoint_summary(
+                        sqlite_wal_checkpoint(conn, mode="TRUNCATE")
+                    ),
+                )
+            return cumulative.total_updates
 
         tier2_updated += _run_stage("enrich_tier2_heading_path", _run_heading_path)
-        commit(conn)
         tier2_updated += _run_stage("enrich_tier2_positions", _run_positions)
-        commit(conn)
         tier2_updated += _run_stage("enrich_tier2_graph", lambda: _backfill_graph(conn, tn))
         commit(conn)
         logger.info(
@@ -1092,6 +1161,7 @@ def run_enrichment_pipeline(
             "enrich_tier2_clusters",
             lambda: run_tier2_cluster_enrichment(conn, config, tn),
         )
+        commit(conn)
         if stage_tracker:
             stage_tracker(
                 "enrich_tier2b",
@@ -1114,6 +1184,7 @@ def run_enrichment_pipeline(
         for f in stale["tier3"]["drifted_source_paths"]:
             tier3_needed.append(f"boundary drifted: {f}")
         drifted_source_paths = list(stale["tier3"]["drifted_source_paths"])
+        commit(conn)
         if stage_tracker:
             stage_tracker("enrich_tier3_gap_detection", "completed")
 

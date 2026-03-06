@@ -1,5 +1,6 @@
 import sqlite3
 import sys
+from itertools import count
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -202,3 +203,41 @@ class TestIngestIntegration:
         assert second.total_files == first.total_files
         assert second.skipped_files == second.total_files
         assert second.chunks_added == 0
+
+    def test_ingest_progress_callback_emits_eta_messages(
+        self,
+        synthetic_data_root: Path,
+        tmp_path: Path,
+        monkeypatch,
+    ) -> None:
+        provider = InMemoryVectorProvider(tmp_path / "lsm.db")
+        config = _build_config(synthetic_data_root, tmp_path)
+        progress_events: list[tuple[str, int, int, str]] = []
+        ticks = count(start=1000)
+
+        monkeypatch.setitem(
+            sys.modules,
+            "sentence_transformers",
+            SimpleNamespace(SentenceTransformer=FakeSentenceTransformer),
+        )
+        monkeypatch.setattr(
+            "lsm.ingest.pipeline.create_vectordb_provider",
+            lambda *_args, **_kwargs: provider,
+        )
+        monkeypatch.setattr(
+            "lsm.ingest.pipeline.time.time",
+            lambda: float(next(ticks)),
+        )
+
+        run_ingest(
+            config,
+            force=True,
+            progress_callback=lambda event, current, total, message: progress_events.append(
+                (event, current, total, message)
+            ),
+        )
+
+        assert any(
+            event == "progress" and "eta=" in message and ("ETA " in message or "estimating..." in message)
+            for event, _current, _total, message in progress_events
+        )

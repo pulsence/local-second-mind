@@ -41,6 +41,7 @@ from lsm.db.schema_version import (
     record_schema_version,
 )
 from lsm.db.tables import TableNames
+from lsm.progress import MovingAverageETA
 from lsm.vectordb import BaseVectorDBProvider, create_vectordb_provider
 from lsm.config.models import LLMConfig, RootConfig, DBConfig
 
@@ -527,6 +528,8 @@ def ingest(
     lock = threading.Lock()
     start_time = time.time()
     last_report = start_time
+    eta_tracker = MovingAverageETA(max_samples=8)
+    eta_tracker.add_sample(0)
 
     scanned = 0
     processed = 0
@@ -558,6 +561,9 @@ def ingest(
     # "cannot commit - no transaction is active".
     if manifest_connection is not None:
         _ensure_manifest_table(manifest_connection)
+
+    def note_completed() -> None:
+        eta_tracker.add_sample(completed)
 
     # ---- Writer thread (sole DB owner) ----
     def writer_thread():
@@ -912,8 +918,7 @@ def ingest(
 
         with lock:
             rate = completed / elapsed if elapsed > 0 else 0.0
-            remaining = total_files - completed
-            eta = (remaining / rate) if rate > 0 else float("inf")
+            eta = eta_tracker.format(completed, total_files)
             chunk_rate = (added_chunks / embed_seconds) if embed_seconds > 0 else 0.0
             wc = written_chunks
 
@@ -925,7 +930,7 @@ def ingest(
                 f"queued={processed:,} skipped={skipped:,} embedded_files={embedded_files:,} "
                 f"chunks_added={added_chunks:,} chunks_written={wc:,} "
                 f"file_rate={rate:0.2f}/s embed_rate={chunk_rate:0.1f}/s "
-                f"elapsed={format_time(elapsed)} eta={format_time(eta)}"
+                f"elapsed={format_time(elapsed)} eta={eta}"
             ),
         )
         last_report = now
@@ -956,6 +961,7 @@ def ingest(
             pr = f.result()
         except CancelledError:
             completed += 1
+            note_completed()
             return True
         pr.version = getattr(f, "_lsm_version", 1)
         if pr.parse_errors:
@@ -982,6 +988,7 @@ def ingest(
         else:
             _put(parse_out_q, pr)
         completed += 1
+        note_completed()
         return True
 
     pool = ThreadPoolExecutor(max_workers=parse_workers)
@@ -1011,6 +1018,7 @@ def ingest(
                     skipped += 1
                     processed += 1
                     completed += 1
+                    note_completed()
                     maybe_report()
                     continue
 
@@ -1018,6 +1026,7 @@ def ingest(
                 skipped += 1
                 processed += 1
                 completed += 1
+                note_completed()
                 maybe_report()
                 continue
 
@@ -1030,6 +1039,7 @@ def ingest(
                 skipped += 1
                 processed += 1
                 completed += 1
+                note_completed()
                 continue
 
             prev = manifest.get(key)
@@ -1050,6 +1060,7 @@ def ingest(
                 skipped += 1
                 processed += 1
                 completed += 1
+                note_completed()
                 maybe_report()
                 continue
 
@@ -1060,6 +1071,7 @@ def ingest(
                 skipped += 1
                 processed += 1
                 completed += 1
+                note_completed()
                 maybe_report()
                 continue
 
@@ -1103,6 +1115,7 @@ def ingest(
                 skipped += 1
                 processed += 1
                 completed += 1
+                note_completed()
                 maybe_report()
                 continue
 
@@ -1120,6 +1133,7 @@ def ingest(
                 skipped += 1
                 processed += 1
                 completed += 1
+                note_completed()
                 maybe_report()
                 continue
 

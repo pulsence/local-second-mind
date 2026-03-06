@@ -1,6 +1,32 @@
 from __future__ import annotations
 
 from lsm.ingest.progress import Progress
+from lsm.progress import MovingAverageETA
+
+
+def test_moving_average_eta_estimates_only_after_enough_samples() -> None:
+    eta = MovingAverageETA(max_samples=4)
+    eta.add_sample(0, timestamp=0.0)
+
+    assert eta.format(0, 10) == "estimating..."
+
+
+def test_moving_average_eta_formats_stable_progress() -> None:
+    eta = MovingAverageETA(max_samples=4)
+    eta.add_sample(0, timestamp=0.0)
+    eta.add_sample(5, timestamp=5.0)
+
+    assert eta.format(5, 10) == "ETA 5s"
+
+
+def test_moving_average_eta_is_not_poisoned_by_slow_startup() -> None:
+    eta = MovingAverageETA(max_samples=3)
+    eta.add_sample(0, timestamp=0.0)
+    eta.add_sample(1, timestamp=100.0)
+    eta.add_sample(6, timestamp=105.0)
+    eta.add_sample(11, timestamp=110.0)
+
+    assert eta.format(11, 21) == "ETA 10s"
 
 
 def test_start_and_finish_emit_events() -> None:
