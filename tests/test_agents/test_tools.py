@@ -5,7 +5,7 @@ from pathlib import Path
 
 from lsm.agents.tools import (
     CreateFolderTool,
-    QueryKnowledgeBaseTool,
+    QueryAndSynthesizeTool,
     QueryLLMTool,
     QueryRemoteChainTool,
     QueryRemoteTool,
@@ -88,38 +88,49 @@ def test_read_folder_tool_lists_entries(tmp_path: Path) -> None:
     assert "b" in names
 
 
-def test_query_knowledge_base_tool_returns_results(monkeypatch) -> None:
-    from lsm.query.api import QueryResult
-
+def test_query_and_synthesize_tool_returns_results() -> None:
     class FakeCandidate:
         cid = "c1"
         text = "chunk text"
         distance = 0.2
+        meta = {"source_path": "doc.md"}
 
         @property
         def relevance(self):
             return 1.0 - self.distance
 
-    class FakeConfig:
-        pass
+    class FakePackage:
+        candidates = [FakeCandidate()]
 
-    fake_result = QueryResult(
-        answer="Test answer",
-        sources_display="doc.md",
-        candidates=[FakeCandidate()],
-        cost=0.0,
-        remote_sources=[],
-        debug_info={},
-    )
+    class FakeResponse:
+        answer = "Test answer"
+        response_id = "resp-1"
+        conversation_id = None
+        candidates = [FakeCandidate()]
+        package = FakePackage()
 
-    monkeypatch.setattr("lsm.agents.tools.query_knowledge_base.query_sync", lambda **kwargs: fake_result)
+        def to_dict(self):
+            return {
+                "answer": self.answer,
+                "response_id": self.response_id,
+                "conversation_id": self.conversation_id,
+            }
 
-    tool = QueryKnowledgeBaseTool(
-        config=FakeConfig(),
-        embedder=None,
-        collection=None,
-    )
-    payload = json.loads(tool.execute({"query": "test", "top_k": 1}))
+    class FakePipeline:
+        class config:
+            @staticmethod
+            def get_mode_config(name):
+                from lsm.config.models.modes import GROUNDED_MODE
+
+                _ = name
+                return GROUNDED_MODE
+
+        def run(self, request):
+            _ = request
+            return FakeResponse()
+
+    tool = QueryAndSynthesizeTool(pipeline=FakePipeline())
+    payload = json.loads(tool.execute({"query": "test", "k": 1}))
     assert "answer" in payload
     assert "candidates" in payload
     assert payload["answer"] == "Test answer"

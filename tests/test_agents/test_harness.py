@@ -30,6 +30,19 @@ class EchoTool(BaseTool):
         return str(args.get("text", ""))
 
 
+class FailingTool(BaseTool):
+    name = "fail"
+    description = "Always fails."
+    input_schema = {
+        "type": "object",
+        "properties": {},
+    }
+
+    def execute(self, args: dict) -> str:
+        _ = args
+        raise RuntimeError("tool boom")
+
+
 def _base_raw(tmp_path: Path) -> dict:
     return {
         "global": {"global_folder": str(tmp_path / "global")},
@@ -359,6 +372,7 @@ def _make_bounded_harness(
     config = build_config_from_raw(raw, tmp_path / "config.json")
     registry = ToolRegistry()
     registry.register(EchoTool())
+    registry.register(FailingTool())
     sandbox = ToolSandbox(config.agents.sandbox)
     return AgentHarness(
         config.agents,
@@ -614,3 +628,20 @@ def test_run_bounded_direct_tool_calls_disallowed_tool_produces_error(monkeypatc
     assert len(result.tool_calls) == 1
     assert "error" in result.tool_calls[0]
     assert "not allowed" in result.tool_calls[0]["error"]
+
+
+def test_run_bounded_tool_exception_is_recorded_and_recoverable(monkeypatch, tmp_path: Path) -> None:
+    provider = _RecordingProvider([
+        json.dumps({"response": "Call fail", "action": "fail", "action_arguments": {}}),
+        _done_response(),
+    ])
+    monkeypatch.setattr("lsm.agents.harness.create_provider", lambda cfg: provider)
+    harness = _make_bounded_harness(tmp_path)
+
+    result = harness.run_bounded(user_message="hi", tool_names=None)
+
+    assert result.stop_reason == "done"
+    assert len(result.tool_calls) == 1
+    assert result.tool_calls[0]["name"] == "fail"
+    assert "tool boom" in result.tool_calls[0]["error"]
+    assert any("Tool 'fail' failed: tool boom" in entry.content for entry in harness.state.log_entries)

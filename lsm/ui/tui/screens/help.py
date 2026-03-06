@@ -144,7 +144,7 @@ _WHATS_NEW: tuple[str, ...] = (
     "Agent foundation overhaul: all agents use _run_phase() for bounded LLM execution.",
     "AgentHarness.run_bounded() with multi-context support via context_label.",
     "Two-phase interaction timeout: acknowledged requests wait indefinitely.",
-    "Pipeline tools (query_context, execute_context, query_and_synthesize) replace query_knowledge_base.",
+    "Pipeline tools (query_context, execute_context, query_and_synthesize) power agent retrieval.",
     "Per-source remote tools: each provider gets its own query_<name> tool instance.",
     "BaseAgent.remote_source_allowlist for fine-grained per-source tool filtering.",
     "Manual token tracking and direct provider domain-method calls removed from all agents.",

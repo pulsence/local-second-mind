@@ -1,7 +1,5 @@
 """
 Tool for running the full query pipeline (build_sources → synthesize → execute).
-
-Replaces query_knowledge_base with pipeline-backed execution.
 """
 
 from __future__ import annotations

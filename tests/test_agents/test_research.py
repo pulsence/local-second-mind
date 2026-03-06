@@ -17,15 +17,14 @@ from lsm.agents.tools.sandbox import ToolSandbox
 from lsm.config.loader import build_config_from_raw
 
 
-class QueryKnowledgeBaseStubTool(BaseTool):
-    name = "query_knowledge_base"
-    description = "Stub knowledge base query tool."
+class QueryAndSynthesizeStubTool(BaseTool):
+    name = "query_and_synthesize"
+    description = "Stub pipeline query tool."
     input_schema = {
         "type": "object",
         "properties": {
             "query": {"type": "string"},
-            "top_k": {"type": "integer"},
-            "max_chars": {"type": "integer"},
+            "k": {"type": "integer"},
         },
         "required": ["query"],
     }
@@ -102,7 +101,7 @@ def _build_agent(tmp_path: Path) -> ResearchAgent:
     config = build_config_from_raw(_base_raw(tmp_path), tmp_path / "config.json")
     assert config.agents is not None
     registry = ToolRegistry()
-    registry.register(QueryKnowledgeBaseStubTool())
+    registry.register(QueryAndSynthesizeStubTool())
     sandbox = ToolSandbox(config.agents.sandbox)
     return ResearchAgent(
         config.llm,
@@ -287,7 +286,7 @@ def test_agent_factory_creates_research_agent(tmp_path: Path) -> None:
     config = build_config_from_raw(_base_raw(tmp_path), tmp_path / "config.json")
     assert config.agents is not None
     registry = ToolRegistry()
-    registry.register(QueryKnowledgeBaseStubTool())
+    registry.register(QueryAndSynthesizeStubTool())
     sandbox = ToolSandbox(config.agents.sandbox)
 
     agent = create_agent(
@@ -315,7 +314,7 @@ def test_agent_registry_rejects_unknown_agent(tmp_path: Path) -> None:
     config = build_config_from_raw(_base_raw(tmp_path), tmp_path / "config.json")
     assert config.agents is not None
     registry = ToolRegistry()
-    registry.register(QueryKnowledgeBaseStubTool())
+    registry.register(QueryAndSynthesizeStubTool())
     sandbox = ToolSandbox(config.agents.sandbox)
     agent_registry = AgentRegistry()
 

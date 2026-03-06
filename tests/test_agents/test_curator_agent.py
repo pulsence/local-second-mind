@@ -125,12 +125,12 @@ class SimilaritySearchStubTool(BaseTool):
         )
 
 
-class QueryKnowledgeBaseStubTool(BaseTool):
-    name = "query_knowledge_base"
-    description = "Stub knowledge base query tool."
+class QueryAndSynthesizeStubTool(BaseTool):
+    name = "query_and_synthesize"
+    description = "Stub pipeline query tool."
     input_schema = {
         "type": "object",
-        "properties": {"query": {"type": "string"}, "top_k": {"type": "integer"}},
+        "properties": {"query": {"type": "string"}, "k": {"type": "integer"}},
         "required": ["query"],
     }
 
@@ -201,7 +201,7 @@ def _register_tools(registry: ToolRegistry) -> None:
     registry.register(FileMetadataStubTool())
     registry.register(HashFileStubTool())
     registry.register(SimilaritySearchStubTool())
-    registry.register(QueryKnowledgeBaseStubTool())
+    registry.register(QueryAndSynthesizeStubTool())
 
 
 def _make_fake_run_phase(tmp_path: Path):
@@ -216,7 +216,7 @@ def _make_fake_run_phase(tmp_path: Path):
         "file_metadata": FileMetadataStubTool(),
         "hash_file": HashFileStubTool(),
         "similarity_search": SimilaritySearchStubTool(),
-        "query_knowledge_base": QueryKnowledgeBaseStubTool(),
+        "query_and_synthesize": QueryAndSynthesizeStubTool(),
     }
 
     def fake_run_phase(**kwargs):

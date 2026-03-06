@@ -113,7 +113,6 @@ class BaseAgent(ABC):
     _always_available_tools: set[str] = {"ask_user"}
     _BUILTIN_QUERY_TOOL_NAMES: frozenset = frozenset(
         {
-            "query_knowledge_base",
             "query_context",
             "execute_context",
             "query_and_synthesize",

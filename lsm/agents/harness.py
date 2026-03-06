@@ -59,7 +59,6 @@ class AgentHarness:
     _ALWAYS_AVAILABLE_TOOLS = {"ask_user"}
     _BUILTIN_QUERY_TOOL_NAMES = frozenset(
         {
-            "query_knowledge_base",
             "query_context",
             "execute_context",
             "query_and_synthesize",
@@ -446,6 +445,24 @@ class AgentHarness:
                     break
                 stop_reason = "done"
                 break
+            except Exception as exc:
+                error_text = f"Tool '{action}' failed: {exc}"
+                tool_calls_accumulated.append({
+                    "name": action,
+                    "error": str(exc),
+                })
+                self._append_log(
+                    AgentLogEntry(
+                        timestamp=datetime.utcnow(),
+                        actor="agent",
+                        content=error_text,
+                        action=action,
+                    )
+                )
+                feedback = f"Error: {error_text}"
+                history.append({"role": "tool", "name": action, "content": feedback})
+                context.messages.append({"role": "tool", "name": action, "content": feedback})
+                continue
 
             self._record_permission_decision(
                 action,

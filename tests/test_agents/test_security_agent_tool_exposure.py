@@ -49,7 +49,6 @@ _TOOL_NAMES = {
     "source_map",
     "extract_snippets",
     "similarity_search",
-    "query_knowledge_base",
     "query_context",
     "execute_context",
     "query_and_synthesize",
@@ -97,7 +96,6 @@ _STRIDE_TEST_MODULES = {
     "source_map": {"test_security_integrity.py"},
     "extract_snippets": {"test_security_resources.py"},
     "similarity_search": {"test_security_resources.py"},
-    "query_knowledge_base": {"test_security_resources.py"},
     "query_context": {"test_security_resources.py"},
     "execute_context": {"test_security_resources.py"},
     "query_and_synthesize": {"test_security_resources.py"},
@@ -170,7 +168,7 @@ def _expected_tools(agent_cls, registry: ToolRegistry, *, allow_url_access: bool
     allowed &= registered
     if not allow_url_access:
         builtin_query_tools = {
-            "query_knowledge_base", "query_context", "execute_context",
+            "query_context", "execute_context",
             "query_and_synthesize", "query_llm", "query_remote_chain",
         }
         network_tools = set(ToolSandbox._NETWORK_TOOL_NAMES)

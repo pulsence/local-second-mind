@@ -134,7 +134,7 @@ Tool availability is determined by the agent's built-in allowlist and sandbox se
 
 | Tool | Description |
 |------|-------------|
-| `query_knowledge_base` | Query the knowledge base using the full pipeline (embedding search + reranking + LLM synthesis). Returns a grounded answer with sources and ranked candidate chunks. Used when pipeline tools are not available. |
+| `query_and_synthesize` | Run the full retrieval pipeline and return a grounded answer with sources and ranked candidate chunks. |
 | `query_context` | Pipeline tool: build retrieval sources (candidates) without LLM synthesis. Returns a `ContextPackage` with ranked candidates. |
 | `execute_context` | Pipeline tool: take a previously built `ContextPackage` and run LLM synthesis to produce a final answer. |
 | `query_and_synthesize` | Pipeline tool: run the full retrieval pipeline (retrieve + synthesize) in a single call. Returns answer, candidates, response/conversation IDs. |

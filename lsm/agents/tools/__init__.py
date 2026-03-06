@@ -18,7 +18,6 @@ from .find_section import FindSectionTool
 from .hash_file import HashFileTool
 from .edit_file import EditFileTool
 from .load_url import LoadURLTool
-from .query_knowledge_base import QueryKnowledgeBaseTool
 from .query_context import QueryContextTool
 from .execute_context import ExecuteContextTool
 from .query_and_synthesize import QueryAndSynthesizeTool
@@ -63,7 +62,6 @@ __all__ = [
     "HashFileTool",
     "EditFileTool",
     "LoadURLTool",
-    "QueryKnowledgeBaseTool",
     "QueryContextTool",
     "ExecuteContextTool",
     "QueryAndSynthesizeTool",
@@ -141,21 +139,24 @@ def create_default_tool_registry(
                 batch_size=batch_size,
             )
         )
-    # Pipeline-backed tools (preferred over query_knowledge_base)
+    if pipeline is None and collection is not None and embedder is not None:
+        from lsm.providers import create_provider
+        from lsm.query.pipeline import RetrievalPipeline
+
+        query_provider = create_provider(config.llm.resolve_service("query"))
+        pipeline = RetrievalPipeline(
+            db=collection,
+            embedder=embedder,
+            config=config,
+            llm_provider=query_provider,
+        )
+
+    # Pipeline-backed tools
     sandbox_config = getattr(getattr(config, "agents", None), "sandbox", None)
     if pipeline is not None:
         registry.register(QueryContextTool(pipeline=pipeline, sandbox_config=sandbox_config))
         registry.register(ExecuteContextTool(pipeline=pipeline, sandbox_config=sandbox_config))
         registry.register(QueryAndSynthesizeTool(pipeline=pipeline, sandbox_config=sandbox_config))
-    elif collection is not None and embedder is not None:
-        # Fallback: register legacy tool when pipeline not available
-        registry.register(
-            QueryKnowledgeBaseTool(
-                config=config,
-                embedder=embedder,
-                collection=collection,
-            )
-        )
     agents_cfg = getattr(config, "agents", None)
     memory_enabled = bool(
         agents_cfg

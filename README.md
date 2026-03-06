@@ -21,7 +21,7 @@ This project is maintained for personal use first.
 
 - Bounded phase execution: `_run_phase()` with multi-context support, tool-only mode, and `PhaseResult` returns
 - All 11 built-in agents migrated to unified `_run_phase()` execution model
-- `query_knowledge_base` tool replacing raw `query_embeddings` (full pipeline: embed + rerank + synthesize)
+- `query_and_synthesize` tool for full pipeline retrieval and grounded synthesis
 - Per-source remote tool isolation: each remote provider registers its own `query_<name>` tool
 - Two-phase interaction timeout with automatic TUI/shell acknowledgment
 - Workspace accessor helpers on `BaseAgent` for consistent path management

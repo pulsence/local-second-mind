@@ -39,6 +39,7 @@ All notable changes to Local Second Mind are documented here.
 - Removed Chroma-specific ingest/vector config fields (`ingest.manifest`, `ingest.chroma_flush_interval`, `ingest.enable_versioning`, `vectordb.chroma_hnsw_space`).
 - Updated the vector DB factory to reject `chromadb` as a production provider and direct users to migration tooling.
 - Added compatibility cleanup across tests/fixtures to remove legacy `persist_dir` usage and align with the v0.8.0 config schema.
+- Removed legacy `query_knowledge_base` agent tool. Agent runtimes now build and register pipeline-backed retrieval tools (`query_context`, `execute_context`, `query_and_synthesize`) whenever query vectors are available, instead of keeping a fallback legacy query tool path.
 - Migrated agent memory to the shared vector DB connection (`lsm_agent_memories`, `lsm_agent_memory_candidates`) and removed `agents.memory.sqlite_path`.
 - Migrated agent scheduler persistence from `schedules.json` to `lsm_agent_schedules` with deterministic schedule IDs.
 - Migrated ingest manifest persistence from `manifest.json` to `lsm_manifest` (DB-backed version tracking).
@@ -180,6 +181,7 @@ All notable changes to Local Second Mind are documented here.
 - Health check now detects `interrupted` migration status alongside `in_progress` and `failed`.
 - Fixed query metadata prefiltering over-constraining retrieval to zero results when heuristic author/title/year extraction did not exactly match corpus metadata. Prefiltered fields now require inventory matches, and local retrieval retries without heuristic metadata filters when the first pass returns no candidates.
 - Fixed query fallback messaging incorrectly claiming `OpenAI` was unavailable even when synthesis was configured for another provider or when the fallback was triggered by low-relevance retrieval rather than LLM failure. Fallback responses are now provider-aware, reason-aware, and `RetrievalPipeline.execute()` degrades gracefully on synthesis transport errors.
+- Fixed bounded agent runs crashing the entire agent thread on ordinary tool exceptions. `AgentHarness` now records non-permission tool failures as tool-call errors and continues the bounded loop, so research-style agents no longer die mid-phase without saving state or logs.
 - Fixed simhash backfill losing all progress on interrupt. Updates were only committed after all Tier 1 steps completed; now commits after each batch of 1000 chunks.
 - Fixed tag backfill appearing to hang after simhash completion. Was loading all chunks at once with no progress output; now processes in batches of 1000 with commit, progress logging, and ETA.
 - Fixed auto-detection log message missing `[INFO]` prefix (was using `print` instead of `logger.info`).
